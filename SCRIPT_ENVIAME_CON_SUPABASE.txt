@@ -1,0 +1,348 @@
+// =========================================================================
+// INSTRUCCIONES DE INSTALACIÓN EN GOOGLE SHEETS:
+// 1. En tu Google Sheet, ve a: Extensiones > Apps Script.
+// 2. Reemplaza TODO el código existente por este contenido.
+// 3. Modifica las variables de configuración de Supabase al inicio de este script.
+// 4. Guarda el proyecto (icono de diskette).
+// 5. Haz clic en "Implementar" (esquina superior derecha) > "Nueva implementación".
+// 6. Selecciona tipo: "Aplicación web".
+// 7. En "Quién tiene acceso", selecciona "Cualquiera" (necesario para recibir webhooks de Enviame).
+// 8. Haz clic en "Implementar", autoriza los permisos si los pide, y copia la "URL de la aplicación web".
+// 9. En tu panel de Enviame (o solicitándolo a tu ejecutivo), configura esa URL como el Webhook de actualizaciones.
+// =========================================================================
+
+// --- VARIABLES GLOBALES DE ENVIAME ---
+var API_KEY = "6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n";
+var NOMBRE_HOJA_DATOS = "Hoja 1"; 
+
+// --- VARIABLES DE EXPORTACIÓN A OTRA HOJA ---
+var ID_PLANILLA_DESTINO = "1p-8Ooe6Tic3HUVKQI7m7ps-r9dEwfd_cVadz9OL-UEA";
+var NOMBRE_HOJA_DESTINO = "ENVIAME API";
+var COLUMNA_CONTROL = 18; // Columna R
+
+// --- CONFIGURACIÓN DE SUPABASE (NUEVAS VARIABLES) ---
+// TODO: Asegúrate de ingresar tu clave secreta de servicio (service_role) de Supabase.
+// Puedes encontrarla en Supabase > Project Settings > API > service_role (secret)
+var SUPABASE_URL = "https://ejtjfaucnxbikrwjwwdu.supabase.co";
+var SUPABASE_SERVICE_ROLE_KEY = "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY";
+
+/**
+ * FUNCIÓN NUEVA: Exporta los datos que no han sido marcados en la columna R.
+ * Se debe programar con un activador cada 4 horas.
+ */
+function exportarDatosCada4Horas() {
+  var ssOrigen = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaOrigen = ssOrigen.getSheetByName(NOMBRE_HOJA_DATOS);
+  
+  // Abrir la planilla de destino por su ID
+  var ssDestino = SpreadsheetApp.openById(ID_PLANILLA_DESTINO);
+  var hojaDestino = ssDestino.getSheetByName(NOMBRE_HOJA_DESTINO);
+  
+  var ultimaFila = hojaOrigen.getLastRow();
+  if (ultimaFila < 2) return; // No hay datos
+  
+  // Obtenemos todos los datos (incluyendo la columna R)
+  var numColumnas = hojaOrigen.getLastColumn();
+  var rangoCompleto = hojaOrigen.getRange(2, 1, ultimaFila - 1, Math.max(numColumnas, COLUMNA_CONTROL));
+  var datos = rangoCompleto.getValues();
+  
+  var filasParaExportar = [];
+  var indicesParaMarcar = [];
+
+  for (var i = 0; i < datos.length; i++) {
+    var filaActual = datos[i];
+    var estadoExportacion = filaActual[COLUMNA_CONTROL - 1]; // Columna R
+    
+    // Si la columna R está vacía, preparamos para exportar
+    if (!estadoExportacion || estadoExportacion.toString().trim() === "") {
+      filasParaExportar.push(filaActual);
+      indicesParaMarcar.push(i + 2); // Guardamos el número de fila real
+    }
+  }
+
+  if (filasParaExportar.length > 0) {
+    // 1. Enviar datos al destino (se agregan al final)
+    hojaDestino.getRange(hojaDestino.getLastRow() + 1, 1, filasParaExportar.length, filasParaExportar[0].length)
+               .setValues(filasParaExportar);
+    
+    // 2. Marcar en el origen como "Exportado" con fecha y hora
+    var fechaSello = Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm");
+    indicesParaMarcar.forEach(function(numFila) {
+      hojaOrigen.getRange(numFila, COLUMNA_CONTROL).setValue("Exportado: " + fechaSello);
+    });
+    
+    Logger.log("Exportación exitosa: " + filasParaExportar.length + " filas enviadas.");
+  } else {
+    Logger.log("Sin datos nuevos para exportar.");
+  }
+}
+
+// --- RECEPCIÓN DE WEBHOOKS (ENVIAME) ---
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var d = data.delivery || data;
+    
+    var idEnviameMaestro = (d.identifier || d.id || "").toString().trim();
+    if (!idEnviameMaestro) return;
+
+    if (!d.customer || !d.customer.full_name || (!d.company && !d.seller_id)) {
+      var dAPI = consultarEnviameAPI(idEnviameMaestro);
+      if (dAPI) d = dAPI; 
+    }
+
+    procesarEntrada(ss, d, idEnviameMaestro);
+
+    return ContentService.createTextOutput(JSON.stringify({"result": "success"})).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({"result": "error", "message": error.message})).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function procesarEntrada(ss, d, idMaestro) {
+  var sheet = ss.getSheetByName(NOMBRE_HOJA_DATOS);
+  var columnKey = 17; // Columna Q
+  var lastRow = sheet.getLastRow();
+  var values = lastRow > 1 ? sheet.getRange(1, columnKey, lastRow).getValues() : [];
+  var filaEncontrada = -1;
+  var fechaAhora = new Date();
+
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0].toString().trim() === idMaestro) {
+      filaEncontrada = i + 1;
+      break;
+    }
+  }
+
+  var sellerId = "";
+  if (d.company && d.company.id) sellerId = d.company.id.toString();
+  else if (d.seller_id) sellerId = d.seller_id.toString();
+  else if (d.links && d.links.length > 0) {
+    for (var k=0; k < d.links.length; k++) {
+      var m = d.links[k].href.match(/companies\/(\d+)/);
+      if (m) { sellerId = m[1]; break; }
+    }
+  }
+
+  var trackingReal = (d.tracking_number || d.carrier_tracking_number || idMaestro).toString().trim();
+  var tUrl = (sellerId && trackingReal) ? "https://api.enviame.io/s2/companies/" + sellerId + "/deliveries/" + trackingReal + "/tracking" : "N/A";
+
+  var vendedor = buscarNombreVendedorEnDB(ss, sellerId);
+  var idPedido = d.imported_id || d.order_number || "N/A";
+  var status = d.status ? (d.status.name || d.status) : "N/A";
+  var cliente = d.customer ? d.customer.full_name : "N/A";
+  var courier = d.carrier || (d.courier ? d.courier.name : "N/A");
+  var ciudad = d.shipping_address ? (d.shipping_address.place || d.shipping_address.city) : "N/A";
+  var direccion = d.shipping_address ? d.shipping_address.full_address : "N/A";
+  var comuna = d.shipping_address ? (d.shipping_address.county || d.shipping_address.commune) : "N/A";
+  var lUrl = d.label ? (d.label.PDF || d.label) : "N/A";
+
+  // 1. Guardar en Google Sheets (flujo existente)
+  if (filaEncontrada != -1) {
+    sheet.getRange(filaEncontrada, 2).setValue(idPedido);
+    sheet.getRange(filaEncontrada, 3).setValue(trackingReal);
+    sheet.getRange(filaEncontrada, 4).setValue(status);
+    sheet.getRange(filaEncontrada, 5).setValue(vendedor);
+    sheet.getRange(filaEncontrada, 6).setValue(cliente);
+    sheet.getRange(filaEncontrada, 7).setValue(ciudad);
+    sheet.getRange(filaEncontrada, 9).setValue(courier);
+    sheet.getRange(filaEncontrada, 11).setValue(direccion);
+    sheet.getRange(filaEncontrada, 12).setValue(comuna);
+    sheet.getRange(filaEncontrada, 14).setValue(tUrl);
+    sheet.getRange(filaEncontrada, 15).setValue(lUrl);
+    sheet.getRange(filaEncontrada, 16).setValue(fechaAhora);
+  } else {
+    sheet.appendRow([
+      fechaAhora, idPedido, trackingReal, status, vendedor, cliente, ciudad, 1,
+      courier, "N/A", direccion, comuna, d.created_at || "N/A", tUrl, lUrl, fechaAhora, idMaestro
+    ]);
+  }
+
+  // 2. ACTUALIZACIÓN EN TIEMPO REAL EN SUPABASE (NUEVO FLUJO)
+  if (idPedido && idPedido !== "N/A") {
+    actualizarPedidoEnSupabase(idPedido, trackingReal, tUrl, lUrl, status, courier, idMaestro);
+  }
+}
+
+function buscarNombreVendedorEnDB(ss, sellerId) {
+  if (!sellerId) return "N/A";
+  var dbSheet = ss.getSheetByName("Vendedores");
+  if (!dbSheet) return "ID: " + sellerId;
+  var dbData = dbSheet.getDataRange().getValues();
+  for (var i = 1; i < dbData.length; i++) {
+    if (dbData[i][0].toString().trim() === sellerId.trim()) return dbData[i][1];
+  }
+  return "ID: " + sellerId;
+}
+
+function consultarEnviameAPI(deliveryId) {
+  var url = "https://api.enviame.io/api/s2/v2/deliveries/" + deliveryId;
+  var options = { "method" : "get", "headers" : { "Accept": "application/json", "api-key": API_KEY }, "muteHttpExceptions": true };
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() === 200) {
+      var json = JSON.parse(response.getContentText());
+      return json.data; 
+    }
+  } catch (e) { console.log("Error API: " + e); }
+  return null;
+}
+
+function repararTodo() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(NOMBRE_HOJA_DATOS);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var values = sheet.getRange(1, 1, lastRow, 17).getValues();
+  for (var i = 1; i < values.length; i++) {
+    var idMaestro = values[i][16].toString().trim();
+    if (idMaestro !== "") {
+      var d = consultarEnviameAPI(idMaestro);
+      if (d) procesarEntrada(ss, d, idMaestro);
+    }
+  }
+}
+
+// --- FUNCIONES DE CONEXIÓN CON SUPABASE ---
+
+/**
+ * Mapea los estados de Enviame a los estados internos definidos en WMS STOCKA:
+ * 'para procesar', 'en preparación', 'preparado', 'despachado', 'en tránsito', 
+ * 'listo para retiro', 'retirado', 'entregado', 'en espera', 'cancelado'
+ */
+function mapEnviameStatusToWms(enviameStatus) {
+  if (!enviameStatus) return null;
+  
+  var statusLower = enviameStatus.toLowerCase().trim();
+  
+  // 1. Entregado
+  if (statusLower.indexOf("entregado") !== -1 || statusLower === "delivered" || statusLower === "entregado con exito") {
+    return "entregado";
+  }
+  
+  // 2. En tránsito / En reparto
+  if (statusLower.indexOf("transito") !== -1 || 
+      statusLower.indexOf("ruta") !== -1 || 
+      statusLower.indexOf("camino") !== -1 || 
+      statusLower.indexOf("distribucion") !== -1 || 
+      statusLower === "in_transit" ||
+      statusLower === "en reparto") {
+    return "en tránsito";
+  }
+  
+  // 3. Despachado / Recolectado por Courier
+  if (statusLower.indexOf("recolectado") !== -1 || 
+      statusLower.indexOf("recogido") !== -1 || 
+      statusLower.indexOf("admitido") !== -1 || 
+      statusLower.indexOf("despachado") !== -1 || 
+      statusLower === "picked_up" || 
+      statusLower === "shipped") {
+    return "despachado";
+  }
+  
+  // 4. Cancelado / Anulado
+  if (statusLower.indexOf("cancelado") !== -1 || 
+      statusLower.indexOf("anulado") !== -1 || 
+      statusLower === "canceled" || 
+      statusLower === "deleted") {
+    return "cancelado";
+  }
+  
+  // 5. Incidencia / Novedad (Problemas en entrega)
+  if (statusLower.indexOf("novedad") !== -1 || 
+      statusLower.indexOf("incidencia") !== -1 || 
+      statusLower.indexOf("problema") !== -1 || 
+      statusLower.indexOf("fallido") !== -1 ||
+      statusLower.indexOf("siniestro") !== -1 ||
+      statusLower.indexOf("perdido") !== -1) {
+    return "incidencia";
+  }
+
+  // 6. En espera / Retenido
+  if (statusLower.indexOf("espera") !== -1 || statusLower.indexOf("retenido") !== -1) {
+    return "en espera";
+  }
+  
+  return null; // Si no coincide exactamente, no forzamos cambio de estado interno para evitar errores
+}
+
+/**
+ * Envía una solicitud PATCH a la API de Supabase para actualizar los datos del pedido en tiempo real.
+ */
+function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId) {
+  if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY") {
+    Logger.log("Supabase desactivado: debes configurar la variable SUPABASE_SERVICE_ROLE_KEY.");
+    return;
+  }
+
+  var mappedStatus = mapEnviameStatusToWms(status);
+  
+  // Armar el payload de actualización para la tabla 'orders'
+  var payload = {
+    "tracking_number": trackingNumber || null,
+    "tracking_url": trackingUrl || null,
+    "label_url": labelUrl || null,
+    "courier": courier || null,
+    "enviame_delivery_id": enviameId || null,
+    "enviame_status": status || null
+  };
+  
+  // Si encontramos un mapeo correspondiente al WMS, también actualizamos el estado del pedido
+  // (Esto ejecutará los triggers de base de datos de STOCKA para descontar el stock si pasa a despachado)
+  if (mappedStatus) {
+    payload["status"] = mappedStatus;
+  }
+
+  // Determinar si idPedido es el ID de Supabase (UUID) o external_order_number (Shopify)
+  var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idPedido.trim());
+
+  var url = SUPABASE_URL + "/rest/v1/orders?";
+  if (isUuid) {
+    url += "id=eq." + encodeURIComponent(idPedido.trim());
+  } else {
+    // Si no es un UUID, asumimos que es el external_order_number (ej. #1001)
+    url += "external_order_number=eq." + encodeURIComponent(idPedido.trim());
+  }
+
+  var options = {
+    "method": "PATCH",
+    "headers": {
+      "apikey": SUPABASE_SERVICE_ROLE_KEY,
+      "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation"
+    },
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var responseCode = response.getResponseCode();
+    var responseText = response.getContentText();
+    Logger.log("Supabase response: [" + responseCode + "] " + responseText);
+    
+    // Si buscamos por external_order_number y no encontramos nada (devuelve array vacío: []),
+    // hacemos un reintento quitando o agregando el '#' por si la orden en Shopify se guardó diferente.
+    if (responseCode === 200 && !isUuid) {
+      var data = JSON.parse(responseText);
+      if (data.length === 0) {
+        var alternativeId = idPedido.trim();
+        if (alternativeId.indexOf("#") === 0) {
+          alternativeId = alternativeId.substring(1); // Quitar '#'
+        } else {
+          alternativeId = "#" + alternativeId; // Poner '#'
+        }
+        
+        Logger.log("No se encontró coincidencia exacta. Reintentando con ID alternativo: " + alternativeId);
+        var altUrl = SUPABASE_URL + "/rest/v1/orders?external_order_number=eq." + encodeURIComponent(alternativeId);
+        var altResponse = UrlFetchApp.fetch(altUrl, options);
+        Logger.log("Supabase retry response: [" + altResponse.getResponseCode() + "] " + altResponse.getContentText());
+      }
+    }
+  } catch (error) {
+    Logger.log("Excepción al intentar actualizar Supabase: " + error.toString());
+  }
+}

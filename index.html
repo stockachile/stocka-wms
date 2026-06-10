@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - WMS STOCKA</title>
+  <meta name="description" content="Acceso a la plataforma de gestión de inventario WMS STOCKA">
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+  <main class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA Logo">
+      </div>
+      
+      <h1 class="auth-title">Bienvenido</h1>
+      <p class="auth-subtitle">Ingresa tus credenciales para acceder a tu bodega online.</p>
+
+      <div id="alert-container"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label for="email" class="form-label">Correo Electrónico</label>
+          <input type="email" id="email" class="form-input" placeholder="ejemplo@empresa.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="password" class="form-label">Contraseña</label>
+          <input type="password" id="password" class="form-input" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="login-btn">
+          Ingresar
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- App Scripts -->
+  <script type="module" src="./js/supabase.js"></script>
+  <script type="module" src="./js/auth.js"></script>
+</body>
+</html>

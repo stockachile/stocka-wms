@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - WMS STOCKA</title>
+  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/layout.css">
+</head>
+<body class="dashboard-body">
+
+  <div class="dashboard-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo">
+      </div>
+      <nav class="sidebar-nav">
+        <ul>
+          <li><a href="#" class="nav-item active" data-view="inventory">📦 Inventario</a></li>
+          <li><a href="#" class="nav-item" data-view="orders">🛒 Pedidos</a></li>
+          <li><a href="#" class="nav-item" data-view="movements">🔄 Movimientos</a></li>
+          <li><a href="#" class="nav-item" data-view="warehouses">🏭 Bodegas</a></li>
+          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="pending">⚠️ Por Asignar</a></li>
+          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="integrations">🔌 Integraciones</a></li>
+        </ul>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="logout-btn" class="btn btn-outline" style="width: 100%; border-color: var(--color-gray); color: var(--color-light);">Cerrar Sesión</button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Header -->
+      <header class="top-header">
+        <div class="header-title">
+          <h2 id="view-title">Inventario</h2>
+        </div>
+        <div class="header-user">
+          <span id="user-email">Cargando...</span>
+          <div class="avatar"></div>
+        </div>
+      </header>
+
+      <!-- Content Area -->
+      <main class="content-area" id="app-content">
+        <!-- Vistas dinámicas se inyectarán aquí -->
+        <div class="card">
+          <div class="card-header flex justify-between items-center">
+            <h3>Stock Actual</h3>
+            <button class="btn btn-primary">Ingresar Stock</button>
+          </div>
+          <div class="card-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>SKU</th>
+                  <th>Producto</th>
+                  <th>Bodega</th>
+                  <th>Cantidad</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-table-body">
+                <tr>
+                  <td colspan="5" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando inventario...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <!-- Modal Nuevo Producto -->
+  <div class="modal-overlay" id="modal-product">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Nuevo Producto</h3>
+        <button class="modal-close" data-close="modal-product">&times;</button>
+      </div>
+      <form id="form-new-product">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">SKU</label>
+            <input type="text" id="prod-sku" class="form-input" required placeholder="Ej. SKU-004">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del Producto</label>
+            <input type="text" id="prod-name" class="form-input" required placeholder="Ej. Chaqueta de Cuero">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descripción</label>
+            <input type="text" id="prod-desc" class="form-input" placeholder="Opcional">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stock Inicial (se asignará a Bodega Central temporalmente)</label>
+            <input type="number" id="prod-stock" class="form-input" value="0" min="0" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="modal-product">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Crear Pedido -->
+  <div class="modal-overlay" id="modal-order">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Crear Nuevo Pedido</h3>
+        <button class="modal-close" data-close="modal-order">&times;</button>
+      </div>
+      <form id="form-new-order">
+        <div class="modal-body">
+          <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+            El sistema descontará automáticamente el stock de la bodega que tenga mayor disponibilidad. Podremos re-asignarlo internamente si es necesario.
+          </p>
+          <div class="form-group">
+            <label class="form-label">Seleccionar Producto</label>
+            <select id="order-product" class="form-input" required>
+              <option value="">Cargando productos...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Cantidad a pedir</label>
+            <input type="number" id="order-qty" class="form-input" value="1" min="1" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="modal-order">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;">Confirmar Pedido</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- App Scripts -->
+  <script type="module" src="./js/supabase.js"></script>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

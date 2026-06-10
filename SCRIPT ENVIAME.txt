@@ -1,0 +1,182 @@
+// --- VARIABLES GLOBALES EXISTENTES ---
+var API_KEY = "6boQAR4qOMMZxjS1DJlrnOPqj0Vp8n";
+var NOMBRE_HOJA_DATOS = "Hoja 1"; 
+
+// --- NUEVAS VARIABLES PARA LA EXPORTACIÓN ---
+var ID_PLANILLA_DESTINO = "1p-8Ooe6Tic3HUVKQI7m7ps-r9dEwfd_cVadz9OL-UEA";
+var NOMBRE_HOJA_DESTINO = "ENVIAME API";
+var COLUMNA_CONTROL = 18; // Columna R
+
+/**
+ * FUNCIÓN NUEVA: Exporta los datos que no han sido marcados en la columna R.
+ * Se debe programar con un activador cada 4 horas.
+ */
+function exportarDatosCada4Horas() {
+  var ssOrigen = SpreadsheetApp.getActiveSpreadsheet();
+  var hojaOrigen = ssOrigen.getSheetByName(NOMBRE_HOJA_DATOS);
+  
+  // Abrir la planilla de destino por su ID
+  var ssDestino = SpreadsheetApp.openById(ID_PLANILLA_DESTINO);
+  var hojaDestino = ssDestino.getSheetByName(NOMBRE_HOJA_DESTINO);
+  
+  var ultimaFila = hojaOrigen.getLastRow();
+  if (ultimaFila < 2) return; // No hay datos
+  
+  // Obtenemos todos los datos (incluyendo la columna R)
+  var numColumnas = hojaOrigen.getLastColumn();
+  var rangoCompleto = hojaOrigen.getRange(2, 1, ultimaFila - 1, Math.max(numColumnas, COLUMNA_CONTROL));
+  var datos = rangoCompleto.getValues();
+  
+  var filasParaExportar = [];
+  var indicesParaMarcar = [];
+
+  for (var i = 0; i < datos.length; i++) {
+    var filaActual = datos[i];
+    var estadoExportacion = filaActual[COLUMNA_CONTROL - 1]; // Columna R
+    
+    // Si la columna R está vacía, preparamos para exportar
+    if (!estadoExportacion || estadoExportacion.toString().trim() === "") {
+      filasParaExportar.push(filaActual);
+      indicesParaMarcar.push(i + 2); // Guardamos el número de fila real
+    }
+  }
+
+  if (filasParaExportar.length > 0) {
+    // 1. Enviar datos al destino (se agregan al final)
+    // Usamos el ancho de las filas a exportar para evitar errores si varían las columnas
+    hojaDestino.getRange(hojaDestino.getLastRow() + 1, 1, filasParaExportar.length, filasParaExportar[0].length)
+               .setValues(filasParaExportar);
+    
+    // 2. Marcar en el origen como "Exportado" con fecha y hora
+    var fechaSello = Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm");
+    indicesParaMarcar.forEach(function(numFila) {
+      hojaOrigen.getRange(numFila, COLUMNA_CONTROL).setValue("Exportado: " + fechaSello);
+    });
+    
+    Logger.log("Exportación exitosa: " + filasParaExportar.length + " filas enviadas.");
+  } else {
+    Logger.log("Sin datos nuevos para exportar.");
+  }
+}
+
+// --- TUS FUNCIONES ACTUALES (NO TOCAR PARA QUE SIGAN FUNCIONANDO) ---
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var d = data.delivery || data;
+    
+    var idEnviameMaestro = (d.identifier || d.id || "").toString().trim();
+    if (!idEnviameMaestro) return;
+
+    if (!d.customer || !d.customer.full_name || (!d.company && !d.seller_id)) {
+      var dAPI = consultarEnviameAPI(idEnviameMaestro);
+      if (dAPI) d = dAPI; 
+    }
+
+    procesarEntrada(ss, d, idEnviameMaestro);
+
+    return ContentService.createTextOutput(JSON.stringify({"result": "success"})).setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({"result": "error", "message": error.message})).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+function procesarEntrada(ss, d, idMaestro) {
+  var sheet = ss.getSheetByName(NOMBRE_HOJA_DATOS);
+  var columnKey = 17; // Columna Q
+  var lastRow = sheet.getLastRow();
+  var values = lastRow > 1 ? sheet.getRange(1, columnKey, lastRow).getValues() : [];
+  var filaEncontrada = -1;
+  var fechaAhora = new Date();
+
+  for (var i = 0; i < values.length; i++) {
+    if (values[i][0].toString().trim() === idMaestro) {
+      filaEncontrada = i + 1;
+      break;
+    }
+  }
+
+  var sellerId = "";
+  if (d.company && d.company.id) sellerId = d.company.id.toString();
+  else if (d.seller_id) sellerId = d.seller_id.toString();
+  else if (d.links && d.links.length > 0) {
+    for (var k=0; k < d.links.length; k++) {
+      var m = d.links[k].href.match(/companies\/(\d+)/);
+      if (m) { sellerId = m[1]; break; }
+    }
+  }
+
+  var trackingReal = (d.tracking_number || d.carrier_tracking_number || idMaestro).toString().trim();
+  var tUrl = (sellerId && trackingReal) ? "https://api.enviame.io/s2/companies/" + sellerId + "/deliveries/" + trackingReal + "/tracking" : "N/A";
+
+  var vendedor = buscarNombreVendedorEnDB(ss, sellerId);
+  var idPedido = d.imported_id || d.order_number || "N/A";
+  var status = d.status ? (d.status.name || d.status) : "N/A";
+  var cliente = d.customer ? d.customer.full_name : "N/A";
+  var courier = d.carrier || (d.courier ? d.courier.name : "N/A");
+  var ciudad = d.shipping_address ? (d.shipping_address.place || d.shipping_address.city) : "N/A";
+  var direccion = d.shipping_address ? d.shipping_address.full_address : "N/A";
+  var comuna = d.shipping_address ? (d.shipping_address.county || d.shipping_address.commune) : "N/A";
+  var lUrl = d.label ? (d.label.PDF || d.label) : "N/A";
+
+  if (filaEncontrada != -1) {
+    sheet.getRange(filaEncontrada, 2).setValue(idPedido);
+    sheet.getRange(filaEncontrada, 3).setValue(trackingReal);
+    sheet.getRange(filaEncontrada, 4).setValue(status);
+    sheet.getRange(filaEncontrada, 5).setValue(vendedor);
+    sheet.getRange(filaEncontrada, 6).setValue(cliente);
+    sheet.getRange(filaEncontrada, 7).setValue(ciudad);
+    sheet.getRange(filaEncontrada, 9).setValue(courier);
+    sheet.getRange(filaEncontrada, 11).setValue(direccion);
+    sheet.getRange(filaEncontrada, 12).setValue(comuna);
+    sheet.getRange(filaEncontrada, 14).setValue(tUrl);
+    sheet.getRange(filaEncontrada, 15).setValue(lUrl);
+    sheet.getRange(filaEncontrada, 16).setValue(fechaAhora);
+  } else {
+    sheet.appendRow([
+      fechaAhora, idPedido, trackingReal, status, vendedor, cliente, ciudad, 1,
+      courier, "N/A", direccion, comuna, d.created_at || "N/A", tUrl, lUrl, fechaAhora, idMaestro
+    ]);
+  }
+}
+
+function buscarNombreVendedorEnDB(ss, sellerId) {
+  if (!sellerId) return "N/A";
+  var dbSheet = ss.getSheetByName("Vendedores");
+  if (!dbSheet) return "ID: " + sellerId;
+  var dbData = dbSheet.getDataRange().getValues();
+  for (var i = 1; i < dbData.length; i++) {
+    if (dbData[i][0].toString().trim() === sellerId.trim()) return dbData[i][1];
+  }
+  return "ID: " + sellerId;
+}
+
+function consultarEnviameAPI(deliveryId) {
+  var url = "https://api.enviame.io/api/s2/v2/deliveries/" + deliveryId;
+  var options = { "method" : "get", "headers" : { "Accept": "application/json", "api-key": API_KEY }, "muteHttpExceptions": true };
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    if (response.getResponseCode() === 200) {
+      var json = JSON.parse(response.getContentText());
+      return json.data; 
+    }
+  } catch (e) { console.log("Error API: " + e); }
+  return null;
+}
+
+function repararTodo() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(NOMBRE_HOJA_DATOS);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  var values = sheet.getRange(1, 1, lastRow, 17).getValues();
+  for (var i = 1; i < values.length; i++) {
+    var idMaestro = values[i][16].toString().trim();
+    if (idMaestro !== "") {
+      var d = consultarEnviameAPI(idMaestro);
+      if (d) procesarEntrada(ss, d, idMaestro);
+    }
+  }
+}
