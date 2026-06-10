@@ -1,72 +1,113 @@
 import supabase from './supabase.js';
 
-document.addEventListener('DOMContentLoaded', async () => {
+console.log('DEBUG: Iniciando js/admin.js...');
+
+async function init() {
+  console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
   const logoutBtn = document.getElementById('logout-btn');
   const viewTitle = document.getElementById('view-title');
   const navItems = document.querySelectorAll('.nav-item');
 
-  // Verify authentication & Admin Role
-  const { data: { session }, error } = await supabase.auth.getSession();
+  try {
+    // Verify authentication & Admin Role
+    console.log('DEBUG: Obteniendo sesión de Supabase...');
+    const { data: { session }, error } = await supabase.auth.getSession();
 
-  if (error || !session) {
-    window.location.href = 'index.html';
-    return;
-  }
+    if (error) {
+      console.error('DEBUG: Error al obtener sesión:', error);
+    }
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-  
-  if (!profile || profile.role !== 'admin') {
-    alert("Acceso denegado. Se requieren permisos de Administrador.");
-    window.location.href = 'dashboard.html';
-    return;
-  }
+    if (!session) {
+      console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
+      window.location.href = 'index.html';
+      return;
+    }
 
-  // Set user info
-  const user = session.user;
-  userEmailSpan.textContent = user.email + " (ADMIN)";
+    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
 
-  // Initial View
-  viewTitle.textContent = 'Gestor de Pedidos';
-  renderAdminOrders();
+    console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+    
+    if (profileError) {
+      console.warn('DEBUG: Error al obtener perfil:', profileError);
+    } else {
+      console.log('DEBUG: Perfil encontrado:', profile);
+    }
+    
+    if (!profile || profile.role !== 'admin') {
+      console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
+      alert("Acceso denegado. Se requieren permisos de Administrador.");
+      window.location.href = 'dashboard.html';
+      return;
+    }
 
-  // Navigation
-  navItems.forEach(item => {
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      navItems.forEach(n => n.classList.remove('active'));
-      e.target.classList.add('active');
+    // Set user info
+    const user = session.user;
+    if (userEmailSpan) {
+      userEmailSpan.textContent = user.email + " (ADMIN)";
+    }
 
-      const view = e.target.getAttribute('data-view');
-      
-      if (view === 'orders_admin') {
-        viewTitle.textContent = 'Gestor de Pedidos';
-        renderAdminOrders();
-      } else if (view === 'reassign_admin') {
-        viewTitle.textContent = 'Reubicar Stock';
-        renderReassignStock();
-      } else if (view === 'manual_in_admin') {
-        viewTitle.textContent = 'Ingreso Manual';
-        renderManualIn();
+    // Initial View
+    viewTitle.textContent = 'Gestor de Pedidos';
+    console.log('DEBUG: Renderizando vista de pedidos de administrador...');
+    renderAdminOrders();
+
+    // Navigation
+    if (navItems) {
+      navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          navItems.forEach(n => n.classList.remove('active'));
+          e.target.classList.add('active');
+
+          const view = e.target.getAttribute('data-view');
+          console.log('DEBUG: Navegando a vista administrador:', view);
+          
+          if (view === 'orders_admin') {
+            viewTitle.textContent = 'Gestor de Pedidos';
+            renderAdminOrders();
+          } else if (view === 'reassign_admin') {
+            viewTitle.textContent = 'Reubicar Stock';
+            renderReassignStock();
+          } else if (view === 'manual_in_admin') {
+            viewTitle.textContent = 'Ingreso Manual';
+            renderManualIn();
+          }
+        });
+      });
+    }
+
+    // Logout
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        console.log('DEBUG: Cerrando sesión...');
+        await supabase.auth.signOut();
+        window.location.href = 'index.html';
+      });
+    }
+
+    // Event delegation for dynamic actions
+    document.addEventListener('change', async (e) => {
+      if (e.target && e.target.classList.contains('status-select')) {
+        const orderId = e.target.getAttribute('data-order-id');
+        const newStatus = e.target.value;
+        console.log(`DEBUG: Cambiando estado de pedido ${orderId} a ${newStatus}...`);
+        await updateOrderStatus(orderId, newStatus);
       }
     });
-  });
 
-  // Logout
-  logoutBtn.addEventListener('click', async () => {
-    await supabase.auth.signOut();
-    window.location.href = 'index.html';
-  });
+  } catch (err) {
+    console.error('DEBUG: Error crítico durante la inicialización de admin.js:', err);
+  }
+}
 
-  // Event delegation for dynamic actions
-  document.addEventListener('change', async (e) => {
-    if (e.target && e.target.classList.contains('status-select')) {
-      const orderId = e.target.getAttribute('data-order-id');
-      const newStatus = e.target.value;
-      await updateOrderStatus(orderId, newStatus);
-    }
-  });
-});
+// Ejecutar inicialización
+init();
 
 const ALL_STATUSES = [
   'para procesar', 

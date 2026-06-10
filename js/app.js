@@ -1,73 +1,111 @@
 import supabase from './supabase.js';
 
-document.addEventListener('DOMContentLoaded', async () => {
+console.log('DEBUG: Iniciando js/app.js...');
+
+async function init() {
+  console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
   const logoutBtn = document.getElementById('logout-btn');
   const viewTitle = document.getElementById('view-title');
   const navItems = document.querySelectorAll('.nav-item');
 
-  // Verify authentication
-  const { data: { session }, error } = await supabase.auth.getSession();
+  try {
+    // Verify authentication
+    console.log('DEBUG: Obteniendo sesión de Supabase...');
+    const { data: { session }, error } = await supabase.auth.getSession();
 
-  if (error || !session) {
-    // No session, redirect to login
-    window.location.href = 'index.html';
-    return;
+    if (error) {
+      console.error('DEBUG: Error al obtener sesión:', error);
+    }
+
+    if (!session) {
+      console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
+      window.location.href = 'index.html';
+      return;
+    }
+
+    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
+
+    // Verificar rol
+    console.log('DEBUG: Consultando perfil en la base de datos para ID:', session.user.id);
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', session.user.id)
+      .single();
+
+    if (profileError) {
+      console.warn('DEBUG: Error al obtener perfil (puede que no exista en la tabla profiles):', profileError);
+    } else {
+      console.log('DEBUG: Perfil encontrado:', profile);
+    }
+
+    if (profile && profile.role === 'admin') {
+      console.log('DEBUG: Rol es admin. Redirigiendo a admin.html...');
+      window.location.href = 'admin.html';
+      return;
+    }
+
+    // Set user info
+    const user = session.user;
+    if (userEmailSpan) {
+      userEmailSpan.textContent = user.email;
+    }
+
+    // Render initial view
+    console.log('DEBUG: Renderizando vista inicial de inventario...');
+    renderInventory();
+
+    // Navigation Logic
+    if (navItems) {
+      navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+          e.preventDefault();
+          navItems.forEach(n => n.classList.remove('active'));
+          e.target.classList.add('active');
+
+          const view = e.target.getAttribute('data-view');
+          console.log('DEBUG: Navegando a vista:', view);
+          
+          if (view === 'inventory') {
+            viewTitle.textContent = 'Inventario';
+            renderInventory();
+          } else if (view === 'orders') {
+            viewTitle.textContent = 'Pedidos';
+            renderOrders();
+          } else if (view === 'movements') {
+            viewTitle.textContent = 'Movimientos';
+            renderMovements();
+          } else if (view === 'warehouses') {
+            viewTitle.textContent = 'Bodegas';
+            renderWarehouses();
+          } else if (view === 'pending') {
+            viewTitle.textContent = 'Por Asignar';
+            renderPending();
+          } else if (view === 'integrations') {
+            viewTitle.textContent = 'Integraciones';
+            renderIntegrations();
+          }
+        });
+      });
+    }
+
+    // Logout Logic
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        console.log('DEBUG: Cerrando sesión...');
+        await supabase.auth.signOut();
+        window.location.href = 'index.html';
+      });
+    }
+
+  } catch (err) {
+    console.error('DEBUG: Error crítico durante la inicialización de app.js:', err);
   }
+}
 
-  // Verificar rol
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-  if (profile && profile.role === 'admin') {
-    window.location.href = 'admin.html';
-    return;
-  }
-
-  // Set user info
-  const user = session.user;
-  userEmailSpan.textContent = user.email;
-
-  // Render initial view
-  renderInventory();
-
-  // Navigation Logic
-  navItems.forEach(item => {
-    item.addEventListener('click', (e) => {
-      e.preventDefault();
-      // Remove active class from all
-      navItems.forEach(n => n.classList.remove('active'));
-      // Add active class to clicked
-      e.target.classList.add('active');
-
-      const view = e.target.getAttribute('data-view');
-      
-      if (view === 'inventory') {
-        viewTitle.textContent = 'Inventario';
-        renderInventory();
-      } else if (view === 'orders') {
-        viewTitle.textContent = 'Pedidos';
-        renderOrders();
-      } else if (view === 'movements') {
-        viewTitle.textContent = 'Movimientos';
-        renderMovements();
-      } else if (view === 'warehouses') {
-        viewTitle.textContent = 'Bodegas';
-        renderWarehouses();
-      } else if (view === 'pending') {
-        viewTitle.textContent = 'Por Asignar';
-        renderPending();
-      } else if (view === 'integrations') {
-        viewTitle.textContent = 'Integraciones';
-        renderIntegrations();
-      }
-    });
-  });
-
-  // Logout Logic
-  logoutBtn.addEventListener('click', async () => {
-    await supabase.auth.signOut();
-    window.location.href = 'index.html';
-  });
-});
+// Ejecutar inicialización
+init();
 
 // Supabase Rendering Functions
 
