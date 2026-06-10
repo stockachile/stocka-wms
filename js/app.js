@@ -554,7 +554,7 @@ async function renderIntegrations() {
 
   } catch (error) {
     console.error('Error fetching integrations:', error);
-    appContent.innerHTML = \`<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>\`;
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
   }
 }
 
