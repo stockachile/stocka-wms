@@ -34,9 +34,4 @@ CREATE POLICY "Clientes ven sus propios envios" ON enviame_shipments
 
 DROP POLICY IF EXISTS "Admin gestiona todos los envios" ON enviame_shipments;
 CREATE POLICY "Admin gestiona todos los envios" ON enviame_shipments
-  FOR ALL USING (
-    SELECT EXISTS (
-      SELECT 1 FROM profiles 
-      WHERE id = auth.uid() AND role = 'admin'
-    )
-  );
+  FOR ALL USING (is_admin());
