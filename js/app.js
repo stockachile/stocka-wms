@@ -445,65 +445,113 @@ async function renderIntegrations() {
     const merchantId = userAuth.user.id;
 
     // Obtener la integración de Shopify
-    const { data: integration, error } = await supabase
+    const { data: shopifyIntegration, error: shopifyErr } = await supabase
       .from('merchant_integrations')
       .select('*')
       .eq('merchant_id', merchantId)
       .eq('platform', 'Shopify')
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') throw error; // Ignorar error si no existe
+    if (shopifyErr) throw shopifyErr;
 
-    const hasIntegration = !!integration;
-    const shopUrl = hasIntegration ? integration.shop_url : '';
-    const statusText = hasIntegration 
-      ? (integration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+    const hasShopify = !!shopifyIntegration;
+    const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
+    const shopifyStatusText = hasShopify 
+      ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     appContent.innerHTML = `
-      <div class="card">
-        <div class="card-header">
-          <h3>Configuración de Integraciones</h3>
-        </div>
-        <div class="card-body">
-          <p style="color: var(--color-text-muted); margin-bottom: 1.5rem;">
-            Conecta WMS STOCKA con tus plataformas de Ecommerce para extraer automáticamente los catálogos y pedidos.
-          </p>
-          
-          <!-- Shopify Card -->
-          <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-              <h4 style="display: flex; align-items: center; gap: 0.5rem; margin:0;">
-                <span style="font-size: 1.5rem;">🛍️</span> Shopify 
-              </h4>
-              ${statusText}
+      <div style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+          En esta sección puedes conectar WMS STOCKA con tus tiendas en línea. 
+          Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados. Además, el <strong>inventario</strong> se mantendrá actualizado en tiempo real entre tus bodegas y tu plataforma de venta.
+        </p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
+        <!-- Left Column: Active/Available Integrations -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;">🛍️ Shopify Integration</h3>
             </div>
-            
-            <form id="form-shopify-integration">
-              <div class="form-group">
-                <label class="form-label">URL de tu tienda Shopify</label>
-                <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasIntegration ? 'readonly' : 'required'}>
-              </div>
-              <div class="form-group" style="${hasIntegration ? 'display:none;' : ''}">
-                <label class="form-label">Access Token (Admin API)</label>
-                <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasIntegration ? '' : 'required'}>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? '#f0fdf4' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? '#bbf7d0' : 'var(--color-border)'};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#166534' : 'var(--color-text-main)'};">Shopify Store</h4>
+                      <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${shopifyStatusText}
+                 </div>
               </div>
               
-              <div style="margin-top: 1rem;">
-                ${!hasIntegration ? 
-                  '<button type="submit" class="btn btn-primary" id="btn-save-shopify">Conectar Shopify</button>' : 
-                  '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: var(--color-accent); border-color: var(--color-accent);">Desconectar Tienda</button>'
-                }
-              </div>
-            </form>
+              <form id="form-shopify-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
+                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} style="background-color: ${hasShopify ? '#f8fafc' : '#ffffff'};">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Access Token (Admin API)</label>
+                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'}>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Debe comenzar con <strong>shpat_</strong>.</p>
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${!hasShopify ? 
+                    '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>' : 
+                    '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>'
+                  }
+                </div>
+              </form>
+            </div>
           </div>
+        </div>
 
+        <!-- Right Column: Manual/Guide -->
+        <div>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: #f8fafc;">
+            <div class="card-header" style="background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🛍️</span> Guía de Integración Shopify
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: #334155; font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <li>
+                  <strong style="color: #0f172a;">Crear Aplicación Personalizada:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">En el panel de administración de tu tienda Shopify, ve a <em>Configuración &gt; Aplicaciones y canales de ventas &gt; Desarrollar aplicaciones</em>. Haz clic en el botón <strong>Crear una aplicación</strong> y asígnale un nombre (ej: WMS STOCKA).</p>
+                </li>
+                <li>
+                  <strong style="color: #0f172a;">Configurar Alcances de la API (Scopes):</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Haz clic en <strong>Configurar alcances de la API del panel de control</strong>. Deberás seleccionar los permisos de <strong>lectura y escritura</strong> (read and write) para las siguientes áreas:</p>
+                  <ul style="margin: 0.5rem 0 0 0; padding-left: 1rem; color: #475569; font-size: 0.85rem;">
+                     <li><em>Orders</em> (Pedidos)</li>
+                     <li><em>Products</em> (Productos)</li>
+                     <li><em>Inventory</em> (Inventario)</li>
+                     <li><em>Locations</em> (Sucursales)</li>
+                  </ul>
+                </li>
+                <li>
+                  <strong style="color: #0f172a;">Instalar la Aplicación:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Una vez configurados los alcances, guarda los cambios y haz clic en el botón <strong>Instalar aplicación</strong> ubicado en la parte superior derecha.</p>
+                </li>
+                <li>
+                  <strong style="color: #0f172a;">Obtener el Access Token:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Ve a la pestaña <strong>Credenciales de la API</strong> y revela el <em>Token de acceso de la API del panel de control</em> (este token empieza con <code>shpat_</code>). Cópialo y pégalo en el formulario de la izquierda junto con la URL de tu tienda.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
         </div>
       </div>
     `;
 
-    // Listeners for the form
-    if(!hasIntegration) {
+    // Shopify Submit Listener
+    if(!hasShopify) {
       document.getElementById('form-shopify-integration').addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('btn-save-shopify');
@@ -514,7 +562,6 @@ async function renderIntegrations() {
         const token = document.getElementById('shopify-token').value;
 
         try {
-          // Guardar en Supabase
           const { error: insErr } = await supabase.from('merchant_integrations').insert([{
             merchant_id: merchantId,
             platform: 'Shopify',
@@ -530,7 +577,7 @@ async function renderIntegrations() {
           console.error(err);
           alert('Error al guardar la integración: ' + err.message);
           btn.disabled = false;
-          btn.textContent = 'Conectar Shopify';
+          btn.textContent = 'Conectar Tienda Shopify';
         }
       });
     } else {
