@@ -106,9 +106,8 @@ async function testSync() {
     enviame_status: mockEnviameWebhook.status
   };
 
-  if (mappedStatus) {
-    updatePayload.status = mappedStatus;
-  }
+  // Se omite la actualización del campo 'status' para evitar descuentos de stock no deseados.
+  // El control de estados y stock físico se gestionará a través del sistema Picker.
 
   const { data: updatedOrders, error: updateError } = await supabase
     .from('orders')

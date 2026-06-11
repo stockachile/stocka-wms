@@ -289,11 +289,13 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     "enviame_status": status || null
   };
   
-  // Si encontramos un mapeo correspondiente al WMS, también actualizamos el estado del pedido
-  // (Esto ejecutará los triggers de base de datos de STOCKA para descontar el stock si pasa a despachado)
-  if (mappedStatus) {
-    payload["status"] = mappedStatus;
-  }
+  // Nota: Hemos desactivado la actualización automática del campo 'status' de Supabase desde Enviame
+  // ya que la reducción de stock e historial de preparación se gestionará directamente a través
+  // del sistema de picking (Picker).
+  //
+  // if (mappedStatus) {
+  //   payload["status"] = mappedStatus;
+  // }
 
   // Determinar si idPedido es el ID de Supabase (UUID) o external_order_number (Shopify)
   var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idPedido.trim());
