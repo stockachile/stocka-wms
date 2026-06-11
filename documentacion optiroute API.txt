@@ -1,0 +1,3928 @@
+{API] Cómo autenticarse en la API de Optiroute
+Inicio  API
+Autenticación
+
+
+﻿La autenticación es el mecanismo que asocia una llamada entrante a una API REST con una credencial de identificación de tipo token. Nuestro sistema usa esta credencial para determinar si se debe permitir la solicitud a la API, para de esta manera controlar que solo los usuarios autorizados tengan acceso a nuestro servicio.
+
+
+
+Autenticación por Token
+
+
+El modelo de autenticación utilizado en todos los servicios de API Optiroute corresponden al modelo de autenticación HTTP basado en token. Este token corresponde a un string alfanumérico como el siguiente:
+
+
+
+9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
+
+
+Obtener Token de autenticación
+
+
+Para obtener el Token de autorización puedes hacer un llamada de tipo POST con las credenciales de tu cuenta Optiroute válida al siguiente endpoint:
+
+
+
+https://app.optiroute.cl/api-token-auth/
+
+
+Debes agregar las credenciales de acceso a la plataforma como información de autenticación en el form-data de la llamada.
+
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+username
+
+String
+
+Correo del usuario de la cuenta. Usado para el ingreso en la plataforma
+
+Requerido
+
+password
+
+String
+
+Password del usuario de la cuenta. Usado para el ingreso en la plataforma
+
+Requerido
+
+
+
+Autenticación de llamadas
+
+
+Una vez obtenido el token de autenticación este debe ser incluido en cada una de las llamadas HTTP que se realicen a Optiroute para autenticar el acceso a la plataforma.
+
+
+
+Cada llamada debe tener una encabezado con la llave Authorization cuyo valor debe corresponder a un string conformado por el prefijo “Token” seguido de un espacio en blanco unido al código token que se obtuvo en el paso anterior. Por ejemplo:
+
+
+
+Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b
+
+
+Es posible utilizar la herramienta de línea de comandos curl para probar el acceso a los endpoint que utilizan la autenticación con token. 
+
+
+
+Por ejemplo:
+
+curl -X GET https://app.optiroute.cl/api/v1/some-endpoint/ -H 'Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b'
+
+
+
+[API Pedidos] Cómo usar la API de integración de pedidos
+Inicio  API
+API de pedidos
+
+La API de pedidos de Optiroute permite integrar los pedidos desde tu sistema a Optiroute a través del siguiente endpoint:
+
+
+https://app.optiroute.cl/api/v1/integration-service-requests/
+
+Estados de Objetos de la API
+
+
+Pedidos y direcciones tienen estado relacionados con la operación de las rutas. A continuación detallaremos cuales son esos estados y bajo que condiciones se aplican.
+
+
+
+Estados de pedidos
+
+Los pedidos tienen estados que son actualizados por los eventos realizados por el conductor a medida que la ruta se va efectuando. Estos estados están determinados por números enteros y equivalen a los siguientes:
+
+
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+DELETED
+
+-4
+
+El pedido fue borrado en el sistema
+
+TEMPORARY
+
+-3
+
+El pedido es temporal (uso interno)
+
+IMPORTED
+
+-2
+
+El pedido fue importado (uso interno)
+
+CANCELLED
+
+-1
+
+El pedido fue cancelado, su entrega no debe realizarse
+
+REVIEWING
+
+0
+
+El pedido ingresó a Optiroute. Estado inicial
+
+SCHEDULED
+
+1
+
+El pedido fue asignado a un destino en algún Route Plan
+
+ONROUTE
+
+6
+
+El pedido está en una ruta que ya fue iniciada
+
+ONGOING
+
+2
+
+El conductor inició el viaje hacia el destino de entrega del pedido
+
+ARRIVED
+
+4
+
+El conductor llegó al lugar de entrega, pero aún no realiza la entrega
+
+DELIVERED
+
+3
+
+El pedido fue entregado al cliente
+
+SKIPPED
+
+5
+
+El pedido fue marcado como saltado por el conductor
+
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+
+Estados de direcciones
+
+Cada pedido agregado a Optiroute debe tener asociada una dirección la cual será geocodificada en el sistema con la finalidad de obtener la mayor información sobre ella para garantizar el correcto enrutamiento de la entrega.
+
+
+Para agregar una dirección a Optiroute a través de la API de integración existen dos modalidades:
+
+
+
+A través de la definición del texto de la dirección el sistema realiza un proceso de geocodificación para obtener las coordenadas geográficas de la dirección ingresada.
+
+
+A través de la definición de las coordenadas geográficas el sistema realiza un proceso de geocodificación inversa en donde obtiene el texto de la dirección y comuna ingresada.
+
+
+En ambos procesos la correcta codificación de la dirección depende de la precisión de los datos ingresados. En base a todas las posibilidades en este proceso se determina el estado de la dirección, los cuales son detallados a continuación.
+
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+ERROR
+
+-1
+
+Existió un error en el proceso de geocodificación
+
+ENTERED
+
+0
+
+La dirección fue ingresada y aún no se realiza su geocodificación
+
+GEOCODED
+
+1
+
+La dirección fue geocodificada exitosamente, sin advertencias
+
+GEOCODED_WARNING
+
+2
+
+La dirección fue geocodificada pero con advertencias
+
+REVERSE_GEOCODED
+
+3
+
+La dirección fue geocodificada de manera inversa de exitosamente, sin advertencias
+
+GEOCODED_NUMBER_WARNING
+
+4
+
+La dirección fue geocodificada con advertencia debido a una ambigüedad en la numeración ingresada
+
+GEOCODED_MULTIPLE_WARNING
+
+5
+
+La dirección fue geocodificada con advertencia debido a que existen múltiples alternativas que calzan con la descripción además de la seleccionada por el sistema
+
+GEOCODED_ESTABLISHMENT
+
+6
+
+La dirección fue geocodificada con advertencia debido a que fue seleccionado un establecimiento comercial, no una dirección particular
+
+LOCATION_TYPE
+
+7
+
+La dirección fue geocodificada con advertencia debido a que fue seleccionado un establecimiento comercial, no una dirección particular
+
+COMMUNE_WARNING
+
+8
+
+La dirección fue geocodificada con advertencia debido a una ambigüedad en la determinación de la comuna
+
+
+Objetos de la API
+
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+
+Objeto pedido de entrada
+
+El objeto pedido de entrada es un hash de cada pedido y sus propiedades, donde la clave es la propiedad id del pedido, que corresponde al Identificador único del pedido en Optiroute. 
+
+
+Este tipo de objeto se ocupa para ingresar información al sistema.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+customer
+
+Objeto cliente
+
+Cliente de la entrega
+
+Requerido
+
+address
+
+Objeto dirección
+
+Dirección de la entrega
+
+Requerido
+
+skills	Lista de Objetos habilidad	Lista de las habilidades del pedido. Al optimizar el pedido será asignado a aquellos vehículos que tengan alguna de la habilidades asignada 	Opcional
+created_at
+
+Texto con formato %Y-%m-%dT%H:%M:%S%z
+
+Fecha de creación del pedido. Si no es agregada la fecha actual es considerada como la de creación
+
+Opcional
+
+delivery_data	Texto con formato %Y-%m-%dT%H:%M:%S%z
+Fecha de entrega del pedido. Si no es agregada la fecha de entrega queda como vacía
+Opcional
+reference
+
+Texto
+
+Identificador único del pedido provisto por el usuario. Corresponde al ID del pedido en la plataforma a integrar
+
+Opcional
+
+custom_fields
+
+Objeto campo personalizado
+
+Objeto de campo personalizado
+
+Opcional
+
+configured_delivery_time	Texto con formato [DD] [HH:[MM:]]ss[.uuuuuu]
+Tiempo configurado para realizar la entrega del servicio. Si se ingresa un entero será considerado como los segundos	Opcional
+
+Objeto cliente
+
+El objeto cliente es un hash con la información del cliente que recibirá el pedido, que contiene sus propiedades. 
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+name
+
+Texto
+
+Nombre del cliente que recibirá el pedido
+
+Requerido
+
+reference
+
+Texto
+
+Identificador único provisto por el usuario. Puede ser el ID del cliente en la plataforma a integrar
+
+Opcional
+
+email
+
+Texto
+
+Correo del cliente que recibirá el cliente
+
+Opcional
+
+demand_a
+
+Número
+
+Cantidad de items (cualquier tipo) por omisión que serán entregados para este cliente. Este valor será una sugerencia al momento de crear un pedido para este cliente
+
+Opcional
+
+phone_number
+
+Texto
+
+Teléfono del cliente
+
+Opcional
+
+time_window_start
+
+Texto con formato %H:%M
+
+Hora de inicio de entrega por omisión del cliente
+
+Opcional
+
+time_window_end
+
+Texto con formato %H:%M
+
+Hora de término de entrega por omisión del cliente
+
+Opcional
+
+delivery_time
+
+Texto con formato [DD] [HH:[MM:]]ss[.uuuuuu]
+
+Tiempo configurado para realizar la entrega del servicio. Si se ingresa un entero será considerado como los segundos
+
+Opcional
+
+
+Objeto dirección
+
+El objeto dirección es un hash con la información de la dirección que recibirá el pedido, que contiene sus propiedades. 
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+address_string
+
+Texto
+
+Dirección de entrega del pedido, sin la comuna. El formato calle número
+
+Requerido (sin latitude y longitude)
+
+commune_string
+
+Texto
+
+Nombre de la comuna a la que corresponde la dirección de entrega
+
+Opcional. Recomendado para mejorar resultado de búsqueda
+
+address_more_info
+
+Texto
+
+Información adicional sobre la dirección que sea útil en la entrega
+
+Opcional
+
+apartment_number
+
+Texto
+
+Descripción de la númeración de departamento, parcela, block de la dirección
+
+Opcional
+
+latitude
+
+Float
+
+Latitud de la coordenadas geográficas de la dirección de entrega
+
+Requerido (sin address_string)
+
+longitude
+
+Float
+
+Longitud de la coordenadas geográficas de la dirección de entrega
+
+Requerido (sin address_string)
+
+
+Para agregar una dirección a Optiroute a través de la API de integración existen dos alternativas:
+
+A través de la definición en base a texto de la dirección, esto es definiendo las propiedades address_string y commune_string (opcional pero recomendada) el sistema realiza un proceso de geocodificación para obtener las coordenadas geográficas de la dirección ingresada.
+A través de la definición en base a las propiedades de latitude y longitude. En este caso el sistema realiza un proceso de geocodificación inversa en donde obtiene el texto de la dirección ingresada, además de la comuna en donde se encuentra.
+Objeto habilidad
+
+
+El objeto habilidad es un hash con la información de la habilidad configurada para este pedido. Es posible asignar la habilidad de dos maneras, primero a través de la propiedad id del pedido, que corresponde al Identificador único del pedido en Optiroute, o a través de su nombre, el cual también será único en tu cuenta Optiroute. Si ocupas la definición por ID la propiedad name no será considerada.
+
+
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la habilidad en Optiroute
+
+name
+
+Texto
+
+Nombre de la habilidad
+
+
+
+Objeto pedido de respuesta
+
+El objeto pedido de respuesta es un hash de cada pedido y sus propiedades, donde la clave es la propiedad id del pedido, que corresponde al Identificador único del pedido en Optiroute. Este tipo de objeto se ocupa cuando el sistema retorna información respecto a un pedido consultado.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único del pedido provisto por Optiroute
+
+reference
+
+Texto
+
+Identificador único del pedido provisto por el usuario. El ID del pedido en la plataforma a integrar
+
+created_at
+
+Texto con formato %Y-%m-%d %H:%M
+
+Fecha de creación del pedido. Si no es agregada la fecha actual es considerada como la de creación
+
+delivery_date
+
+Texto con formato %Y-%m-%d %H:%M
+
+Fecha de entrega del pedido
+
+status
+
+Número
+
+Corresponde al estado actual del pedido
+
+assigned_driver
+
+Fecha con formato %Y-%m-%d %H:%M
+
+Corresponde al último conductor asignado a la entrega del pedido
+
+delivery_details
+
+Texto
+
+Corresponde a los comentarios que el conductor hizo cuando entregaba o saltaba el pedido
+
+tracking_url
+
+Texto
+
+Corresponde a la URL que dirige a la página de seguimiento de Optiroute
+
+tracking
+
+Texto
+
+Código de seguimiento. Es el código utilizado para hacer el seguimiento del pedido en el tracking Optiroute
+
+customer
+
+Objeto cliente
+
+Cliente de la entrega
+
+address
+
+Objeto dirección
+
+Dirección de la entrega
+
+waypoint	Objeto destino	Este tipo de objeto se ocupa para asignar el último destino de un route plan que fue asignado al pedido
+
+Objeto destino
+
+
+El objeto destino de respuesta es un hash del último destino asignado a este pedido, y sus propiedades, donde la clave es la propiedad id del destino.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único del pedido provisto por Optiroute
+
+name	
+Texto
+
+Nombre del destino, generalmente el nombre del cliente asignado al pedido
+
+created_at
+
+Texto con formato %Y-%m-%d %H:%M
+
+Fecha de creación del pedido
+
+arrival_datetime
+
+Texto con formato %Y-%m-%d %H:%M
+
+Fecha de entrega programada del pedido
+
+order
+
+Número
+Orden del destino en la ruta
+
+customer_order
+
+Número
+
+Ordern del cliente en la ruta
+
+status
+
+Texto
+
+Número del estado del pedido
+reason
+
+Texto
+
+Razón de salto del destino
+
+images
+
+Lista de Objetos Imagen
+
+Lista de las imágenes obtenidas por el conductor al momento de la entrega del pedido 
+reception_name
+
+Texto
+
+Nombre del receptor del pedido
+
+reception_rut
+
+Texto
+
+RUT del receptor del pedido
+
+note	Texto
+Comentarios del conductor al momento de la entrega
+started_at	Texto con formato %Y-%m-%d %H:%M
+Fecha de inicio del viaje al destino del pedido
+completed_at	Texto con formato %Y-%m-%d %H:%M
+Fecha en que se marcó como entregado o saltalto el pedido
+arrived_at	Texto con formato %Y-%m-%d %H:%M
+Fecha de llegada del viaje al destino del pedido
+finished_at	Texto con formato %Y-%m-%d %H:%M
+Fecha de inicio del viaje al siguiente destino (luego de haberlo completado o saltado)
+
+
+Objeto Imagen
+
+El objeto imagen de respuesta es un hash con la información respecto a la imágenes de entrega. Las imágenes serán almacenadas hasta 1 año desde que fueron obtenidas.
+
+
+
+Es importante considerar que el vínculo de la imagen tiene una vigencia de 24 horas, luego de eso será generará por otro vínculo.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+url
+Texto
+
+URL de la imagen 
+thumbnal_url	
+Texto
+
+URL del thumbnal de la imagen
+
+
+
+Agregar pedidos
+
+Al agregar pedidos a Optiroute estos aparecerán disponibles en la plataforma y podrás generar tus rutas en base a ellos. Para ello debes realizar una llamada tipo POST en el endpoint de la API de pedidos, añadiendo a ella el objeto tipo pedido de entrada que deseas crear.
+
+
+Si la creación fue realizada correctamente la API deberá retornar un objeto tipo pedido de respuesta con la información del pedido recién creado.
+
+
+En caso de cualquier error de validación la API entregará la descripción apropiada.
+
+
+Un ejemplo del contenido de la llamada para agregar pedidos es la siguiente:
+
+{
+	'address': {
+	    'apartment_number': '5',
+	    'address_more_info': 'Villa',
+	    'latitude': '-71.5508119'
+	},
+	'customer': {
+	    'name': 'test',
+	    'email': 'test@test.com',
+	    'phone_number': '987654321',
+	    'demand_a': 1
+	},
+        'skills': [
+            {'name': 'refrigerado'},
+        ]
+}
+
+Actualizar pedidos
+
+Para actualizar pedidos en Optiroute debes realizar una llamada tipo PUT o PATCH en el endpoint de la API de pedido agregando El ID del pedido en la plataforma a integrar (reference en propiedad del objeto entrada de pedido) al final de la URL, como por ejemplo:
+
+
+https://app.optiroute.cl/api/v1/integration-service-requests/{id}/
+
+Debes adjuntar a la llamada los parámetros del objeto de tipo pedido de entrada que deseas actualizar.
+
+
+
+
+Los parámetros de un pedido que pueden ser actualizados son los siguientes:
+
+
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+customer
+
+Objeto cliente
+
+Cliente de la entrega
+
+address
+
+Objeto dirección
+
+Dirección de la entrega
+
+delivery_date
+
+Fecha con formato %Y-%m-%d %H:%M
+
+Fecha estipulada para la entrega del pedido. Esta fecha es solo referencial y no corresponde a la fecha de entrega asignada en el proceso de optimización de rutas.
+
+created_at
+
+Fecha con formato %Y-%m-%d %H:%M
+
+Fecha de creación del pedido
+
+scheduled_at
+
+Fecha con formato %Y-%m-%d %H:%M
+
+Fecha de notificación a los clientes
+
+route_started_at
+
+Fecha con formato %Y-%m-%d %H:%M
+
+Fecha de inicio de la ruta que reparte el pedido
+
+completed_at
+Fecha con formato %Y-%m-%d %H:%M
+Fecha en que el pedido fue completado, saltado o cancelado
+cancelled_at
+Fecha con formato %Y-%m-%d %H:%M
+Fecha en que el pedido fue cancelado
+status
+Número	Número del estado del pedido
+reference
+Texto	Identificador único del pedido provisto por el usuario. Corresponde al ID del pedido en la plataforma a integrar
+custom_fields
+Objeto campo personalizado
+Objeto de campo personalizado asignado al pedido
+
+Si el estado del pedido es actualizado, las fechas de registro de estados posteriores al estado ingresado serán borradas. Por ejemplo: si el pedido es actualizado con estado REVIEWING, las fechas scheduled_at, route_started_at, completed_at y cancelled_at serán borradas.
+
+
+Si el estado del pedido es actualizado se asignará a la fecha y hora actual a la fecha de registro correspondiente al estado ingresado, a menos que se especifique en la misma llamada la fecha correspondiente.
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo pedido de respuesta.
+
+
+
+Es posible actualizar el estado de un pedido aún cuando esté asignado a una ruta que aún no ha sido realizada o se está efectuando. La información de entrega permanece sin modificaciones desde que fue agregado a la ruta de despacho, por lo que cualquier modificación de estado será actualizada nuevamente cuando el conductor complete, salte o cancele el pedido.
+
+
+En caso de cualquier error de validación la API entregará la descripción apropiada.
+
+
+Obtener lista de pedidos
+
+Para obtener la lista de pedidos desde Optiroute debes realizar una llamada tipo GET al endpoint de la API de pedidos.
+
+
+Puedes filtrar la lista de objetos de tipo pedidos de respuesta obtenidos pueden utilizarse parámetros de consulta que deben ser agregados al final de la URL del endpoint como una serie de pares clave-valor, como por ejemplo:
+
+
+https://app.optiroute.cl/api/v1/integration-service-requests/?per_page=25&creationStartDate=15-12-2024&creationEndDate=18-12-2024&statuses=0,1,2
+
+Los parámetros que permiten filtrar esta llamada son los siguientes:
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+per_page
+
+Número
+
+Cantidad de pedidos incluidos en cada página de la respuesta
+
+creationStartDate
+
+Fecha con formato %Y-%m-%d
+
+Fecha mínima de creación de los pedidos a obtener
+
+creationEndDate
+
+Fecha con formato %Y-%m-%d
+
+Fecha máxima de creación de los pedidos a obtener
+
+statuses
+
+Lista de números separados por coma
+
+Lista de números correspondientes a los estados de los pedidos Optiroute
+
+
+La API retorna la lista de objetos pedidos de respuesta de acuerdo a los filtros ingresados.
+
+
+Obtener pedido particular
+
+Para obtener el detalle del pedido desde Optiroute debes realizar una llamada tipo GET en el endpoint de la API de pedido agregando el id del pedido al final de la URL, de la siguiente manera:
+
+
+https://app.optiroute.cl/api/v1/integration-service-requests/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo pedido de respuesta.
+
+
+Borrar pedidos
+
+Para eliminar un pedido desde Optiroute debes realizar una llamada tipo DELETE en el endpoint de la API de pedido agregando el id del pedido al final de la URL, de la siguiente manera:
+
+
+https://app.optiroute.cl/api/v1/integration-service-requests/{id}/
+
+Sólo los pedidos en estado REVIEWING pueden ser eliminados. Eliminar pedidos en cualquier otro estado puede provocar problemas de sincronización de datos mientras está siendo gestionado.
+
+
+Los pedidos no son efectivamente borrados del sistema, sólo su estado es actualizado al estado DELETED.
+
+
+
+
+Imágenes externas de pedidos
+
+Es posible asignar a los pedidos imágenes que no fueron obtenidas utilizando la aplicación Optiroute Driver. Para esto se debe agregar la imagen a la llamada del siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/integration-service-requests/{id}/upload_image/
+Si el proceso fue realizado con éxito la llamada retornará un objeto con la descripción del vínculo de la imágen, además de su ID único de identificación, que podrá ser utilizado para borrarla.
+
+Para borrar determinada imágen externa asignada a un pedido es posible realizar una llamada tipo DELETE en el siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/external-images/{id}/
+
+API para carga masiva de pedidos
+
+Si deseas agregar múltiples pedidos a Optiroute en una sola llamada puedes utilizar nuestro endpoint de carga masiva de datos de pedidos:
+
+
+https://app.optiroute.cl/api/v1/batch-service-request-creation-inputs/
+
+Esta API creará una tarea de importación que se ejecutará de manera asíncrona a la llamada en nuestro sistema, la cual podrá ser monitoreada a través de las distintas llamadas del endpoint.
+
+
+Objetos de la API
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+
+Objeto input de pedidos de entrada
+
+El objeto pedido masivo de entrada es un hash que contiene el arreglo de pedidos de entrada que serán agregados a Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+data
+
+Arreglo de objetos de pedidos de entrada
+
+Arreglo con todos los pedidos de entrada que serán procesados en el input de pedido
+
+Requerido
+
+
+Un ejemplo del contenido de la llamada para la carga masiva de datos de pedidos es el siguiente:
+
+{
+        'data': [
+            {
+                'reference': '2301989790',
+                'address': {
+                    'address_string': 'CARMEN BAJO 690',
+                    'commune_string': 'IQUIQUE',
+                },
+                'customer': {
+                    'name': 'NIBALDO TITO MAMANI MANINI',
+                    'phone_number': '932321321',
+                    'demand_a': 0,
+                    'reference': '0649776'
+                },
+            },
+            {
+                'reference': '2301988831',
+                'address': {
+                    'address_string': 'CARMEN BAJO 690',
+                    'commune_string': 'IQUIQUE',
+                },
+                'customer': {
+                    'name': 'CAMILA MARY MORI ESPINOZA',
+                    'phone_number': '991111111',
+                    'demand_a': 1,
+                    'reference': '0975945'
+                },
+            }
+        ]
+}
+  
+Objeto input de pedidos de respuesta
+
+Este objeto es un hash que contiene la información de un input de pedidos que es retornado en una respuesta a una llamada de alguno de los endpoints de esta API.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+creator
+
+Objeto Usuario
+
+Creador del input de pedido
+
+data
+
+Arreglo de objetos de pedidos de entrada
+
+Cliente de la entrega
+
+address
+
+Objeto dirección
+
+Arreglo con todos los pedidos de entrada que fueron procesados en el input de pedido
+
+
+Agregar pedidos en batch
+
+Para agregar pedidos de forma masiva debes realizar una llamada tipo POST agregando el objeto de tipo pedido masivo de entrada.
+
+
+Esta llamada creará todos los pedidos cuya referencia no haya sido encontrada en tu cuenta. Si el pedido ya existe sólo se actualizará si está en el estado REVIEWING o DELETED.
+
+
+Si las propiedades id o reference de alguno de los pedidos ingresados está presente en alguno de los pedidos ingresados se efectuará una actualización del pedido (si es que existe en la plataforma).
+
+
+Obtener estado de input de pedido
+
+Si deseas obtener todos el estado de un input de pedidos particular, debes hacer una llamada tipo GET en el endpoint de la API de pedido agregando la referencia del objeto de tipo input de tipo pedido masivo de entrada creado en la plataforma (reference en propiedad del objeto) al final de la URL, como por ejemplo:
+
+
+https://app.optiroute.cl/api/v1/batch-service-request-creation-inputs/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un input de pedidos de respuesta.
+
+[Webhooks] Cómo usar los webhooks de la API de Optiroute
+Inicio  API
+Webhooks
+
+Los webhooks de Optiroute permiten notificar a tu plataforma cada evento que se realice en tu cuenta. Cada vez que ocurra el evento se enviará un evento POST a la URL que hayas configurado en tu cuenta de Optiroute.
+
+
+Si un determinado webhook no está disponible cuando el sistema intente enviar la llamada, el pedido será marcado como pendiente y se volverá a llamar cada 5 minutos hasta hacerlo de forma exitosa.
+
+
+Los webhooks disponibles en Optiroute son los siguientes.
+
+
+Entidad
+
+Descripción
+
+Pedidos
+
+Cada vez que el estado de un pedido sea actualizado
+
+Conductores
+
+Cada vez que la información de un pedido es actualizada en el sistema
+
+Rutas
+
+Cada vez que se efectúa un cambio en en las rutas realizadas
+
+
+Los webhook configurados en el sistema no requieren seguridad para su acceso ya que solo informan y el id la propiedad reference del item que fue modificado, sin entregar información relevante sobre él. La información completa del item debe ser obtenida a través de la API REST.
+
+Los webhooks harán una llamada de tipo POST con la siguiente información en forma de parámetros de la llamada:
+
+
+Parámetro
+
+Descripción
+
+Requerido
+
+id
+
+Identificador del item en Optiroute
+
+Obligatorio
+
+reference
+
+Identificador del item en la plataforma a integrar
+
+Opcional. Sólo si el item tiene definido la referencia externa
+
+
+
+Configuración
+
+Para configurar el webhook de pedido debes ingresar a la plataforma de Optiroute e ir a la sección configuración de tu cuenta, en la sección Integración, ahí puedes definir cada una de las URL a los endpoints definidos en la plataforma que deseas integrar.
+
+[API Optimización] Cómo usar la API de Optimización de rutas
+Inicio  API
+API de optimización Optiroute
+
+
+La API de optimización Optiroute permite integrar la optimización de rutas a tu propia plataforma sin necesidad de usar la interfaz de Optiroute.
+
+
+
+Esta API es agnóstica respecto a la información de pedidos, es decir no es necesario tener pedidos integrados en Optiroute para utilizarla.
+
+
+
+La API de optimización funciona en base al siguiente endpoint:
+
+
+
+https://app.optiroute.cl/api/optimizations/
+
+Optimización asíncrona
+
+Según la teoría de complejidad computacional, encontrar la solución óptima para un problema de ruteo de flotas es del tipo NP-Duro, lo que quiere decir que solo cuando la cantidad de vehículos y destinos es relativamente pequeña, es posible encontrar la solución efectivamente más corta comparando todas las soluciones posibles entre ellas. Pero para encontrar la solución óptima de un problema relativamente grande (con muchos pedidos y vehículos asignados) podría tomar un tiempo demasiado largo, lo que es productivamente inviable. Es por esto que para encontrar soluciones en un tiempo razonable es necesario utilizar métodos o meta-heurísticas que permiten buscar la solución óptima sin tener que analizar una por una todas las soluciones posibles, y así acercarse de mejor manera al óptimo en un tiempo controlado, sin garantizar necesariamente que la solución encontrada sea la mejor.
+
+
+Para dar soporte a tiempos de búsqueda que superan el tiempo límite de espera de llamadas sobre Internet es que utilizamos una arquitectura asíncrona compuesta por llamadas REST para la creación del problema, el inicio de la optimización del problema y para la obtención del estado del problema ingresado.
+
+
+De esta manera la API de optimización de Optiroute da soporte tanto a problemas de baja complejidad como a aquellos que requieren de mucho tiempo de búsqueda, todo bajo el mismo esquema de información.
+
+
+Objetos definidos para el uso de la API
+Para interactuar con la API se deben utilizar las estructuras de datos que se describirán a continuación.
+
+
+
+Objeto Dirección
+
+
+El objeto Dirección corresponde a un hash con la información necesaria para definir una dirección tanto para el objeto Cliente como el objeto Vehículo.
+
+
+
+A continuación se detalla el contenido del objeto.
+
+
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+name
+
+Texto
+
+Nombre identificador de la dirección
+
+Requerido
+
+latitude
+
+Número decimal con máximo 10 decimales 
+
+Latitud de la coordenada geográfica de la dirección
+
+Requerido
+
+longitude
+
+Número decimal con máximo 10 decimales 
+
+Longitud de la coordenada geográfica de la dirección
+
+Requerido
+
+
+
+Objeto Cliente
+
+El objeto Cliente del input corresponde a un hash de todos los puntos de visitas de las rutas. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+nombre
+
+Texto
+
+Lista de los clientes del problema a optimizar
+
+Opcional
+
+address
+
+objeto tipo Dirección
+
+Lista de los vehículos del problema a optimizar
+
+Opcional
+
+time_window_start
+
+Hora con formato %H:%M
+
+Hora de inicio de la ventana de tiempo del cliente
+
+Opcional
+
+time_window_end
+
+Hora con formato %H:%M
+
+Hora de término de la ventana de tiempo del cliente
+
+Opcional
+
+delivery_time
+
+Número entero entre 0 y 600
+
+Tiempo de servicio de la entrega por defecto para todos aquellos pedidos que no lo tengan asignado. Cuánto demora el conductor en entregar el servicio
+
+Opcional
+
+demand
+
+Número entero
+
+Corresponde a la demanda de la visita. Corresponde a cualquier unidad que se desee aplicar, que coincida con la capacidad del vehículo. Está opción es utilizada para la configuración use_capacity
+
+Opcional
+
+priority
+
+Número entero
+
+Corresponde a la prioridad que se le desea dar a la visita respecto a otras. El número mayor es más prioritario que uno menor. 
+
+Opcional
+
+skills
+
+Arreglo de Textos
+
+Corresponde a la lista de habilidades asignadas a la visita. Esto indica que para esta visita serán considerados sólo los vehículos que tenga asignado alguna de las habilidades asignadas
+
+Opcional
+
+precio
+
+Número entero
+
+Corresponde al precio asignado a la visita. Está opción es utilizada para la configuración use_profitability_percentage 
+
+Opcional
+
+
+Objeto Bodega
+
+El objeto Dirección corresponde a un hash con la información necesaria para definir una bodega para el objeto Vehículo. A continuación se detallan las propiedades del objeto.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+name
+
+Texto
+
+Nombre identificador de la bodega
+
+Requerido
+
+address
+
+Objeto Dirección
+
+Dirección de la bodega
+
+Requerido
+
+
+Objeto Vehículo
+
+El objeto Vehículo del input corresponde a un hash con la información de determinado vehículo agregado al problema. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+name
+
+Texto
+
+Nombre identificador del vehículo
+
+Opcional
+
+driver
+
+Texto
+
+Lista de los vehículos del problema a optimizar
+
+Opcional
+
+start_warehouse
+
+
+objeto tipo Bodega
+
+Bodega de inicio de la ruta
+
+Opcional
+
+end_warehouse
+
+
+objeto tipo Bodega
+
+Bodega de término de la ruta
+
+Opcional
+
+capacity
+
+Número entero
+
+Capacidad total del vehículo. Está opción es utilizada para la configuración use_capacity
+
+Opcional
+
+break_start
+
+Hora con formato %H:%M
+
+Hora de inicio del descanso del conductor
+
+Opcional
+
+break_end
+
+Hora con formato %H:%M
+
+Hora de término del descanso del conductor
+
+Opcional
+
+route_skills
+
+Arreglo de Textos
+
+Corresponde a la lista de habilidades asignadas al vehículo. Las visita que tengan los mismas habilidades serán consideradas
+
+Opcional
+
+speed_factor
+
+Número decimal entre 0.5 y 1.5
+
+Factor de velocidad aplicado al tiempo o distancia estándar entre puntos
+
+Opcional
+
+shift_start
+
+Texto con formato %H:%M
+
+Hora de inicio del turno del conductor. Debe coincidir dentro del rango de tiempo de la planificación
+
+Opcional
+
+shift_end
+
+Texto con formato %H:%M
+
+Hora de término del turno del conductor. Debe coincidir dentro del rango de tiempo de la planificación
+
+Opcional
+
+cost
+
+Número entero
+
+Costo operacional del vehículo
+
+Opcional
+
+
+Objeto Configuración
+
+Este objeto corresponde a la configuración utilizada para optimizar los datos ingresados y obtener las rutas de despacho necesarias. 
+
+
+A continuación se detallan todas las opciones de configuración disponibles. Estas son las mismas que se utilizan en la plataforma web Optiroute. 
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Valor por defecto
+
+Requerido
+
+name
+
+Texto de largo máximo 255 caracteres
+
+Nombre de la optimización. Referencia para el cliente
+
+–
+
+Requerido
+
+departure_date
+
+Texto con formato %Y-%m-%d
+
+Fecha establecida para realizar la ruta
+
+–
+
+Requerido
+
+start_time
+
+Texto con formato %H:%M
+
+Hora de inicio de las rutas en la fecha configurada
+
+–
+
+Requerido
+
+end_time
+
+Texto con formato %H:%M
+
+Hora de término de las rutas en la fecha configurada
+
+–
+
+Requerido
+
+optimization_type
+
+Texto ‘Distance’ o ‘Time’
+
+Variable a optimizar
+
+‘Time’
+
+Opcional
+
+speed_factor
+
+Número decimal entre 0.5 y 1.5
+
+Factor de velocidad aplicado al tiempo o distancia estándar entre puntos
+
+1.0
+
+Opcional
+
+delivery_time
+
+Número entero entre 0 y 600
+
+Tiempo de servicio de la entrega por defecto para todos aquellos pedidos que no lo tengan asignado. Cuánto demora el conductor en entregar el servicio
+
+5
+
+Opcional
+
+use_load_balance
+
+Booleano
+
+Buscar soluciones que posean carga similar entre los vehículos asignados al problema
+
+False
+
+Opcional
+
+use_time_balance
+
+Booleano
+
+Buscar soluciones que utilicen un tiempo total similar entre los vehículos asignados al problema
+
+False
+
+Opcional
+
+use_distance_balance
+
+Booleano
+
+Buscar soluciones que utilicen un tiempo total similar entre los vehículos asignados al problema
+
+False
+
+Opcional
+
+minimize_fleet
+
+Booleano
+
+Buscar soluciones que utilicen la menor cantidad de vehículos asignados al problema
+
+True
+
+Opcional
+
+force_use_all_vehicles
+
+Booleano
+
+Buscar soluciones que utilicen todos los vehículos asignados al problema
+
+False
+
+Opcional
+
+use_time_windows
+
+Booleano
+
+Utilizar o no la configuración de ventanas de tiempos ingresadas para los clientes
+
+True
+
+Opcional
+
+use_capacity
+
+Booleano
+
+Utilizar o no la configuración de capacidades de vehículos y demanda de clientes asignados al problema
+
+True
+
+Opcional
+
+optimize_start_time
+
+Booleano
+
+Sí es True el algoritmo se encarga de definir la hora de inicio apropiada para cada vehículo, dentro del rango de horas configurado
+
+False
+
+Opcional
+
+search_time
+
+Número entero
+
+Tiempo de búsqueda en minutos asignado para el problema. Si no es definido tiempo de búsqueda sugerido será utilizado
+
+False
+
+Opcional
+
+use_quick_optimization
+
+Booleano
+
+Esta opción entrega la primera solución que cumpla con todas las restricciones ingresadas. Probablemente existan mejoras soluciones si asignas más tiempo
+
+False
+
+Opcional
+
+maximum_waiting_time
+
+Número entero 
+
+Tiempo máximo que un vehículo puede esperar para iniciar el viaje a un punto. Es posible que la solución encontrada asigne esperas para cumplir con ciertas ventanas de tiempo
+
+–
+
+Opcional
+
+fleet_kind
+
+Número entero 
+
+Define el tipo de flota para el problema. 0 para vehículos motorizados, 1 para bicicletas
+
+0
+
+Opcional
+
+use_open_routes
+
+Booleano
+
+Si es True el punto final de todas las rutas será cualquiera de los puntos de visita. Si es False debe volver a la bodega configurada
+
+False
+
+Opcional
+
+merge_service_times
+
+Booleano
+
+Si es True combina el tiempo de servicio de todas las visitas que son en un mismo punto geográfico (igual latitude y longitude)
+
+False
+
+Opcional
+
+same_address_in_same_vehicle
+
+Booleano
+
+Si es True busca soluciones que asignen al mismo vehículo todas las visitas que son en un mismo punto geográfico (igual latitude y longitude)
+
+False
+
+Opcional
+
+use_costs
+
+Booleano
+
+Si es True busca soluciones que consideren la minimización de los costos totales de los vehículos ingresados al problema
+
+False
+
+Opcional
+
+use_profitability_percentage
+
+
+Booleano
+
+Si es True busca soluciones que consideren el precio total mínima de los pedidos del camión para ser asignados 
+
+False
+
+Opcional
+
+
+Objeto Entrada de Optimización
+
+Este objeto corresponde a los datos que deben ser añadidos a la llamada para la creación de un objeto de Optimización. Está compuesto por tres objetos de tipo JSON, Configuración, Cliente y Vehículo. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+customers
+
+lista de objetos tipo Clientes
+
+Lista de los clientes del problema a optimizar
+
+Opcional
+
+vehicles
+
+lista de objetos tipo Vehicles
+
+Lista de los vehículos del problema a optimizar
+
+Opcional
+
+configuration
+
+objeto tipo Configuración
+
+Configuración utilizada para optimizar el problema
+
+Opcional
+
+
+Objeto Destino
+
+Este objeto define un destino en alguna de las rutas de la solución al problema de optimización ingresado. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Presente
+
+order
+
+Número mayor o igual a 0
+
+Orden del destino en la ruta
+
+Siempre
+
+arrival
+
+Fecha con formato %Y-%m-%dT%H:%M:%S%z
+
+Lista de todos los destinos considerados en la ruta de la solución
+
+Siempre
+
+demand
+
+Número
+
+Demanda configurada en el destino
+
+Opcional
+
+name
+
+String
+
+Identificador del objeto Cliente que será entregado en este destino. Si el Waypoint corresponde a un descanso su nombre será “break”. El destino de inicio y el destino de finalización no contienen nombre
+
+Opcional
+
+customer_order
+
+Número mayor a 0
+
+Corresponde al orden de cliente de la ruta, esto es sin considerar a los destinos de tipo “break” ni la bodega de inicio y finalización, comenzando de 1
+
+Opcional
+
+travel_duration
+
+Número
+
+Duración del viaje desde el destino anterior al actual
+
+Opcional
+
+service_duration
+
+Número
+
+Duración del tiempo de servicio en el destino
+
+Opcional
+
+
+Objeto Ruta
+
+Este objeto define una de las rutas obtenidas en la solución del problema de optimización ingresado. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Presente
+
+vehicle
+
+String
+
+Identificador del vehículo utilizado para esta ruta. Es el mismo que el ingresado en el objeto tipo Vehículo
+
+Siempre
+
+distance
+
+Número
+
+Distance recorrida la ruta
+
+Siempre
+
+duration
+
+Número
+
+Duración de la ruta
+
+Siempre
+
+waypoints
+
+Lista de objetos Destino
+
+Lista de todos los destinos considerados en la ruta de la solución
+
+Siempre
+
+
+Objeto Solución
+
+Este objeto contiene la solución al problema de enrutamiento ingresado. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Presente
+
+routes
+
+Lista de objetos Ruta
+
+Lista de las rutas consideradas en la solución
+
+Siempre
+
+total_distance
+
+Número
+
+Distancia total recorrida por todas las rutas
+
+Siempre
+
+total_duration
+
+Número
+
+Duración total de todas las rutas utilizadas. Corresponde al rango entre la hora de inicio más temprana y la hora de término más tarde entre las rutas de la solución
+
+Siempre
+
+
+Objeto Respuesta de Optimización
+
+Este objeto corresponde a los datos que el endpoint de creación de pedidos responde cuando la optimización fue creada correctamente. A continuación se detallan las propiedades del objeto.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Presente
+
+reference
+
+String de 6 caracteres de largo
+
+Texto con el identificador de la optimización ingresada.
+
+Siempre
+
+id
+
+Número
+
+Número interno de identificación de la optimización
+
+Siempre
+
+raw_request
+
+objeto tipo Entrada de Optimización
+
+objeto ingresado para la creación de la optimización
+
+Siempre
+
+solution
+
+objeto tipo Solución
+
+objeto creado en la optimización del problema
+
+Opcional
+
+
+Creación de Optimizaciones
+
+Para agregar un problema de optimización a través de la API de Optiroute debes realizar una llamada tipo POST en el endpoint de la API añadiendo a ella el objeto tipo Entrada de Optimización que deseas crear.
+
+
+Cuando ingreses una optimización en el endpoint de creación, si la información fue correctamente validada devolverá inmediatamente un objeto de tipo Respuesta de Optimización.
+
+
+Un ejemplo de un input completo para crear un objeto optimización corresponde al siguiente:
+
+
+{
+  "configuration": {
+    "name": "Test",
+    "departure_date": "2019-12-07",
+    "start_time": "09:00",
+    "end_time": "18:00",
+    "optimization_type": "distance",
+    "speed_factor": 1,
+    "delivery_time": 10,
+    "use_load_balance": false,
+    "use_time_windows": true,
+    "use_capacity": true,
+    "optimize_start_time": false,
+    "use_exhaustive_search": false,
+    "exhaustive_search_time": 1
+  },
+  "customers": [
+    {
+      "name": "Optiroute HQ",
+      "address": {
+      "name": "Bascuñan 1556 Viña del Mar",
+        "address": "Bascuñan 1556 Viña del Mar",
+        "latitude": -33.0281222,
+        "longitude": -71.5807181
+      },
+      "demand": 1,
+      "priority": 0,
+      "skills": [
+        "Skill A"
+      ]
+    },
+    {
+      "name": "Rand norte",
+      "address": {
+      "name": "8 Nte. 313, Viña del Mar",
+        "address": "8 Nte. 313, Viña del Mar",
+        "latitude": -33.0145786,
+        "longitude": -71.5568975
+      },
+      "demand": 1,
+      "priority": 0,
+      "skills": [
+        "Skill B"
+      ]
+    },
+    {
+      "name": "Rand oriente",
+      "address": {
+      "name": "1 Ote. 1244, Viña del Mar",
+        "address": "1 Ote. 1244, Viña del Mar",
+        "latitude": -33.0098962,
+        "longitude": -71.5496237
+      },
+      "demand": 1,
+      "priority": 0
+    },
+    {
+      "name": "Rand latlong",
+      "address": {
+      "name": "Rand sur",
+        "address": "Rand sur",
+        "latitude": -33.0282161,
+        "longitude": -71.5784855
+      },
+      "delivery_time": 20,
+      "demand": 1,
+      "priority": 0,
+      "skills": [
+        "Skill A"
+      ]
+    }
+  ],
+  "vehicles": [
+    {
+      "name": "Auto 1",
+      "driver": "Auto 1",
+      "start_warehouse":  {
+      "name": "Arlegui 441 Viña del Mar",
+    	"address": {
+          "name": "1 Ote. 1244, Viña del Mar",
+          "address": "1 Ote. 1244, Viña del Mar",
+          "latitude": -33.0284449,
+          "longitude": -71.5528639
+        }
+    },
+    "end_warehouse": {
+       "name": "Arlegui 4 Viña del Mar",
+       "address": {
+       "name": "Arlegui 441 Viña del Mar",
+          "address": "Arlegui 441 Viña del Mar",
+          "latitude": -33.0232505,
+          "longitude": -71.5583657
+       }
+    },
+    "capacity": 100,
+    "break_start": "12:00",
+    "break_end": "12:30",
+    "route_skills": [
+        "Skill B"
+      ]
+    }
+  ]
+}
+
+Inicio de la Optimización
+
+Que nuestra API de optimización sea asíncrona permite que la creación de objetos optimizaciones sea independiente del inicio del procesamiento de la misma y de la obtención del resultado. Esto quiere decir que puedes elegir cuándo comenzar a procesar una optimización previamente creada, y que puedes obtener el estado de la optimización en cualquier momento.
+
+
+Una vez creado objeto optimización el endpoint retornará un número de referencia “reference” con el cual puedes iniciar el proceso de optimización haciendo un POST a la siguiente endpoint:
+
+
+https://app.optiroute.cl/api/v1/optimizations/{reference}/long_optimize/
+
+Estado de la Optimización
+
+Luego de que inicies la optimización de tu objeto recién creado puedes obtener el estado de la misma ingresando su código de referencia en el siguiente endpoint.
+
+
+
+https://app.optiroute.cl/api/optimizations/{reference}/
+
+Cuando la optimización haya sido resuelta este endpoint retornará un objeto de tipo Entrada de Optimización con la propiedad solution definida.
+
+
+[API Planes de Rutas] Cómo usar la API de Planes de Rutas
+Inicio  API
+API de Planes de Rutas
+
+En Optiroute los planes de rutas corresponden a un conjunto de rutas que son administradas conjuntamente. Dicho de otra manera, un plan de rutas puede contener distintas rutas, una por cada vehículo ingresado (considerando que es posible que algunos vehículos no sean considerados con pedidos, dependiendo de la configuración de optimización).
+
+La API de planes de rutas de Optiroute permite administrarlos desde tu sistema a través del siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/
+
+
+Estados de planes de rutas
+
+
+Los planes de rutas tienen estados que son actualizados por los eventos realizados por los conductores de las rutas a medida que estas se va efectuando. Estos estados están determinados por números enteros y equivalen a los siguientes:
+
+
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+CANCELLED
+
+-1
+
+El plan de rutas fue cancelado
+
+ENTERED
+
+0
+
+El plan de rutas fue creado y aún ninguna ruta es empezada
+
+STARTED
+
+1
+
+Alguna de las rutas del plan de rutas fue iniciada
+
+COMPLETED
+
+2
+
+Todas las rutas del plan de rutas fueron completadas
+
+DELETED
+
+3
+
+El plan de rutas y sus rutas fueron eliminados
+
+
+
+Objetos
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+Objeto plan de rutas de entrada
+
+El objeto plan de rutas de entrada es un hash que se ocupa para crear un plan de rutas.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+name
+
+String
+
+Nombre del plan de rutas
+
+Requerido
+
+finish_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha límite del plan de rutas
+
+Requerido
+
+departure_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha inicial del plan de rutas
+
+Requerido
+
+
+Objeto plan de rutas de respuesta
+
+El objeto plan de rutas de respuesta es un hash de cada plan de rutas y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del pedido en Optiroute. Este tipo de objeto se ocupa cuando el sistema retorna información respecto a un plan de rutas consultado.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único del plan de rutas provisto por Optiroute
+
+name
+
+Texto
+
+Nombre del plan de rutas
+
+fleet_kind
+
+Número
+
+0 si corresponde a un plan de rutas de vehículos y 1 si corresponde a bicicletas
+
+departure_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha límite inicial del plan de rutas
+
+end_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha límite final del plan de rutas
+
+distance
+
+Número
+
+Distancia de todas las rutas en metros
+
+routes
+
+Arreglo de objetos rutas
+
+Rutas que integran el plan de rutas
+
+dropped_route
+
+Objetos ruta
+
+Corresponde a la ruta con los pedidos descartados
+
+first_departure_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de la primera ruta en iniciar según la programación
+
+last_arrival_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de la última ruta en finalizar según la programación
+
+status
+
+Número
+
+Número del estado del plan de rutas
+
+solution_found
+
+Booleano
+
+Verdadero si la última optimización encontró una solución
+
+is_optimizing
+
+Booleano
+
+Verdadero si el plan de rutas o una de sus rutas se encuentra en proceso de optimización
+
+is_editing
+
+Booleano
+
+Verdadero si el plan de rutas o una de sus rutas se encuentra en proceso de edición
+
+is_importing
+
+Booleano
+
+Verdadero si el plan de rutas o una de sus rutas se encuentra en proceso de importación de pedidos
+
+use_custom_search_time
+
+Booleano
+
+Configuración de optimización. Verdadero si la optimización ocupa un tiempo personalizado para búsqueda de soluciones
+
+search_time
+
+Número
+
+Configuración de optimización. Corresponde al tiempo en minutos de la última optimización del plan de rutas. Puede ser la sugerida o personalizada
+
+
+Objeto pedido de entrada
+
+El objeto pedido de entrada es un hash de cada pedido y sus propiedades, donde la clave es la propiedad id del pedido, que corresponde a su identificador único en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del pedido provisto por Optiroute
+
+Requerido
+
+
+Objeto lista de pedidos para carga masiva
+
+El objeto lista de pedidos para carga masiva es un hash que contiene el arreglo de pedidos de entrada que serán agregados a Optiroute.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+service_requests
+
+Arreglo de objetos de pedidos de entrada
+
+Arreglo con todos los pedidos de entrada que serán procesados en el input de pedido
+
+Requerido
+
+
+
+
+
+
+Objeto vehículo de entrada
+
+El objeto vehículo de entrada es un hash de cada vehículo y sus propiedades, donde la clave es la propiedad id del vehículo, que corresponde su identificador único en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del vehículo provisto por Optiroute
+
+Requerido
+
+
+
+
+Objeto ruta de respuesta
+
+El objeto ruta de respuesta es un hash de cada ruta que contiene únicamente el id de la ruta, que corresponde su identificador único en Optiroute.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único de la ruta provisto por Optiroute
+
+Requerido
+
+
+Para obtener el resto de datos de la ruta es necesario utilizar la API de rutas.
+
+
+
+Objeto configuración de un plan de rutas
+
+
+
+El objeto configuración de un plan de rutas es un hash que contiene las distintas configuraciones para optimizar el plan de rutas en general o cada una de sus rutas individualmente. Todas las propiedades son opcionales.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+name
+
+Texto
+
+Nombre del plan de rutas
+
+optimization_type
+
+Texto
+
+Ingresa time si deseas buscar rutas que demoren menos tiempo o distance si prefieres que juntas recorran menor distancia.
+
+departure_date
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha inicial del plan de rutas
+
+start_time
+
+Hora con formato %H:%M:%S
+
+Horario inicial del plan de rutas
+
+end_time
+
+Hora con formato %H:%M:%S
+
+Horario final del plan de rutas
+
+use_load_balance
+
+Booleano
+
+Verdadero para buscar rutas que distribuyan la demanda de manera homogénea entre conductores, considerándolos a todos
+
+use_time_balance
+
+Booleano
+
+Verdadero para buscar rutas con la duración más parecida como sea posible. Esta opción no garantiza que todos los vehículos sean considerados
+
+use_distance_balance
+
+Booleano
+
+Verdadero para buscar rutas con una distancia recorrida similar. Esta opción no garantiza que todos los vehículos sean considerados
+
+minimize_fleet
+
+Booleano
+
+Verdadero para buscar rutas que usen la menor cantidad de vehículos posible.
+
+
+force_use_all_vehicles
+
+Booleano
+
+Verdadero para buscar rutas que usan todos los vehículos ingresados. Esta opción no garantiza que las rutas sean similares en tiempo o distancia.
+
+use_time_windows
+
+Booleano
+
+Verdadero para buscar rutas que consideren la información de disponibilidad horaria (ventansas de tiempo) de los clientes.
+
+use_capacity
+
+Booleano
+
+Verdadero para buscar rutas considerando la información de capacidad de los vehículos y la demanda solicitada.
+
+optimize_start_time
+
+Booleano
+
+Verdadero para buscar rutas que empiecen en cualquier horario óptimo dentro del rango de tiempo del plan de rutas. Cuando está desactivado busca rutas que comienzan justo al inicio de ese rango de tiempo.
+
+use_open_routes
+
+Booleano
+
+Verdadero si el último punto de la ruta puede ser un cliente y no la bodega de finalización
+
+speed_factor
+
+Booleano
+
+Selecciona el factor que se aplicará a la velocidad promedio entre puntos. Esta opción es utilizable cuando quieres ajustar los tiempos de llegada en los diferentes destinos de la ruta
+
+delivery_time
+
+Número
+
+Tiempo, en minutos, destinado para la entrega del servicio, desde que se detiene el vehículo hasta que inicia la ruta al siguiente destino, para aquellos puntos que no lo tengan definido individualmente.
+
+merge_service_times
+
+Booleano
+
+Verdadero si es necesario fusionar los tiempos de servicio de pedidos consecutivos que son entregados en la misma dirección. El tiempo de servicio más largo se dividirá entre los destinos.
+
+same_address_in_same_vehicle
+
+Booleano
+
+Verdadero si es necesario asignar pedidos con igual dirección al mismo vehículo.
+
+
+use_costs
+
+Booleano
+
+Verdadero si deseas encontrar rutas con la menor cantidad de vehículos posible utilizando primero los vehículos con menos costo
+
+use_profitability_percentage
+
+Booleano
+
+Verdadero para buscar rutas intentando satisfacer el límite de relación entre el coste del vehículo y la suma total de los precios de la carga. El precio de los pedidos cuyo valor no ha sido ingresado será 0.
+
+maximum_waiting_time
+
+Número
+
+Tiempo máximo en minutos que el conductor puede esperar antes de un destino
+
+use_quick_optimization
+
+Booleano
+
+Verdadero para obtener una solución lo más rápido posible, devolviendo la primera que cumpla con todas las restricciones configuradas. Esta opción prioriza el tiempo dedicado a la búsqueda sobre la calidad de la solución
+
+search_time
+
+Número
+
+Tiempo de búsqueda personalizado, en minutos, para el proceso de búsqueda de ruta
+
+
+Flujo para la creación de rutas
+
+A continuación se describen los pasos para crear rutas optimizadas para un plan de rutas
+
+Crear el plan de rutas. En este punto indicas la fecha en que realizarás la entrega del servicio con las rutas además del nombre del plan de rutas
+Agregar pedidos. Como en este punto aún no tienes rutas optimizadas debes agregar los pedidos directamente al plan de rutas. Estos pedidos deben haber sido ingresados a Optiroute a través de cualquier medio de ingreso (importación, API de integración, formulario de creación) y estar en un estado permitido. Puedes volver a agregar pedidos al plan de rutas en cualquier otro momento.
+Agregar vehículos. Debes agregar los vehículos que usarás para el reparto del servicio. Cada vez que agregues un vehículo se creará una ruta asociada a él. La configuración por defecto almacenada en cada vehículo será la que se ocupará para optimizar su ruta asociada. Dependiendo de tu configuración de optimización se agregarán los pedidos a estos vehículos generando rutas. Puede que algunos vehículos no sean considerados con pedidos. Se puede volver a agregar vehículos en cualquier otro momento.
+Configurar un pedido particular (opcional). Es posible que quieras actualizar las opciones de cada pedido antes de optimizar. Para esto debes usar la API de integración de pedidos
+Configurar ruta particular (opcional). Es posible que quieras actualizar las opciones de cada ruta antes de optimizar. Para esto se debe usar la API de rutas.
+Eliminar pedido (opcional). Puedes eliminar un pedido que ya no será parte del plan de rutas en cualquier momento.
+Eliminar vehículo (opcional). Puedes eliminar un vehículo que ya no será parte del plan de rutas en cualquier momento.
+Optimizar un plan de rutas. Se debe usar el endpoint para optimizar el plan de rutas en esta API. De acuerdo a las opciones de optimización utilizada se asignarán pedidos a las rutas de los vehículos ingresados. Es posible que algunos pedidos no sean considerados en alguno de los vehículos ingresados y sean agregados a la ruta de descartados. Se puede volver a optimizar el plan de rutas en cualquier otro momento y cuantas veces se necesite.
+Notificar a los conductores (opcional). Si las rutas obtenidas satisfacen las necesidades logísticas puedes notificar a los conductores para que puedan completar los destinos de la ruta ocupando la aplicación Optiroute Driver.
+Notificar a los clientes (opcional). Si las rutas obtenidas satisfacen las necesidades logísticas puedes notificar a los clientes por correo sobre el rango de entrega de su servicio.
+Además de este flujo por plan de rutas puedes realizar acciones directamente sobre una ruta particular con la API de rutas, luego de haber completado al menos una vez este flujo para la creación de rutas.
+
+Acciones
+
+
+A continuación se describen las distintas acciones que permiten administrar los planes de rutas y permitir optimizarlas para obtener rutas de reparto en base a la configuración asignada. 
+
+
+Las acciones de tipo POST para los planes de ruta ya creados se ejecutarán siempre y cuando en el plan de ruta:
+
+
+
+
+no haya sido eliminado
+no haya sido completado
+no se encuentre en proceso de edición
+no se encuentre en proceso de optimización de rutas
+no se encuentre en proceso de importación de pedidos
+
+Crear planes de ruta
+
+Para crear planes de rutas en Optiroute debes realizar una llamada tipo POST en el endpoint de la API de planes de rutas, añadiendo a ella el objeto tipo plan de ruta de entrada que deseas crear.
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'name': 'Plan de rutas',
+	'departure_datetime': '2024-11-08T08:00-03:00'
+	'finish_datetime': '2024-11-08T18:00-03:00'
+}
+
+Si la creación fue realizada correctamente la API deberá retornar un objeto tipo plan de ruta de respuesta con la información recién ingresada.
+
+En caso de cualquier error de validación la API entregará la descripción apropiada.
+
+Obtener lista de planes de ruta
+
+Para obtener la lista de planes de rutas desde Optiroute debes realizar una llamada tipo GET al endpoint de la API de planes de rutas.
+
+Obtener plan de ruta particular
+
+Para obtener el detalle del plan de rutas desde Optiroute debes realizar una llamada tipo GET en el endpoint de la API de planes de rutas agregando el id del plan de rutas al final de la URL, de la siguiente manera:
+
+https://app.optiroute.cl/api/v1/route-plans/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo plan de rutas de respuesta.
+
+Borrar plan de ruta particular
+
+Para eliminar un plan de rutas desde Optiroute debes realizar una llamada tipo DELETE en el endpoint de la API de planes de rutas agregando el id del pedido al final de la URL, de la siguiente manera:
+
+https://app.optiroute.cl/api/v1/route-plans/{id}/
+
+Los planes de rutas no son efectivamente borrados del sistema, sólo su estado es actualizado al estado DELETED.
+
+Agregar pedidos a un plan de rutas
+
+Para agregar pedidos a un plan de rutas se debe ingresar como atributo un objeto de tipo objeto lista de pedidos para carga masiva en el siguiente endpoint, agregando el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/add_service_requests
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'service_requests': [12345678, 12345679, 923485843],
+}
+
+Cuando un plan de rutas aún no ha sido optimizado este no posee rutas. Cuando un pedido posee rutas los pedidos asignados al plan de rutas serán agregados a la ruta de descartados (dropped_route en las propiedades del plan de rutas).
+
+Sacar pedidos de un plan de rutas
+
+Para desasignar un pedido de un plan de rutas se debe ingresar como atributo el id del pedido en el siguiente endpoint, agregando el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/remove_service_request/
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'service_request_id': 12345678,
+}
+
+
+Agregar vehículos a un plan de rutas
+
+Este proceso permite agregar vehículos al plan de rutas. Es posible que no todos los vehículos ingresados sean asignados pedidos luego de la optimización, en este caso no será considerada una ruta para este.
+
+Para agregar vehículos a un plan de rutas se debe ingresar como atributo un objeto de tipo vehículo en el siguiente endpoint, agregando el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/add_vehicle/
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'id': 8765323
+}
+
+Sacar vehículos de un plan de rutas
+
+Este proceso permite sacar un vehículo del plan de rutas. Si el vehículo luego de optimizarse tenía pedidos asignados a él en una ruta, la ruta será eliminada.
+ 
+Para desasignar un vehículo de un plan de rutas (y borrar su ruta) se debe ingresar como atributo un objeto de tipo vehículo en el siguiente endpoint, agregando el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/remove_vehicle/
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'id': 8765323
+}
+
+
+Actualizar la configuración de un plan de rutas
+
+Para actualizar la configuración de optimización de un plan de rutas se debe realizar una llamada de tipo POST ingresando como atributo un objeto de tipo configuración de planes de ruta en el siguiente endpoint, agregando el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/update_configuration/
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'name': 'Plan de rutas',
+	'start_time': '08:00'
+	'end_time': '18:00',
+	'optimization_type': 'distance',
+	'speed_factor': 1.05,
+	'use_load_balance': true,
+	'optimize_start_time': false
+}
+
+
+Optimizar un plan de rutas
+
+El proceso de optimización de un plan de rutas corresponde a la asignación de pedidos a los distintos vehículos asignados de manera de satisfacer la configuración de optimización agregada al plan de rutas.
+
+Es posible que en este proceso no todos los vehículos asignados al plan de rutas sean considerados, dependiendo de las opciones de optimización.
+
+Es posible que algunos pedidos no sean asignados a algún vehículo, por lo que serán agregados a la ruta de descartados o (dropped_route en los atributos del plan de rutas).
+
+Puedes realizar el número de optimizaciones que quieras. Si encuentras que la optimización encontrada no satisface tus requerimientos puedes actualizar la configuración del plan de rutas y optimizar nuevamente.
+
+Para optimizar un plan de rutas se debe agregar el ID del plan de rutas a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/optimize/
+
+Cancelar una optimización en curso
+
+Para cancelar un proceso de optimización de un plan de rutas que se encuentra en curso se debe realizar una llamada de tipo POST, agregando el ID del plan de rutas a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/stop_optimization/
+
+Notificar a todos los conductores
+
+Optiroute Driver es la aplicación móvil con la cual los conductores pueden recorrer y completar los puntos de la ruta que tienen asignada.
+
+Para notificar a todos los conductores en Optiroute Driver respecto a la ruta que tienen asignada dentro del plan de rutas creado se debe realizar una llamada de tipo POST, agregando el ID del plan de rutas a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/notify_all_drivers/
+
+Desnotificar a todos los conductores
+
+Para desnotificar a todos los conductores en Optiroute Driver se debe realizar una llamada de tipo POST, agregando el ID del plan de rutas a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/denotify_all_drivers/
+
+Con esta acción el conductor dejará de ver la ruta previamente notificada en la aplicación móvil Optiroute Driver.
+
+Activar la notificaciones a los clientes
+
+Optiroute permite notificar a los clientes respecto al horario de llegada de su servicio a través de correo electrónico. Si el pedido está asociado a un cliente con correo correctamente configurado se le informará el rango de horario de llegada.
+
+Es posible configurar los distintos eventos bajo los cuales se notificará el rango de llegada al cliente en tu cuenta Optiroute en la pestaña Correos dentro de la sección Configuración en el menú de Notificaciones a clientes.
+ 
+Para activar la notificación de todos los clientes respecto al rango de horario de llegada de su servicio se debe realizar una llamada de tipo POST, agregando el ID del plan de rutas a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/notify_all_customers/
+
+Desactivar las notificaciones a los clientes
+
+Para desactivar las notificaciones por correo a todos los clientes de todas las rutas se debe realizar una llamada de tipo POST, agregando el ID del plan de rutas a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/route-plans/{id}/denotify_all_customers/
+
+
+[API Rutas] Cómo usar la API de Rutas
+Inicio  API
+API de Rutas
+
+En Optiroute las rutas corresponden al circuito optimizable de reparto de servicio realizado particularmente por un vehículo y conductor. Todas las rutas están contenidas en algún plan de rutas.
+
+La API de rutas de Optiroute permite administrarlos desde tu sistema a través del siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/web-routes/
+
+Estados de rutas
+
+Las rutas tienen estados que son actualizados por los eventos realizados por el conductor a medida que la ruta se va efectuando. Estos estados están determinados por números enteros y equivalen a los siguientes:
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+CANCELLED
+
+-1
+
+La ruta fue cancelado
+
+ENTERED
+
+0
+
+La ruta fue creada y aún ninguna ruta es empezada
+
+STARTED
+
+1
+
+La ruta fue iniciada
+
+COMPLETED
+
+2
+
+La ruta fue completada
+
+DELETED
+
+3
+
+La ruta fue eliminada
+
+
+
+Estados de destinos
+
+Los destinos tienen estados que son actualizados por los eventos realizados por el conductor a medida que la ruta se va efectuando. Estos estados están determinados por números enteros y equivalen a los siguientes:
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+CANCELLED
+
+-1
+
+El destino fue cancelado
+
+ENTERED
+
+0
+
+El destino fue creado
+
+STARTED
+
+1
+
+El destino fue iniciado
+
+COMPLETED
+
+2
+
+El destino fue completado
+
+SKIPPED
+
+3
+
+El destino fue saltado
+
+ARRIVED
+
+4
+
+El conductor llegó al destino
+
+DELETED
+
+5
+
+El destino fue eliminado
+
+
+Objetos
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+Objeto conductor de entrada
+
+El objeto conductor de entrada es un hash de cada conductor y sus propiedades, donde la clave es la propiedad id del conductor, que corresponde a su identificador único en Optiroute.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del conductor provisto por Optiroute
+
+Requerido
+
+
+Objeto depósito de entrada
+
+El objeto depósito de entrada es un hash de cada depósito y sus propiedades, donde la clave es la propiedad id del depósito, que corresponde a su identificador único en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del depósito provisto por Optiroute
+
+Requerido
+
+
+
+
+Objeto habilidad de entrada
+
+El objeto habilidad de entrada es un hash de cada habilidad y sus propiedades, donde la clave es la propiedad id del habilidad, que corresponde a su identificador único en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del habilidad provisto por Optiroute
+
+Requerido
+
+
+Objeto ruta de entrada 
+
+El objeto ruta de entrada es un hash de cada ruta y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del pedido en Optiroute.
+
+
+Todos las propiedades son opcionales.
+
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Actualización
+
+driver
+
+Objeto conductor de entrada
+
+Conductor asignado al vehículo de la ruta
+
+Se aplica inmediatamente
+
+start_warehouse
+
+Objeto depósito de entrada
+
+Depósito en donde comienza la ruta
+
+Se aplica inmediatamente
+
+end_warehouse
+
+Objeto depósito de entrada
+
+Depósito en donde termina la ruta
+
+Se aplica inmediatamente
+
+skills
+
+Objeto habilidad de entrada
+
+Habilidades asignadas a la ruta del vehículo
+
+Después de optimizar
+
+break_start
+
+Hora con formato %H:%M:%S
+
+Inicio de la hora de descanso de la ruta
+
+Se aplica inmediatamente
+
+break_end
+
+Hora con formato %H:%M:%S
+
+Término de la hora de descanso de la ruta
+
+Se aplica inmediatamente
+
+shift_start
+
+Hora con formato %H:%M:%S
+
+Inicio del turno de la ruta. Este horario puede ser útil para que la ruta se inicie en un tiempo posterior al del plan de rutas
+
+Se aplica inmediatamente
+
+shift_end
+
+Hora con formato %H:%M:%S
+
+Término del turno de la ruta. Este horario puede ser útil para que la ruta se termine antes a lo configurado en el plan de rutas
+
+Se aplica inmediatamente
+
+speed_factor
+
+Flotante entre -1.0 y 1.0
+
+Factor que se aplica al tiempo estándar de desplazamiento entre puntos
+
+Después de optimizar
+
+use_always
+
+Booleano
+
+Verdadero si la solución para una optimización de todo el plan de rutas debe considerar siempre el vehículo
+
+Después de optimizar
+
+capacity
+
+Número
+
+Capacidad total del vehículo de esta ruta. La suma de la demanda de los pedidos considerados no deberá sumar más que este valor. Este límite es opcional de acuerdo a la configuración de optimización. Ver API de planes de rutas
+
+Después de optimizar
+
+cost
+
+Número
+
+Costo total del vehículo. Para la optimización del plan de rutas serán consideradas aquellas rutas con menor costo. Este valor es opcional de acuerdo a la configuración de optimización. Ver API de planes de rutas
+
+Después de optimizar
+
+
+Objeto pedido de entrada
+
+El objeto pedido de entrada es un hash de cada pedido y sus propiedades, donde la clave es la propiedad id del pedido, que corresponde a su identificador único en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+id
+
+Número
+
+Identificador único del pedido provisto por Optiroute
+
+Requerido
+
+
+Objeto lista de pedidos para carga masiva
+
+El objeto pedido masivo de entrada es un hash que contiene el arreglo de pedidos de entrada que serán agregados a Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+Requerido
+
+service_requests
+
+Arreglo de objetos de pedidos de entrada
+
+Arreglo con todos los pedidos de entrada que serán procesados en el input de pedido
+
+Requerido
+
+
+Objeto dirección de respuesta
+
+El objeto dirección de respuesta es un hash de cada dirección y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del pedido en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la dirección provisto por Optiroute
+
+commune
+
+Objeto comuna de respuesta
+
+Comuna de la dirección
+
+full_address
+
+Texto
+
+Versión extendida de la dirección
+
+short_address
+
+Texto
+
+Versión resumida de la dirección
+
+street_name
+
+Texto
+
+Nombre de la calle de la dirección
+
+apartment_number
+
+Texto
+
+Número de departamento de la dirección
+
+address_number
+
+Texto
+
+Numeración de la dirección
+
+sub_locality
+
+Texto
+
+Sublocalidad de la dirección
+
+locality
+
+Texto
+
+Localidad de la dirección
+
+postal_code
+
+Texto
+
+Código postal de la dirección
+
+latitude
+
+Flotante
+
+Latitud de la coordenada geográfica de la dirección
+
+longitude
+
+Flotante
+
+Longitud de la coordenada geográfica de la dirección
+
+
+Objeto destino de respuesta
+
+El objeto destino de respuesta es un hash de cada destino y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del destino en Optiroute.
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la ruta provisto por Optiroute
+
+name
+
+Texto
+
+Nombre del destino
+
+order
+
+Número
+
+Orden del destino en la ruta
+
+customer_order
+
+Número
+
+Orden del destino de tipo cliente en la ruta
+
+address
+
+Objeto dirección de respuesta
+
+Dirección del destino
+
+status
+
+Número
+
+Estado del destino
+
+kind
+
+Número
+
+0 Cliente (pedido). 1 Depósito, 2 descanso
+
+is_warehouse
+
+Booleano
+
+Verdadero si es depósito
+
+is_customer
+
+Booleano
+
+Verdadero si es cliente
+
+is_break
+
+Booleano
+
+Verdadero si es descanso
+
+travel_time
+
+Número
+
+Tiempo programado de viaje en segundos
+
+duration
+
+Duración con formato %H:%M:%S
+
+Duración del descanso. Sólo aplica para destinos de tipo descanso
+
+distance
+
+Número
+
+Distancia del viaje al destino en metros
+
+min_arrival_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha mínima de llegada programada
+
+max_arrival_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha máxima de llegada programada
+
+slack
+
+Número
+
+Duración de la espera antes de entregar el punto en segundos
+
+demand_a
+
+Número
+
+Demanda configurada para el destino
+
+delivery_time
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Duración programada de la entrega del servicio para este punto
+
+started_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de inicio efectivo del destino
+
+arrived_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha efectiva en que el conductor llegó al punto de destino
+
+completed_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha efectiva en que el conductor completó el servicio en el punto de destino
+
+finished_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha efectiva en que el conductor inició el siguiente destino
+
+reason
+
+Número
+
+0 Dirección erronea. 1 Nadie contestó. 2 Entrega rechazada. 3 Otra razón.
+
+note
+
+Texto
+
+Comentarios realizado durante la entrega
+
+route_id
+
+Número
+
+ID de la ruta a la cual pertenece el destino
+
+priority
+
+Número
+
+Prioridad configurada del destino
+
+time_window_start
+
+Hora con formato %H:%M:%S
+
+Horario de inicio de la ventana de tiempo configurada para el destino
+
+time_window_end
+
+Hora con formato %H:%M:%S
+
+Horario de término de la ventana de tiempo configurada para el destino
+
+images
+
+Arreglo con las imágenes de la entrega
+
+Imágenes de la entrega
+
+sign
+
+Imagen de la firma obtenida durante la entrega
+
+Imágen de la firma obtenida durante la entrega
+
+reception_name
+
+Texto
+
+Nombre del receptor del servicio
+
+reception_rut
+
+Texto
+
+Rut del receptor del servicio
+
+service_request
+
+Objeto pedido de respuesta
+
+Pedido asociado al destino
+
+
+Objeto ruta de respuesta
+
+El objeto ruta de respuesta es un hash de cada ruta y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del pedido en Optiroute. Este tipo de objeto se ocupa cuando el sistema retorna información respecto a una ruta consultada.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la ruta provisto por Optiroute
+
+name
+
+Texto
+
+Nombre de la ruta. Corresponde al mismo nombre del plan de rutas que la contiene
+
+duration
+
+Número
+
+Duración de la ruta en segundos
+
+distance
+
+Número
+
+Distancia de la ruta en metros
+
+started_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de inicio efectivo de la ruta
+
+completed_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de completitud efectiva de la ruta
+
+updated_at
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha de la última actualización de la ruta
+
+is_optimizing
+
+Booleano
+
+Verdadero si la ruta se encuentra en proceso de optimización
+
+is_editing
+
+Booleano
+
+Verdadero si la ruta se encuentra en proceso de edición
+
+is_importing
+
+Booleano
+
+Verdadero si la ruta se encuentra en proceso de importación de pedidos
+
+waypoints
+
+Arreglo de objetos destinos
+
+Destinos incluidos en la ruta
+
+status
+
+Número
+
+Número del estado de la ruta
+
+vehicle
+
+Objeto vehículo de respuesta
+
+Vehículo usado en la ruta
+
+driver
+
+Objeto conductor de respuesta
+
+Conductor asignado al vehículo de la ruta
+
+departure_datetime
+
+Fecha con formato %Y-%m-%dT%H:%M:%S %z
+
+Fecha y hora del inicio programado de la ruta
+
+break_start
+
+Hora con formato %H:%M:%S
+
+Inicio de la hora de descanso de la ruta
+
+break_end
+
+Hora con formato %H:%M:%S
+
+Término de la hora de descanso de la ruta
+
+shift_start
+
+
+Inicio del turno de la ruta. Este horario puede ser útil para que la ruta se inicie en un tiempo posterior al del plan de rutas
+
+shift_end
+
+
+Término del turno de la ruta. Este horario puede ser útil para que la ruta se termine antes a lo configurado en el plan de rutas
+
+capacity
+
+Número
+
+Capacidad total del vehículo de esta ruta. La suma de la demanda de los pedidos considerados no deberá sumar más que este valor. Este límite es opcional de acuerdo a la configuración de optimización. Ver API de planes de rutas
+
+is_dropped
+
+Booleano
+
+Verdadero si la ruta corresponde a la ruta de descartados del plan de rutas
+
+speed_factor
+
+Flotante entre -1.0 y 1.0
+
+Factor que se aplica al tiempo estándar de desplazamiento entre puntos
+
+last_location_point
+
+Objeto ubicación
+
+Última ubicación obtenida por el GPS del equipo móvil que ocupa Optiroute Driver
+
+travel_type
+
+Número
+
+0 si la ruta es ordenada, no se puede recorrer en un orden distinto al programado. 1 si el conductor puede realizar el recorrido de los destinos en el orden que le parezca apropiado
+
+use_driver_completion_form
+
+Booleano
+
+Verdadero si para esta ruta se ocupa el formulario de completitud al completar el destino
+
+driver_notification_status
+
+Número
+
+0 si la ruta está desnotificada para el conductor. 1 Si está notificada. 2 Si tiene cambios que no han sido notificados. 3 si está en proceso de notificación. 4 si está en proceso de desnotificación
+
+customers_notification_status
+
+Número
+
+0 si la ruta está desnotificada para los clientes. 1 Si está notificada. 2 Si tiene cambios que no han sido notificados. 3 si está en proceso de notificación. 4 si está en proceso de desnotificación
+
+solution_version
+
+Número
+
+Versión única de la última optimización realizada. Aumenta con cada solución encontrada
+
+change_version
+
+Número
+
+Versión única de la última edición realizada. Aumenta con cada edición realizada
+
+driver_recipient_name_required
+
+Booleano
+
+Verdadero si para esta ruta es obligatorio ingresar el nombre del receptor
+
+driver_recipient_rut_required
+
+Booleano
+
+Verdadero si para esta ruta es obligatorio ingresar el rut del receptor
+
+cost
+
+Entero
+
+Costo de la ruta
+
+start_warehouse
+
+Objeto depósito de entrada
+
+Depósito de partida de inicio para esta ruta
+
+end_warehouse
+
+Objeto depósito de entrada
+
+Depósito de partida de finalización para esta ruta
+
+skills
+
+Objeto habilidad de entrada
+
+Habilidades configuradas para esta ruta
+
+
+
+Acciones
+
+A continuación se describen las acciones que permiten administrar las rutas contenidas en planes de rutas. También es posible optimizarlas para obtener rutas de reparto en base a la configuración asignada. 
+
+Las acciones de tipo POST para las rutas ya creadas se ejecutarán siempre y cuando se cumplan las siguientes condiciones para ellas:
+
+no haya sido eliminada
+no haya sido completada
+no se encuentre en proceso de edición
+no se encuentre en proceso de optimización de rutas
+no se encuentre en proceso de importación de pedidos
+
+
+Como las rutas están contenidas en planes de rutas, para crearlas y eliminarlas se debe utilizar endpoints de la API de Planes de Rutas.
+
+Obtener ruta particular
+
+Para obtener el detalle de una ruta desde Optiroute debes realizar una llamada tipo GET en el endpoint de la API de rutas agregando el id de la ruta al final de la URL, de la siguiente manera:
+
+https://testing.optiroute.cl/api/v1/web-routes/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo ruta de respuesta.
+
+Actualizar configuración de la ruta
+
+Es posible actualizar la información de una ruta particular de un plan de rutas. Algunos de los parámetros modificados serán aplicados automáticamente en la ruta y otros serán aplicados luego de optimizar el plan de rutas o la ruta particular.
+
+Para actualizar la ruta en Optiroute debes realizar una llamada tipo PUT o PATCH en el endpoint de la API de ruta agregando el ID de la ruta al final de la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/web-routes/{id}/
+
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'driver': {'id': 12334},
+	'start_Warehouse': {'id': 45432},
+	'break_start': '11:00',
+	'break_end': '12:00',
+	'speed_factor': 1.05,
+	'use_always': true,
+}
+
+En caso de cualquier error de validación la API entregará la descripción apropiada.
+
+Agregar pedidos a una ruta
+
+Cuando se desea agregar pedidos a una ruta de un plan de rutas (porque ya fue optimizado) se debe ingresar como atributo un objeto de tipo lista de pedidos de carga masiva en el siguiente endpoint, agregando el ID de la ruta a la URL, como por ejemplo:
+ 
+https://testing.optiroute.cl/api/v1/web-routes/{id}/add_service_requests/
+Un ejemplo del contenido de la llamada es el siguiente:
+
+{
+	'service_requests': [12345678, 12345679, 923485843],
+}
+
+Optimizar una ruta
+
+El proceso de optimización de una ruta corresponde al reorden de los pedidos que ya fueron  asignados a la ruta, de manera de satisfacer la configuración de optimización agregada al plan de rutas.
+
+Es posible que algunos pedidos no sean asignados a la ruta, por lo que serán agregados a la ruta de descartados o (dropped_route en los atributos de la ruta).
+
+Puedes realizar el número de optimizaciones que quieras. Si encuentras que la optimización encontrada no satisface tus requerimientos puedes actualizar la configuración del plan de rutas y optimizar nuevamente la ruta en particular.
+
+Para optimizar una ruta se debe agregar su ID a la URL, como por ejemplo:
+
+https://testing.optiroute.cl/api/v1/web-routes/{id}/optimize/
+
+Cancelar una optimización en curso
+
+Para cancelar un proceso de optimización de una ruta que se encuentra en curso se debe realizar una llamada de tipo POST, agregando su ID a la URL, en el siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/web-routes/{id}/stop_optimization/
+
+Notificar al conductor
+
+Optiroute Driver es la aplicación móvil con la cual los conductores pueden recorrer y completar los puntos de la ruta que tienen asignada.
+
+Para notificar al conductor en Optiroute Driver respecto a la ruta asignada se debe realizar una llamada de tipo POST, agregando el ID de la ruta a la URL, en el siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/web-routes/{id}/notify_driver/
+
+Desnotificar al conductor
+
+Para desnotificar al conductor en Optiroute Driver se debe realizar una llamada de tipo POST, agregando el ID de la ruta a la URL, en el siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/web-routes/{id}/denotify_driver/
+
+Con esta acción el conductor dejará de ver la ruta previamente notificada en la aplicación móvil Optiroute Driver.
+
+Activar la notificaciones a los clientes
+
+Optiroute permite notificar a los clientes respecto al horario de llegada de su servicio a través de correo electrónico. Si el pedido está asociado a un cliente con correo correctamente configurado se le informará el rango de horario de llegada.
+
+Es posible configurar los distintos eventos bajo los cuales se notificará el rango de llegada al cliente en tu cuenta Optiroute en la pestaña Correos dentro de la sección Configuración en el menú de Notificaciones a clientes.
+ 
+Para activar la notificación de los clientes respecto al rango de horario de llegada de su servicio se debe realizar una llamada de tipo POST, agregando el ID de la ruta a la URL, en el siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/web-routes/{id}/notify_customers/
+
+Desactivar las notificaciones a los clientes
+
+Para desactivar las notificaciones por correo a todos los clientes de todas las rutas se debe realizar una llamada de tipo POST, agregando el ID de la ruta a la URL, en el siguiente endpoint:
+
+https://app.optiroute.cl/api/v1/web-routes/{id}/denotify_customers/
+
+[API Conductores] Cómo usar la API de Conductores
+Inicio  API
+API de Conductores
+
+En Optiroute los conductores son asignados a las rutas de los planes de rutas.
+
+La API de rutas de Optiroute permite administrarlos desde tu sistema a través del siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/drivers/
+
+
+Estados de conductores
+
+Los conductores tienen los siguientes estados:
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+DISABLED
+
+-1
+
+El conductor fue eliminado
+
+ENTERED
+
+0
+
+El conductor fue creado
+
+
+Objetos
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+Objeto conductor de respuesta
+
+El objeto conductores de respuesta es un hash de cada dirección y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del conductor en Optiroute. 
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la dirección provisto por Optiroute
+
+name
+
+Texto
+
+Nombre del conductor
+
+email
+
+Texto
+
+Correo del conductor
+
+phone_number
+
+Texto
+
+Teléfono del conductor
+rut
+
+Texto
+
+Rut del conductor
+
+status
+
+Número
+
+Estado del conductor
+
+shift_start
+
+Texto
+
+Horario de inicio del turno por defecto del conductor
+
+shift_end
+
+Texto
+
+Horario de término del turno por defecto del conductor
+
+speed_factor
+
+Texto
+
+Factor de velocidad por defecto del conductor
+
+
+Acciones
+
+A continuación se describen las acciones para administrar los conductores.
+
+Obtener lista de conductores
+
+Para obtener la lista de conductores desde Optiroute debes realizar una llamada tipo GET al endpoint de la API de conductores.
+
+Obtener conductores particular
+
+Para obtener el detalle de un conductor desde Optiroute debes realizar una llamada tipo GET en el endpoint de la API de conductores agregando el id de la conductor al final de la URL, de la siguiente manera:
+
+https://testing.optiroute.cl/api/v1/drivers/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo conductor de respuesta.
+
+
+[API Depósitos] Cómo usar la API de Depósitos
+Inicio  API
+API de Depósitos
+
+En Optiroute los depósitos corresponden a los puntos de partida y término de las rutas. Las rutas configuradas como abiertas no tienen depósito de finalización.
+
+La API de depósitos de Optiroute permite administrarlos desde tu sistema a través del siguiente endpoint:
+
+https://testing.optiroute.cl/api/v1/warehouses/
+
+Estados de depósitos
+
+Los depósitos tienen los siguientes estados:
+
+Nombre del estado
+
+Número de estado
+
+Descripción
+
+DISABLED
+
+-1
+
+El depósito fue eliminado
+
+ENTERED
+
+0
+
+El depósito fue creado
+
+
+Objetos
+
+Para interactuar con este endpoint se deben utilizar las estructuras de datos que se describirán a continuación.
+
+Objeto comuna de respuesta
+
+El objeto comuna de respuesta es un hash de cada comuna y su nombre. 
+
+Propiedad
+
+Tipo
+
+Descripción
+
+name
+
+Texto
+
+Nombre de la comuna
+
+
+Objeto dirección de respuesta
+
+El objeto dirección de respuesta es un hash de cada dirección y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del pedido en Optiroute.
+
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único de la dirección provisto por Optiroute
+
+commune
+
+Objeto comuna de respuesta
+
+Comuna de la dirección
+
+full_address
+
+Texto
+
+Versión extendida de la dirección
+
+short_address
+
+Texto
+
+Versión resumida de la dirección
+
+street_name
+
+Texto
+
+Nombre de la calle de la dirección
+
+apartment_number
+
+Texto
+
+Número de departamento de la dirección
+
+address_number
+
+Texto
+
+Numeración de la dirección
+
+sub_locality
+
+Texto
+
+Sublocalidad de la dirección
+
+locality
+
+Texto
+
+Localidad de la dirección
+
+postal_code
+
+Texto
+
+Código postal de la dirección
+
+latitude
+
+Flotante
+
+Latitud de la coordenada geográfica de la dirección
+
+longitude
+
+Flotante
+
+Longitud de la coordenada geográfica de la dirección
+
+
+Objeto depósito de respuesta
+
+El objeto depósito de respuesta es un hash de cada depósito y sus propiedades, donde la clave es su propiedad id, que corresponde al Identificador único del depósito en Optiroute. 
+
+Propiedad
+
+Tipo
+
+Descripción
+
+id
+
+Número
+
+Identificador único del depósito provisto por Optiroute
+
+name
+
+Texto
+
+Nombre del depósito
+
+address
+
+Objeto dirección de respuesta
+
+Dirección del depósito
+
+
+Acciones
+
+A continuación se describen las acciones para administrar los depósitos.
+
+Obtener lista de depósitos
+
+Para obtener la lista de depósitos desde Optiroute debes realizar una llamada tipo GET al endpoint de la API de depósitos.
+
+Obtener depósito particular
+
+Para obtener el detalle de un depósito desde Optiroute debes realizar una llamada tipo GET en el endpoint de la API de depósitos agregando su id al final de la URL, de la siguiente manera:
+
+https://testing.optiroute.cl/api/v1/warehouses/{id}/
+
+Si la llamada fue realizada correctamente la API deberá retornar un objeto de tipo depósito de respuesta.

@@ -1,0 +1,35 @@
+{
+  "cookies": [
+    {
+      "name": ".AspNetCore.Antiforgery.cdV5uW_Ejgc",
+      "value": "CfDJ8DbFDl85o75JoHl3W7Lxn0xh1mCjTnW1VCG9DRMEAoa4WLhztGXenJzU1KP9z3WROzro4vtV4162gLIAEnjWHaRuSNkq9u2arqfr_sPItSkbzLYbDBxszFmclNH4Yajb3bQatuiMO0olpfEGGo9NCZw",
+      "domain": "app.wodely.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": ".AspNetCore.Identity.Application",
+      "value": "CfDJ8DbFDl85o75JoHl3W7Lxn0w99qBXBueNoTBooNBeyRBp7DVd0fZV3R8A9FIo6QIfAmxiE0pwKUAPb_ia50z5uVynF1JpWjOrDVXhsntlvddebfvooWzOUEgepe0y55HHxNvDoc7BKZBo1OsSrLH3Fgbcf4a0V6omh9ni3b5wm0qpjWdOxpiyywfxIdZ2PbwfkYeRpM3wZRQZAEpeOr4jWapYd4FQDpojzboe-CIyjXvVJYq4UKSFPqtnUJNKFLSHzA_ApCNX-prYz_fNEcMOz8QkabwHPLsKi1kTGYZ9BzzUkKbJYUa9FuokkXb-LbeImXcGqHU0TcRrgNbJ5V6wW4FfyEoB2wfPK5x1xNOpHcdEUF2SHCqXvqTJM8ZUEDqkU7U_CFJ_vcDiCgSV2UACCVzTugMyBFg7tv-TIV5wxEoyuSh7FWe1h2zGYueE1NCqcQMQiGhIMoBXZ-_7glSNZvTBQXip0kxVmDY0ioXplirndDS2fpC6fHky_clFITfm54EsdGj4QpvU0Aimi4wKtIWx-6MIJD6Fqgo0_NMmxTNXvix4P_DeSHQ9gBVGIzlbXk6MsFs8uQFAqBx1Qh10Jn-Gbt_E4D4YoGv0xgMYAqPuFX6PnPxEPrU_H3SuEa9vfxG0zvvi-p_r-gqSy5XszLcBSsoZopjjSgeCIpktp8mk9v0Lh_nVr3NItw-r0q75-DbyFOqK2Bsg3dFRSmMHv0ZmLVBkTw0RHJty9HfG2JjNMym6sdBYWI07eRgHw4ItdpYpjTFVlak7AnZ7c1Ojz3F8MxHMkSGIRrz9xTugd3APDpXyqjZfLbMHErB691e_qvTIEZWzWg5qoolVOkH6PCgqF1a1fqJW29SZ673p0k44bqWzoCeBwkYPGqp1_wVZjoycKhstTva9nYtxHh7i6MHi8QzLcJ3TAAJxWyUGP-N5pZhTtrmUcZl86Oi_jTCF6UeF2sEpbF_44rsMETASYcYeZYbSqqg1U_KonK1Mueji_J9LWJUJguZxUdKd07ptUJTRmx5PeK3M0yz6NbFwxxaYV4jIPxjEhBPq34v8OCjxFqPqTd0ApE6xBLYw6NyS0OJ9WOn8qH6Np14q_mzPEjFwSzdt72m60fqFpJOhqTrGIGAg9d0Zw4C1RTrZCHy8W1Ef8ucUC8A0JL_YjHdRyG2PLyCy_c-uQegSELDb9_1HbKLVWWbDzp_kGY-MBp0DaV7cixsZ0fPBApVP9WnPAB28yrHBN24SAba0JUTFvwygfqdXYgAo_gnpst-eFxytwGf7SOq797kSLTpAloZnfQPNos408PRS1Bthqp1R3UQp2D6w4DzFMdzJpLShWsoYhaJA8WPdytq86dG1gXtgM4B3nYLtvO3OH28kz54o2V9_i2cPckn933HQhUH4CoKcSg3Cp2LuR-UlT_Qm6NOte5D5WRvRqCiawd3S8PB4o99jamdicjD8TMMYgpKbkA5BYAQGxH70QvhYe8e3kJUCu5KXvfhjm4mN7Lrxj-8CYwUuwgWkBWUZSBsFtatEBRamAq3yxTEW-R_JoAiCHQX5x2uAmKzuQziRoQO3Lv_XP8nEmuroy4bopqGiPtRo_KHNpvnEvNJtZNV85OckUl_MNEKSSy9lvfHjMfusreI6VcL73cFbwwDMwmvTIpA9EHSSgybsiIpOy11D679gk4E2PaCOUzd1IjlL7lRWtAJI8v8bS5dI055YGJGIe5Q-KaZ5_2WzRDYTXcA3FHeFn4Q-OvjAj1l14On_5lhHAbh9H46tR2wu9qqz2sNKGvwgnP5lEv5tFagQvReD4oITrVmbLHiy2HWkbGezrf3wP8ksH1AdjJPa5d-vg8r9moe1nvWHWUw1OBtxT2inoNAhUp5yNVaZcD6Hov_Q_94mCLdQ5zj-mbwhirxp0aZsWXm_9VRWv0JNUea9L-SJOVwYRwPV0VTI5kiXuLKC2wVVe8f9O1t986w1PlgXLsmNXEcR2GwnWQaXNXINlTw3axlbbUIG_7gFhse-P-rmr2eNv7zFVopgYW7SpRiARS1tFMsIHgsWdFqbAmlSZGlFRft1RopNfwR3evmm4YLA8WTw0YnDyxs4h9bsaJWOQUX88-Ea-YQN44Wy36xpR_ssavsndkqugP9YEBA2bjLoBhsUV7ikFOJXBG6Eq-E6Q3xNOlRrA8-eo2Dw_7esr3qohuprDehBXEMrXHPcpYJypN06rv6sOhLCGLyDA6XrKc_wtcPJKJcIhbuyBmoL8mFjnsQm7qKxVrZvYGE178yy1SNB7hdNjXDf4G4BRWeBWlSUw2ECXqrD8wtrTUIOKakuktWYk8VoCGMNbNg4EuP6SmBWGvG8QssiyreWYIXCEJ2srjLy7Z7x5g",
+      "domain": "app.wodely.com",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "acct-id",
+      "value": "847FDE59-B",
+      "domain": "app.wodely.com",
+      "path": "/",
+      "expires": 1812687273,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}

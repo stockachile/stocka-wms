@@ -1,0 +1,38 @@
+name: Sync LightData to Supabase
+
+on:
+  schedule:
+    # Se ejecuta cada 4 horas (minuto 0 del reloj)
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+    # Permite gatillar la sincronización manualmente desde la pestaña Actions en GitHub
+
+jobs:
+  sync:
+    name: Run LightData Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Sincronización
+        env:
+          LIGHTDATA_USERNAME: ${{ secrets.LIGHTDATA_USERNAME }}
+          LIGHTDATA_PASSWORD: ${{ secrets.LIGHTDATA_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HEADLESS: 'true'
+        run: node sync_lightdata.js
