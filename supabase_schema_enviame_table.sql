@@ -1,6 +1,14 @@
 -- WMS STOCKA - Supabase Schema Actualización: Tabla Dedicada Enviame
 -- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
 
+-- Crear la función helper is_admin() por si no existe aún en la base de datos
+CREATE OR REPLACE FUNCTION is_admin() RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM profiles 
+    WHERE id = auth.uid() AND role = 'admin'
+  );
+$$ LANGUAGE sql SECURITY DEFINER;
+
 -- 1. Crear la tabla de envíos (despachos) de Enviame
 CREATE TABLE IF NOT EXISTS enviame_shipments (
   id TEXT PRIMARY KEY, -- ID Maestro / ID de Envío de Enviame (enviame_delivery_id)
