@@ -60,9 +60,7 @@ function mapLightDataStatusToWms(statusStr) {
     case 'cancelado':
       return 'cancelado';
     default:
-      // Si el estado es otro (ej: "Nadie", "En planta", "Devolviendo"),
-      // retornamos null para no sobrescribir el estado principal del WMS,
-      // pero igual guardaremos el detalle del estado de LightData en la columna específica.
+      // Si el estado es otro, retornamos null para no sobrescribir el del WMS
       return null;
   }
 }
@@ -71,7 +69,6 @@ async function syncLightData() {
   console.log('🔄 Iniciando sincronización de LightData a Supabase...');
 
   // Determinar si corremos en segundo plano (headless)
-  // En GitHub Actions u otros servidores siempre correrá en modo headless
   const isCI = !!process.env.GITHUB_ACTIONS;
   const browser = await chromium.launch({ 
     headless: isCI || process.env.HEADLESS === 'true',
@@ -80,7 +77,7 @@ async function syncLightData() {
 
   let context;
 
-  // Cargar sesión guardada si existe para ahorrar tiempo y peticiones
+  // Cargar sesión guardada si existe
   if (fs.existsSync(STATE_FILE)) {
     console.log('Cargando sesión persistida desde:', STATE_FILE);
     context = await browser.newContext({ storageState: STATE_FILE });
@@ -108,7 +105,7 @@ async function syncLightData() {
       await page.waitForTimeout(500);
       await page.click('#btnlogin');
 
-      // Esperar a que el campo de inicio de sesión desaparezca (indica login exitoso)
+      // Esperar a que el campo de inicio de sesión desaparezca
       await page.waitForSelector('#username', { state: 'hidden', timeout: 30000 });
 
       // Guardar el estado de la sesión
@@ -118,16 +115,29 @@ async function syncLightData() {
       console.log('🔓 Sesión activa cargada con éxito.');
     }
 
-    // Esperar a que cargue la lista de envíos
+    // Esperar a que cargue la lista de envíos inicial
     console.log('⏳ Esperando la tabla de envíos...');
     await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
-    // Cambiar la paginación a "Todos" para procesar todos los registros de una vez
+    // 1. Cambiar el filtro "Estados del envio" a "Todos" (valor '-1')
+    console.log('🔍 Cambiando filtro "Estados del envio" a "Todos"...');
+    await page.locator('select#envios_f_estado').first().selectOption('-1');
+    
+    // 2. Hacer clic en el botón FILTRAR
+    console.log('🖱️ Aplicando filtros...');
+    await page.locator('a.btnVioleta:has-text("FILTRAR")').first().click();
+
+    // Esperar a que la tabla se recargue con los nuevos filtros
+    await page.waitForTimeout(4000);
+    await page.waitForSelector('table tbody tr', { timeout: 15000 });
+
+    // 3. Cambiar la paginación a "Todos" (valor '-1')
     console.log('📋 Ajustando cantidad por página a "Todos"...');
     await page.locator('select#cantXPag').first().selectOption('-1');
     
-    // Esperar un momento a que la tabla se recargue
+    // Esperar a que la tabla cargue todos los registros
     await page.waitForTimeout(4000);
+    await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
     // Hacer scraping directo del DOM de la tabla
     console.log('🕵️‍♂️ Extrayendo registros de envíos de la tabla...');
@@ -136,7 +146,26 @@ async function syncLightData() {
       return rows.map(row => {
         const cols = Array.from(row.querySelectorAll('td'));
         if (cols.length < 12) return null;
+
+        // Intentar extraer el ID único (did) del QR data attribute
+        const qrContainer = cols[0]?.querySelector('.containerIconQR');
+        let did = null;
+        if (qrContainer) {
+          const dataQrStr = qrContainer.getAttribute('data-qr');
+          if (dataQrStr) {
+            try {
+              const dataQrObj = JSON.parse(dataQrStr);
+              did = dataQrObj.did ? String(dataQrObj.did) : null;
+            } catch (e) {
+              const match = dataQrStr.match(/"did"\s*:\s*"(\d+)"/);
+              if (match) did = match[1];
+            }
+          }
+        }
+
         return {
+          id: did, // did único de LightData
+          nombreFantasia: cols[1]?.innerText.trim(),
           idml: cols[2]?.innerText.trim(),
           origen: cols[3]?.innerText.trim(),
           trackingNumber: cols[4]?.innerText.trim(),
@@ -145,23 +174,54 @@ async function syncLightData() {
           destinoNombre: cols[7]?.innerText.trim(),
           comuna: cols[8]?.innerText.trim(),
           zonaEntrega: cols[9]?.innerText.trim(),
-          estadoRaw: cols[11]?.innerText.trim()
+          zonaCosto: cols[10]?.innerText.trim(),
+          estado: cols[11]?.innerText.trim()
         };
       }).filter(Boolean);
     });
 
-    console.log(`📊 Se encontraron ${shipments.length} envíos en el panel de LightData.`);
+    console.log(`📊 Se encontraron ${shipments.length} envíos totales en el panel de LightData.`);
 
-    let matchingCount = 0;
-    let updateCount = 0;
+    let matchingOrdersCount = 0;
+    let dbUpsertCount = 0;
 
     for (const shipment of shipments) {
-      const { idml, trackingNumber, estadoRaw } = shipment;
+      // 1. Si no hay ID único, usamos el tracking_number como fallback para no perder el registro
+      const shipmentId = shipment.id || shipment.trackingNumber;
+      if (!shipmentId) continue;
 
+      // 2. Guardar/Actualizar en la tabla dedicada lightdata_envios
+      const shipmentPayload = {
+        id: shipmentId,
+        nombre_fantasia: shipment.nombreFantasia,
+        idml: shipment.idml,
+        origen: shipment.origen,
+        tracking_number: shipment.trackingNumber,
+        fecha_venta: shipment.fechaVenta,
+        fecha_alphagroup: shipment.fechaAlphaGroup,
+        destino_nombre: shipment.destinoNombre,
+        comuna: shipment.comuna,
+        zona_entrega: shipment.zonaEntrega,
+        zona_costo: shipment.zonaCosto,
+        estado: shipment.estado,
+        raw_data: shipment,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: upsertError } = await supabase
+        .from('lightdata_envios')
+        .upsert(shipmentPayload, { onConflict: 'id' });
+
+      if (upsertError) {
+        console.error(`   ❌ Error al insertar/actualizar envío ${shipmentId} en lightdata_envios:`, upsertError.message);
+      } else {
+        dbUpsertCount++;
+      }
+
+      // 3. Sincronizar y actualizar con la tabla principal de pedidos (orders)
+      const { trackingNumber, idml, estado } = shipment;
       if (!trackingNumber && !idml) continue;
 
-      // Buscar coincidencia en Supabase
-      // Buscamos tanto por tracking_number como por external_order_number (IDML)
       let query = supabase
         .from('orders')
         .select('id, status, external_order_number, tracking_number, lightdata_status');
@@ -175,66 +235,49 @@ async function syncLightData() {
       const { data: dbOrders, error: findError } = await query;
 
       if (findError) {
-        console.error(`   ❌ Error al buscar pedido '${trackingNumber || idml}' en Supabase:`, findError.message);
+        console.error(`   ❌ Error al buscar pedido '${trackingNumber || idml}' en orders:`, findError.message);
         continue;
       }
 
-      if (!dbOrders || dbOrders.length === 0) {
-        // Pedido no coincide con nuestra base de datos del WMS, omitimos silenciosamente
-        continue;
-      }
+      if (dbOrders && dbOrders.length > 0) {
+        matchingOrdersCount++;
+        const dbOrder = dbOrders[0];
+        const mappedWmsStatus = mapLightDataStatusToWms(estado);
 
-      matchingCount++;
-      const dbOrder = dbOrders[0];
-      const mappedWmsStatus = mapLightDataStatusToWms(estadoRaw);
+        const updatePayload = {
+          lightdata_status: estado,
+          raw_lightdata_data: shipment
+        };
 
-      // Preparar campos para actualizar
-      const updatePayload = {
-        lightdata_status: estadoRaw,
-        raw_lightdata_data: shipment
-      };
+        if (mappedWmsStatus && mappedWmsStatus !== dbOrder.status) {
+          updatePayload.status = mappedWmsStatus;
+        }
 
-      // Si el estado mapeado es válido y difiere del actual en el WMS, lo actualizamos
-      if (mappedWmsStatus && mappedWmsStatus !== dbOrder.status) {
-        updatePayload.status = mappedWmsStatus;
-      }
+        if (trackingNumber && !dbOrder.tracking_number) {
+          updatePayload.tracking_number = trackingNumber;
+        }
 
-      // Si no tenemos el número de seguimiento guardado y LightData nos lo da, lo guardamos
-      if (trackingNumber && !dbOrder.tracking_number) {
-        updatePayload.tracking_number = trackingNumber;
-      }
+        const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
+        const hasLightDataStatusChange = dbOrder.lightdata_status !== estado;
+        const needsUpdate = hasStatusChange || hasLightDataStatusChange || !dbOrder.tracking_number;
 
-      // Verificar si hay cambios reales en los datos
-      const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
-      const hasLightDataStatusChange = dbOrder.lightdata_status !== estadoRaw;
-      const needsUpdate = hasStatusChange || hasLightDataStatusChange || !dbOrder.tracking_number;
+        if (needsUpdate) {
+          const { error: updateError } = await supabase
+            .from('orders')
+            .update(updatePayload)
+            .eq('id', dbOrder.id);
 
-      if (needsUpdate) {
-        const oldStatus = dbOrder.status;
-        const newStatus = updatePayload.status || oldStatus;
-
-        console.log(`   📝 Pedido coincidente '${dbOrder.external_order_number || dbOrder.id}':`);
-        if (hasStatusChange) console.log(`      - Estado WMS: "${oldStatus}" -> "${newStatus}"`);
-        if (hasLightDataStatusChange) console.log(`      - Estado LightData: "${dbOrder.lightdata_status || 'N/A'}" -> "${estadoRaw}"`);
-
-        const { error: updateError } = await supabase
-          .from('orders')
-          .update(updatePayload)
-          .eq('id', dbOrder.id);
-
-        if (updateError) {
-          console.error(`      ❌ Error al actualizar Supabase:`, updateError.message);
-        } else {
-          updateCount++;
-          console.log(`      ✅ Sincronizado.`);
+          if (updateError) {
+            console.error(`      ❌ Error al actualizar pedido ${dbOrder.id} en orders:`, updateError.message);
+          }
         }
       }
     }
 
     console.log(`\n========================================`);
     console.log(`Sincronización finalizada:`);
-    console.log(`- Envíos coincidentes con WMS: ${matchingCount}`);
-    console.log(`- Pedidos actualizados en Supabase: ${updateCount}`);
+    console.log(`- Envíos upsertados en tabla dedicada (lightdata_envios): ${dbUpsertCount}`);
+    console.log(`- Pedidos coincidentes actualizados en WMS (orders): ${matchingOrdersCount}`);
     console.log(`========================================`);
 
   } catch (error) {
