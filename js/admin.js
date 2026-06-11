@@ -152,11 +152,14 @@ async function renderAdminOrders() {
         id,
         status,
         created_at,
-        tracking_number,
-        tracking_url,
-        label_url,
-        courier,
         external_order_number,
+        enviame_shipments (
+          tracking_number,
+          tracking_url,
+          label_url,
+          courier,
+          status
+        ),
         profiles (company_name),
         order_items (quantity, products(sku, name))
       `)
@@ -181,16 +184,19 @@ async function renderAdminOrders() {
           : order.id.split('-')[0];
 
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        if (order.tracking_number) {
-          const courierName = order.courier || 'Seguimiento';
-          trackingHtml = order.tracking_url && order.tracking_url !== 'N/A'
-            ? `<a href="${order.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${order.tracking_number}</a>`
-            : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${order.tracking_number}</span>`;
-        }
-
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        if (order.label_url && order.label_url !== 'N/A') {
-          labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--color-accent); color: var(--color-accent); display: inline-flex; gap: 0.25rem; align-items: center; border-radius: 4px;">📄 PDF</a>`;
+
+        if (order.enviame_shipments && order.enviame_shipments.length > 0) {
+          const shipment = order.enviame_shipments[0]; // Tomar el primer despacho
+          if (shipment.tracking_number) {
+            const courierName = shipment.courier || 'Seguimiento';
+            trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
+              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking_number}</a>`
+              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking_number}</span>`;
+          }
+          if (shipment.label_url && shipment.label_url !== 'N/A') {
+            labelHtml = `<a href="${shipment.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--color-accent); color: var(--color-accent); display: inline-flex; gap: 0.25rem; align-items: center; border-radius: 4px;">📄 PDF</a>`;
+          }
         }
 
         rowsHtml += `

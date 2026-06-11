@@ -94,47 +94,43 @@ async function testSync() {
   const mappedStatus = mapStatus(mockEnviameWebhook.status);
   console.log(`   Estado original: "${mockEnviameWebhook.status}" -> Mapeado: "${mappedStatus}"`);
 
-  // 3. Ejecutar la actualización en Supabase (tal como lo haría Google Apps Script)
-  console.log('3. Actualizando datos de despacho en Supabase...');
+  // 3. Ejecutar la actualización en la nueva tabla 'enviame_shipments' (upsert)
+  console.log('3. Realizando upsert del envío en la tabla enviame_shipments...');
   
-  const updatePayload = {
+  const upsertPayload = {
+    id: mockEnviameWebhook.idMaestro, // enviame_delivery_id como PK
+    order_id: order.id,
     tracking_number: mockEnviameWebhook.trackingReal,
     tracking_url: mockEnviameWebhook.tUrl,
     label_url: mockEnviameWebhook.lUrl,
     courier: mockEnviameWebhook.courier,
-    enviame_delivery_id: mockEnviameWebhook.idMaestro,
-    enviame_status: mockEnviameWebhook.status
+    status: mockEnviameWebhook.status
   };
 
-  // Se omite la actualización del campo 'status' para evitar descuentos de stock no deseados.
-  // El control de estados y stock físico se gestionará a través del sistema Picker.
-
-  const { data: updatedOrders, error: updateError } = await supabase
-    .from('orders')
-    .update(updatePayload)
-    .eq('id', order.id)
+  const { data: upsertedShipments, error: upsertError } = await supabase
+    .from('enviame_shipments')
+    .upsert(upsertPayload, { onConflict: 'id' })
     .select();
 
-  if (updateError) {
-    console.error('❌ Error al actualizar Supabase:', updateError.message);
-    console.error('⚠️ ¿Ejecutaste el script SQL "supabase_schema_enviame.sql" antes de esta prueba?');
+  if (upsertError) {
+    console.error('❌ Error al insertar/actualizar envío en Supabase:', upsertError.message);
+    console.error('⚠️ ¿Ejecutaste el script SQL "supabase_schema_enviame_table.sql" antes de esta prueba?');
     return;
   }
 
-  if (!updatedOrders || updatedOrders.length === 0) {
-    console.error('❌ No se actualizó ningún registro en Supabase.');
+  if (!upsertedShipments || upsertedShipments.length === 0) {
+    console.error('❌ No se registró ningún envío en Supabase.');
     return;
   }
 
-  const updatedOrder = updatedOrders[0];
-  console.log('✅ Pedido actualizado en Supabase:');
-  console.log(`   - ID: ${updatedOrder.id}`);
-  console.log(`   - External Order: ${updatedOrder.external_order_number}`);
-  console.log(`   - Status: ${updatedOrder.status}`);
-  console.log(`   - Tracking: ${updatedOrder.tracking_number} (${updatedOrder.courier})`);
-  console.log(`   - Tracking URL: ${updatedOrder.tracking_url}`);
-  console.log(`   - Label PDF URL: ${updatedOrder.label_url}`);
-  console.log(`   - Enviame Status: ${updatedOrder.enviame_status}`);
+  const shipment = upsertedShipments[0];
+  console.log('✅ Envío registrado/actualizado en Supabase (enviame_shipments):');
+  console.log(`   - ID Envío: ${shipment.id}`);
+  console.log(`   - ID Pedido Asociado: ${shipment.order_id}`);
+  console.log(`   - Tracking: ${shipment.tracking_number} (${shipment.courier})`);
+  console.log(`   - Tracking URL: ${shipment.tracking_url}`);
+  console.log(`   - Label PDF URL: ${shipment.label_url}`);
+  console.log(`   - Estado Courier: ${shipment.status}`);
 
   console.log('\n🎉 ¡Test de sincronización completado exitosamente!');
 }

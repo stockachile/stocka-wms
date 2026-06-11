@@ -272,79 +272,90 @@ function mapEnviameStatusToWms(enviameStatus) {
  * Envía una solicitud PATCH a la API de Supabase para actualizar los datos del pedido en tiempo real.
  */
 function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId) {
-  if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY") {
+  if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY" || SUPABASE_SERVICE_ROLE_KEY.indexOf("INGRESA_AQUI") === 0) {
     Logger.log("Supabase desactivado: debes configurar la variable SUPABASE_SERVICE_ROLE_KEY.");
     return;
   }
 
-  var mappedStatus = mapEnviameStatusToWms(status);
-  
-  // Armar el payload de actualización para la tabla 'orders'
+  // 1. Encontrar el order_id (UUID) en la tabla 'orders'
+  var orderIdUuid = null;
+  var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idPedido.trim());
+
+  if (isUuid) {
+    orderIdUuid = idPedido.trim();
+  } else {
+    // Si no es un UUID, buscamos por external_order_number (Shopify)
+    var lookupUrl = SUPABASE_URL + "/rest/v1/orders?select=id&external_order_number=eq." + encodeURIComponent(idPedido.trim());
+    var lookupOptions = {
+      "method": "GET",
+      "headers": {
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY
+      },
+      "muteHttpExceptions": true
+    };
+    
+    try {
+      var lookupResponse = UrlFetchApp.fetch(lookupUrl, lookupOptions);
+      if (lookupResponse.getResponseCode() === 200) {
+        var lookupData = JSON.parse(lookupResponse.getContentText());
+        if (lookupData && lookupData.length > 0) {
+          orderIdUuid = lookupData[0].id;
+        } else {
+          // Reintentar alternando el '#' por si acaso
+          var altId = idPedido.trim();
+          altId = altId.indexOf("#") === 0 ? altId.substring(1) : "#" + altId;
+          var altLookupUrl = SUPABASE_URL + "/rest/v1/orders?select=id&external_order_number=eq." + encodeURIComponent(altId);
+          var altLookupResponse = UrlFetchApp.fetch(altLookupUrl, lookupOptions);
+          if (altLookupResponse.getResponseCode() === 200) {
+            var altLookupData = JSON.parse(altLookupResponse.getContentText());
+            if (altLookupData && altLookupData.length > 0) {
+              orderIdUuid = altLookupData[0].id;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      Logger.log("Error buscando order_id en Supabase: " + e.toString());
+    }
+  }
+
+  if (!orderIdUuid) {
+    Logger.log("No se pudo encontrar un pedido en Supabase con la referencia: " + idPedido + ". Se aborta el registro del envío.");
+    return;
+  }
+
+  // 2. Realizar el UPSERT en la tabla 'enviame_shipments'
   var payload = {
+    "id": enviameId || null,
+    "order_id": orderIdUuid,
     "tracking_number": trackingNumber || null,
     "tracking_url": trackingUrl || null,
     "label_url": labelUrl || null,
     "courier": courier || null,
-    "enviame_delivery_id": enviameId || null,
-    "enviame_status": status || null
+    "status": status || null,
+    "updated_at": new Date().toISOString()
   };
-  
-  // Nota: Hemos desactivado la actualización automática del campo 'status' de Supabase desde Enviame
-  // ya que la reducción de stock e historial de preparación se gestionará directamente a través
-  // del sistema de picking (Picker).
-  //
-  // if (mappedStatus) {
-  //   payload["status"] = mappedStatus;
-  // }
 
-  // Determinar si idPedido es el ID de Supabase (UUID) o external_order_number (Shopify)
-  var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idPedido.trim());
-
-  var url = SUPABASE_URL + "/rest/v1/orders?";
-  if (isUuid) {
-    url += "id=eq." + encodeURIComponent(idPedido.trim());
-  } else {
-    // Si no es un UUID, asumimos que es el external_order_number (ej. #1001)
-    url += "external_order_number=eq." + encodeURIComponent(idPedido.trim());
-  }
-
-  var options = {
-    "method": "PATCH",
+  var upsertUrl = SUPABASE_URL + "/rest/v1/enviame_shipments";
+  var upsertOptions = {
+    "method": "POST",
     "headers": {
       "apikey": SUPABASE_SERVICE_ROLE_KEY,
       "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
       "Content-Type": "application/json",
-      "Prefer": "return=representation"
+      "Prefer": "resolution=merge-duplicates" // Esto fuerza el upsert si la clave primaria 'id' ya existe
     },
     "payload": JSON.stringify(payload),
     "muteHttpExceptions": true
   };
 
   try {
-    var response = UrlFetchApp.fetch(url, options);
+    var response = UrlFetchApp.fetch(upsertUrl, upsertOptions);
     var responseCode = response.getResponseCode();
     var responseText = response.getContentText();
-    Logger.log("Supabase response: [" + responseCode + "] " + responseText);
-    
-    // Si buscamos por external_order_number y no encontramos nada (devuelve array vacío: []),
-    // hacemos un reintento quitando o agregando el '#' por si la orden en Shopify se guardó diferente.
-    if (responseCode === 200 && !isUuid) {
-      var data = JSON.parse(responseText);
-      if (data.length === 0) {
-        var alternativeId = idPedido.trim();
-        if (alternativeId.indexOf("#") === 0) {
-          alternativeId = alternativeId.substring(1); // Quitar '#'
-        } else {
-          alternativeId = "#" + alternativeId; // Poner '#'
-        }
-        
-        Logger.log("No se encontró coincidencia exacta. Reintentando con ID alternativo: " + alternativeId);
-        var altUrl = SUPABASE_URL + "/rest/v1/orders?external_order_number=eq." + encodeURIComponent(alternativeId);
-        var altResponse = UrlFetchApp.fetch(altUrl, options);
-        Logger.log("Supabase retry response: [" + altResponse.getResponseCode() + "] " + altResponse.getContentText());
-      }
-    }
+    Logger.log("Supabase upsert response: [" + responseCode + "] " + responseText);
   } catch (error) {
-    Logger.log("Excepción al intentar actualizar Supabase: " + error.toString());
+    Logger.log("Excepción al intentar hacer upsert en Supabase: " + error.toString());
   }
 }
