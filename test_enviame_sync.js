@@ -99,7 +99,7 @@ async function testSync() {
   
   const upsertPayload = {
     id: mockEnviameWebhook.idMaestro, // enviame_delivery_id como PK
-    order_id: order.id,
+    order_id: 'Sag_16101', // Usamos un order_id crudo de texto para probar la ausencia de restricción FK
     tracking_number: mockEnviameWebhook.trackingReal,
     tracking_url: mockEnviameWebhook.tUrl,
     label_url: mockEnviameWebhook.lUrl,
