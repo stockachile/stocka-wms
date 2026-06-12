@@ -96,62 +96,79 @@ async function syncMerchantOrders(integration) {
   const startDate = getStartDateStr();
   console.log(`--> Consultando pedidos en Optiroute creados desde: ${startDate}`);
 
-  const optirouteUrl = `https://app.optiroute.cl/api/v1/integration-service-requests/?per_page=100&creationStartDate=${startDate}`;
+  let optirouteUrl = `https://app.optiroute.cl/api/v1/integration-service-requests/?per_page=100&creationStartDate=${startDate}`;
+  let pageCount = 1;
 
   try {
-    const response = await fetch(optirouteUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Token ${integration.access_token}`,
-        'Content-Type': 'application/json'
+    while (optirouteUrl) {
+      console.log(`--> Consultando página ${pageCount} en Optiroute (URL: ${optirouteUrl})...`);
+      const response = await fetch(optirouteUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Token ${integration.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Optiroute API respondió con código: ${response.status} ${response.statusText}`);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`Optiroute API respondió con código: ${response.status} ${response.statusText}`);
-    }
+      const data = await response.json();
+      
+      // Normalizar la respuesta de la API de Optiroute
+      let optirouteOrders = [];
+      let nextUrl = null;
 
-    const data = await response.json();
-    
-    // Normalizar la respuesta de la API de Optiroute (por paginación DRF o array directo)
-    let optirouteOrders = [];
-    if (Array.isArray(data)) {
-      optirouteOrders = data;
-    } else if (data && Array.isArray(data.results)) {
-      optirouteOrders = data.results;
-    } else if (data && Array.isArray(data.data)) {
-      optirouteOrders = data.data;
-    }
+      if (Array.isArray(data)) {
+        optirouteOrders = data;
+      } else if (data && typeof data === 'object') {
+        if (Array.isArray(data.results)) {
+          optirouteOrders = data.results;
+        } else if (Array.isArray(data.data)) {
+          optirouteOrders = data.data;
+        }
+        nextUrl = data.next || null;
+      }
 
-    console.log(`--> Encontrados ${optirouteOrders.length} pedidos en la API de Optiroute.`);
+      console.log(`--> Encontrados ${optirouteOrders.length} pedidos en la página ${pageCount}.`);
 
-    for (const optiOrder of optirouteOrders) {
-      // Armar el payload para la tabla dedicada 'optiroute_orders'
-      const upsertPayload = {
-        id: String(optiOrder.id),
-        reference: optiOrder.reference ? optiOrder.reference.trim() : null,
-        optiroute_created_at: optiOrder.created_at || null,
-        delivery_date: optiOrder.delivery_date || null,
-        status: optiOrder.status,
-        status_name: getOptirouteStatusName(optiOrder.status),
-        assigned_driver: optiOrder.assigned_driver || null,
-        delivery_details: optiOrder.delivery_details || null,
-        tracking: optiOrder.tracking ? optiOrder.tracking.trim() : null,
-        tracking_url: optiOrder.tracking_url ? optiOrder.tracking_url.trim() : null,
-        raw_data: optiOrder,
-        updated_at: new Date().toISOString()
-      };
+      for (const optiOrder of optirouteOrders) {
+        // Armar el payload para la tabla dedicada 'optiroute_orders'
+        const upsertPayload = {
+          id: String(optiOrder.id),
+          reference: optiOrder.reference ? optiOrder.reference.trim() : null,
+          optiroute_created_at: optiOrder.created_at || null,
+          delivery_date: optiOrder.delivery_date || null,
+          status: optiOrder.status,
+          status_name: getOptirouteStatusName(optiOrder.status),
+          assigned_driver: optiOrder.assigned_driver || null,
+          delivery_details: optiOrder.delivery_details || null,
+          tracking: optiOrder.tracking ? optiOrder.tracking.trim() : null,
+          tracking_url: optiOrder.tracking_url ? optiOrder.tracking_url.trim() : null,
+          raw_data: optiOrder,
+          updated_at: new Date().toISOString()
+        };
 
-      console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Ref: ${upsertPayload.reference || 'N/A'}, Estado: ${upsertPayload.status_name})`);
+        console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Ref: ${upsertPayload.reference || 'N/A'}, Estado: ${upsertPayload.status_name})`);
 
-      const { error: upsertError } = await supabase
-        .from('optiroute_orders')
-        .upsert(upsertPayload, { onConflict: 'id' });
+        const { error: upsertError } = await supabase
+          .from('optiroute_orders')
+          .upsert(upsertPayload, { onConflict: 'id' });
 
-      if (upsertError) {
-        console.error(`      ❌ Error al guardar en tabla optiroute_orders:`, upsertError.message);
+        if (upsertError) {
+          console.error(`      ❌ Error al guardar en tabla optiroute_orders:`, upsertError.message);
+        } else {
+          console.log(`      ✅ Guardado exitoso.`);
+        }
+      }
+
+      // Preparar siguiente página
+      if (nextUrl) {
+        optirouteUrl = nextUrl;
+        pageCount++;
       } else {
-        console.log(`      ✅ Guardado exitoso.`);
+        optirouteUrl = null;
       }
     }
 
