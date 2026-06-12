@@ -407,7 +407,7 @@ async function renderIntegrations() {
                     <pre style="background: #e2e8f0; padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem; color: #0f172a;">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
   -F "username=tu-correo@empresa.com" \\
   -F "password=tu-contrasena"</pre>
-                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem;">Copia el valor de `token` retornado y pégalo arriba.</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem;">Copia el valor de 'token' retornado y pégalo arriba.</p>
                   </li>
                 </ol>
               </div>
