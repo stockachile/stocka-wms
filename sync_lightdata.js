@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const xlsx = require('xlsx');
 const { createClient } = require('@supabase/supabase-js');
 
 // Cargar archivo .env localmente de forma manual si existe
@@ -26,6 +27,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.s
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const STATE_FILE = path.join(__dirname, 'lightdata_state.json');
+const DOWNLOADS_DIR = path.join(__dirname, 'downloads');
 const TARGET_URL = 'https://alphagroup.lightdata.com.ar/';
 
 // Validar variables de entorno requeridas
@@ -65,8 +67,35 @@ function mapLightDataStatusToWms(statusStr) {
   }
 }
 
+/**
+ * Helper para parsear la fecha de LightData "DD/MM/YYYY HH:mm" a formato ISO para Postgres TIMESTAMPTZ
+ */
+function parseAlphaGroupDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const parts = String(dateStr).trim().split(' ');
+    const dateParts = parts[0].split('/');
+    const day = parseInt(dateParts[0], 10);
+    const month = parseInt(dateParts[1], 10) - 1; // 0-indexed
+    const year = parseInt(dateParts[2], 10);
+    
+    let hour = 0;
+    let minute = 0;
+    if (parts[1]) {
+      const timeParts = parts[1].split(':');
+      hour = parseInt(timeParts[0], 10);
+      minute = parseInt(timeParts[1], 10);
+    }
+    
+    const date = new Date(year, month, day, hour, minute);
+    return isNaN(date.getTime()) ? null : date.toISOString();
+  } catch (e) {
+    return null;
+  }
+}
+
 async function syncLightData() {
-  console.log('🔄 Iniciando sincronización de LightData a Supabase...');
+  console.log('🔄 Iniciando sincronización de LightData a Supabase vía Excel...');
 
   // Determinar si corremos en segundo plano (headless)
   const isCI = !!process.env.GITHUB_ACTIONS;
@@ -131,147 +160,154 @@ async function syncLightData() {
     await page.waitForTimeout(4000);
     await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
-    // 3. Cambiar la paginación a "Todos" (valor '-1')
-    console.log('📋 Ajustando cantidad por página a "Todos"...');
-    await page.locator('select#cantXPag').first().selectOption('-1');
+    // Asegurarse de que exista el directorio de descargas
+    if (!fs.existsSync(DOWNLOADS_DIR)){
+      fs.mkdirSync(DOWNLOADS_DIR);
+    }
+
+    const excelPath = path.join(DOWNLOADS_DIR, 'lightdata_temp.xlsx');
+
+    // 3. Descargar el Excel
+    console.log('📥 Iniciando descarga del archivo Excel...');
+    const downloadButtonSelector = 'a[onclick="appEnviosListados.downloadExcel();"]';
     
-    // Esperar a que la tabla cargue todos los registros
-    await page.waitForTimeout(4000);
-    await page.waitForSelector('table tbody tr', { timeout: 15000 });
+    // Esperar que el botón de descarga esté visible
+    await page.locator(downloadButtonSelector).first().waitFor({ state: 'visible', timeout: 15000 });
 
-    // Hacer scraping directo del DOM de la tabla
-    console.log('🕵️‍♂️ Extrayendo registros de envíos de la tabla...');
-    const shipments = await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('table tbody tr'));
-      return rows.map(row => {
-        const cols = Array.from(row.querySelectorAll('td'));
-        if (cols.length < 12) return null;
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 45000 }), // Esperar inicio descarga
+      page.locator(downloadButtonSelector).first().click()
+    ]);
 
-        // Intentar extraer el ID único (did) del QR data attribute
-        const qrContainer = cols[0]?.querySelector('.containerIconQR');
-        let did = null;
-        if (qrContainer) {
-          const dataQrStr = qrContainer.getAttribute('data-qr');
-          if (dataQrStr) {
-            try {
-              const dataQrObj = JSON.parse(dataQrStr);
-              did = dataQrObj.did ? String(dataQrObj.did) : null;
-            } catch (e) {
-              const match = dataQrStr.match(/"did"\s*:\s*"(\d+)"/);
-              if (match) did = match[1];
-            }
-          }
-        }
+    await download.saveAs(excelPath);
+    console.log('💾 Archivo Excel descargado y guardado temporalmente.');
 
-        return {
-          id: did, // did único de LightData
-          nombreFantasia: cols[1]?.innerText.trim(),
-          idml: cols[2]?.innerText.trim(),
-          origen: cols[3]?.innerText.trim(),
-          trackingNumber: cols[4]?.innerText.trim(),
-          fechaVenta: cols[5]?.innerText.trim(),
-          fechaAlphaGroup: cols[6]?.innerText.trim(),
-          destinoNombre: cols[7]?.innerText.trim(),
-          comuna: cols[8]?.innerText.trim(),
-          zonaEntrega: cols[9]?.innerText.trim(),
-          zonaCosto: cols[10]?.innerText.trim(),
-          estado: cols[11]?.innerText.trim()
-        };
-      }).filter(Boolean);
-    });
+    // 4. Leer y procesar el Excel con xlsx
+    console.log('📖 Leyendo datos desde el Excel...');
+    const workbook = xlsx.readFile(excelPath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    
+    // Convertir a JSON crudo (array de arrays) para controlar las filas de metadatos
+    const rawRows = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+    
+    // Las filas 1-4 son filtros/metadatos del reporte. La fila 5 son los headers.
+    // La data útil comienza en la fila 6 (índice 5 en el array).
+    const dataRows = rawRows.slice(5);
+    console.log(`📊 Se encontraron ${dataRows.length} envíos en el archivo Excel.`);
 
-    console.log(`📊 Se encontraron ${shipments.length} envíos totales en el panel de LightData.`);
-
-    let matchingOrdersCount = 0;
     let dbUpsertCount = 0;
+    let matchingOrdersCount = 0;
+    const upsertPayloads = [];
 
-    for (const shipment of shipments) {
-      // 1. Si no hay ID único, usamos el tracking_number como fallback para no perder el registro
-      const shipmentId = shipment.id || shipment.trackingNumber;
-      if (!shipmentId) continue;
+    for (const row of dataRows) {
+      // Omitir filas vacías
+      if (!row || row.length === 0) continue;
 
-      // 2. Guardar/Actualizar en la tabla dedicada lightdata_envios
+      const id = String(row[0] || '').trim(); // ID (Interno)
+      const tracking = String(row[1] || '').trim(); // Número Tracking
+      const idml = String(row[2] || '').trim(); // ID venta ML
+
+      if (!id) continue;
+
+      const rawDateStr = row[6]; // Fecha AlphaGroup
+      const isoDate = parseAlphaGroupDate(rawDateStr);
+
       const shipmentPayload = {
-        id: shipmentId,
-        nombre_fantasia: shipment.nombreFantasia,
-        idml: shipment.idml,
-        origen: shipment.origen,
-        tracking_number: shipment.trackingNumber,
-        fecha_venta: shipment.fechaVenta,
-        fecha_alphagroup: shipment.fechaAlphaGroup,
-        destino_nombre: shipment.destinoNombre,
-        comuna: shipment.comuna,
-        zona_entrega: shipment.zonaEntrega,
-        zona_costo: shipment.zonaCosto,
-        estado: shipment.estado,
-        raw_data: shipment,
+        id: id,
+        empresa_comercio: String(row[10] || '').trim() || null, // Nombre Fantasia
+        tracking: tracking || null,
+        tracking_url: String(row[30] || '').trim() || null, // URL Tracking
+        courier: 'LightData', // Default courier para esta integración
+        status: String(row[22] || '').trim() || null, // Estado
+        servicio_tipo_envio: String(row[31] || '').trim() || null, // Origen
+        nombre_destinatario: String(row[12] || '').trim() || null, // Nombre Destinatario
+        telefono_destino: String(row[13] || '').trim() || null, // Tel. Destinatario
+        email_cliente_destino: String(row[14] || '').trim() || null, // Email Destinatario
+        direccion_destino: String(row[16] || '').trim() || null, // Dirección
+        complemento_destino: String(row[29] || '').trim() || null, // Observaciones
+        comuna_destino: String(row[18] || '').trim() || null, // Localidad
+        raw_data: row,
+        created_at: isoDate,
         updated_at: new Date().toISOString()
       };
 
-      const { error: upsertError } = await supabase
-        .from('lightdata_envios')
-        .upsert(shipmentPayload, { onConflict: 'id' });
+      upsertPayloads.push(shipmentPayload);
 
-      if (upsertError) {
-        console.error(`   ❌ Error al insertar/actualizar envío ${shipmentId} en lightdata_envios:`, upsertError.message);
-      } else {
-        dbUpsertCount++;
-      }
+      // --- Sincronizar en paralelo con la tabla principal de pedidos (orders) ---
+      const matchKey = tracking || idml;
+      if (matchKey) {
+        let query = supabase
+          .from('orders')
+          .select('id, status, external_order_number, tracking_number, lightdata_status');
 
-      // 3. Sincronizar y actualizar con la tabla principal de pedidos (orders)
-      const { trackingNumber, idml, estado } = shipment;
-      if (!trackingNumber && !idml) continue;
-
-      let query = supabase
-        .from('orders')
-        .select('id, status, external_order_number, tracking_number, lightdata_status');
-
-      if (trackingNumber) {
-        query = query.or(`tracking_number.eq.${trackingNumber},external_order_number.eq.${trackingNumber}`);
-      } else if (idml) {
-        query = query.eq('external_order_number', idml);
-      }
-
-      const { data: dbOrders, error: findError } = await query;
-
-      if (findError) {
-        console.error(`   ❌ Error al buscar pedido '${trackingNumber || idml}' en orders:`, findError.message);
-        continue;
-      }
-
-      if (dbOrders && dbOrders.length > 0) {
-        matchingOrdersCount++;
-        const dbOrder = dbOrders[0];
-        const mappedWmsStatus = mapLightDataStatusToWms(estado);
-
-        const updatePayload = {
-          lightdata_status: estado,
-          raw_lightdata_data: shipment
-        };
-
-        if (mappedWmsStatus && mappedWmsStatus !== dbOrder.status) {
-          updatePayload.status = mappedWmsStatus;
+        if (tracking) {
+          query = query.or(`tracking_number.eq.${tracking},external_order_number.eq.${tracking}`);
+        } else if (idml) {
+          query = query.eq('external_order_number', idml);
         }
 
-        if (trackingNumber && !dbOrder.tracking_number) {
-          updatePayload.tracking_number = trackingNumber;
-        }
+        const { data: dbOrders, error: findError } = await query;
 
-        const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
-        const hasLightDataStatusChange = dbOrder.lightdata_status !== estado;
-        const needsUpdate = hasStatusChange || hasLightDataStatusChange || !dbOrder.tracking_number;
+        if (!findError && dbOrders && dbOrders.length > 0) {
+          matchingOrdersCount++;
+          const dbOrder = dbOrders[0];
+          const mappedWmsStatus = mapLightDataStatusToWms(shipmentPayload.status);
 
-        if (needsUpdate) {
-          const { error: updateError } = await supabase
-            .from('orders')
-            .update(updatePayload)
-            .eq('id', dbOrder.id);
+          const updatePayload = {
+            lightdata_status: shipmentPayload.status,
+            raw_lightdata_data: shipmentPayload
+          };
 
-          if (updateError) {
-            console.error(`      ❌ Error al actualizar pedido ${dbOrder.id} en orders:`, updateError.message);
+          if (mappedWmsStatus && mappedWmsStatus !== dbOrder.status) {
+            updatePayload.status = mappedWmsStatus;
+          }
+
+          if (tracking && !dbOrder.tracking_number) {
+            updatePayload.tracking_number = tracking;
+          }
+
+          if (tracking && !dbOrder.tracking_url && shipmentPayload.tracking_url) {
+            updatePayload.tracking_url = shipmentPayload.tracking_url;
+          }
+
+          const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
+          const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
+          const needsUpdate = hasStatusChange || hasLightDataStatusChange || !dbOrder.tracking_number;
+
+          if (needsUpdate) {
+            await supabase
+              .from('orders')
+              .update(updatePayload)
+              .eq('id', dbOrder.id);
           }
         }
       }
+    }
+
+    // Realizar la inserción/actualización masiva en la tabla dedicada lightdata_envios
+    if (upsertPayloads.length > 0) {
+      console.log(`🚀 Subiendo ${upsertPayloads.length} registros a la tabla lightdata_envios...`);
+      // Hacemos el upsert en lotes de 100 para no saturar la API en caso de payloads muy grandes
+      const batchSize = 100;
+      for (let i = 0; i < upsertPayloads.length; i += batchSize) {
+        const batch = upsertPayloads.slice(i, i + batchSize);
+        const { error: upsertError } = await supabase
+          .from('lightdata_envios')
+          .upsert(batch, { onConflict: 'id' });
+
+        if (upsertError) {
+          console.error(`❌ Error al subir lote de envíos en lightdata_envios:`, upsertError.message);
+        } else {
+          dbUpsertCount += batch.length;
+        }
+      }
+    }
+
+    // 5. Eliminar el archivo Excel temporal
+    if (fs.existsSync(excelPath)) {
+      fs.unlinkSync(excelPath);
+      console.log('🗑️ Archivo Excel temporal eliminado.');
     }
 
     console.log(`\n========================================`);
