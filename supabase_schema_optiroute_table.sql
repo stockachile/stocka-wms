@@ -1,26 +1,32 @@
--- WMS STOCKA - Supabase Schema: Creación de tabla dedicada para Optiroute
+-- WMS STOCKA - Supabase Schema: Creación de tabla dedicada para Optiroute (Actualizada)
 -- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
 
-CREATE TABLE IF NOT EXISTS optiroute_orders (
+-- Eliminar la tabla anterior si existe para recrear el esquema limpio
+DROP TABLE IF EXISTS optiroute_orders;
+
+CREATE TABLE optiroute_orders (
   id TEXT PRIMARY KEY,                           -- ID único de la orden en Optiroute
-  reference TEXT,                                -- Referencia provista por el usuario (ID del pedido)
-  optiroute_created_at TIMESTAMP WITH TIME ZONE,  -- Fecha de creación en Optiroute
-  delivery_date TIMESTAMP WITH TIME ZONE,        -- Fecha de entrega en Optiroute
-  status INTEGER,                                -- Código de estado entero en Optiroute
-  status_name TEXT,                              -- Nombre legible del estado
-  assigned_driver TEXT,                          -- Nombre del conductor asignado
-  delivery_details TEXT,                         -- Comentarios del conductor
+  empresa_comercio_proveedor TEXT,               -- Nombre de la empresa, comercio o proveedor (company_name)
   tracking TEXT,                                 -- Código de seguimiento
-  tracking_url TEXT,                             -- URL de seguimiento
-  raw_data JSONB,                                -- Payload JSON completo de la API
+  tracking_url TEXT,                             -- URL del portal de seguimiento
+  courier TEXT,                                  -- Nombre del Courier (ej: "STOCKA X")
+  status TEXT,                                   -- Nombre legible del estado de entrega
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now()),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now())
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now()),
+  servicio_tipo_envio TEXT,                      -- Tipo de servicio de envío (ej: "SAME DAY/24 HRS")
+  nombre_destinatario TEXT,                       -- Nombre del receptor / cliente final
+  telefono_destino TEXT,                         -- Teléfono del destinatario
+  email_cliente_destino TEXT,                    -- Email del cliente destinatario
+  direccion_destino TEXT,                        -- Dirección física de entrega
+  complemento_destino TEXT,                      -- Complemento (departamento, villa, block, etc.)
+  comuna_destino TEXT,                           -- Comuna de destino
+  raw_data JSONB                                 -- Payload JSON completo para auditoría/futuros datos
 );
 
--- Índices para optimizar búsquedas por referencia o seguimiento
-CREATE INDEX IF NOT EXISTS idx_optiroute_orders_reference ON optiroute_orders(reference);
-CREATE INDEX IF NOT EXISTS idx_optiroute_orders_status ON optiroute_orders(status);
+-- Índices para optimizar búsquedas por tracking, destinatario o proveedor
 CREATE INDEX IF NOT EXISTS idx_optiroute_orders_tracking ON optiroute_orders(tracking);
+CREATE INDEX IF NOT EXISTS idx_optiroute_orders_empresa ON optiroute_orders(empresa_comercio_proveedor);
+CREATE INDEX IF NOT EXISTS idx_optiroute_orders_comuna ON optiroute_orders(comuna_destino);
 
 -- Habilitar Seguridad a Nivel de Fila (RLS)
 ALTER TABLE optiroute_orders ENABLE ROW LEVEL SECURITY;
@@ -43,7 +49,7 @@ CREATE POLICY "Clientes ven sus propios pedidos de Optiroute por referencia" ON 
   FOR SELECT USING (
     EXISTS (
       SELECT 1 FROM orders 
-      WHERE (orders.external_order_number = optiroute_orders.reference OR orders.id::text = optiroute_orders.reference)
+      WHERE (orders.external_order_number = optiroute_orders.id OR orders.id::text = optiroute_orders.id)
         AND orders.merchant_id = auth.uid()
     )
   );

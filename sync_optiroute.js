@@ -22,10 +22,10 @@ async function syncOptirouteData() {
   console.log('🔄 Iniciando sincronización con Optiroute API...');
 
   try {
-    // 1. Obtener todas las integraciones activas de Optiroute en Supabase
+    // 1. Obtener todas las integraciones activas de Optiroute en Supabase junto a su profile
     const { data: integrations, error: intError } = await supabase
       .from('merchant_integrations')
-      .select('*')
+      .select('*, profiles(company_name)')
       .eq('platform', 'Optiroute')
       .eq('is_active', true);
 
@@ -137,20 +137,28 @@ async function syncMerchantOrders(integration) {
         // Armar el payload para la tabla dedicada 'optiroute_orders'
         const upsertPayload = {
           id: String(optiOrder.id),
-          reference: optiOrder.reference ? optiOrder.reference.trim() : null,
-          optiroute_created_at: optiOrder.created_at || null,
-          delivery_date: optiOrder.delivery_date || null,
-          status: optiOrder.status,
-          status_name: getOptirouteStatusName(optiOrder.status),
-          assigned_driver: optiOrder.assigned_driver || null,
-          delivery_details: optiOrder.delivery_details || null,
+          empresa_comercio_proveedor: integration.profiles?.company_name || 'STOCKA',
           tracking: optiOrder.tracking ? optiOrder.tracking.trim() : null,
           tracking_url: optiOrder.tracking_url ? optiOrder.tracking_url.trim() : null,
-          raw_data: optiOrder,
-          updated_at: new Date().toISOString()
+          courier: 'STOCKA X',
+          status: getOptirouteStatusName(optiOrder.status),
+          updated_at: new Date().toISOString(),
+          servicio_tipo_envio: 'SAME DAY/24 HRS',
+          nombre_destinatario: optiOrder.customer?.name || null,
+          telefono_destino: optiOrder.customer?.phone_number || null,
+          email_cliente_destino: optiOrder.customer?.email || null,
+          direccion_destino: optiOrder.address?.full_address || 
+            (optiOrder.address?.street_name 
+              ? `${optiOrder.address.street_name} ${optiOrder.address.address_number || ''}`.trim() 
+              : null),
+          complemento_destino: [optiOrder.address?.apartment_number, optiOrder.address?.address_more_info]
+            .filter(Boolean)
+            .join(', ') || null,
+          comuna_destino: optiOrder.address?.commune?.name || optiOrder.address?.locality || null,
+          raw_data: optiOrder
         };
 
-        console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Ref: ${upsertPayload.reference || 'N/A'}, Estado: ${upsertPayload.status_name})`);
+        console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Proveedor: ${upsertPayload.empresa_comercio_proveedor}, Estado: ${upsertPayload.status})`);
 
         const { error: upsertError } = await supabase
           .from('optiroute_orders')
