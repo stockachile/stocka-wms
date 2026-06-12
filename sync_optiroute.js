@@ -134,6 +134,54 @@ async function syncMerchantOrders(integration) {
       console.log(`--> Encontrados ${optirouteOrders.length} pedidos en la página ${pageCount}.`);
 
       for (const optiOrder of optirouteOrders) {
+        // Obtener el detalle completo del pedido para recuperar el email anidado y dirección extendida
+        let detailedOrder = optiOrder;
+        try {
+          // Pequeño retardo de 50ms para prevenir throttling del API de Optiroute
+          await new Promise(resolve => setTimeout(resolve, 50));
+          
+          const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${optiOrder.id}/`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Token ${integration.access_token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (detailResponse.ok) {
+            detailedOrder = await detailResponse.json();
+          } else {
+            console.warn(`      ⚠️ No se pudo obtener detalle para ID ${optiOrder.id}: ${detailResponse.status} ${detailResponse.statusText}`);
+          }
+        } catch (detailErr) {
+          console.warn(`      ⚠️ Error al conectar para detalle de ID ${optiOrder.id}:`, detailErr.message);
+        }
+
+        // Extraer los campos con lógica de fallback robusta
+        const email = detailedOrder.customer?.customer?.email || 
+                      detailedOrder.customer?.email || 
+                      null;
+
+        const addressStr = detailedOrder.address?.full_address || 
+                           detailedOrder.address?.excel_address || 
+                           detailedOrder.address?.short_address || 
+                           (detailedOrder.address?.street_name 
+                             ? `${detailedOrder.address.street_name} ${detailedOrder.address.address_number || ''}`.trim() 
+                             : null);
+
+        let commune = detailedOrder.address?.commune_string || 
+                      detailedOrder.address?.locality || 
+                      (detailedOrder.address?.commune && typeof detailedOrder.address.commune === 'object' ? detailedOrder.address.commune.name : null);
+
+        // Fallback de extracción de comuna por coma
+        if (!commune && (detailedOrder.address?.short_address || detailedOrder.address?.excel_address)) {
+          const addr = detailedOrder.address.short_address || detailedOrder.address.excel_address;
+          const parts = addr.split(',');
+          if (parts.length > 1) {
+            commune = parts[parts.length - 1].trim();
+          }
+        }
+
         // Armar el payload para la tabla dedicada 'optiroute_orders'
         const upsertPayload = {
           id: String(optiOrder.id),
@@ -144,18 +192,15 @@ async function syncMerchantOrders(integration) {
           status: getOptirouteStatusName(optiOrder.status),
           updated_at: new Date().toISOString(),
           servicio_tipo_envio: 'SAME DAY/24 HRS',
-          nombre_destinatario: optiOrder.customer?.name || null,
-          telefono_destino: optiOrder.customer?.phone_number || null,
-          email_cliente_destino: optiOrder.customer?.email || null,
-          direccion_destino: optiOrder.address?.full_address || 
-            (optiOrder.address?.street_name 
-              ? `${optiOrder.address.street_name} ${optiOrder.address.address_number || ''}`.trim() 
-              : null),
-          complemento_destino: [optiOrder.address?.apartment_number, optiOrder.address?.address_more_info]
+          nombre_destinatario: detailedOrder.customer?.name || null,
+          telefono_destino: detailedOrder.customer?.phone_number || null,
+          email_cliente_destino: email,
+          direccion_destino: addressStr,
+          complemento_destino: [detailedOrder.address?.apartment_number, detailedOrder.address?.address_more_info]
             .filter(Boolean)
             .join(', ') || null,
-          comuna_destino: optiOrder.address?.commune?.name || optiOrder.address?.locality || null,
-          raw_data: optiOrder
+          comuna_destino: commune,
+          raw_data: detailedOrder
         };
 
         console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Proveedor: ${upsertPayload.empresa_comercio_proveedor}, Estado: ${upsertPayload.status})`);
