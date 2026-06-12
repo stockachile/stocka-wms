@@ -18,6 +18,14 @@ CREATE TABLE IF NOT EXISTS enviame_shipments (
   label_url TEXT,
   courier TEXT,
   status TEXT, -- Estado crudo reportado por Enviame
+  seller_name TEXT, -- Empresa / Comercio (vendedor)
+  service_type TEXT, -- Servicio o Tipo de Envío
+  recipient_name TEXT, -- Nombre del Destinatario
+  recipient_phone TEXT, -- Teléfono Destino
+  recipient_email TEXT, -- Email Cliente Destino
+  recipient_address TEXT, -- Dirección Destino
+  address_complement TEXT, -- Complemento Destino
+  commune TEXT, -- Comuna Destino
   raw_payload JSONB, -- Objeto completo recibido de Enviame
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
@@ -37,6 +45,16 @@ ALTER TABLE enviame_shipments DROP CONSTRAINT IF EXISTS enviame_shipments_order_
 
 -- D. Cambiar tipo de columna order_id a TEXT (realizando el casting explícito a TEXT)
 ALTER TABLE enviame_shipments ALTER COLUMN order_id TYPE TEXT USING order_id::text;
+
+-- E. Asegurar las nuevas columnas requeridas
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS seller_name TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS service_type TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_name TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_phone TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_email TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_address TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS address_complement TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS commune TEXT;
 
 -- 3. Crear índices para optimizar búsquedas
 CREATE INDEX IF NOT EXISTS idx_enviame_shipments_order_id ON enviame_shipments(order_id);

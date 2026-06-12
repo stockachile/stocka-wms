@@ -105,6 +105,14 @@ async function testSync() {
     label_url: mockEnviameWebhook.lUrl,
     courier: mockEnviameWebhook.courier,
     status: mockEnviameWebhook.status,
+    seller_name: 'Test Merchant',
+    service_type: 'Starken Normal',
+    recipient_name: 'Juan Pérez',
+    recipient_phone: '+56912345678',
+    recipient_email: 'juan.perez@example.com',
+    recipient_address: 'Av. Providencia 1234, Oficina 501',
+    address_complement: 'Piso 5',
+    commune: 'Providencia',
     raw_payload: mockEnviameWebhook // Simula el payload de Enviame
   };
 

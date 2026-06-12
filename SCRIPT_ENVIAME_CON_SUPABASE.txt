@@ -139,6 +139,13 @@ function procesarEntrada(ss, d, idMaestro) {
   var comuna = d.shipping_address ? (d.shipping_address.county || d.shipping_address.commune) : "N/A";
   var lUrl = d.label ? (d.label.PDF || d.label) : "N/A";
 
+  var tipoServicio = d.shipping_service || (d.carrier ? (d.carrier.service || d.carrier.service_name || d.carrier.name) : null) || d.service || "N/A";
+  var clienteNombre = d.customer ? (d.customer.full_name || d.customer.name || "N/A") : "N/A";
+  var clienteTelefono = d.customer ? (d.customer.phone || d.customer.telephone || "N/A") : "N/A";
+  var clienteEmail = d.customer ? (d.customer.email || "N/A") : "N/A";
+  var direccionDestino = d.shipping_address ? (d.shipping_address.full_address || d.shipping_address.street || "N/A") : "N/A";
+  var complementoDestino = d.shipping_address ? (d.shipping_address.complement || d.shipping_address.additional_info || "N/A") : "N/A";
+
   // 1. Guardar en Google Sheets (flujo existente)
   if (filaEncontrada != -1) {
     sheet.getRange(filaEncontrada, 2).setValue(idPedido);
@@ -162,8 +169,18 @@ function procesarEntrada(ss, d, idMaestro) {
 
   // 2. ACTUALIZACIÓN EN TIEMPO REAL EN SUPABASE (NUEVO FLUJO)
   // Se envía incondicionalmente para registrar toda la data que nos llega de Enviame
+  var extraData = {
+    "seller_name": vendedor !== "N/A" ? vendedor : null,
+    "service_type": tipoServicio !== "N/A" ? tipoServicio : null,
+    "recipient_name": clienteNombre !== "N/A" ? clienteNombre : null,
+    "recipient_phone": clienteTelefono !== "N/A" ? clienteTelefono : null,
+    "recipient_email": clienteEmail !== "N/A" ? clienteEmail : null,
+    "recipient_address": direccionDestino !== "N/A" ? direccionDestino : null,
+    "address_complement": complementoDestino !== "N/A" ? complementoDestino : null,
+    "commune": comuna !== "N/A" ? comuna : null
+  };
   var orderIdDb = (idPedido && idPedido !== "N/A") ? idPedido : null;
-  actualizarPedidoEnSupabase(orderIdDb, trackingReal, tUrl, lUrl, status, courier, idMaestro, d);
+  actualizarPedidoEnSupabase(orderIdDb, trackingReal, tUrl, lUrl, status, courier, idMaestro, d, extraData);
 }
 
 function buscarNombreVendedorEnDB(ss, sellerId) {
@@ -271,7 +288,7 @@ function mapEnviameStatusToWms(enviameStatus) {
 /**
  * Envía una solicitud PATCH a la API de Supabase para actualizar los datos del pedido en tiempo real.
  */
-function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId, rawDeliveryData) {
+function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId, rawDeliveryData, extraData) {
   if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY" || SUPABASE_SERVICE_ROLE_KEY.indexOf("INGRESA_AQUI") === 0) {
     Logger.log("Supabase desactivado: debes configurar la variable SUPABASE_SERVICE_ROLE_KEY.");
     return;
@@ -287,6 +304,14 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     "label_url": labelUrl || null,
     "courier": courier || null,
     "status": status || null,
+    "seller_name": (extraData && extraData.seller_name) ? extraData.seller_name : null,
+    "service_type": (extraData && extraData.service_type) ? extraData.service_type : null,
+    "recipient_name": (extraData && extraData.recipient_name) ? extraData.recipient_name : null,
+    "recipient_phone": (extraData && extraData.recipient_phone) ? extraData.recipient_phone : null,
+    "recipient_email": (extraData && extraData.recipient_email) ? extraData.recipient_email : null,
+    "recipient_address": (extraData && extraData.recipient_address) ? extraData.recipient_address : null,
+    "address_complement": (extraData && extraData.address_complement) ? extraData.address_complement : null,
+    "commune": (extraData && extraData.commune) ? extraData.commune : null,
     "raw_payload": rawDeliveryData || null,
     "updated_at": new Date().toISOString()
   };
@@ -366,7 +391,11 @@ function sincronizarHojaASupabase() {
     var idPedido = row[1] ? row[1].toString().trim() : "";
     var trackingReal = row[2] ? row[2].toString().trim() : "";
     var status = row[3] ? row[3].toString().trim() : "";
+    var vendedor = row[4] ? row[4].toString().trim() : "";
+    var cliente = row[5] ? row[5].toString().trim() : "";
     var courier = row[8] ? row[8].toString().trim() : "";
+    var direccion = row[10] ? row[10].toString().trim() : "";
+    var comuna = row[11] ? row[11].toString().trim() : "";
     var tUrl = row[13] ? row[13].toString().trim() : "";
     var lUrl = row[14] ? row[14].toString().trim() : "";
 
@@ -378,6 +407,14 @@ function sincronizarHojaASupabase() {
       "label_url": (lUrl && lUrl !== "N/A") ? lUrl : null,
       "courier": (courier && courier !== "N/A") ? courier : null,
       "status": (status && status !== "N/A") ? status : null,
+      "seller_name": (vendedor && vendedor !== "N/A") ? vendedor : null,
+      "service_type": null, // El tipo de servicio no se encuentra en las columnas del sheet
+      "recipient_name": (cliente && cliente !== "N/A") ? cliente : null,
+      "recipient_phone": null, // El teléfono no se encuentra en las columnas del sheet
+      "recipient_email": null, // El email no se encuentra en las columnas del sheet
+      "recipient_address": (direccion && direccion !== "N/A") ? direccion : null,
+      "address_complement": null, // El complemento no se encuentra en las columnas del sheet
+      "commune": (comuna && comuna !== "N/A") ? comuna : null,
       "raw_payload": null, // En sincronización masiva de Sheets no tenemos el payload original JSON completo
       "updated_at": new Date().toISOString()
     });
