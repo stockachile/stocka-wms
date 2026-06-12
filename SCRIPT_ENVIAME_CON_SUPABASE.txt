@@ -395,7 +395,7 @@ function sincronizarHojaASupabase() {
     var cliente = row[5] ? row[5].toString().trim() : "";
     var courier = row[8] ? row[8].toString().trim() : "";
     var direccion = row[10] ? row[10].toString().trim() : "";
-    var comuna = row[11] ? row[11].toString().trim() : "";
+    var comuna = row[6] ? row[6].toString().trim() : ""; // Usamos la columna Ciudad (index 6) para la comuna en Supabase
     var tUrl = row[13] ? row[13].toString().trim() : "";
     var lUrl = row[14] ? row[14].toString().trim() : "";
 
