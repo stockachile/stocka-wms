@@ -25,13 +25,17 @@ CREATE TABLE IF NOT EXISTS enviame_shipments (
 
 -- 2. Modificaciones en caso de que la tabla ya existiera previamente con el esquema antiguo:
 
--- A. Asegurar columna raw_payload
+-- A. ELIMINAR POLÍTICAS EXISTENTES PRIMERO (Evita error de dependencia al alterar la columna)
+DROP POLICY IF EXISTS "Clientes ven sus propios envios" ON enviame_shipments;
+DROP POLICY IF EXISTS "Admin gestiona todos los envios" ON enviame_shipments;
+
+-- B. Asegurar columna raw_payload
 ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS raw_payload JSONB;
 
--- B. Eliminar clave foránea si existe (para quitar restricción con la tabla orders)
+-- C. Eliminar clave foránea si existe (para quitar restricción con la tabla orders)
 ALTER TABLE enviame_shipments DROP CONSTRAINT IF EXISTS enviame_shipments_order_id_fkey;
 
--- C. Cambiar tipo de columna order_id a TEXT (realizando el casting explícito a TEXT)
+-- D. Cambiar tipo de columna order_id a TEXT (realizando el casting explícito a TEXT)
 ALTER TABLE enviame_shipments ALTER COLUMN order_id TYPE TEXT USING order_id::text;
 
 -- 3. Crear índices para optimizar búsquedas
@@ -42,7 +46,6 @@ CREATE INDEX IF NOT EXISTS idx_enviame_shipments_tracking_number ON enviame_ship
 ALTER TABLE enviame_shipments ENABLE ROW LEVEL SECURITY;
 
 -- 5. Crear Políticas de Seguridad (ahora que order_id es garantizadamente TEXT, evitando error text = uuid)
-DROP POLICY IF EXISTS "Clientes ven sus propios envios" ON enviame_shipments;
 CREATE POLICY "Clientes ven sus propios envios" ON enviame_shipments
   FOR SELECT USING (
     EXISTS (
@@ -52,6 +55,5 @@ CREATE POLICY "Clientes ven sus propios envios" ON enviame_shipments
     )
   );
 
-DROP POLICY IF EXISTS "Admin gestiona todos los envios" ON enviame_shipments;
 CREATE POLICY "Admin gestiona todos los envios" ON enviame_shipments
   FOR ALL USING (is_admin());
