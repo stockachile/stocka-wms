@@ -162,7 +162,7 @@ function procesarEntrada(ss, d, idMaestro) {
 
   // 2. ACTUALIZACIÓN EN TIEMPO REAL EN SUPABASE (NUEVO FLUJO)
   if (idPedido && idPedido !== "N/A") {
-    actualizarPedidoEnSupabase(idPedido, trackingReal, tUrl, lUrl, status, courier, idMaestro);
+    actualizarPedidoEnSupabase(idPedido, trackingReal, tUrl, lUrl, status, courier, idMaestro, d);
   }
 }
 
@@ -271,7 +271,7 @@ function mapEnviameStatusToWms(enviameStatus) {
 /**
  * Envía una solicitud PATCH a la API de Supabase para actualizar los datos del pedido en tiempo real.
  */
-function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId) {
+function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, labelUrl, status, courier, enviameId, rawDeliveryData) {
   if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY" || SUPABASE_SERVICE_ROLE_KEY.indexOf("INGRESA_AQUI") === 0) {
     Logger.log("Supabase desactivado: debes configurar la variable SUPABASE_SERVICE_ROLE_KEY.");
     return;
@@ -334,6 +334,7 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     "label_url": labelUrl || null,
     "courier": courier || null,
     "status": status || null,
+    "raw_payload": rawDeliveryData || null,
     "updated_at": new Date().toISOString()
   };
 

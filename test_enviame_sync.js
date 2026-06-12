@@ -104,7 +104,8 @@ async function testSync() {
     tracking_url: mockEnviameWebhook.tUrl,
     label_url: mockEnviameWebhook.lUrl,
     courier: mockEnviameWebhook.courier,
-    status: mockEnviameWebhook.status
+    status: mockEnviameWebhook.status,
+    raw_payload: mockEnviameWebhook // Simula el payload de Enviame
   };
 
   const { data: upsertedShipments, error: upsertError } = await supabase

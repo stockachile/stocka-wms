@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS enviame_shipments (
   label_url TEXT,
   courier TEXT,
   status TEXT, -- Estado crudo reportado por Enviame
+  raw_payload JSONB, -- Objeto completo recibido de Enviame
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -43,3 +44,6 @@ CREATE POLICY "Clientes ven sus propios envios" ON enviame_shipments
 DROP POLICY IF EXISTS "Admin gestiona todos los envios" ON enviame_shipments;
 CREATE POLICY "Admin gestiona todos los envios" ON enviame_shipments
   FOR ALL USING (is_admin());
+
+-- En caso de que la tabla ya exista, nos aseguramos de añadir la columna raw_payload
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS raw_payload JSONB;
