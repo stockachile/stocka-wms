@@ -161,9 +161,9 @@ function procesarEntrada(ss, d, idMaestro) {
   }
 
   // 2. ACTUALIZACIÓN EN TIEMPO REAL EN SUPABASE (NUEVO FLUJO)
-  if (idPedido && idPedido !== "N/A") {
-    actualizarPedidoEnSupabase(idPedido, trackingReal, tUrl, lUrl, status, courier, idMaestro, d);
-  }
+  // Se envía incondicionalmente para registrar toda la data que nos llega de Enviame
+  var orderIdDb = (idPedido && idPedido !== "N/A") ? idPedido : null;
+  actualizarPedidoEnSupabase(orderIdDb, trackingReal, tUrl, lUrl, status, courier, idMaestro, d);
 }
 
 function buscarNombreVendedorEnDB(ss, sellerId) {
@@ -277,58 +277,11 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     return;
   }
 
-  // 1. Encontrar el order_id (UUID) en la tabla 'orders'
-  var orderIdUuid = null;
-  var isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idPedido.trim());
-
-  if (isUuid) {
-    orderIdUuid = idPedido.trim();
-  } else {
-    // Si no es un UUID, buscamos por external_order_number (Shopify)
-    var lookupUrl = SUPABASE_URL + "/rest/v1/orders?select=id&external_order_number=eq." + encodeURIComponent(idPedido.trim());
-    var lookupOptions = {
-      "method": "GET",
-      "headers": {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY
-      },
-      "muteHttpExceptions": true
-    };
-    
-    try {
-      var lookupResponse = UrlFetchApp.fetch(lookupUrl, lookupOptions);
-      if (lookupResponse.getResponseCode() === 200) {
-        var lookupData = JSON.parse(lookupResponse.getContentText());
-        if (lookupData && lookupData.length > 0) {
-          orderIdUuid = lookupData[0].id;
-        } else {
-          // Reintentar alternando el '#' por si acaso
-          var altId = idPedido.trim();
-          altId = altId.indexOf("#") === 0 ? altId.substring(1) : "#" + altId;
-          var altLookupUrl = SUPABASE_URL + "/rest/v1/orders?select=id&external_order_number=eq." + encodeURIComponent(altId);
-          var altLookupResponse = UrlFetchApp.fetch(altLookupUrl, lookupOptions);
-          if (altLookupResponse.getResponseCode() === 200) {
-            var altLookupData = JSON.parse(altLookupResponse.getContentText());
-            if (altLookupData && altLookupData.length > 0) {
-              orderIdUuid = altLookupData[0].id;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      Logger.log("Error buscando order_id en Supabase: " + e.toString());
-    }
-  }
-
-  if (!orderIdUuid) {
-    Logger.log("No se pudo encontrar un pedido en Supabase con la referencia: " + idPedido + ". Se aborta el registro del envío.");
-    return;
-  }
-
-  // 2. Realizar el UPSERT en la tabla 'enviame_shipments'
+  // Realizar el UPSERT directo en la tabla 'enviame_shipments'
+  // Almacenamos el idPedido de texto (ej: Sag_16101) directamente en la columna order_id sin validaciones cruzadas.
   var payload = {
     "id": enviameId || null,
-    "order_id": orderIdUuid,
+    "order_id": idPedido || null,
     "tracking_number": trackingNumber || null,
     "tracking_url": trackingUrl || null,
     "label_url": labelUrl || null,
@@ -358,5 +311,118 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     Logger.log("Supabase upsert response: [" + responseCode + "] " + responseText);
   } catch (error) {
     Logger.log("Excepción al intentar hacer upsert en Supabase: " + error.toString());
+  }
+}
+
+/**
+ * FUNCIÓN NUEVA: Sincroniza todos los datos históricos existentes en la hoja de Google Sheets
+ * directamente a la tabla enviame_shipments en Supabase.
+ * Úsala para cargar datos históricos de los últimos 30 días o más que ya están en la hoja.
+ */
+function sincronizarHojaASupabase() {
+  if (SUPABASE_SERVICE_ROLE_KEY === "INGRESA_AQUI_TU_SUPABASE_SERVICE_ROLE_KEY" || SUPABASE_SERVICE_ROLE_KEY.indexOf("INGRESA_AQUI") === 0) {
+    Logger.log("Supabase desactivado: debes configurar la variable SUPABASE_SERVICE_ROLE_KEY.");
+    return;
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(NOMBRE_HOJA_DATOS);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    Logger.log("No hay datos para sincronizar.");
+    return;
+  }
+
+  // Obtenemos todos los datos (rango de columnas de A a Q)
+  var range = sheet.getRange(2, 1, lastRow - 1, 17);
+  var data = range.getValues();
+  
+  var payloads = [];
+  var batchSize = 100; // Enviamos en lotes de 100 para no sobrecargar la petición
+
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    
+    // Columnas:
+    // B (index 1) -> idPedido
+    // C (index 2) -> trackingReal
+    // D (index 3) -> status
+    // I (index 8) -> courier
+    // N (index 13) -> tUrl
+    // O (index 14) -> lUrl
+    // Q (index 16) -> idMaestro (PK)
+    
+    var idMaestro = row[16] ? row[16].toString().trim() : "";
+    if (!idMaestro) {
+      // Si no hay idMaestro, usamos el trackingReal o generamos un hash temporal
+      var trackingReal = row[2] ? row[2].toString().trim() : "";
+      if (trackingReal) {
+        idMaestro = trackingReal;
+      } else {
+        continue; // Fila sin identificador válido, omitir
+      }
+    }
+
+    var idPedido = row[1] ? row[1].toString().trim() : "";
+    var trackingReal = row[2] ? row[2].toString().trim() : "";
+    var status = row[3] ? row[3].toString().trim() : "";
+    var courier = row[8] ? row[8].toString().trim() : "";
+    var tUrl = row[13] ? row[13].toString().trim() : "";
+    var lUrl = row[14] ? row[14].toString().trim() : "";
+
+    payloads.push({
+      "id": idMaestro,
+      "order_id": (idPedido && idPedido !== "N/A") ? idPedido : null,
+      "tracking_number": (trackingReal && trackingReal !== "N/A") ? trackingReal : null,
+      "tracking_url": (tUrl && tUrl !== "N/A") ? tUrl : null,
+      "label_url": (lUrl && lUrl !== "N/A") ? lUrl : null,
+      "courier": (courier && courier !== "N/A") ? courier : null,
+      "status": (status && status !== "N/A") ? status : null,
+      "raw_payload": null, // En sincronización masiva de Sheets no tenemos el payload original JSON completo
+      "updated_at": new Date().toISOString()
+    });
+
+    // Enviar lote si alcanza el batchSize
+    if (payloads.length >= batchSize) {
+      enviarLoteASupabase(payloads);
+      payloads = [];
+    }
+  }
+
+  // Enviar remanente
+  if (payloads.length > 0) {
+    enviarLoteASupabase(payloads);
+  }
+
+  Logger.log("Sincronización masiva de Sheets a Supabase completada.");
+}
+
+/**
+ * Función interna para enviar un lote (array) de registros a la tabla rest de Supabase.
+ */
+function enviarLoteASupabase(batchPayloads) {
+  var upsertUrl = SUPABASE_URL + "/rest/v1/enviame_shipments";
+  var upsertOptions = {
+    "method": "POST",
+    "headers": {
+      "apikey": SUPABASE_SERVICE_ROLE_KEY,
+      "Authorization": "Bearer " + SUPABASE_SERVICE_ROLE_KEY,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates, return=minimal"
+    },
+    "payload": JSON.stringify(batchPayloads),
+    "muteHttpExceptions": true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(upsertUrl, upsertOptions);
+    var responseCode = response.getResponseCode();
+    if (responseCode >= 200 && responseCode < 300) {
+      Logger.log("Lote de " + batchPayloads.length + " envíos guardado en Supabase con éxito.");
+    } else {
+      Logger.log("Error al enviar lote: [" + responseCode + "] " + response.getContentText());
+    }
+  } catch (error) {
+    Logger.log("Excepción al intentar hacer upsert por lotes en Supabase: " + error.toString());
   }
 }

@@ -153,19 +153,29 @@ async function renderAdminOrders() {
         status,
         created_at,
         external_order_number,
-        enviame_shipments (
-          tracking_number,
-          tracking_url,
-          label_url,
-          courier,
-          status
-        ),
         profiles (company_name),
         order_items (quantity, products(sku, name))
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+
+    // Obtener los despachos correspondientes de la tabla enviame_shipments
+    let shipments = [];
+    if (orders && orders.length > 0) {
+      const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
+      const orderIds = orders.map(o => o.id);
+      const allRefs = [...orderRefs, ...orderIds];
+
+      const { data: shipData, error: shipError } = await supabase
+        .from('enviame_shipments')
+        .select('*')
+        .in('order_id', allRefs);
+
+      if (!shipError && shipData) {
+        shipments = shipData;
+      }
+    }
 
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
@@ -186,8 +196,14 @@ async function renderAdminOrders() {
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
 
-        if (order.enviame_shipments && order.enviame_shipments.length > 0) {
-          const shipment = order.enviame_shipments[0]; // Tomar el primer despacho
+        // Buscar el envío en el listado cargado
+        const orderShipments = shipments.filter(s => 
+          s.order_id === order.id || 
+          (order.external_order_number && s.order_id === order.external_order_number)
+        );
+
+        if (orderShipments.length > 0) {
+          const shipment = orderShipments[0]; // Tomar el primer despacho
           if (shipment.tracking_number) {
             const courierName = shipment.courier || 'Seguimiento';
             trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
