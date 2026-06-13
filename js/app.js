@@ -824,7 +824,6 @@ async function renderIntegrations() {
       btnSubmit.textContent = 'Confirmar Pedido';
     }
   });
-});
 
 // ==========================================================================
 // Shipments View Rendering & Logic (envios_unificados)
