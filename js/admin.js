@@ -801,11 +801,16 @@ async function renderConsolidatedShipments() {
               typeText = 'Sin Movimiento';
             }
 
-            const originBadges = a.tablas_origen.map(t => {
+            const originBadges = a.tablas_origen.map((t, idx) => {
               const name = t === 'lightdata_envios' ? 'LightData' : t === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
               const color = t === 'lightdata_envios' ? '#3b82f6' : t === 'enviame_shipments' ? '#10b981' : '#8b5cf6';
-              return `<span style="background-color: ${color}15; color: ${color}; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.7rem; font-weight:600; margin-right: 0.25rem;">${name}</span>`;
-            }).join(' ');
+              const rawDate = a.fechas_creacion?.[idx];
+              const dateStr = rawDate ? new Date(rawDate).toLocaleDateString([], {day:'2-digit', month:'2-digit'}) + ' ' + new Date(rawDate).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+              return `<div style="margin-bottom:0.25rem; display:flex; align-items:center; gap:0.5rem; white-space:nowrap;">
+                <span style="background-color: ${color}15; color: ${color}; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.7rem; font-weight:600;">${name}</span>
+                <span style="font-size:0.75rem; color:var(--color-text-muted);">${dateStr}</span>
+              </div>`;
+            }).join('');
 
             let actionButtons = `<button class="btn btn-outline btn-view-pedidos-details" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right:0.25rem; font-weight:600; cursor:pointer;">🔎 Revisar</button>`;
             
