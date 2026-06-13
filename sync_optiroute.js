@@ -185,6 +185,7 @@ async function syncMerchantOrders(integration) {
         // Armar el payload para la tabla dedicada 'optiroute_orders'
         const upsertPayload = {
           id: String(optiOrder.id),
+          referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
           empresa_comercio_proveedor: integration.profiles?.company_name || 'STOCKA',
           tracking: optiOrder.tracking ? optiOrder.tracking.trim() : null,
           tracking_url: optiOrder.tracking_url ? optiOrder.tracking_url.trim() : null,

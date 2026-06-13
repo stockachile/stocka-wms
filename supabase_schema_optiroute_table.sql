@@ -6,6 +6,7 @@ DROP TABLE IF EXISTS optiroute_orders;
 
 CREATE TABLE optiroute_orders (
   id TEXT PRIMARY KEY,                           -- ID único de la orden en Optiroute
+  referencia TEXT,                               -- ID de referencia provisto por el usuario (external reference)
   empresa_comercio_proveedor TEXT,               -- Nombre de la empresa, comercio o proveedor (company_name)
   tracking TEXT,                                 -- Código de seguimiento
   tracking_url TEXT,                             -- URL del portal de seguimiento
