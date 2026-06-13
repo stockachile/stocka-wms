@@ -1,6 +1,9 @@
 -- WMS STOCKA - Supabase Schema Phase 5: Agregar fechas de creación en la vista de alertas
 -- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
 
+-- Eliminamos la vista anterior primero para evitar error de incompatibilidad de columnas
+DROP VIEW IF EXISTS envios_alertas_admin;
+
 CREATE OR REPLACE VIEW envios_alertas_admin AS
 WITH stats_por_pedido AS (
   SELECT
