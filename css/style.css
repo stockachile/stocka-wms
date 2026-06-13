@@ -244,3 +244,356 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid #a7f3d0;
   display: block;
 }
+
+/* ==========================================================================
+   Shipments View Components & Layout
+   ========================================================================== */
+
+/* KPIs and Stats */
+.shipments-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.shipments-kpi-card {
+  background: var(--color-light);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.shipments-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.shipments-kpi-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background-color: var(--color-gray);
+}
+
+.shipments-kpi-card.kpi-total::after { background-color: var(--color-accent); }
+.shipments-kpi-card.kpi-despachado::after { background-color: #10b981; }
+.shipments-kpi-card.kpi-sin-movimiento::after { background-color: #f59e0b; }
+.shipments-kpi-card.kpi-alerta::after { background-color: #ef4444; }
+
+.kpi-icon {
+  font-size: 2rem;
+  padding: 0.5rem;
+  border-radius: var(--radius-md);
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+}
+
+.kpi-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.kpi-label {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.kpi-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-dark);
+  line-height: 1.2;
+}
+
+/* Filters Panel */
+.shipments-filters-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  background: var(--color-light);
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.filter-item {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+}
+
+.filter-item-search {
+  flex: 2;
+  min-width: 260px;
+}
+
+.filter-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 0.375rem;
+  text-transform: uppercase;
+}
+
+.filter-input {
+  height: 38px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-size: 0.875rem;
+  color: var(--color-text-main);
+  background-color: var(--color-light);
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.btn-filter-action {
+  height: 38px;
+  padding: 0 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-export {
+  background-color: #10b981;
+  color: white;
+  box-shadow: var(--shadow-sm);
+  border: none;
+}
+
+.btn-export:hover {
+  background-color: #059669;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Shipment Table Interaction */
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background-color: rgba(94, 23, 235, 0.04) !important; /* light purple highlight */
+}
+
+/* Headers sorting indicators */
+.sortable-header {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-right: 1.5rem !important;
+  transition: background-color 0.2s ease;
+}
+
+.sortable-header:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.sort-indicator {
+  position: absolute;
+  right: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+
+.sortable-header:hover .sort-indicator {
+  opacity: 0.8;
+}
+
+/* Modal Details and Stepper */
+.shipment-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .shipment-detail-grid {
+    grid-template-columns: 3fr 2fr;
+  }
+}
+
+.shipment-detail-section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+  background-color: var(--color-bg);
+}
+
+.shipment-detail-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-dark);
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.detail-info-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  font-size: 0.875rem;
+  border-bottom: 1px dashed rgba(0,0,0,0.05);
+  padding-bottom: 0.375rem;
+}
+
+.detail-info-row:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.detail-info-label {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.detail-info-value {
+  font-weight: 600;
+  color: var(--color-text-main);
+  text-align: right;
+  max-width: 60%;
+  word-break: break-word;
+}
+
+/* Timeline/Stepper Component */
+.timeline-stepper {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  margin: 1.5rem 0 2rem 0;
+  padding: 0 1rem;
+}
+
+.timeline-stepper::before {
+  content: '';
+  position: absolute;
+  top: 15px;
+  left: 2rem;
+  right: 2rem;
+  height: 4px;
+  background-color: var(--color-border);
+  z-index: 1;
+}
+
+.timeline-progress-bar {
+  position: absolute;
+  top: 15px;
+  left: 2rem;
+  height: 4px;
+  background-color: var(--color-accent);
+  z-index: 2;
+  transition: width 0.5s ease;
+  width: 0%;
+}
+
+.timeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  z-index: 3;
+  width: 80px;
+}
+
+.timeline-bubble {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-light);
+  border: 3px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  transition: all 0.3s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.timeline-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-top: 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Active and completed stepper states */
+.timeline-step.completed .timeline-bubble {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent);
+  color: var(--color-light);
+}
+
+.timeline-step.completed .timeline-label {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.timeline-step.active .timeline-bubble {
+  border-color: var(--color-accent);
+  background-color: var(--color-light);
+  color: var(--color-accent);
+  transform: scale(1.15);
+  box-shadow: 0 0 10px rgba(94, 23, 235, 0.2);
+}
+
+.timeline-step.active .timeline-label {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.timeline-step.warning .timeline-bubble {
+  border-color: #ef4444;
+  background-color: #ef4444;
+  color: var(--color-light);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+}
+
+.timeline-step.warning .timeline-label {
+  color: #ef4444;
+  font-weight: 700;
+}
+

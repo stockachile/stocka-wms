@@ -65,7 +65,6 @@ async function init() {
           e.target.classList.add('active');
 
           const view = e.target.getAttribute('data-view');
-          console.log('DEBUG: Navegando a vista:', view);
           
           if (view === 'inventory') {
             viewTitle.textContent = 'Inventario';
@@ -73,6 +72,9 @@ async function init() {
           } else if (view === 'orders') {
             viewTitle.textContent = 'Pedidos';
             renderOrders();
+          } else if (view === 'shipments') {
+            viewTitle.textContent = 'Despachos';
+            renderShipments();
           } else if (view === 'movements') {
             viewTitle.textContent = 'Movimientos';
             renderMovements();
@@ -822,3 +824,731 @@ async function renderIntegrations() {
       btnSubmit.textContent = 'Confirmar Pedido';
     }
   });
+});
+
+// ==========================================================================
+// Shipments View Rendering & Logic (envios_unificados)
+// ==========================================================================
+
+async function renderShipments() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
+
+  try {
+    console.log('DEBUG: Cargando envíos consolidados de envios_unificados...');
+    const { data: shipments, error } = await supabase
+      .from('envios_unificados')
+      .select('*')
+      .eq('visible_to_client', true);
+
+    if (error) throw error;
+
+    let allData = shipments || [];
+    let filters = {
+      search: '',
+      status: '',
+      courier: '',
+      dateFrom: '',
+      dateTo: ''
+    };
+    let sort = {
+      field: 'created_at',
+      asc: false
+    };
+
+    // Render basic page wrapper with KPI grid, filters layout, and table skeleton
+    appContent.innerHTML = `
+      <div style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Resumen de Despachos</h2>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+          Visualiza y gestiona la información consolidada de todos tus envíos. Haz clic en un pedido para ver el detalle completo y el estado del tránsito.
+        </p>
+      </div>
+
+      <!-- KPI Grid -->
+      <div class="shipments-kpi-grid">
+        <div class="shipments-kpi-card kpi-total">
+          <div class="kpi-icon">📦</div>
+          <div class="kpi-info">
+            <span class="kpi-label">Total Envíos</span>
+            <span class="kpi-value" id="kpi-total-val">0</span>
+          </div>
+        </div>
+        <div class="shipments-kpi-card kpi-despachado">
+          <div class="kpi-icon">🚚</div>
+          <div class="kpi-info">
+            <span class="kpi-label">Despachados</span>
+            <span class="kpi-value" id="kpi-despachado-val">0</span>
+          </div>
+        </div>
+        <div class="shipments-kpi-card kpi-sin-movimiento">
+          <div class="kpi-icon">⏳</div>
+          <div class="kpi-info">
+            <span class="kpi-label">Sin Movimiento</span>
+            <span class="kpi-value" id="kpi-sin-movimiento-val">0</span>
+          </div>
+        </div>
+        <div class="shipments-kpi-card kpi-alerta">
+          <div class="kpi-icon">⚠️</div>
+          <div class="kpi-info">
+            <span class="kpi-label">Alertas</span>
+            <span class="kpi-value" id="kpi-alerta-val">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters Panel -->
+      <div class="shipments-filters-panel">
+        <div class="filter-item filter-item-search">
+          <label class="filter-label">Buscar</label>
+          <input type="text" id="ship-search-input" class="filter-input" placeholder="Referencia, destinatario, tracking, comuna...">
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">Estado Global</label>
+          <select id="ship-status-select" class="filter-input">
+            <option value="">Todos los estados</option>
+            <option value="DESPACHADO">Despachado</option>
+            <option value="SIN MOVIMIENTO">Sin Movimiento</option>
+            <option value="ALERTA">Alerta</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">Courier</label>
+          <select id="ship-courier-select" class="filter-input">
+            <option value="">Todos los couriers</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">Desde</label>
+          <input type="date" id="ship-date-from" class="filter-input">
+        </div>
+        <div class="filter-item">
+          <label class="filter-label">Hasta</label>
+          <input type="date" id="ship-date-to" class="filter-input">
+        </div>
+        <button id="ship-btn-export" class="btn-filter-action btn-export" style="border:none;">
+          <span>📥</span> Exportar Excel
+        </button>
+      </div>
+
+      <!-- Table Card -->
+      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+        <div class="card-body" style="padding: 0; overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th class="sortable-header" data-sort="pedido_referencia">Referencia <span class="sort-indicator">⇅</span></th>
+                <th class="sortable-header" data-sort="created_at" style="color: var(--color-accent);">Fecha <span class="sort-indicator">▼</span></th>
+                <th class="sortable-header" data-sort="nombre_destinatario">Destinatario <span class="sort-indicator">⇅</span></th>
+                <th class="sortable-header" data-sort="comuna_destino">Comuna <span class="sort-indicator">⇅</span></th>
+                <th class="sortable-header" data-sort="courier">Courier <span class="sort-indicator">⇅</span></th>
+                <th>Tracking</th>
+                <th class="sortable-header" data-sort="global_status">Estado Global <span class="sort-indicator">⇅</span></th>
+                <th>Origen</th>
+              </tr>
+            </thead>
+            <tbody id="shipments-table-body">
+              <!-- Injected by applyFiltersAndRenderTable -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // Populate Courier Options dynamically from data
+    const courierSelect = document.getElementById('ship-courier-select');
+    const couriers = [...new Set(allData.map(s => s.courier).filter(Boolean))].sort();
+    couriers.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      courierSelect.appendChild(opt);
+    });
+
+    // Filtering, sorting and rendering implementation
+    const applyFiltersAndRenderTable = () => {
+      let filtered = allData.filter(s => {
+        // 1. Text search filter
+        if (filters.search) {
+          const query = filters.search.toLowerCase();
+          const ref = (s.pedido_referencia || '').toLowerCase();
+          const dest = (s.nombre_destinatario || '').toLowerCase();
+          const tracking = (s.tracking || '').toLowerCase();
+          const courier = (s.courier || '').toLowerCase();
+          const commune = (s.comuna_destino || '').toLowerCase();
+          const dir = (s.direccion_destino || '').toLowerCase();
+          
+          if (!ref.includes(query) && 
+              !dest.includes(query) && 
+              !tracking.includes(query) && 
+              !courier.includes(query) && 
+              !commune.includes(query) && 
+              !dir.includes(query)) {
+            return false;
+          }
+        }
+
+        // 2. Global status filter
+        if (filters.status && s.global_status !== filters.status) {
+          return false;
+        }
+
+        // 3. Courier filter
+        if (filters.courier && s.courier !== filters.courier) {
+          return false;
+        }
+
+        // 4. Date range filter
+        if (s.created_at) {
+          const itemDate = new Date(s.created_at);
+          if (filters.dateFrom) {
+            const fromDate = new Date(filters.dateFrom + 'T00:00:00');
+            if (itemDate < fromDate) return false;
+          }
+          if (filters.dateTo) {
+            const toDate = new Date(filters.dateTo + 'T23:59:59');
+            if (itemDate > toDate) return false;
+          }
+        } else if (filters.dateFrom || filters.dateTo) {
+          return false;
+        }
+
+        return true;
+      });
+
+      // Sort dataset in-memory
+      filtered.sort((a, b) => {
+        let valA = a[sort.field] || '';
+        let valB = b[sort.field] || '';
+
+        if (sort.field === 'created_at') {
+          valA = valA ? new Date(valA).getTime() : 0;
+          valB = valB ? new Date(valB).getTime() : 0;
+        } else {
+          valA = valA.toString().toLowerCase();
+          valB = valB.toString().toLowerCase();
+        }
+
+        if (valA < valB) return sort.asc ? -1 : 1;
+        if (valA > valB) return sort.asc ? 1 : -1;
+        return 0;
+      });
+
+      // Update Top KPIs
+      const totalCount = allData.length;
+      const totalDespachado = allData.filter(s => s.global_status === 'DESPACHADO').length;
+      const totalSinMov = allData.filter(s => s.global_status === 'SIN MOVIMIENTO').length;
+      const totalAlerta = allData.filter(s => s.global_status === 'ALERTA').length;
+
+      document.getElementById('kpi-total-val').textContent = totalCount;
+      document.getElementById('kpi-despachado-val').textContent = totalDespachado;
+      document.getElementById('kpi-sin-movimiento-val').textContent = totalSinMov;
+      document.getElementById('kpi-alerta-val').textContent = totalAlerta;
+
+      // Render Table Rows
+      const tbody = document.getElementById('shipments-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">No se encontraron despachos con los filtros aplicados.</td></tr>`;
+        return;
+      }
+
+      let rowsHtml = '';
+      filtered.forEach(s => {
+        const dateObj = s.created_at ? new Date(s.created_at) : null;
+        const dateStr = dateObj ? dateObj.toLocaleDateString() : '-';
+        
+        let badgeBg = '#f3f4f6';
+        let badgeColor = '#374151';
+        if (s.global_status === 'DESPACHADO') {
+          badgeBg = '#d1fae5';
+          badgeColor = '#065f46';
+        } else if (s.global_status === 'SIN MOVIMIENTO') {
+          badgeBg = '#fef3c7';
+          badgeColor = '#92400e';
+        } else if (s.global_status === 'ALERTA') {
+          badgeBg = '#fee2e2';
+          badgeColor = '#991b1b';
+        }
+
+        const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
+          : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+        
+        const platformColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
+          : s.source_table === 'enviame_shipments' ? '#10b981' : '#8b5cf6';
+
+        const trackingDisplay = s.tracking
+          ? (s.tracking_url && s.tracking_url !== 'N/A'
+              ? `<a href="${s.tracking_url}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;">🔗 ${s.tracking}</a>`
+              : s.tracking)
+          : '-';
+
+        rowsHtml += `
+          <tr class="clickable-row" data-id="${s.id}">
+            <td><strong>${s.pedido_referencia || '-'}</strong></td>
+            <td style="font-weight: 500;">${dateStr}</td>
+            <td>
+              <div style="font-weight:600;">${s.nombre_destinatario || '-'}</div>
+              <div style="font-size:0.75rem; color:var(--color-text-muted);">${s.telefono_destino || ''}</div>
+            </td>
+            <td>${s.comuna_destino || '-'}</td>
+            <td><span style="font-weight:500;">${s.courier || '-'}</span></td>
+            <td>${trackingDisplay}</td>
+            <td>
+              <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 0.25rem 0.5rem; text-transform: capitalize;">
+                ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
+              </span>
+            </td>
+            <td>
+              <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+                ${platformBadge}
+              </span>
+            </td>
+          </tr>
+        `;
+      });
+
+      tbody.innerHTML = rowsHtml;
+
+      // Event listeners for details modal
+      tbody.querySelectorAll('.clickable-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const id = row.getAttribute('data-id');
+          const shipment = allData.find(x => x.id === id);
+          if (shipment) {
+            showShipmentDetailsModal(shipment);
+          }
+        });
+      });
+    };
+
+    // Bind filters event listeners
+    document.getElementById('ship-search-input').addEventListener('input', (e) => {
+      filters.search = e.target.value;
+      applyFiltersAndRenderTable();
+    });
+
+    document.getElementById('ship-status-select').addEventListener('change', (e) => {
+      filters.status = e.target.value;
+      applyFiltersAndRenderTable();
+    });
+
+    document.getElementById('ship-courier-select').addEventListener('change', (e) => {
+      filters.courier = e.target.value;
+      applyFiltersAndRenderTable();
+    });
+
+    document.getElementById('ship-date-from').addEventListener('change', (e) => {
+      filters.dateFrom = e.target.value;
+      applyFiltersAndRenderTable();
+    });
+
+    document.getElementById('ship-date-to').addEventListener('change', (e) => {
+      filters.dateTo = e.target.value;
+      applyFiltersAndRenderTable();
+    });
+
+    // Excel Export CSV logic
+    document.getElementById('ship-btn-export').addEventListener('click', () => {
+      let filtered = allData.filter(s => {
+        if (filters.search) {
+          const query = filters.search.toLowerCase();
+          const ref = (s.pedido_referencia || '').toLowerCase();
+          const dest = (s.nombre_destinatario || '').toLowerCase();
+          const tracking = (s.tracking || '').toLowerCase();
+          const courier = (s.courier || '').toLowerCase();
+          const commune = (s.comuna_destino || '').toLowerCase();
+          const dir = (s.direccion_destino || '').toLowerCase();
+          if (!ref.includes(query) && !dest.includes(query) && !tracking.includes(query) && !courier.includes(query) && !commune.includes(query) && !dir.includes(query)) return false;
+        }
+        if (filters.status && s.global_status !== filters.status) return false;
+        if (filters.courier && s.courier !== filters.courier) return false;
+        if (s.created_at) {
+          const itemDate = new Date(s.created_at);
+          if (filters.dateFrom) {
+            const fromDate = new Date(filters.dateFrom + 'T00:00:00');
+            if (itemDate < fromDate) return false;
+          }
+          if (filters.dateTo) {
+            const toDate = new Date(filters.dateTo + 'T23:59:59');
+            if (itemDate > toDate) return false;
+          }
+        } else if (filters.dateFrom || filters.dateTo) {
+          return false;
+        }
+        return true;
+      });
+
+      // Headers and data mapping
+      const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
+      const rows = filtered.map(s => {
+        const platformName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+        const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
+        return [
+          s.pedido_referencia || '',
+          platformName,
+          s.courier || '',
+          s.tracking || '',
+          s.nombre_destinatario || '',
+          `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
+          s.comuna_destino || '',
+          s.global_status || '',
+          s.status || '',
+          dateStr
+        ];
+      });
+
+      // Built UTF-8 CSV with BOM for Excel Spanish compatibility
+      const csvContent = "\ufeff" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `despachos_stocka_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
+
+    // Sorting headers listeners
+    const sortHeaders = appContent.querySelectorAll('.sortable-header');
+    sortHeaders.forEach(th => {
+      th.addEventListener('click', () => {
+        const field = th.getAttribute('data-sort');
+        if (sort.field === field) {
+          sort.asc = !sort.asc;
+        } else {
+          sort.field = field;
+          sort.asc = true;
+        }
+
+        // Update indicators
+        sortHeaders.forEach(h => {
+          const indicator = h.querySelector('.sort-indicator');
+          if (h.getAttribute('data-sort') === sort.field) {
+            indicator.textContent = sort.asc ? '▲' : '▼';
+            h.style.color = 'var(--color-accent)';
+          } else {
+            indicator.textContent = '⇅';
+            h.style.color = 'var(--color-text-muted)';
+          }
+        });
+
+        applyFiltersAndRenderTable();
+      });
+    });
+
+    // Initial table render
+    applyFiltersAndRenderTable();
+
+  } catch (err) {
+    console.error('Error rendering shipments:', err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los despachos: ${err.message}</p>`;
+  }
+}
+
+function showShipmentDetailsModal(shipment) {
+  let modal = document.getElementById('modal-shipment-detail');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-shipment-detail';
+  modal.className = 'modal-overlay active';
+  
+  const dateObj = shipment.created_at ? new Date(shipment.created_at) : null;
+  const dateStr = dateObj ? dateObj.toLocaleString() : '-';
+  const updatedObj = shipment.updated_at ? new Date(shipment.updated_at) : null;
+  const updatedStr = updatedObj ? updatedObj.toLocaleString() : '-';
+
+  const platformBadge = shipment.source_table === 'lightdata_envios' ? 'LightData' 
+    : shipment.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+
+  // Calculate timeline stepper progress
+  let step1Class = 'completed';
+  let step2Class = '';
+  let step3Class = '';
+  let progressBarWidth = '0%';
+
+  const gs = shipment.global_status;
+  const rawStatus = (shipment.status || '').toLowerCase();
+
+  const isDelivered = (gs === 'DESPACHADO') && (
+    rawStatus.includes('entregado') || 
+    rawStatus.includes('delivered') || 
+    rawStatus.includes('nadie') || 
+    rawStatus.includes('exito')
+  );
+
+  if (gs === 'DESPACHADO') {
+    step2Class = 'completed';
+    progressBarWidth = '50%';
+    if (isDelivered) {
+      step3Class = 'completed';
+      progressBarWidth = '100%';
+    } else {
+      step2Class = 'active'; // Transit state
+    }
+  } else if (gs === 'SIN MOVIMIENTO') {
+    step1Class = 'active';
+    progressBarWidth = '0%';
+  } else if (gs === 'ALERTA') {
+    step2Class = 'warning';
+    progressBarWidth = '50%';
+  }
+
+  // Stepper timeline
+  const stepperHtml = `
+    <div class="timeline-stepper">
+      <div class="timeline-progress-bar" style="width: ${progressBarWidth};"></div>
+      <div class="timeline-step ${step1Class}">
+        <div class="timeline-bubble">1</div>
+        <div class="timeline-label">Creado</div>
+      </div>
+      <div class="timeline-step ${step2Class}">
+        <div class="timeline-bubble">${gs === 'ALERTA' ? '⚠️' : '2'}</div>
+        <div class="timeline-label">${gs === 'ALERTA' ? 'Incidencia' : 'En Tránsito'}</div>
+      </div>
+      <div class="timeline-step ${step3Class}">
+        <div class="timeline-bubble">3</div>
+        <div class="timeline-label">Entregado</div>
+      </div>
+    </div>
+  `;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px; width: 90%; max-height: 90vh; display: flex; flex-direction: column; border:none; box-shadow: var(--shadow-lg);">
+      <div class="modal-header" style="background-color: var(--color-bg); padding: 1.25rem 1.5rem;">
+        <h3 style="font-weight: 700; color: var(--color-dark);">Detalle de Despacho: ${shipment.pedido_referencia || 'Sin Referencia'}</h3>
+        <button class="modal-close" id="btn-close-shipment-modal" style="background:none; border:none; font-size:1.75rem; cursor:pointer;">&times;</button>
+      </div>
+      
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem; background-color: var(--color-light);">
+        
+        <!-- Graphic Tracking Progress Timeline -->
+        ${stepperHtml}
+
+        <div class="shipment-detail-grid">
+          
+          <!-- Left Column: Logistics Info and Destination Info -->
+          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            
+            <!-- Logistics section -->
+            <div class="shipment-detail-section">
+              <h4 class="shipment-detail-title">Información de Logística</h4>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Proveedor de Integración:</span>
+                <span class="detail-info-value" style="background-color:var(--color-border); padding:0.1rem 0.4rem; border-radius:4px; font-size:0.75rem; font-weight:600;">${platformBadge}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Courier de Envío:</span>
+                <span class="detail-info-value" style="font-weight:700;">${shipment.courier || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Código de Tracking:</span>
+                <span class="detail-info-value">
+                  ${shipment.tracking 
+                    ? (shipment.tracking_url && shipment.tracking_url !== 'N/A'
+                        ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);">🔗 ${shipment.tracking}</a>`
+                        : `<span style="font-weight:700;">${shipment.tracking}</span>`)
+                    : '-'}
+                </span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Tipo de Servicio:</span>
+                <span class="detail-info-value">${shipment.servicio_tipo_envio || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Estado Logístico Original:</span>
+                <span class="detail-info-value" style="text-transform: capitalize; color: var(--color-accent); font-weight:600;">${shipment.status || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Ingresado al Sistema:</span>
+                <span class="detail-info-value" style="font-size:0.8rem;">${dateStr}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Última Actualización:</span>
+                <span class="detail-info-value" style="font-size:0.8rem;">${updatedStr}</span>
+              </div>
+            </div>
+
+            <!-- Destination section -->
+            <div class="shipment-detail-section">
+              <h4 class="shipment-detail-title">Información del Cliente / Entrega</h4>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Destinatario:</span>
+                <span class="detail-info-value" style="font-weight:700;">${shipment.nombre_destinatario || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Dirección de Despacho:</span>
+                <span class="detail-info-value">${shipment.direccion_destino || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Depto / Ofic / Casa:</span>
+                <span class="detail-info-value">${shipment.complemento_destino || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Comuna / Región:</span>
+                <span class="detail-info-value" style="font-weight:700;">${shipment.comuna_destino || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Teléfono móvil:</span>
+                <span class="detail-info-value">${shipment.telefono_destino || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Correo electrónico:</span>
+                <span class="detail-info-value">${shipment.email_cliente_destino || '-'}</span>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Right Column: Associated WMS Order Items -->
+          <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+            <div class="shipment-detail-section" style="height: 100%; display: flex; flex-direction: column;">
+              <h4 class="shipment-detail-title">Productos en la Orden de Venta</h4>
+              <div id="order-details-loading" style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted); font-size:0.875rem; flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
+                <div style="margin-bottom:0.5rem; font-size:1.5rem;">🔄</div>
+                Buscando orden de venta en WMS...
+              </div>
+              <div id="order-details-content" style="display: none; flex:1;">
+                <!-- Dynamically filled by fetchAndRenderAssociatedOrder -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      
+      <div class="modal-footer" style="background-color: var(--color-bg); padding: 1rem 1.5rem;">
+        <button class="btn btn-outline" id="btn-close-shipment-footer" style="padding: 0.5rem 1.5rem; font-size: 0.875rem; font-weight:600;">Cerrar Ventana</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Close handlers
+  const closeModal = () => modal.remove();
+  document.getElementById('btn-close-shipment-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-close-shipment-footer').addEventListener('click', closeModal);
+
+  // Load WMS orders mapping asynchronously
+  fetchAndRenderAssociatedOrder(shipment.pedido_referencia);
+}
+
+async function fetchAndRenderAssociatedOrder(pedidoRef) {
+  const loadingEl = document.getElementById('order-details-loading');
+  const contentEl = document.getElementById('order-details-content');
+  
+  if (!pedidoRef) {
+    loadingEl.innerHTML = `
+      <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">🔎</span>
+      No existe una referencia de pedido válida vinculada a este despacho.
+    `;
+    return;
+  }
+
+  try {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(pedidoRef);
+    let query = supabase
+      .from('orders')
+      .select(`
+        id,
+        status,
+        created_at,
+        order_items (
+          quantity,
+          products (sku, name)
+        )
+      `);
+
+    if (isUuid) {
+      query = query.or(`external_order_number.eq."${pedidoRef}",id.eq."${pedidoRef}"`);
+    } else {
+      query = query.eq('external_order_number', pedidoRef);
+    }
+
+    const { data: orders, error } = await query;
+
+    if (error) throw error;
+
+    if (!orders || orders.length === 0) {
+      loadingEl.innerHTML = `
+        <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">🔍</span>
+        Este despacho no está asociado a una Orden de Venta local de WMS STOCKA.
+        <br><br>
+        <span style="font-size: 0.75rem; display: block; font-weight: normal; color: var(--color-text-muted); line-height: 1.4;">
+          El envío fue consolidado directamente desde las plataformas logísticas externas (LightData, Enviame o Optiroute).
+        </span>
+      `;
+      return;
+    }
+
+    const order = orders[0];
+    const items = order.order_items || [];
+    
+    let itemsHtml = '';
+    if (items.length === 0) {
+      itemsHtml = '<p style="color: var(--color-text-muted); font-size: 0.85rem; padding:1rem; text-align:center;">No hay productos registrados en este pedido.</p>';
+    } else {
+      itemsHtml = `
+        <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+          <table class="data-table" style="width: 100%; font-size: 0.8rem; margin:0;">
+            <thead>
+              <tr style="background-color: var(--color-bg);">
+                <th style="padding: 0.5rem 0.75rem; font-size:0.7rem;">SKU / Producto</th>
+                <th style="padding: 0.5rem 0.75rem; text-align: center; width:60px; font-size:0.7rem;">Cant</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map(item => `
+                <tr>
+                  <td style="padding: 0.5rem 0.75rem;">
+                    <span style="font-weight: 700; display: block; color: var(--color-dark);">${item.products ? item.products.sku : '-'}</span>
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.products ? item.products.name : 'Desconocido'}</span>
+                  </td>
+                  <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 700; color: var(--color-accent); font-size:0.875rem;">${item.quantity}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    const orderDateStr = order.created_at ? new Date(order.created_at).toLocaleDateString() : '-';
+
+    contentEl.innerHTML = `
+      <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border:1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.825rem;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+          <span style="color: var(--color-text-muted); font-weight:500;">ID de Pedido:</span>
+          <span style="font-weight:700; color: var(--color-dark);">${order.id.split('-')[0]}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+          <span style="color: var(--color-text-muted); font-weight:500;">Fecha de Creación:</span>
+          <span style="font-weight:600;">${orderDateStr}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="color: var(--color-text-muted); font-weight:500;">Estado del WMS:</span>
+          <span style="background-color: #d1fae5; color: #065f46; padding: 0.2rem 0.5rem; border-radius: 99px; font-size: 0.7rem; font-weight:700; text-transform:capitalize;">
+            ${order.status}
+          </span>
+        </div>
+      </div>
+      
+      <div>
+        <h5 style="font-size: 0.75rem; font-weight: 700; margin-bottom: 0.5rem; text-transform: uppercase; color: var(--color-text-muted); letter-spacing:0.02em;">Artículos Solicitados</h5>
+        ${itemsHtml}
+      </div>
+    `;
+
+    loadingEl.style.display = 'none';
+    contentEl.style.display = 'block';
+
+  } catch (err) {
+    console.error('Error fetching associated order details:', err);
+    loadingEl.innerHTML = `
+      <span style="color: red; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">⚠️</span>
+      Error al cargar los detalles del pedido asociado en la base de datos.
+    `;
+  }
+}
