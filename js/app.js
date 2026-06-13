@@ -343,7 +343,18 @@ async function renderOrders() {
       rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
     } else {
       orders.forEach(order => {
-        const dateObj = new Date(order.created_at);
+        // Buscar el envío en el listado cargado
+        const orderShipments = shipments.filter(s => 
+          s.pedido_referencia === order.id || 
+          (order.external_order_number && s.pedido_referencia === order.external_order_number)
+        );
+
+        // Usar la fecha del envío (plataforma) si existe, de lo contrario la nativa de la orden
+        const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
+          ? orderShipments[0].created_at 
+          : order.created_at;
+
+        const dateObj = new Date(dateSource);
         const dateStr = dateObj.toLocaleDateString();
         
         let badgeColor = 'var(--color-gray)';
@@ -376,12 +387,6 @@ async function renderOrders() {
 
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-
-        // Buscar el envío en el listado cargado
-        const orderShipments = shipments.filter(s => 
-          s.pedido_referencia === order.id || 
-          (order.external_order_number && s.pedido_referencia === order.external_order_number)
-        );
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
