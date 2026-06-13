@@ -173,7 +173,8 @@ async function renderAdminOrders() {
       const { data: shipData, error: shipError } = await supabase
         .from('envios_unificados')
         .select('*')
-        .in('pedido_referencia', allRefs);
+        .in('pedido_referencia', allRefs)
+        .eq('visible_to_client', true);
 
       if (!shipError && shipData) {
         shipments = shipData;
@@ -546,6 +547,126 @@ async function renderConsolidatedShipments() {
   let activeTab = 'all'; // 'all', 'multi', 'no_movement'
   let searchTerm = '';
 
+  const openResolutionModal = async (ref, type) => {
+    try {
+      const { data: shipments, error } = await supabase
+        .from('envios_unificados')
+        .select('id, source_table, tracking, courier, status')
+        .eq('pedido_referencia', ref)
+        .eq('global_status', 'DESPACHADO');
+
+      if (error) throw error;
+      if (!shipments || shipments.length === 0) {
+        alert('No se encontraron despachos asociados a esta alerta para resolver.');
+        return;
+      }
+
+      let modal = document.getElementById('modal-resolve-alert');
+      if (modal) modal.remove();
+
+      modal = document.createElement('div');
+      modal.id = 'modal-resolve-alert';
+      modal.style.position = 'fixed';
+      modal.style.top = '0';
+      modal.style.left = '0';
+      modal.style.width = '100%';
+      modal.style.height = '100%';
+      modal.style.backgroundColor = 'rgba(0,0,0,0.5)';
+      modal.style.display = 'flex';
+      modal.style.justifyContent = 'center';
+      modal.style.alignItems = 'center';
+      modal.style.zIndex = '9999';
+      modal.style.backdropFilter = 'blur(4px)';
+
+      const title = type === 'discard' ? 'Descartar Alerta (Seleccionar Prevalente)' : 'Confirmar Problema (Ocultar Duplicados)';
+      const description = type === 'discard' 
+        ? `Esta acción marcará el problema como resuelto para el pedido <strong>${ref}</strong>. Todos los envíos continuarán siendo visibles para el cliente en su panel. Selecciona el despacho que prevalece logísticamente:`
+        : `Esta acción marcará el problema como resuelto y ocultará de la vista del cliente los envíos duplicados incorrectos para el pedido <strong>${ref}</strong>. Selecciona el único despacho que debe mantenerse visible para el cliente:`;
+
+      const optionsHtml = shipments.map(s => {
+        const sourceName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+        return `<option value="${s.id}">${sourceName} - ${s.courier || 'N/A'} (Tracking: ${s.tracking || 'N/A'}) - Estado original: ${s.status}</option>`;
+      }).join('');
+
+      modal.innerHTML = `
+        <div style="background:#ffffff; padding:2rem; border-radius:12px; width:90%; max-width:550px; box-shadow:var(--shadow-lg); border: 1px solid var(--color-border);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+            <h3 style="margin:0; font-size:1.25rem; font-weight:700; color:var(--color-dark);">${title}</h3>
+            <button id="btn-close-resolve-modal" style="background:none; border:none; font-size:1.5rem; cursor:pointer; color:var(--color-text-muted);">&times;</button>
+          </div>
+          <div style="margin-bottom:1.5rem;">
+            <p style="margin:0 0 1.25rem 0; font-size:0.9rem; color:var(--color-text-muted); line-height:1.5;">${description}</p>
+            <div class="form-group" style="margin:0;">
+              <label class="form-label" style="font-weight:600; margin-bottom:0.5rem; display:block;">Seleccionar Despacho:</label>
+              <select id="resolve-shipment-select" class="form-input" style="width:100%; padding:0.5rem; border-radius:6px; font-weight:500;">
+                ${optionsHtml}
+              </select>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:0.75rem; border-top: 1px solid var(--color-border); padding-top:1.25rem;">
+            <button class="btn btn-outline" id="btn-cancel-resolve" style="padding:0.5rem 1rem; border-radius:6px; cursor:pointer;">Cancelar</button>
+            <button class="btn btn-primary" id="btn-confirm-resolve" style="background:var(--color-accent); color:#ffffff; border:none; padding:0.5rem 1rem; border-radius:6px; font-weight:600; cursor:pointer;">Confirmar Resolución</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const closeModal = () => modal.remove();
+      modal.querySelector('#btn-close-resolve-modal').addEventListener('click', closeModal);
+      modal.querySelector('#btn-cancel-resolve').addEventListener('click', closeModal);
+
+      modal.querySelector('#btn-confirm-resolve').addEventListener('click', async () => {
+        const selectedId = modal.querySelector('#resolve-shipment-select').value;
+        const confirmBtn = modal.querySelector('#btn-confirm-resolve');
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Procesando...';
+
+        try {
+          if (type === 'discard') {
+            // Discard: mark all shipments of this order as resolved and visible to client
+            const { error: updErr } = await supabase
+              .from('envios_unificados')
+              .update({ is_resolved: true, visible_to_client: true })
+              .eq('pedido_referencia', ref);
+
+            if (updErr) throw updErr;
+          } else {
+            // Confirm: mark all as resolved. The selected one remains visible to client, other hidden.
+            // First mark all as resolved and hidden from client
+            const { error: updAllErr } = await supabase
+              .from('envios_unificados')
+              .update({ is_resolved: true, visible_to_client: false })
+              .eq('pedido_referencia', ref);
+
+            if (updAllErr) throw updAllErr;
+
+            // Then mark selected one as visible to client
+            const { error: updSelErr } = await supabase
+              .from('envios_unificados')
+              .update({ visible_to_client: true })
+              .eq('id', selectedId);
+
+            if (updSelErr) throw updSelErr;
+          }
+
+          alert('Alerta resuelta con éxito.');
+          modal.remove();
+          await loadAndRender();
+        } catch (err) {
+          console.error('Error resolving alert:', err);
+          alert('Error al resolver alerta: ' + err.message);
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Confirmar Resolución';
+        }
+      });
+
+    } catch (err) {
+      console.error('Error opening resolution modal:', err);
+      alert('Error al cargar detalles de la alerta: ' + err.message);
+    }
+  };
+
   const loadAndRender = async () => {
     try {
       // 1. Fetch Summary Stats
@@ -578,6 +699,7 @@ async function renderConsolidatedShipments() {
             <th>Comuna</th>
             <th>Estado Original</th>
             <th>Estado Global</th>
+            <th>Visibilidad Cliente</th>
             <th>Creado El</th>
           </tr>
         `;
@@ -593,7 +715,7 @@ async function renderConsolidatedShipments() {
         if (shipErr) throw shipErr;
 
         if (!shipments || shipments.length === 0) {
-          rowsHtml = `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron envíos.</td></tr>`;
+          rowsHtml = `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron envíos.</td></tr>`;
         } else {
           shipments.forEach(s => {
             const dateObj = s.created_at ? new Date(s.created_at) : null;
@@ -624,6 +746,10 @@ async function renderConsolidatedShipments() {
                   : s.tracking)
               : '-';
 
+            const clientVisibilityBadge = s.visible_to_client 
+              ? `<span style="background-color: #f0fdf4; color: #16a34a; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight:600;">Visible</span>`
+              : `<span style="background-color: #fef2f2; color: #dc2626; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight:600;">Oculto</span>`;
+
             rowsHtml += `
               <tr>
                 <td><strong>${s.pedido_referencia || '-'}</strong></td>
@@ -636,6 +762,7 @@ async function renderConsolidatedShipments() {
                 <td>${s.comuna_destino || '-'}</td>
                 <td><span style="font-size:0.875rem; text-transform:capitalize;">${s.status || '-'}</span></td>
                 <td><span style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">${s.global_status || 'DESCONOCIDO'}</span></td>
+                <td>${clientVisibilityBadge}</td>
                 <td style="font-size:0.875rem; color:var(--color-text-muted);">${dateStr}</td>
               </tr>
             `;
@@ -649,7 +776,7 @@ async function renderConsolidatedShipments() {
             <th>Descripción</th>
             <th>Tablas Afectadas</th>
             <th>Estados Originales</th>
-            <th>Acción</th>
+            <th>Acciones</th>
           </tr>
         `;
 
@@ -680,6 +807,15 @@ async function renderConsolidatedShipments() {
               return `<span style="background-color: ${color}15; color: ${color}; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.7rem; font-weight:600; margin-right: 0.25rem;">${name}</span>`;
             }).join(' ');
 
+            let actionButtons = `<button class="btn btn-outline btn-view-pedidos-details" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right:0.25rem; font-weight:600; cursor:pointer;">🔎 Revisar</button>`;
+            
+            if (a.tipo_alerta === 'MULTI_DESPACHADO') {
+              actionButtons += `
+                <button class="btn btn-success btn-discard-alert" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; margin-right: 0.25rem; background:#d1fae5; color:#065f46; border:1px solid #065f46; font-weight:600; cursor:pointer; border-radius:4px;">✔️ Descartar</button>
+                <button class="btn btn-danger btn-confirm-alert" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background:#fee2e2; color:#b91c1c; border:1px solid #b91c1c; font-weight:600; cursor:pointer; border-radius:4px;">⚠️ Confirmar</button>
+              `;
+            }
+
             rowsHtml += `
               <tr>
                 <td><strong>${a.pedido_referencia}</strong></td>
@@ -687,8 +823,8 @@ async function renderConsolidatedShipments() {
                 <td style="font-size:0.875rem; max-width:300px;">${a.descripcion_alerta}</td>
                 <td>${originBadges}</td>
                 <td style="font-size:0.875rem; color:var(--color-text-muted);">${a.estados_originales.join(', ')}</td>
-                <td>
-                  <button class="btn btn-outline btn-view-pedidos-details" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">Revisar</button>
+                <td style="white-space: nowrap;">
+                  ${actionButtons}
                 </td>
               </tr>
             `;
@@ -790,6 +926,20 @@ async function renderConsolidatedShipments() {
           activeTab = 'all';
           searchTerm = ref;
           loadAndRender();
+        });
+      });
+
+      appContent.querySelectorAll('.btn-discard-alert').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const ref = e.target.getAttribute('data-ref');
+          await openResolutionModal(ref, 'discard');
+        });
+      });
+
+      appContent.querySelectorAll('.btn-confirm-alert').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const ref = e.target.getAttribute('data-ref');
+          await openResolutionModal(ref, 'confirm');
         });
       });
 

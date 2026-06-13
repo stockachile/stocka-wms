@@ -330,7 +330,8 @@ async function renderOrders() {
       const { data: shipData, error: shipError } = await supabase
         .from('envios_unificados')
         .select('*')
-        .in('pedido_referencia', allRefs);
+        .in('pedido_referencia', allRefs)
+        .eq('visible_to_client', true);
 
       if (!shipError && shipData) {
         shipments = shipData;
