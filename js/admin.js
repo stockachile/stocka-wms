@@ -683,7 +683,7 @@ async function renderConsolidatedShipments() {
       }
 
       const multiCount = allAlerts.filter(a => a.tipo_alerta === 'MULTI_DESPACHADO').length;
-      const noMovCount = allAlerts.filter(a => a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS').length;
+      const noMovCount = allAlerts.filter(a => a.tipo_alerta === 'SIN_MOVIMIENTO').length;
 
       // 2. Fetch Tab Specific Data
       let rowsHtml = '';
@@ -783,7 +783,7 @@ async function renderConsolidatedShipments() {
         const filteredAlerts = allAlerts.filter(a => {
           const matchesSearch = searchTerm ? (a.pedido_referencia?.toLowerCase().includes(searchTerm.toLowerCase())) : true;
           if (activeTab === 'multi') return a.tipo_alerta === 'MULTI_DESPACHADO' && matchesSearch;
-          if (activeTab === 'no_movement') return a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS' && matchesSearch;
+          if (activeTab === 'no_movement') return a.tipo_alerta === 'SIN_MOVIMIENTO' && matchesSearch;
           return false;
         });
 
@@ -795,10 +795,10 @@ async function renderConsolidatedShipments() {
             let typeColor = '#991b1b';
             let typeText = 'Multi-Despachado';
 
-            if (a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS') {
+            if (a.tipo_alerta === 'SIN_MOVIMIENTO') {
               typeBg = '#fffbeb';
               typeColor = '#d97706';
-              typeText = 'Sin Movimiento (3 Tablas)';
+              typeText = 'Sin Movimiento';
             }
 
             const originBadges = a.tablas_origen.map(t => {
