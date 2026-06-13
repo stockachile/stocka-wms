@@ -210,8 +210,10 @@ async function syncLightData() {
 
       if (!id) continue;
 
-      const rawDateStr = row[6]; // Fecha AlphaGroup
-      const isoDate = parseAlphaGroupDate(rawDateStr);
+      const rawCreatedDateStr = row[6]; // Fecha AlphaGroup (Creado en LightData)
+      const rawUpdatedDateStr = row[24]; // Fecha estado (Última actualización en LightData)
+      const isoCreatedDate = parseAlphaGroupDate(rawCreatedDateStr);
+      const isoUpdatedDate = parseAlphaGroupDate(rawUpdatedDateStr);
 
       const shipmentPayload = {
         id: id,
@@ -227,8 +229,10 @@ async function syncLightData() {
         direccion_destino: String(row[16] || '').trim() || null, // Dirección
         complemento_destino: String(row[29] || '').trim() || null, // Observaciones
         comuna_destino: String(row[18] || '').trim() || null, // Localidad
+        fecha_creacion_lightdata: isoCreatedDate,
+        fecha_actualizacion_lightdata: isoUpdatedDate,
+        fecha_venta: String(row[4] || '').trim() || null, // Fecha Venta
         raw_data: row,
-        created_at: isoDate,
         updated_at: new Date().toISOString()
       };
 

@@ -113,6 +113,8 @@ async function testSync() {
     recipient_address: 'Av. Providencia 1234, Oficina 501',
     address_complement: 'Piso 5',
     commune: 'Providencia',
+    enviame_created_at: new Date().toISOString(),
+    enviame_updated_at: new Date().toISOString(),
     raw_payload: mockEnviameWebhook // Simula el payload de Enviame
   };
 

@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS enviame_shipments (
   recipient_address TEXT, -- Dirección Destino
   address_complement TEXT, -- Complemento Destino
   commune TEXT, -- Comuna Destino
+  enviame_created_at TIMESTAMP WITH TIME ZONE, -- Fecha de creación en Enviame
+  enviame_updated_at TIMESTAMP WITH TIME ZONE, -- Fecha de última actualización en Enviame
   raw_payload JSONB, -- Objeto completo recibido de Enviame
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
@@ -55,6 +57,8 @@ ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_email TEXT;
 ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS recipient_address TEXT;
 ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS address_complement TEXT;
 ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS commune TEXT;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS enviame_created_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE enviame_shipments ADD COLUMN IF NOT EXISTS enviame_updated_at TIMESTAMP WITH TIME ZONE;
 
 -- 3. Crear índices para optimizar búsquedas
 CREATE INDEX IF NOT EXISTS idx_enviame_shipments_order_id ON enviame_shipments(order_id);

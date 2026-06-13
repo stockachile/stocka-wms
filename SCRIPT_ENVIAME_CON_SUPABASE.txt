@@ -177,7 +177,9 @@ function procesarEntrada(ss, d, idMaestro) {
     "recipient_email": clienteEmail !== "N/A" ? clienteEmail : null,
     "recipient_address": direccionDestino !== "N/A" ? direccionDestino : null,
     "address_complement": complementoDestino !== "N/A" ? complementoDestino : null,
-    "commune": comuna !== "N/A" ? comuna : null
+    "commune": comuna !== "N/A" ? comuna : null,
+    "enviame_created_at": d.created_at || null,
+    "enviame_updated_at": d.updated_at || (d.status ? d.status.created_at : null) || null
   };
   var orderIdDb = (idPedido && idPedido !== "N/A") ? idPedido : null;
   actualizarPedidoEnSupabase(orderIdDb, trackingReal, tUrl, lUrl, status, courier, idMaestro, d, extraData);
@@ -312,6 +314,8 @@ function actualizarPedidoEnSupabase(idPedido, trackingNumber, trackingUrl, label
     "recipient_address": (extraData && extraData.recipient_address) ? extraData.recipient_address : null,
     "address_complement": (extraData && extraData.address_complement) ? extraData.address_complement : null,
     "commune": (extraData && extraData.commune) ? extraData.commune : null,
+    "enviame_created_at": (extraData && extraData.enviame_created_at) ? extraData.enviame_created_at : null,
+    "enviame_updated_at": (extraData && extraData.enviame_updated_at) ? extraData.enviame_updated_at : null,
     "raw_payload": rawDeliveryData || null,
     "updated_at": new Date().toISOString()
   };
@@ -415,6 +419,8 @@ function sincronizarHojaASupabase() {
       "recipient_address": (direccion && direccion !== "N/A") ? direccion : null,
       "address_complement": null, // El complemento no se encuentra en las columnas del sheet
       "commune": (comuna && comuna !== "N/A") ? comuna : null,
+      "enviame_created_at": (row[12] && row[12] !== "N/A") ? row[12] : null,
+      "enviame_updated_at": (row[15] && row[15] !== "N/A") ? row[15] : null,
       "raw_payload": null, // En sincronización masiva de Sheets no tenemos el payload original JSON completo
       "updated_at": new Date().toISOString()
     });
