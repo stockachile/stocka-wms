@@ -71,6 +71,9 @@ async function init() {
           if (view === 'orders_admin') {
             viewTitle.textContent = 'Gestor de Pedidos';
             renderAdminOrders();
+          } else if (view === 'consolidated_shipments') {
+            viewTitle.textContent = 'Envíos Consolidados';
+            renderConsolidatedShipments();
           } else if (view === 'reassign_admin') {
             viewTitle.textContent = 'Reubicar Stock';
             renderReassignStock();
@@ -160,7 +163,7 @@ async function renderAdminOrders() {
 
     if (error) throw error;
 
-    // Obtener los despachos correspondientes de la tabla enviame_shipments
+    // Obtener los despachos correspondientes de la tabla envios_unificados
     let shipments = [];
     if (orders && orders.length > 0) {
       const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
@@ -168,9 +171,9 @@ async function renderAdminOrders() {
       const allRefs = [...orderRefs, ...orderIds];
 
       const { data: shipData, error: shipError } = await supabase
-        .from('enviame_shipments')
+        .from('envios_unificados')
         .select('*')
-        .in('order_id', allRefs);
+        .in('pedido_referencia', allRefs);
 
       if (!shipError && shipData) {
         shipments = shipData;
@@ -198,20 +201,17 @@ async function renderAdminOrders() {
 
         // Buscar el envío en el listado cargado
         const orderShipments = shipments.filter(s => 
-          s.order_id === order.id || 
-          (order.external_order_number && s.order_id === order.external_order_number)
+          s.pedido_referencia === order.id || 
+          (order.external_order_number && s.pedido_referencia === order.external_order_number)
         );
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
-          if (shipment.tracking_number) {
+          if (shipment.tracking) {
             const courierName = shipment.courier || 'Seguimiento';
             trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking_number}</a>`
-              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking_number}</span>`;
-          }
-          if (shipment.label_url && shipment.label_url !== 'N/A') {
-            labelHtml = `<a href="${shipment.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--color-accent); color: var(--color-accent); display: inline-flex; gap: 0.25rem; align-items: center; border-radius: 4px;">📄 PDF</a>`;
+              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking}</a>`
+              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking}</span>`;
           }
         }
 
@@ -537,5 +537,268 @@ async function renderIntegrations() {
     console.error('Error fetching integrations:', error);
     appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
   }
+}
+
+async function renderConsolidatedShipments() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando panel consolidado de envíos...</p>`;
+
+  let activeTab = 'all'; // 'all', 'multi', 'no_movement'
+  let searchTerm = '';
+
+  const loadAndRender = async () => {
+    try {
+      // 1. Fetch Summary Stats
+      const { count: totalCount, error: countErr } = await supabase
+        .from('envios_unificados')
+        .select('*', { count: 'exact', head: true });
+        
+      const { data: allAlerts, error: alertsErr } = await supabase
+        .from('envios_alertas_admin')
+        .select('*');
+
+      if (countErr || alertsErr) {
+        throw countErr || alertsErr;
+      }
+
+      const multiCount = allAlerts.filter(a => a.tipo_alerta === 'MULTI_DESPACHADO').length;
+      const noMovCount = allAlerts.filter(a => a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS').length;
+
+      // 2. Fetch Tab Specific Data
+      let rowsHtml = '';
+      let tableHeaders = '';
+      
+      if (activeTab === 'all') {
+        tableHeaders = `
+          <tr>
+            <th>Referencia</th>
+            <th>Origen</th>
+            <th>Courier (Tracking)</th>
+            <th>Destinatario</th>
+            <th>Comuna</th>
+            <th>Estado Original</th>
+            <th>Estado Global</th>
+            <th>Creado El</th>
+          </tr>
+        `;
+
+        let query = supabase.from('envios_unificados').select('*');
+        if (searchTerm) {
+          query = query.or(`pedido_referencia.ilike.%${searchTerm}%,tracking.ilike.%${searchTerm}%,nombre_destinatario.ilike.%${searchTerm}%,comuna_destino.ilike.%${searchTerm}%,courier.ilike.%${searchTerm}%`);
+        }
+        const { data: shipments, error: shipErr } = await query
+          .order('created_at', { ascending: false })
+          .limit(100);
+
+        if (shipErr) throw shipErr;
+
+        if (!shipments || shipments.length === 0) {
+          rowsHtml = `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron envíos.</td></tr>`;
+        } else {
+          shipments.forEach(s => {
+            const dateObj = s.created_at ? new Date(s.created_at) : null;
+            const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-';
+            
+            let badgeBg = '#f3f4f6';
+            let badgeColor = '#374151';
+            if (s.global_status === 'DESPACHADO') {
+              badgeBg = '#d1fae5';
+              badgeColor = '#065f46';
+            } else if (s.global_status === 'SIN MOVIMIENTO') {
+              badgeBg = '#fef3c7';
+              badgeColor = '#92400e';
+            } else if (s.global_status === 'ALERTA') {
+              badgeBg = '#fee2e2';
+              badgeColor = '#991b1b';
+            }
+
+            const originBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
+              : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+            
+            const originColor = s.source_table === 'lightdata_envios' ? '#3b82f6'
+              : s.source_table === 'enviame_shipments' ? '#10b981' : '#8b5cf6';
+
+            const trackingDisplay = s.tracking
+              ? (s.tracking_url && s.tracking_url !== 'N/A'
+                  ? `<a href="${s.tracking_url}" target="_blank" style="font-weight:500;">🔗 ${s.tracking}</a>`
+                  : s.tracking)
+              : '-';
+
+            rowsHtml += `
+              <tr>
+                <td><strong>${s.pedido_referencia || '-'}</strong></td>
+                <td><span style="background-color: ${originColor}15; color: ${originColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">${originBadge}</span></td>
+                <td>${s.courier || '-'} ${trackingDisplay !== '-' ? `(${trackingDisplay})` : ''}</td>
+                <td>
+                  <div style="font-weight:500;">${s.nombre_destinatario || '-'}</div>
+                  <div style="font-size:0.75rem; color:var(--color-text-muted);">${s.telefono_destino || ''}</div>
+                </td>
+                <td>${s.comuna_destino || '-'}</td>
+                <td><span style="font-size:0.875rem; text-transform:capitalize;">${s.status || '-'}</span></td>
+                <td><span style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">${s.global_status || 'DESCONOCIDO'}</span></td>
+                <td style="font-size:0.875rem; color:var(--color-text-muted);">${dateStr}</td>
+              </tr>
+            `;
+          });
+        }
+      } else {
+        tableHeaders = `
+          <tr>
+            <th>Pedido Ref.</th>
+            <th>Tipo Alerta</th>
+            <th>Descripción</th>
+            <th>Tablas Afectadas</th>
+            <th>Estados Originales</th>
+            <th>Acción</th>
+          </tr>
+        `;
+
+        const filteredAlerts = allAlerts.filter(a => {
+          const matchesSearch = searchTerm ? (a.pedido_referencia?.toLowerCase().includes(searchTerm.toLowerCase())) : true;
+          if (activeTab === 'multi') return a.tipo_alerta === 'MULTI_DESPACHADO' && matchesSearch;
+          if (activeTab === 'no_movement') return a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS' && matchesSearch;
+          return false;
+        });
+
+        if (filteredAlerts.length === 0) {
+          rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron alertas para esta sección.</td></tr>`;
+        } else {
+          filteredAlerts.forEach(a => {
+            let typeBg = '#fee2e2';
+            let typeColor = '#991b1b';
+            let typeText = 'Multi-Despachado';
+
+            if (a.tipo_alerta === 'SIN_MOVIMIENTO_3_TABLAS') {
+              typeBg = '#fffbeb';
+              typeColor = '#d97706';
+              typeText = 'Sin Movimiento (3 Tablas)';
+            }
+
+            const originBadges = a.tablas_origen.map(t => {
+              const name = t === 'lightdata_envios' ? 'LightData' : t === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+              const color = t === 'lightdata_envios' ? '#3b82f6' : t === 'enviame_shipments' ? '#10b981' : '#8b5cf6';
+              return `<span style="background-color: ${color}15; color: ${color}; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.7rem; font-weight:600; margin-right: 0.25rem;">${name}</span>`;
+            }).join(' ');
+
+            rowsHtml += `
+              <tr>
+                <td><strong>${a.pedido_referencia}</strong></td>
+                <td><span style="background-color: ${typeBg}; color: ${typeColor}; padding: 0.25rem 0.5rem; border-radius: 6px; font-size: 0.75rem; font-weight: 600;">${typeText}</span></td>
+                <td style="font-size:0.875rem; max-width:300px;">${a.descripcion_alerta}</td>
+                <td>${originBadges}</td>
+                <td style="font-size:0.875rem; color:var(--color-text-muted);">${a.estados_originales.join(', ')}</td>
+                <td>
+                  <button class="btn btn-outline btn-view-pedidos-details" data-ref="${a.pedido_referencia}" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">Revisar</button>
+                </td>
+              </tr>
+            `;
+          });
+        }
+      }
+
+      appContent.innerHTML = `
+        <div style="margin-bottom: 2rem;">
+          <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Consolidación y Auditoría de Logística</h2>
+          <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+            Monitorea todos los envíos unificados de LightData, Enviame y Optiroute. Resuelve anomalías como duplicaciones de despacho o pedidos estancados de inmediato.
+          </p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+          <div class="card" style="padding: 1.25rem; border: none; box-shadow: var(--shadow-sm); display:flex; align-items:center; gap:1rem; background:#ffffff;">
+            <div style="font-size: 2.25rem; background: #e0f2fe; padding: 0.5rem; border-radius: 0.5rem; display:flex; align-items:center; justify-content:center; color:#0284c7; width:50px; height:50px;">📦</div>
+            <div>
+              <div style="font-size: 0.875rem; color: var(--color-text-muted); font-weight:500;">Envíos Consolidados</div>
+              <div style="font-size: 1.75rem; font-weight: 700; color: var(--color-dark);">${totalCount}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1.25rem; border: none; box-shadow: var(--shadow-sm); display:flex; align-items:center; gap:1rem; background:#ffffff; border-left: 4px solid #ef4444;">
+            <div style="font-size: 2.25rem; background: #fee2e2; padding: 0.5rem; border-radius: 0.5rem; display:flex; align-items:center; justify-content:center; color:#ef4444; width:50px; height:50px;">⚠️</div>
+            <div>
+              <div style="font-size: 0.875rem; color: var(--color-text-muted); font-weight:500;">Alerta: Multi-Despacho</div>
+              <div style="font-size: 1.75rem; font-weight: 700; color: #ef4444;">${multiCount}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1.25rem; border: none; box-shadow: var(--shadow-sm); display:flex; align-items:center; gap:1rem; background:#ffffff; border-left: 4px solid #f59e0b;">
+            <div style="font-size: 2.25rem; background: #fffbeb; padding: 0.5rem; border-radius: 0.5rem; display:flex; align-items:center; justify-content:center; color:#d97706; width:50px; height:50px;">⏳</div>
+            <div>
+              <div style="font-size: 0.875rem; color: var(--color-text-muted); font-weight:500;">Alerta: Sin Movimiento</div>
+              <div style="font-size: 1.75rem; font-weight: 700; color: #d97706;">${noMovCount}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+          <div class="card-header" style="background:#ffffff; border-bottom: 1px solid var(--color-border); padding: 1rem 1.5rem; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:1rem;">
+            
+            <div style="display:flex; gap:0.5rem; background:#f1f5f9; padding:0.25rem; border-radius:8px;">
+              <button class="tab-btn ${activeTab === 'all' ? 'active' : ''}" data-tab="all" style="border:none; padding:0.5rem 1rem; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.875rem; background:${activeTab === 'all' ? '#ffffff' : 'transparent'}; color:${activeTab === 'all' ? 'var(--color-accent)' : 'var(--color-text-muted)'}; box-shadow:${activeTab === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'};">Todos</button>
+              <button class="tab-btn ${activeTab === 'multi' ? 'active' : ''}" data-tab="multi" style="border:none; padding:0.5rem 1rem; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.875rem; background:${activeTab === 'multi' ? '#ffffff' : 'transparent'}; color:${activeTab === 'multi' ? '#ef4444' : 'var(--color-text-muted)'}; box-shadow:${activeTab === 'multi' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'};">
+                Multi-Despacho (${multiCount})
+              </button>
+              <button class="tab-btn ${activeTab === 'no_movement' ? 'active' : ''}" data-tab="no_movement" style="border:none; padding:0.5rem 1rem; border-radius:6px; font-weight:600; cursor:pointer; font-size:0.875rem; background:${activeTab === 'no_movement' ? '#ffffff' : 'transparent'}; color:${activeTab === 'no_movement' ? '#d97706' : 'var(--color-text-muted)'}; box-shadow:${activeTab === 'no_movement' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'};">
+                Sin Movimiento (${noMovCount})
+              </button>
+            </div>
+
+            <div style="position:relative; width: 280px;">
+              <input type="text" id="shipments-search" class="form-input" style="padding: 0.5rem 0.75rem 0.5rem 2rem; font-size: 0.875rem; border-radius:6px; margin:0;" placeholder="Buscar referencia, comuna, etc..." value="${searchTerm}">
+              <span style="position:absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size:0.875rem;">🔍</span>
+            </div>
+
+          </div>
+          <div class="card-body" style="padding: 0; overflow-x: auto;">
+            <table class="data-table" style="width: 100%; margin: 0; border-collapse: collapse;">
+              <thead>
+                ${tableHeaders}
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+          ${activeTab === 'all' ? `
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); font-size: 0.8rem; color: var(--color-text-muted); text-align: right;">
+              Mostrando los últimos 100 registros. Usa el buscador para filtrar.
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      appContent.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          activeTab = e.target.getAttribute('data-tab');
+          loadAndRender();
+        });
+      });
+
+      const searchInput = document.getElementById('shipments-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          searchTerm = e.target.value.trim();
+        });
+        searchInput.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            loadAndRender();
+          }
+        });
+      }
+
+      appContent.querySelectorAll('.btn-view-pedidos-details').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const ref = e.target.getAttribute('data-ref');
+          activeTab = 'all';
+          searchTerm = ref;
+          loadAndRender();
+        });
+      });
+
+    } catch (err) {
+      console.error('Error rendering unified shipments:', err);
+      appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar datos consolidados: ${err.message}</p>`;
+    }
+  };
+
+  await loadAndRender();
 }
 

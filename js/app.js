@@ -320,7 +320,7 @@ async function renderOrders() {
 
     if (error) throw error;
 
-    // Obtener los despachos correspondientes de la tabla enviame_shipments
+    // Obtener los despachos correspondientes de la tabla envios_unificados
     let shipments = [];
     if (orders && orders.length > 0) {
       const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
@@ -328,9 +328,9 @@ async function renderOrders() {
       const allRefs = [...orderRefs, ...orderIds];
 
       const { data: shipData, error: shipError } = await supabase
-        .from('enviame_shipments')
+        .from('envios_unificados')
         .select('*')
-        .in('order_id', allRefs);
+        .in('pedido_referencia', allRefs);
 
       if (!shipError && shipData) {
         shipments = shipData;
@@ -378,20 +378,17 @@ async function renderOrders() {
 
         // Buscar el envío en el listado cargado
         const orderShipments = shipments.filter(s => 
-          s.order_id === order.id || 
-          (order.external_order_number && s.order_id === order.external_order_number)
+          s.pedido_referencia === order.id || 
+          (order.external_order_number && s.pedido_referencia === order.external_order_number)
         );
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
-          if (shipment.tracking_number) {
+          if (shipment.tracking) {
             const courierName = shipment.courier || 'Seguimiento';
             trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking_number}</a>`
-              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking_number}</span>`;
-          }
-          if (shipment.label_url && shipment.label_url !== 'N/A') {
-            labelHtml = `<a href="${shipment.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--color-accent); color: var(--color-accent); display: inline-flex; gap: 0.25rem; align-items: center; border-radius: 4px;">📄 PDF</a>`;
+              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking}</a>`
+              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking}</span>`;
           }
         }
 
