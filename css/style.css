@@ -597,3 +597,19 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
 }
 
+
+/* Auth Form Toggle & Animations */
+.auth-fade-in {
+  animation: authFadeIn 0.3s ease forwards;
+}
+
+@keyframes authFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

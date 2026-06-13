@@ -34,6 +34,41 @@
         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="login-btn">
           Ingresar
         </button>
+
+        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          ¿No tienes una cuenta? <a href="#" id="toggle-to-register" style="color: var(--color-accent); font-weight: 600;">Regístrate aquí</a>
+        </p>
+      </form>
+
+      <!-- Formulario de Registro (Oculto por defecto) -->
+      <form id="register-form" style="display: none;">
+        <div class="form-group">
+          <label for="reg-name" class="form-label">Nombre Completo</label>
+          <input type="text" id="reg-name" class="form-input" placeholder="Juan Pérez" required>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-company" class="form-label">Nombre de la Empresa</label>
+          <input type="text" id="reg-company" class="form-input" placeholder="Mi Empresa S.A." required>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-email" class="form-label">Correo Electrónico</label>
+          <input type="email" id="reg-email" class="form-input" placeholder="ejemplo@empresa.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="reg-password" class="form-label">Contraseña</label>
+          <input type="password" id="reg-password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="register-btn">
+          Crear Cuenta
+        </button>
+
+        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          ¿Ya tienes una cuenta? <a href="#" id="toggle-to-login" style="color: var(--color-accent); font-weight: 600;">Inicia sesión aquí</a>
+        </p>
       </form>
     </div>
   </main>

@@ -29,7 +29,7 @@ async function init() {
     console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, company_name, full_name')
       .eq('id', session.user.id)
       .single();
     
@@ -49,7 +49,8 @@ async function init() {
     // Set user info
     const user = session.user;
     if (userEmailSpan) {
-      userEmailSpan.textContent = user.email + " (ADMIN)";
+      const displayName = profile?.full_name || user.user_metadata?.full_name || profile?.company_name || user.email;
+      userEmailSpan.textContent = `${displayName} (ADMIN)`;
     }
 
     // Initial View
