@@ -218,9 +218,9 @@ async function syncLightData() {
         empresa_comercio: String(row[10] || '').trim() || null, // Nombre Fantasia
         tracking: tracking || null,
         tracking_url: String(row[30] || '').trim() || null, // URL Tracking
-        courier: 'LightData', // Default courier para esta integración
+        courier: 'CARRIER EXTERNO',
         status: String(row[22] || '').trim() || null, // Estado
-        servicio_tipo_envio: String(row[31] || '').trim() || null, // Origen
+        servicio_tipo_envio: 'SAME DAY/24 HRS',
         nombre_destinatario: String(row[12] || '').trim() || null, // Nombre Destinatario
         telefono_destino: String(row[13] || '').trim() || null, // Tel. Destinatario
         email_cliente_destino: String(row[14] || '').trim() || null, // Email Destinatario
@@ -239,7 +239,7 @@ async function syncLightData() {
       if (matchKey) {
         let query = supabase
           .from('orders')
-          .select('id, status, external_order_number, tracking_number, lightdata_status');
+          .select('id, status, external_order_number, tracking_number, courier, lightdata_status');
 
         if (tracking) {
           query = query.or(`tracking_number.eq.${tracking},external_order_number.eq.${tracking}`);
@@ -271,9 +271,14 @@ async function syncLightData() {
             updatePayload.tracking_url = shipmentPayload.tracking_url;
           }
 
+          if (dbOrder.courier !== 'CARRIER EXTERNO') {
+            updatePayload.courier = 'CARRIER EXTERNO';
+          }
+
           const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
           const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
-          const needsUpdate = hasStatusChange || hasLightDataStatusChange || !dbOrder.tracking_number;
+          const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
+          const needsUpdate = hasStatusChange || hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
 
           if (needsUpdate) {
             await supabase
