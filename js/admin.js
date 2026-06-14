@@ -81,6 +81,9 @@ async function init() {
           } else if (view === 'manual_in_admin') {
             viewTitle.textContent = 'Ingreso Manual';
             renderManualIn();
+          } else if (view === 'users_admin') {
+            viewTitle.textContent = 'Gestionar Usuarios';
+            renderUsersAdmin();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -962,4 +965,202 @@ async function renderConsolidatedShipments() {
 
   await loadAndRender();
 }
+
+// ==========================================
+// User Management View Rendering & Logic
+// ==========================================
+
+async function renderUsersAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando usuarios y roles...</p>`;
+
+  try {
+    // Obtener todos los perfiles de usuarios
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (profilesError) throw profilesError;
+
+    // Obtener los comercios configurados de comercios_config
+    let comercios = [];
+    try {
+      const { data, error } = await supabase.from('comercios_config').select('nombre, sigla');
+      if (!error && data) {
+        comercios = data;
+      }
+    } catch (e) {
+      console.warn("Error loading comercios_config, using empty array:", e);
+    }
+
+    let rowsHtml = '';
+    if (!profiles || profiles.length === 0) {
+      rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
+    } else {
+      profiles.forEach(user => {
+        const dateObj = user.created_at ? new Date(user.created_at) : null;
+        const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+
+        // Selector de Roles
+        const roleSelect = `
+          <select class="form-input user-role-select" data-user-id="${user.id}" style="padding: 0.35rem 0.5rem; font-size: 0.875rem; width: auto; min-width: 140px; margin: 0; display: inline-block;">
+            <option value="observer" ${user.role === 'observer' ? 'selected' : ''}>Observador</option>
+            <option value="client" ${user.role === 'client' ? 'selected' : ''}>Cliente</option>
+            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
+          </select>
+        `;
+
+        // Checkboxes de Comercios (solo editables/visibles para rol cliente)
+        const currentComercios = user.comercio && user.comercio !== 'no asignado'
+          ? user.comercio.split(',').map(c => c.trim())
+          : [];
+
+        let comerciosHtml = '';
+        if (user.role !== 'client') {
+          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
+        } else if (comercios.length === 0) {
+          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.</span>`;
+        } else {
+          comercios.forEach(com => {
+            const isChecked = currentComercios.includes(com.nombre) ? 'checked' : '';
+            comerciosHtml += `
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
+                <input type="checkbox" class="user-comercio-cb" data-user-id="${user.id}" value="${com.nombre}" ${isChecked}>
+                <span>${com.nombre} (${com.sigla})</span>
+              </label>
+            `;
+          });
+        }
+
+        rowsHtml += `
+          <tr>
+            <td><strong>${user.full_name || 'Sin nombre'}</strong></td>
+            <td>${user.company_name || 'Sin empresa'}</td>
+            <td>${user.email || 'Sin email'}</td>
+            <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
+            <td>${roleSelect}</td>
+            <td>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+                ${comerciosHtml}
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    appContent.innerHTML = `
+      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+          <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
+          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal;">
+            Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' (solo lectura, sin comercio asignado) por defecto.
+          </p>
+        </div>
+        <div class="card-body" style="padding: 0; overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Empresa</th>
+                <th>Email</th>
+                <th>Fecha de Registro</th>
+                <th>Rol</th>
+                <th>Comercios Asignados (Solo Clientes)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+  } catch (err) {
+    console.error("Error loading user administration view:", err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar la administración de usuarios: ${err.message}</p>`;
+  }
+}
+
+// Manejo de eventos delegados para cambios de rol y comercios asignados
+document.addEventListener('change', async (e) => {
+  if (e.target && e.target.classList.contains('user-role-select')) {
+    const userId = e.target.getAttribute('data-user-id');
+    const newRole = e.target.value;
+
+    try {
+      // Prevención de auto-degradación de Admin sin confirmación
+      const { data: userAuth } = await supabase.auth.getUser();
+      if (userAuth && userAuth.user && userAuth.user.id === userId && newRole !== 'admin') {
+        const confirmChange = confirm('¡Advertencia! Estás modificando tu propio rol de Administrador. Si guardas este cambio perderás el acceso a este panel de administración. ¿Deseas continuar?');
+        if (!confirmChange) {
+          e.target.value = 'admin'; // Revertir en el select UI
+          return;
+        }
+      }
+
+      // Si cambia de cliente a otro rol, establecer comercio a 'no asignado'
+      const updateData = { role: newRole };
+      if (newRole !== 'client') {
+        updateData.comercio = 'no asignado';
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      alert('Rol actualizado con éxito.');
+
+      // Recargar la vista de usuarios para habilitar/deshabilitar checkboxes
+      const viewTitle = document.getElementById('view-title');
+      if (viewTitle && viewTitle.textContent === 'Gestionar Usuarios') {
+        renderUsersAdmin();
+      }
+
+      // Redirigir al dashboard si el administrador actual se auto-degradó
+      if (userAuth && userAuth.user && userAuth.user.id === userId && newRole !== 'admin') {
+        window.location.href = 'dashboard.html';
+      }
+
+    } catch (err) {
+      console.error('Error al actualizar el rol:', err);
+      alert('Error al actualizar el rol: ' + err.message);
+    }
+  }
+
+  if (e.target && e.target.classList.contains('user-comercio-cb')) {
+    const userId = e.target.getAttribute('data-user-id');
+    
+    // Buscar todos los checkboxes seleccionados de este usuario
+    const checkboxes = document.querySelectorAll(`.user-comercio-cb[data-user-id="${userId}"]`);
+    const checkedComercios = Array.from(checkboxes)
+      .filter(cb => cb.checked)
+      .map(cb => cb.value);
+
+    const commerceString = checkedComercios.length > 0 
+      ? checkedComercios.join(', ') 
+      : 'no asignado';
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ comercio: commerceString })
+        .eq('id', userId);
+
+      if (error) throw error;
+      
+      console.log(`Comercios actualizados para el usuario ${userId}: ${commerceString}`);
+    } catch (err) {
+      console.error('Error al actualizar comercios asignados:', err);
+      alert('Error al actualizar comercios asignados: ' + err.message);
+      e.target.checked = !e.target.checked; // Revertir selección en caso de error
+    }
+  }
+});
+
 

@@ -2,6 +2,8 @@ import supabase from './supabase.js';
 
 console.log('DEBUG: Iniciando js/app.js...');
 
+let userRole = 'observer';
+
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
@@ -38,6 +40,9 @@ async function init() {
       console.warn('DEBUG: Error al obtener perfil (puede que no exista en la tabla profiles):', profileError);
     } else {
       console.log('DEBUG: Perfil encontrado:', profile);
+      if (profile) {
+        userRole = profile.role || 'observer';
+      }
     }
 
     if (profile && profile.role === 'admin') {
@@ -88,6 +93,9 @@ async function init() {
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
+          } else if (view === 'profile') {
+            viewTitle.textContent = 'Mi Perfil';
+            renderProfile();
           }
         });
       });
@@ -128,37 +136,45 @@ async function renderInventory() {
 
     if (error) throw error;
 
-    if (!inventory || inventory.length === 0) {
-      appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay inventario registrado.</p>`;
-      return;
-    }
-
     let rowsHtml = '';
-    inventory.forEach(item => {
-      let badge = '';
-      const available = item.quantity - item.committed_quantity;
-      if (available > 50) badge = '<span class="badge badge-success">En Stock</span>';
-      else if (available > 0) badge = '<span class="badge badge-warning">Bajo Stock</span>';
-      else badge = '<span class="badge badge-danger">Agotado</span>';
-
-      rowsHtml += `
+    if (!inventory || inventory.length === 0) {
+      rowsHtml = `
         <tr>
-          <td>${item.products.sku}</td>
-          <td>${item.products.name}</td>
-          <td>${item.warehouses.name}</td>
-          <td><strong>${item.quantity}</strong></td>
-          <td style="color: var(--color-accent); font-weight: 500;">${item.committed_quantity}</td>
-          <td style="color: var(--color-primary); font-weight: 600;">${available}</td>
-          <td>${badge}</td>
+          <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+            No hay inventario registrado.
+          </td>
         </tr>
       `;
-    });
+    } else {
+      inventory.forEach(item => {
+        let badge = '';
+        const available = item.quantity - item.committed_quantity;
+        if (available > 50) badge = '<span class="badge badge-success">En Stock</span>';
+        else if (available > 0) badge = '<span class="badge badge-warning">Bajo Stock</span>';
+        else badge = '<span class="badge badge-danger">Agotado</span>';
 
-    appContent.innerHTML = `
+        rowsHtml += `
+          <tr>
+            <td>${item.products?.sku || 'N/A'}</td>
+            <td>${item.products?.name || 'N/A'}</td>
+            <td>${item.warehouses?.name || 'N/A'}</td>
+            <td><strong>${item.quantity}</strong></td>
+            <td style="color: var(--color-accent); font-weight: 500;">${item.committed_quantity}</td>
+            <td style="color: var(--color-primary); font-weight: 600;">${available}</td>
+            <td>${badge}</td>
+          </tr>
+        `;
+      });
+    }
+
+    const isObserver = userRole === 'observer';
+    const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product">Nuevo Producto</button>';
+
+    appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header flex justify-between items-center">
           <h3>Stock Actual</h3>
-          <button class="btn btn-primary" id="btn-new-product">Nuevo Producto</button>
+          ${actionBtn}
         </div>
         <div class="card-body">
           <table class="data-table">
@@ -182,7 +198,7 @@ async function renderInventory() {
     `;
   } catch (error) {
     console.error('Error fetching inventory:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el inventario.</p>`;
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el inventario: ${error.message}</p>`;
   }
 }
 
@@ -413,12 +429,14 @@ async function renderOrders() {
         `;
       });
     }
+    const isObserver = userRole === 'observer';
+    const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-order">Crear Pedido</button>';
 
-    appContent.innerHTML = `
+    appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header flex justify-between items-center">
           <h3>Mis Pedidos</h3>
-          <button class="btn btn-primary" id="btn-new-order">Crear Pedido</button>
+          ${actionBtn}
         </div>
         <div class="card-body">
           <table class="data-table">
@@ -488,7 +506,16 @@ async function renderIntegrations() {
       ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
-    appContent.innerHTML = `
+    const isObserver = userRole === 'observer';
+    const disabledAttr = isObserver ? 'disabled' : '';
+
+    const buttonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasShopify 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>');
+
+    appContent.innerHTML = getObserverBanner() + `
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
@@ -520,19 +547,16 @@ async function renderIntegrations() {
               <form id="form-shopify-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
-                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} style="background-color: ${hasShopify ? '#f8fafc' : '#ffffff'};">
+                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? '#f8fafc' : '#ffffff'};">
                 </div>
                 <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? 'display:none;' : ''}">
                   <label class="form-label" style="font-weight: 600;">Access Token (Admin API)</label>
-                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'}>
+                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'} ${disabledAttr}>
                   <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Debe comenzar con <strong>shpat_</strong>.</p>
                 </div>
                 
                 <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${!hasShopify ? 
-                    '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>' : 
-                    '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>'
-                  }
+                  ${buttonHtml}
                 </div>
               </form>
             </div>
@@ -582,6 +606,10 @@ async function renderIntegrations() {
     if(!hasShopify) {
       document.getElementById('form-shopify-integration').addEventListener('submit', async (e) => {
         e.preventDefault();
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
         const btn = document.getElementById('btn-save-shopify');
         btn.disabled = true;
         btn.textContent = 'Conectando...';
@@ -610,6 +638,10 @@ async function renderIntegrations() {
       });
     } else {
       document.getElementById('btn-disconnect-shopify').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
         if(confirm('¿Estás seguro que deseas desconectar tu tienda Shopify?')) {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
@@ -641,11 +673,19 @@ async function renderIntegrations() {
   document.addEventListener('click', async (e) => {
     // Abrir modal de nuevo producto
     if (e.target && e.target.id === 'btn-new-product') {
+      if (userRole === 'observer') {
+        alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+        return;
+      }
       document.getElementById('modal-product').classList.add('active');
     }
     
     // Abrir modal de nuevo pedido
     if (e.target && e.target.id === 'btn-new-order') {
+      if (userRole === 'observer') {
+        alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+        return;
+      }
       const modalOrder = document.getElementById('modal-order');
       const selectProd = document.getElementById('order-product');
       selectProd.innerHTML = '<option value="">Cargando productos...</option>';
@@ -675,6 +715,10 @@ async function renderIntegrations() {
   // Guardar Nuevo Producto
   document.getElementById('form-new-product').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (userRole === 'observer') {
+      alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+      return;
+    }
     const btnSubmit = e.target.querySelector('button[type="submit"]');
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Guardando...';
@@ -741,6 +785,10 @@ async function renderIntegrations() {
   // Guardar Nuevo Pedido
   document.getElementById('form-new-order').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (userRole === 'observer') {
+      alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+      return;
+    }
     const btnSubmit = e.target.querySelector('button[type="submit"]');
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Procesando...';
@@ -1550,5 +1598,166 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
       <span style="color: red; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">⚠️</span>
       Error al cargar los detalles del pedido asociado en la base de datos.
     `;
+  }
+}
+
+// ==========================================
+// Observer & Profile Functions
+// ==========================================
+
+function getObserverBanner() {
+  if (userRole === 'observer') {
+    return `
+      <div class="observer-banner" style="background-color: #fef3c7; color: #d97706; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; border: 1px solid #fde68a; font-size: 0.9rem;">
+        <span>⚠️</span> <strong>Modo Observador:</strong> Tienes acceso de solo lectura. No puedes realizar acciones, crear pedidos/productos ni modificar integraciones.
+      </div>
+    `;
+  }
+  return '';
+}
+
+async function renderProfile() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando perfil...</p>`;
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("No se pudo obtener el usuario autenticado.");
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (error) throw error;
+
+    // Valores por defecto
+    const fullName = profile.full_name || '';
+    const companyName = profile.company_name || '';
+    const phone = profile.phone || '';
+    const contactEmail = profile.contact_email || '';
+    const avatarUrl = profile.avatar_url || '';
+    const assignedComercios = profile.comercio || 'no asignado';
+    const roleText = profile.role === 'admin' ? 'Administrador' : (profile.role === 'client' ? 'Cliente' : 'Observador');
+
+    appContent.innerHTML = `
+      <div style="max-width: 700px; margin: 0 auto;">
+        ${getObserverBanner()}
+        <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem;">
+            <div id="profile-avatar-preview" style="width: 80px; height: 80px; border-radius: var(--radius-full); background-color: var(--color-gray); background-image: url('${avatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}'); background-size: cover; background-position: center; border: 3px solid var(--color-primary); box-shadow: var(--shadow-sm);"></div>
+            <div>
+              <h3 style="margin: 0; font-size: 1.35rem;">${fullName || 'Mi Perfil'}</h3>
+              <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">${roleText} - ${companyName}</p>
+            </div>
+          </div>
+          
+          <form id="form-edit-profile" class="card-body" style="padding: 1.5rem;">
+            <div id="profile-alert-container"></div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label class="form-label" style="font-weight: 600;">Nombre Completo</label>
+                <input type="text" id="profile-name" class="form-input" value="${fullName}" placeholder="Tu nombre" required>
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label class="form-label" style="font-weight: 600;">Empresa</label>
+                <input type="text" class="form-input" value="${companyName}" disabled style="background-color: #f1f5f9; cursor: not-allowed;">
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label class="form-label" style="font-weight: 600;">Teléfono de Contacto</label>
+                <input type="text" id="profile-phone" class="form-input" value="${phone}" placeholder="Ej. +56912345678">
+              </div>
+              <div class="form-group" style="margin-bottom: 1rem;">
+                <label class="form-label" style="font-weight: 600;">Correo de Contacto</label>
+                <input type="email" id="profile-contact-email" class="form-input" value="${contactEmail}" placeholder="correo@ejemplo.com">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600;">URL Imagen de Perfil</label>
+              <input type="url" id="profile-avatar-url" class="form-input" value="${avatarUrl}" placeholder="https://ejemplo.com/mi-avatar.jpg">
+            </div>
+
+            <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin: 1.5rem 0;">
+              <h4 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-dark); text-transform: uppercase;">Atributos Asignados por Administrador</h4>
+              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                <span style="color: var(--color-text-muted);">Rol del Sistema:</span>
+                <strong style="color: var(--color-accent);">${roleText}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+                <span style="color: var(--color-text-muted);">Comercios Asociados:</span>
+                <strong style="color: var(--color-primary); text-align: right; max-width: 60%; word-break: break-all;">${assignedComercios}</strong>
+              </div>
+            </div>
+
+            <div style="text-align: right;">
+              <button type="submit" class="btn btn-primary" id="btn-save-profile" style="background-color: var(--color-accent); color: white;">Guardar Cambios</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+
+    // Manejar envío del formulario de perfil
+    document.getElementById('form-edit-profile').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const newName = document.getElementById('profile-name').value.trim();
+      const newPhone = document.getElementById('profile-phone').value.trim();
+      const newContactEmail = document.getElementById('profile-contact-email').value.trim();
+      const newAvatarUrl = document.getElementById('profile-avatar-url').value.trim();
+      const alertContainer = document.getElementById('profile-alert-container');
+      const saveBtn = document.getElementById('btn-save-profile');
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Guardando...';
+
+      try {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            full_name: newName,
+            phone: newPhone,
+            contact_email: newContactEmail,
+            avatar_url: newAvatarUrl
+          })
+          .eq('id', user.id);
+
+        if (updateError) throw updateError;
+
+        // Actualizar vista previa del avatar
+        const avatarPreview = document.getElementById('profile-avatar-preview');
+        if (avatarPreview) {
+          avatarPreview.style.backgroundImage = `url('${newAvatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}')`;
+        }
+
+        // Actualizar saludo en el header
+        const userEmailSpan = document.getElementById('user-email');
+        if (userEmailSpan) {
+          userEmailSpan.textContent = newName || user.email;
+        }
+
+        alertContainer.innerHTML = `<div class="alert alert-success" style="display: block;">¡Perfil actualizado con éxito!</div>`;
+        setTimeout(() => {
+          alertContainer.innerHTML = '';
+        }, 4000);
+
+      } catch (err) {
+        console.error("Error al actualizar perfil:", err);
+        alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Error al actualizar perfil: ${err.message}</div>`;
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Guardar Cambios';
+      }
+    });
+
+  } catch (err) {
+    console.error("Error rendering profile view:", err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
   }
 }
