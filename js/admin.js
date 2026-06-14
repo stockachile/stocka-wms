@@ -983,16 +983,24 @@ async function renderUsersAdmin() {
 
     if (profilesError) throw profilesError;
 
-    // Obtener los comercios configurados de comercios_config
+    // Obtener los comercios configurados desde la vista segura v_comercios_config
     let comercios = [];
+    let loadErrorMsg = null;
     try {
-      const { data, error } = await supabase.from('comercios_config').select('nombre, sigla');
+      const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
       if (!error && data) {
         comercios = data;
         window.cachedComercios = data; // Guardar en cache para el modal
+        window.lastComerciosError = null;
+      } else if (error) {
+        console.warn("Error loading v_comercios_config:", error);
+        loadErrorMsg = error.message || JSON.stringify(error);
+        window.lastComerciosError = error;
       }
     } catch (e) {
-      console.warn("Error loading comercios_config, using empty array:", e);
+      console.warn("Error loading v_comercios_config, using empty array:", e);
+      loadErrorMsg = e.message || JSON.stringify(e);
+      window.lastComerciosError = e;
     }
 
     let rowsHtml = '';
@@ -1021,7 +1029,8 @@ async function renderUsersAdmin() {
         if (user.role !== 'client') {
           comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
         } else if (comercios.length === 0) {
-          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.</span>`;
+          const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
+          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
         } else {
           comercios.forEach(com => {
             const isChecked = currentComercios.includes(com.nombre) ? 'checked' : '';
@@ -1189,7 +1198,7 @@ document.addEventListener('click', (e) => {
 });
 
 // Alternar visibilidad de comercios según el rol seleccionado en el formulario
-document.addEventListener('change', (e) => {
+document.addEventListener('change', async (e) => {
   if (e.target && e.target.id === 'new-user-role') {
     const role = e.target.value;
     const group = document.getElementById('new-user-comercios-group');
@@ -1197,12 +1206,31 @@ document.addEventListener('change', (e) => {
     
     if (role === 'client') {
       group.style.display = 'block';
-      list.innerHTML = '';
+      list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Cargando comercios...</span>`;
+      
+      // Intentar cargar dinámicamente si la caché está vacía
+      if (!window.cachedComercios || window.cachedComercios.length === 0) {
+        try {
+          const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
+          if (!error && data) {
+            window.cachedComercios = data;
+            window.lastComerciosError = null;
+          } else if (error) {
+            console.error("Error al obtener v_comercios_config desde el modal:", error);
+            window.lastComerciosError = error;
+          }
+        } catch (err) {
+          console.error("Error al obtener v_comercios_config desde el modal:", err);
+          window.lastComerciosError = err;
+        }
+      }
       
       const comercios = window.cachedComercios || [];
       if (comercios.length === 0) {
-        list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No hay comercios configurados en la base de datos.</span>`;
+        const errorDetail = window.lastComerciosError ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${window.lastComerciosError.message || JSON.stringify(window.lastComerciosError)}</small>` : '';
+        list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No hay comercios configurados en la base de datos (asegúrate de ejecutar el script SQL y recargar la página).${errorDetail}</span>`;
       } else {
+        list.innerHTML = '';
         comercios.forEach(com => {
           list.innerHTML += `
             <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
