@@ -140,6 +140,61 @@
     </div>
   </div>
 
+  <!-- Modal Crear Usuario -->
+  <div class="modal-overlay" id="modal-create-user">
+    <div class="modal-content" style="max-width: 550px;">
+      <div class="modal-header">
+        <h3>Crear Nuevo Usuario</h3>
+        <button class="modal-close" data-close="modal-create-user">&times;</button>
+      </div>
+      <form id="form-create-user">
+        <div class="modal-body">
+          <div id="modal-user-alert-container"></div>
+          
+          <div class="form-group">
+            <label class="form-label">Nombre Completo</label>
+            <input type="text" id="new-user-name" class="form-input" placeholder="Ej. Juan Pérez" required>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Nombre de la Empresa</label>
+            <input type="text" id="new-user-company" class="form-input" placeholder="Ej. Empresa SpA" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Correo Electrónico</label>
+            <input type="email" id="new-user-email" class="form-input" placeholder="ejemplo@correo.com" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Contraseña</label>
+            <input type="password" id="new-user-password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Rol del Sistema</label>
+            <select id="new-user-role" class="form-input" required>
+              <option value="observer" selected>Observador</option>
+              <option value="client">Cliente</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="new-user-comercios-group" style="display: none; background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem;">Asignar Comercios</label>
+            <div id="new-user-comercios-list" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;">
+              <!-- Se inyecta dinámicamente -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="modal-create-user">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;" id="btn-save-new-user">Crear Usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->

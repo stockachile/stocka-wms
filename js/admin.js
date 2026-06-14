@@ -989,6 +989,7 @@ async function renderUsersAdmin() {
       const { data, error } = await supabase.from('comercios_config').select('nombre, sigla');
       if (!error && data) {
         comercios = data;
+        window.cachedComercios = data; // Guardar en cache para el modal
       }
     } catch (e) {
       console.warn("Error loading comercios_config, using empty array:", e);
@@ -1052,11 +1053,14 @@ async function renderUsersAdmin() {
 
     appContent.innerHTML = `
       <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-          <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
-          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal;">
-            Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' (solo lectura, sin comercio asignado) por defecto.
-          </p>
+        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
+            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
+              Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' (solo lectura, sin comercio asignado) por defecto.
+            </p>
+          </div>
+          <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">Crear Usuario</button>
         </div>
         <div class="card-body" style="padding: 0; overflow-x: auto;">
           <table class="data-table">
@@ -1159,6 +1163,117 @@ document.addEventListener('change', async (e) => {
       console.error('Error al actualizar comercios asignados:', err);
       alert('Error al actualizar comercios asignados: ' + err.message);
       e.target.checked = !e.target.checked; // Revertir selección en caso de error
+    }
+  }
+});
+
+// ==========================================
+// Modal handlers for Creating Users (RPC)
+// ==========================================
+
+// Abrir y cerrar el modal
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'btn-open-create-user-modal') {
+    e.preventDefault();
+    const modal = document.getElementById('modal-create-user');
+    if (modal) {
+      // Limpiar y resetear el formulario
+      const form = document.getElementById('form-create-user');
+      if (form) form.reset();
+      document.getElementById('modal-user-alert-container').innerHTML = '';
+      document.getElementById('new-user-comercios-group').style.display = 'none';
+      
+      modal.classList.add('active');
+    }
+  }
+});
+
+// Alternar visibilidad de comercios según el rol seleccionado en el formulario
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'new-user-role') {
+    const role = e.target.value;
+    const group = document.getElementById('new-user-comercios-group');
+    const list = document.getElementById('new-user-comercios-list');
+    
+    if (role === 'client') {
+      group.style.display = 'block';
+      list.innerHTML = '';
+      
+      const comercios = window.cachedComercios || [];
+      if (comercios.length === 0) {
+        list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No hay comercios configurados en la base de datos.</span>`;
+      } else {
+        comercios.forEach(com => {
+          list.innerHTML += `
+            <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" class="new-user-comercio-cb" value="${com.nombre}">
+              <span>${com.nombre} (${com.sigla})</span>
+            </label>
+          `;
+        });
+      }
+    } else {
+      group.style.display = 'none';
+    }
+  }
+});
+
+// Procesar el envío del formulario para crear el usuario en la base de datos
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'form-create-user') {
+    e.preventDefault();
+    const alertContainer = document.getElementById('modal-user-alert-container');
+    const saveBtn = document.getElementById('btn-save-new-user');
+    
+    const name = document.getElementById('new-user-name').value.trim();
+    const company = document.getElementById('new-user-company').value.trim();
+    const email = document.getElementById('new-user-email').value.trim();
+    const password = document.getElementById('new-user-password').value.trim();
+    const role = document.getElementById('new-user-role').value;
+    
+    // Obtener comercios seleccionados (solo si el rol es cliente)
+    let commerceString = 'no asignado';
+    if (role === 'client') {
+      const checked = Array.from(document.querySelectorAll('.new-user-comercio-cb:checked')).map(cb => cb.value);
+      if (checked.length > 0) {
+        commerceString = checked.join(', ');
+      }
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Creando usuario...';
+    alertContainer.innerHTML = '';
+
+    try {
+      // Llamar a la función RPC segura de la base de datos
+      const { data: userId, error } = await supabase.rpc('admin_create_user', {
+        p_email: email,
+        p_password: password,
+        p_full_name: name,
+        p_company_name: company,
+        p_role: role,
+        p_comercio: commerceString
+      });
+
+      if (error) throw error;
+
+      alertContainer.innerHTML = `<div class="alert alert-success" style="display: block;">¡Usuario creado con éxito!</div>`;
+      
+      setTimeout(() => {
+        const modal = document.getElementById('modal-create-user');
+        if (modal) modal.classList.remove('active');
+        e.target.reset();
+        
+        // Recargar la tabla de perfiles
+        renderUsersAdmin();
+      }, 1500);
+
+    } catch (err) {
+      console.error('Error al ejecutar RPC admin_create_user:', err);
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${err.message || 'No se pudo crear el usuario.'}</div>`;
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Crear Usuario';
     }
   }
 });
