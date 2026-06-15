@@ -366,7 +366,7 @@ function sincronizarHojaASupabase() {
   var range = sheet.getRange(2, 1, lastRow - 1, 17);
   var data = range.getValues();
   
-  var payloads = [];
+  var uniquePayloads = {};
   var batchSize = 100; // Enviamos en lotes de 100 para no sobrecargar la petición
 
   for (var i = 0; i < data.length; i++) {
@@ -403,7 +403,9 @@ function sincronizarHojaASupabase() {
     var tUrl = row[13] ? row[13].toString().trim() : "";
     var lUrl = row[14] ? row[14].toString().trim() : "";
 
-    payloads.push({
+    // Mapeamos a objeto con clave idMaestro. 
+    // Como recorremos de arriba hacia abajo, si hay duplicados, se guardará el último (el más reciente).
+    uniquePayloads[idMaestro] = {
       "id": idMaestro,
       "order_id": (idPedido && idPedido !== "N/A") ? idPedido : null,
       "tracking_number": (trackingReal && trackingReal !== "N/A") ? trackingReal : null,
@@ -423,18 +425,32 @@ function sincronizarHojaASupabase() {
       "enviame_updated_at": (row[15] && row[15] !== "N/A") ? row[15] : null,
       "raw_payload": null, // En sincronización masiva de Sheets no tenemos el payload original JSON completo
       "updated_at": new Date().toISOString()
-    });
+    };
+  }
 
-    // Enviar lote si alcanza el batchSize
-    if (payloads.length >= batchSize) {
-      enviarLoteASupabase(payloads);
-      payloads = [];
+  // Convertimos el mapa de registros únicos a un array
+  var payloads = [];
+  for (var key in uniquePayloads) {
+    if (uniquePayloads.hasOwnProperty(key)) {
+      payloads.push(uniquePayloads[key]);
     }
   }
 
-  // Enviar remanente
-  if (payloads.length > 0) {
-    enviarLoteASupabase(payloads);
+  Logger.log("Total de registros en la hoja: " + data.length + ". Registros únicos encontrados para sincronizar: " + payloads.length);
+
+  // Enviamos por lotes de batchSize
+  var currentBatch = [];
+  for (var k = 0; k < payloads.length; k++) {
+    currentBatch.push(payloads[k]);
+    if (currentBatch.length >= batchSize) {
+      enviarLoteASupabase(currentBatch);
+      currentBatch = [];
+    }
+  }
+
+  // Enviar el lote remanente
+  if (currentBatch.length > 0) {
+    enviarLoteASupabase(currentBatch);
   }
 
   Logger.log("Sincronización masiva de Sheets a Supabase completada.");
