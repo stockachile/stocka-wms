@@ -18,8 +18,8 @@
 /* Sidebar */
 .sidebar {
   width: var(--sidebar-width);
-  background-color: var(--color-dark);
-  color: var(--color-light);
+  background-color: var(--color-sidebar-bg);
+  color: var(--color-sidebar-text);
   display: flex;
   flex-direction: column;
   transition: all 0.3s ease;
@@ -90,7 +90,7 @@
 /* Header */
 .top-header {
   height: var(--header-height);
-  background-color: var(--color-light);
+  background-color: var(--color-surface);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -137,7 +137,7 @@
 
 /* Components (Cards & Tables) */
 .card {
-  background-color: var(--color-light);
+  background-color: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   margin-bottom: 2rem;
@@ -148,7 +148,7 @@
 .card-header {
   padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--color-border);
-  background-color: rgba(247, 249, 252, 0.5);
+  background-color: var(--color-surface-hover);
 }
 
 .card-header h3 {
@@ -239,7 +239,7 @@
 }
 
 .modal-content {
-  background: var(--color-light);
+  background: var(--color-surface);
   width: 100%;
   max-width: 500px;
   border-radius: var(--radius-lg);
@@ -280,7 +280,7 @@
 
 .modal-footer {
   padding: 1.25rem 1.5rem;
-  background: rgba(247, 249, 252, 0.5);
+  background: var(--color-surface-hover);
   border-top: 1px solid var(--color-border);
   display: flex;
   justify-content: flex-end;

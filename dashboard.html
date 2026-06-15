@@ -6,6 +6,7 @@
   <title>Dashboard - WMS STOCKA</title>
   <link rel="stylesheet" href="./css/style.css">
   <link rel="stylesheet" href="./css/layout.css">
+  <script src="./js/theme.js"></script>
 </head>
 <body class="dashboard-body">
 
@@ -39,9 +40,15 @@
         <div class="header-title">
           <h2 id="view-title">Inventario</h2>
         </div>
-        <div class="header-user">
-          <span id="user-email">Cargando...</span>
-          <div class="avatar"></div>
+        <div style="display: flex; align-items: center; gap: 1.5rem;">
+          <button class="theme-toggle-btn" aria-label="Cambiar tema">
+            <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+            <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          </button>
+          <div class="header-user">
+            <span id="user-email">Cargando...</span>
+            <div class="avatar"></div>
+          </div>
         </div>
       </header>
 
