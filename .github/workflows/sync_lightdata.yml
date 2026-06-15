@@ -2,8 +2,8 @@ name: Sync LightData to Supabase
 
 on:
   schedule:
-    # Se ejecuta cada 4 horas (minuto 0 del reloj)
-    - cron: '0 */4 * * *'
+    # Se ejecuta cada 2 horas entre las 10:00 y las 22:00 (Hora local de Chile, UTC-4)
+    - cron: '0 0,2,14,16,18,20,22 * * *'
   workflow_dispatch:
     # Permite gatillar la sincronización manualmente desde la pestaña Actions en GitHub
 
