@@ -3,6 +3,8 @@ import supabase from './supabase.js';
 console.log('DEBUG: Iniciando js/app.js...');
 
 let userRole = 'observer';
+let currentMerchantId = null;
+let currentCompany = null;
 
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
@@ -32,7 +34,7 @@ async function init() {
     console.log('DEBUG: Consultando perfil en la base de datos para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, company_name, full_name')
+      .select('role, company_name, full_name, comercio')
       .eq('id', session.user.id)
       .single();
 
@@ -42,6 +44,7 @@ async function init() {
       console.log('DEBUG: Perfil encontrado:', profile);
       if (profile) {
         userRole = profile.role || 'observer';
+        currentCompany = profile.comercio || null;
       }
     }
 
@@ -53,6 +56,7 @@ async function init() {
 
     // Set user info
     const user = session.user;
+    currentMerchantId = user.id;
     if (userEmailSpan) {
       const displayName = profile?.full_name || user.user_metadata?.full_name || profile?.company_name || user.email;
       userEmailSpan.textContent = displayName;
@@ -130,9 +134,10 @@ async function renderInventory() {
       .select(`
         quantity,
         committed_quantity,
-        products (sku, name),
+        products!inner (sku, name, merchant_id),
         warehouses (name)
-      `);
+      `)
+      .eq('products.merchant_id', currentMerchantId);
 
     if (error) throw error;
 
@@ -213,9 +218,10 @@ async function renderMovements() {
         date,
         type,
         quantity,
-        products (sku),
+        products!inner (sku, merchant_id),
         warehouses (name)
       `)
+      .eq('products.merchant_id', currentMerchantId)
       .order('date', { ascending: false });
 
     if (error) throw error;
@@ -335,6 +341,7 @@ async function renderOrders() {
         external_order_number,
         order_items (quantity, products(sku, name))
       `)
+      .eq('merchant_id', currentMerchantId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -883,12 +890,18 @@ async function renderShipments() {
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
 
   try {
-    console.log('DEBUG: Cargando envíos consolidados de envios_unificados...');
-    const { data: shipments, error } = await supabase
+    console.log('DEBUG: Cargando envíos consolidados filtrando por empresa:', currentCompany);
+    
+    let query = supabase
       .from('envios_unificados')
       .select('*')
       .eq('visible_to_client', true);
 
+    if (currentCompany) {
+      query = query.ilike('empresa_comercio_proveedor', currentCompany);
+    }
+
+    const { data: shipments, error } = await query;
     if (error) throw error;
 
     let allData = shipments || [];

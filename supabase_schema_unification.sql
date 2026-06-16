@@ -360,14 +360,16 @@ CREATE POLICY "Admin gestiona todo en unificados" ON envios_unificados
   FOR ALL USING (is_admin());
 
 DROP POLICY IF EXISTS "Clientes ven sus propios envios unificados" ON envios_unificados;
-CREATE POLICY "Clientes ven sus propios envios unificados" ON envios_unificados
+DROP POLICY IF EXISTS "Clientes ven envios de su comercio asignado" ON envios_unificados;
+CREATE POLICY "Clientes ven envios de su comercio asignado" ON envios_unificados
   FOR SELECT USING (
     EXISTS (
-      SELECT 1 FROM orders
-      WHERE (orders.external_order_number = envios_unificados.pedido_referencia OR orders.id::text = envios_unificados.pedido_referencia)
-        AND orders.merchant_id = auth.uid()
+      SELECT 1 FROM public.profiles
+      WHERE profiles.id = auth.uid()
+        AND LOWER(envios_unificados.empresa_comercio_proveedor) = LOWER(profiles.comercio)
     )
   );
+
 
 
 -- 8. Migración retroactiva: Insertar registros existentes de las 3 tablas en la tabla unificada
