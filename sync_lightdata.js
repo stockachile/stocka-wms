@@ -97,6 +97,26 @@ function parseAlphaGroupDate(dateStr) {
 async function syncLightData() {
   console.log('🔄 Iniciando sincronización de LightData a Supabase vía Excel...');
 
+  // 1. Obtener la tabla de comercios_config para el mapeo de siglas en memoria
+  console.log('📡 Recuperando configuraciones de comercios_config desde Supabase...');
+  const { data: configRows, error: configError } = await supabase
+    .from('comercios_config')
+    .select('sigla, nombre');
+
+  if (configError) {
+    console.error('⚠️ Advertencia: No se pudo obtener comercios_config:', configError.message);
+  }
+
+  const configMap = {};
+  if (configRows) {
+    configRows.forEach(row => {
+      if (row.sigla && row.nombre) {
+        configMap[row.sigla.trim().toUpperCase()] = row.nombre.trim();
+      }
+    });
+    console.log(`✅ Mapa de siglas cargado: ${Object.keys(configMap).length} comercios registrados.`);
+  }
+
   // Determinar si corremos en segundo plano (headless)
   const isCI = !!process.env.GITHUB_ACTIONS;
   const browser = await chromium.launch({ 
@@ -210,6 +230,15 @@ async function syncLightData() {
 
       if (!id) continue;
 
+      // Resolver comercio según sigla de tracking (primeras 3 letras)
+      let resolvedComercio = String(row[10] || '').trim() || null; // Fallback al Nombre Fantasia original
+      if (tracking && tracking.length >= 3) {
+        const sigla = tracking.substring(0, 3).toUpperCase();
+        if (configMap[sigla]) {
+          resolvedComercio = configMap[sigla];
+        }
+      }
+
       const rawCreatedDateStr = row[6]; // Fecha AlphaGroup (Creado en LightData)
       const rawUpdatedDateStr = row[24]; // Fecha estado (Última actualización en LightData)
       const isoCreatedDate = parseAlphaGroupDate(rawCreatedDateStr);
@@ -218,6 +247,7 @@ async function syncLightData() {
       const shipmentPayload = {
         id: id,
         empresa_comercio: String(row[10] || '').trim() || null, // Nombre Fantasia
+        comercio: resolvedComercio,
         tracking: tracking || null,
         tracking_url: String(row[30] || '').trim() || null, // URL Tracking
         courier: 'CARRIER EXTERNO',

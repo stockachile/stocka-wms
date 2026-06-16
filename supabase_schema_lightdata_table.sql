@@ -6,7 +6,8 @@ DROP TABLE IF EXISTS lightdata_envios CASCADE;
 
 CREATE TABLE lightdata_envios (
   id TEXT PRIMARY KEY,                              -- ID (Interno) de LightData (did)
-  empresa_comercio TEXT,                           -- Nombre Fantasia
+  empresa_comercio TEXT,                           -- Nombre Fantasia (comercio de origen del Excel)
+  comercio TEXT,                                    -- Nombre del comercio resuelto dinámicamente según sigla
   tracking TEXT,                                    -- Número Tracking
   tracking_url TEXT,                                -- URL Tracking
   courier TEXT,                                     -- Proveedor (ej: 'CARRIER EXTERNO')
@@ -29,4 +30,5 @@ CREATE TABLE lightdata_envios (
 -- Índices para mejorar velocidad de búsqueda
 CREATE INDEX IF NOT EXISTS idx_lightdata_envios_tracking ON lightdata_envios(tracking);
 CREATE INDEX IF NOT EXISTS idx_lightdata_envios_status ON lightdata_envios(status);
+CREATE INDEX IF NOT EXISTS idx_lightdata_envios_comercio ON lightdata_envios(comercio);
 CREATE INDEX IF NOT EXISTS idx_lightdata_envios_fecha_creacion ON lightdata_envios(fecha_creacion_lightdata);
