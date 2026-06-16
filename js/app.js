@@ -1018,7 +1018,6 @@ async function renderShipments() {
 
     // Populate Courier Options dynamically from data
     const courierSelect = document.getElementById('ship-courier-select');
-    const couriers = [...new Set(allData.map(s => s.courier).filter(Boolean))].sort();
     couriers.forEach(c => {
       const opt = document.createElement('option');
       opt.value = c;
