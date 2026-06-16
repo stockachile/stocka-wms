@@ -890,21 +890,22 @@ async function renderShipments() {
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
 
   try {
-    console.log('DEBUG: Cargando envíos consolidados filtrando por empresa:', currentCompany);
+    console.log('DEBUG: Cargando lista de couriers únicos para la empresa:', currentCompany);
     
-    let query = supabase
+    // Obtener la lista de couriers únicos para este comercio primero
+    let courierQuery = supabase
       .from('envios_unificados')
-      .select('*')
+      .select('courier')
       .eq('visible_to_client', true);
-
+    
     if (currentCompany) {
-      query = query.ilike('empresa_comercio_proveedor', currentCompany);
+      courierQuery = courierQuery.ilike('empresa_comercio_proveedor', currentCompany);
     }
+    
+    const { data: courierData } = await courierQuery;
+    const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
 
-    const { data: shipments, error } = await query;
-    if (error) throw error;
-
-    let allData = shipments || [];
+    let allData = [];
     let filters = {
       search: '',
       status: '',
@@ -1181,6 +1182,46 @@ async function renderShipments() {
       });
     };
 
+    // Función para obtener los datos desde Supabase con filtros a nivel de base de datos
+    const fetchAndRenderTable = async () => {
+      const tbody = document.getElementById('shipments-table-body');
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem;">Cargando despachos...</td></tr>`;
+
+      try {
+        let query = supabase
+          .from('envios_unificados')
+          .select('*')
+          .eq('visible_to_client', true);
+
+        if (currentCompany) {
+          query = query.ilike('empresa_comercio_proveedor', currentCompany);
+        }
+
+        // Aplicar filtros a nivel de base de datos
+        if (filters.courier) {
+          query = query.eq('courier', filters.courier);
+        }
+        if (filters.dateFrom) {
+          query = query.gte('created_at', filters.dateFrom + 'T00:00:00Z');
+        }
+        if (filters.dateTo) {
+          query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
+        }
+
+        // Ordenar por fecha descendente (más recientes primero)
+        query = query.order('created_at', { ascending: false });
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        allData = data || [];
+        applyFiltersAndRenderTable();
+      } catch (err) {
+        console.error('Error fetching shipments data:', err);
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-danger);">Error al cargar los datos de la base de datos.</td></tr>`;
+      }
+    };
+
     // Bind filters event listeners
     document.getElementById('ship-search-input').addEventListener('input', (e) => {
       filters.search = e.target.value;
@@ -1197,19 +1238,19 @@ async function renderShipments() {
       });
     });
 
-    document.getElementById('ship-courier-select').addEventListener('change', (e) => {
+    document.getElementById('ship-courier-select').addEventListener('change', async (e) => {
       filters.courier = e.target.value;
-      applyFiltersAndRenderTable();
+      await fetchAndRenderTable();
     });
 
-    document.getElementById('ship-date-from').addEventListener('change', (e) => {
+    document.getElementById('ship-date-from').addEventListener('change', async (e) => {
       filters.dateFrom = e.target.value;
-      applyFiltersAndRenderTable();
+      await fetchAndRenderTable();
     });
 
-    document.getElementById('ship-date-to').addEventListener('change', (e) => {
+    document.getElementById('ship-date-to').addEventListener('change', async (e) => {
       filters.dateTo = e.target.value;
-      applyFiltersAndRenderTable();
+      await fetchAndRenderTable();
     });
 
     // Excel Export CSV logic
@@ -1302,8 +1343,8 @@ async function renderShipments() {
       });
     });
 
-    // Initial table render
-    applyFiltersAndRenderTable();
+    // Carga inicial de datos desde base de datos
+    await fetchAndRenderTable();
 
   } catch (err) {
     console.error('Error rendering shipments:', err);
