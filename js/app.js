@@ -300,7 +300,7 @@ async function renderWarehouses() {
         cardsHtml += `
           <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem; background: var(--color-bg);">
             <h4 style="margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
-              <span style="font-size: 1.5rem;">🏭</span> ${w.name}
+              <span style="font-size: 1.5rem;"><i class="ri-building-2-line"></i></span> ${w.name}
             </h4>
             <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem;">${w.location || 'Sin ubicación'}</p>
           </div>
@@ -419,8 +419,8 @@ async function renderOrders() {
           if (shipment.tracking) {
             const courierName = shipment.courier || 'Seguimiento';
             trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;">🚚 ${courierName}: ${shipment.tracking}</a>`
-              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);">🚚 ${courierName}: ${shipment.tracking}</span>`;
+              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
+              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
           }
         }
 
@@ -480,7 +480,7 @@ async function renderPending() {
         <div class="card-body">
           <p style="color: var(--color-text-muted); margin-bottom: 1rem;">Estos productos ingresaron a la Bodega Central y están a la espera de ser distribuidos a su ubicación final o bodega sucursal por el administrador.</p>
           <div style="padding: 2rem; border: 2px dashed var(--color-border); border-radius: var(--radius-md); text-align: center; color: var(--color-text-muted);">
-            <span style="font-size: 2rem; display: block; margin-bottom: 1rem;">🗂️</span>
+            <span style="font-size: 2rem; display: block; margin-bottom: 1rem;"><i class="ri-folder-open-line"></i></span>
             Actualmente no hay stock pendiente de reubicación.
           </div>
         </div>
@@ -536,7 +536,7 @@ async function renderIntegrations() {
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
           <div class="card" style="border: none; box-shadow: var(--shadow-md);">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;">🛍️ Shopify Integration</h3>
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-3-line"></i> Shopify Integration</h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? '#f0fdf4' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? '#bbf7d0' : 'var(--color-border)'};">
@@ -575,7 +575,7 @@ async function renderIntegrations() {
           <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: #f8fafc;">
             <div class="card-header" style="background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
-                <span>🛍️</span> Guía de Integración Shopify
+                <span><i class="ri-shopping-bag-3-line"></i></span> Guía de Integración Shopify
               </h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
@@ -930,28 +930,28 @@ async function renderShipments() {
       <!-- KPI Grid -->
       <div class="shipments-kpi-grid">
         <div class="shipments-kpi-card kpi-total">
-          <div class="kpi-icon">📦</div>
+          <div class="kpi-icon"><i class="ri-box-3-line"></i></div>
           <div class="kpi-info">
             <span class="kpi-label">Total Envíos</span>
             <span class="kpi-value" id="kpi-total-val">0</span>
           </div>
         </div>
         <div class="shipments-kpi-card kpi-despachado">
-          <div class="kpi-icon">🚚</div>
+          <div class="kpi-icon"><i class="ri-truck-line"></i></div>
           <div class="kpi-info">
             <span class="kpi-label">Despachados</span>
             <span class="kpi-value" id="kpi-despachado-val">0</span>
           </div>
         </div>
         <div class="shipments-kpi-card kpi-sin-movimiento">
-          <div class="kpi-icon">⏳</div>
+          <div class="kpi-icon"><i class="ri-timer-line"></i></div>
           <div class="kpi-info">
             <span class="kpi-label">Sin Movimiento</span>
             <span class="kpi-value" id="kpi-sin-movimiento-val">0</span>
           </div>
         </div>
         <div class="shipments-kpi-card kpi-alerta">
-          <div class="kpi-icon">⚠️</div>
+          <div class="kpi-icon"><i class="ri-error-warning-line"></i></div>
           <div class="kpi-info">
             <span class="kpi-label">Alertas</span>
             <span class="kpi-value" id="kpi-alerta-val">0</span>
@@ -988,7 +988,7 @@ async function renderShipments() {
           <input type="date" id="ship-date-to" class="filter-input">
         </div>
         <button id="ship-btn-export" class="btn-filter-action btn-export" style="border:none;">
-          <span>📥</span> Exportar Excel
+          <span><i class="ri-inbox-archive-line"></i></span> Exportar Excel
         </button>
       </div>
 
@@ -1138,7 +1138,7 @@ async function renderShipments() {
 
         const trackingDisplay = s.tracking
           ? (s.tracking_url && s.tracking_url !== 'N/A'
-              ? `<a href="${s.tracking_url}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;">🔗 ${s.tracking}</a>`
+              ? `<a href="${s.tracking_url}" target="_blank" onclick="event.stopPropagation();" style="font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;"><i class="ri-links-line"></i> ${s.tracking}</a>`
               : s.tracking)
           : '-';
 
@@ -1414,7 +1414,7 @@ function showShipmentDetailsModal(shipment) {
         <div class="timeline-label">Creado</div>
       </div>
       <div class="timeline-step ${step2Class}">
-        <div class="timeline-bubble">${gs === 'ALERTA' ? '⚠️' : '2'}</div>
+        <div class="timeline-bubble">${gs === 'ALERTA' ? '<i class="ri-error-warning-line"></i>' : '2'}</div>
         <div class="timeline-label">${gs === 'ALERTA' ? 'Incidencia' : 'En Tránsito'}</div>
       </div>
       <div class="timeline-step ${step3Class}">
@@ -1427,7 +1427,7 @@ function showShipmentDetailsModal(shipment) {
   // Tracking button HTML
   const hasTracking = shipment.tracking_url && shipment.tracking_url !== 'N/A';
   const trackingBtnHtml = hasTracking
-    ? `<a href="${shipment.tracking_url}" target="_blank" class="btn btn-complementary" style="margin-right: auto;">🔗 Seguimiento de Pedido</a>`
+    ? `<a href="${shipment.tracking_url}" target="_blank" class="btn btn-complementary" style="margin-right: auto;"><i class="ri-links-line"></i> Seguimiento de Pedido</a>`
     : ``;
 
   modal.innerHTML = `
@@ -1467,7 +1467,7 @@ function showShipmentDetailsModal(shipment) {
                 <span class="detail-info-value">
                   ${shipment.tracking 
                     ? (shipment.tracking_url && shipment.tracking_url !== 'N/A'
-                        ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);">🔗 ${shipment.tracking}</a>`
+                        ? `<a href="${shipment.tracking_url}" target="_blank" style="font-weight:700; color:var(--color-accent);"><i class="ri-links-line"></i> ${shipment.tracking}</a>`
                         : `<span style="font-weight:700;">${shipment.tracking}</span>`)
                     : '-'}
                 </span>
@@ -1526,7 +1526,7 @@ function showShipmentDetailsModal(shipment) {
             <div class="shipment-detail-section" style="height: 100%; display: flex; flex-direction: column;">
               <h4 class="shipment-detail-title">Productos en la Orden de Venta</h4>
               <div id="order-details-loading" style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted); font-size:0.875rem; flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
-                <div style="margin-bottom:0.5rem; font-size:1.5rem;">🔄</div>
+                <div style="margin-bottom:0.5rem; font-size:1.5rem;"><i class="ri-loop-right-line"></i></div>
                 Buscando orden de venta en WMS...
               </div>
               <div id="order-details-content" style="display: none; flex:1;">
@@ -1575,7 +1575,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
   
   if (!pedidoRef) {
     loadingEl.innerHTML = `
-      <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">🔎</span>
+      <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-search-line"></i></span>
       No existe una referencia de pedido válida vinculada a este despacho.
     `;
     return;
@@ -1607,7 +1607,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
 
     if (!orders || orders.length === 0) {
       loadingEl.innerHTML = `
-        <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">🔍</span>
+        <span style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-search-line"></i></span>
         Este despacho no está asociado a una Orden de Venta local de WMS STOCKA.
         <br><br>
         <span style="font-size: 0.75rem; display: block; font-weight: normal; color: var(--color-text-muted); line-height: 1.4;">
@@ -1681,7 +1681,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
   } catch (err) {
     console.error('Error fetching associated order details:', err);
     loadingEl.innerHTML = `
-      <span style="color: red; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;">⚠️</span>
+      <span style="color: red; font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"><i class="ri-error-warning-line"></i></span>
       Error al cargar los detalles del pedido asociado en la base de datos.
     `;
   }
@@ -1695,7 +1695,7 @@ function getObserverBanner() {
   if (userRole === 'observer') {
     return `
       <div class="observer-banner" style="background-color: #fef3c7; color: #d97706; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; border: 1px solid #fde68a; font-size: 0.9rem;">
-        <span>⚠️</span> <strong>Modo Observador:</strong> Tienes acceso de solo lectura. No puedes realizar acciones, crear pedidos/productos ni modificar integraciones.
+        <span><i class="ri-error-warning-line"></i></span> <strong>Modo Observador:</strong> Tienes acceso de solo lectura. No puedes realizar acciones, crear pedidos/productos ni modificar integraciones.
       </div>
     `;
   }
