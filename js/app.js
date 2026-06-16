@@ -945,20 +945,19 @@ async function renderShipments() {
         </div>
       </div>
 
+      <!-- Shipments Tabs -->
+      <div class="shipments-tabs" id="ship-status-tabs">
+        <button class="shipment-tab active" data-status="">Todos los estados</button>
+        <button class="shipment-tab" data-status="DESPACHADO">Despachado</button>
+        <button class="shipment-tab" data-status="SIN MOVIMIENTO">Sin Movimiento</button>
+        <button class="shipment-tab" data-status="ALERTA">Alerta</button>
+      </div>
+
       <!-- Filters Panel -->
       <div class="shipments-filters-panel">
         <div class="filter-item filter-item-search">
           <label class="filter-label">Buscar</label>
           <input type="text" id="ship-search-input" class="filter-input" placeholder="Referencia, destinatario, tracking, comuna...">
-        </div>
-        <div class="filter-item">
-          <label class="filter-label">Estado Global</label>
-          <select id="ship-status-select" class="filter-input">
-            <option value="">Todos los estados</option>
-            <option value="DESPACHADO">Despachado</option>
-            <option value="SIN MOVIMIENTO">Sin Movimiento</option>
-            <option value="ALERTA">Alerta</option>
-          </select>
         </div>
         <div class="filter-item">
           <label class="filter-label">Courier</label>
@@ -1175,9 +1174,14 @@ async function renderShipments() {
       applyFiltersAndRenderTable();
     });
 
-    document.getElementById('ship-status-select').addEventListener('change', (e) => {
-      filters.status = e.target.value;
-      applyFiltersAndRenderTable();
+    const statusTabs = document.querySelectorAll('#ship-status-tabs .shipment-tab');
+    statusTabs.forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        statusTabs.forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        filters.status = e.target.getAttribute('data-status');
+        applyFiltersAndRenderTable();
+      });
     });
 
     document.getElementById('ship-courier-select').addEventListener('change', (e) => {
@@ -1300,7 +1304,12 @@ function showShipmentDetailsModal(shipment) {
 
   modal = document.createElement('div');
   modal.id = 'modal-shipment-detail';
-  modal.className = 'modal-overlay active';
+  modal.className = 'slide-over-overlay';
+  
+  // Animar entrada del overlay y panel
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
   
   const dateObj = shipment.created_at ? new Date(shipment.created_at) : null;
   const dateStr = dateObj ? dateObj.toLocaleString() : '-';
@@ -1362,19 +1371,25 @@ function showShipmentDetailsModal(shipment) {
     </div>
   `;
 
+  // Tracking button HTML
+  const hasTracking = shipment.tracking_url && shipment.tracking_url !== 'N/A';
+  const trackingBtnHtml = hasTracking
+    ? `<a href="${shipment.tracking_url}" target="_blank" class="btn btn-complementary" style="margin-right: auto;">🔗 Seguimiento de Pedido</a>`
+    : ``;
+
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 800px; width: 90%; max-height: 90vh; display: flex; flex-direction: column; border:none; box-shadow: var(--shadow-lg);">
-      <div class="modal-header" style="background-color: var(--color-bg); padding: 1.25rem 1.5rem;">
-        <h3 style="font-weight: 700; color: var(--color-dark);">Detalle de Despacho: ${shipment.pedido_referencia || 'Sin Referencia'}</h3>
-        <button class="modal-close" id="btn-close-shipment-modal" style="background:none; border:none; font-size:1.75rem; cursor:pointer;">&times;</button>
+    <div class="slide-over-panel">
+      <div class="slide-over-header">
+        <h3>Detalle de Despacho</h3>
+        <button class="slide-over-close" id="btn-close-shipment-modal">&times;</button>
       </div>
       
-      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem; background-color: var(--color-light);">
+      <div class="slide-over-body">
         
         <!-- Graphic Tracking Progress Timeline -->
         ${stepperHtml}
 
-        <div class="shipment-detail-grid">
+        <div class="shipment-detail-grid" style="display: flex; flex-direction: column; gap: 2rem;">
           
           <!-- Left Column: Logistics Info and Destination Info -->
           <div style="display: flex; flex-direction: column; gap: 1.5rem;">
@@ -1389,6 +1404,10 @@ function showShipmentDetailsModal(shipment) {
               <div class="detail-info-row">
                 <span class="detail-info-label">Courier de Envío:</span>
                 <span class="detail-info-value" style="font-weight:700;">${shipment.courier || '-'}</span>
+              </div>
+              <div class="detail-info-row">
+                <span class="detail-info-label">Referencia Pedido:</span>
+                <span class="detail-info-value" style="font-weight:700;">${shipment.pedido_referencia || 'Sin Referencia'}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Código de Tracking:</span>
@@ -1466,8 +1485,9 @@ function showShipmentDetailsModal(shipment) {
 
       </div>
       
-      <div class="modal-footer" style="background-color: var(--color-bg); padding: 1rem 1.5rem;">
-        <button class="btn btn-outline" id="btn-close-shipment-footer" style="padding: 0.5rem 1.5rem; font-size: 0.875rem; font-weight:600;">Cerrar Ventana</button>
+      <div class="slide-over-footer">
+        ${trackingBtnHtml}
+        <button class="btn btn-outline" id="btn-close-shipment-footer">Cerrar</button>
       </div>
     </div>
   `;
@@ -1475,9 +1495,22 @@ function showShipmentDetailsModal(shipment) {
   document.body.appendChild(modal);
 
   // Close handlers
-  const closeModal = () => modal.remove();
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => {
+      modal.remove();
+    }, 400); // Wait for CSS transition
+  };
+
   document.getElementById('btn-close-shipment-modal').addEventListener('click', closeModal);
   document.getElementById('btn-close-shipment-footer').addEventListener('click', closeModal);
+
+  // Cierra al hacer clic en el overlay difuminado
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
 
   // Load WMS orders mapping asynchronously
   fetchAndRenderAssociatedOrder(shipment.pedido_referencia);

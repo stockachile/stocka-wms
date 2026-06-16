@@ -102,7 +102,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1000);
       }
     } catch (error) {
-      showAlert(error.message || 'Error al iniciar sesión. Verifica tus credenciales.');
+      let msg = error.message;
+      if (typeof msg === 'object') msg = JSON.stringify(msg);
+      if (msg === '{}' || msg === '[object Object]') msg = '';
+      showAlert(msg || 'Error al iniciar sesión. Verifica tus credenciales.');
     } finally {
       loginBtn.disabled = false;
       loginBtn.textContent = 'Ingresar';
@@ -162,7 +165,10 @@ document.addEventListener('DOMContentLoaded', () => {
           }, 4000);
         }
       } catch (error) {
-        showAlert(error.message || 'Error al registrar usuario. Inténtalo de nuevo.');
+        let msg = error.message;
+        if (typeof msg === 'object') msg = JSON.stringify(msg);
+        if (msg === '{}' || msg === '[object Object]') msg = '';
+        showAlert(msg || 'Error al registrar usuario. Inténtalo de nuevo.');
       } finally {
         registerBtn.disabled = false;
         registerBtn.textContent = 'Crear Cuenta';
