@@ -100,6 +100,9 @@ async function init() {
           } else if (view === 'pickups') {
             viewTitle.textContent = 'Punto de Retiro';
             renderPickups();
+          } else if (view === 'sales') {
+            viewTitle.textContent = 'Punto de Ventas';
+            renderSales();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -2160,12 +2163,22 @@ window.openReturnsDetail = function(dataStr) {
     document.getElementById('ret-modal-title').textContent = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
     
     document.getElementById('ret-modal-info').innerHTML = `
-      <div><strong style="color:var(--color-text-muted);">Comercio:</strong><br/>${data.comercio}</div>
-      <div><strong style="color:var(--color-text-muted);">Ref. Pedido:</strong><br/>${data.referencia_pedido}</div>
-      <div><strong style="color:var(--color-text-muted);">Transporte:</strong><br/>${data.transporte || '-'}</div>
-      <div><strong style="color:var(--color-text-muted);">Tracking / Ref:</strong><br/>${data.referencia_transporte || '-'}</div>
-      <div><strong style="color:var(--color-text-muted);">Sucursal:</strong><br/>${data.sucursal || '-'}</div>
-      <div><strong style="color:var(--color-text-muted);">Creado Por:</strong><br/>${data.creado_por || '-'}</div>
+      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio</div>
+        <div style="font-weight: 600; color: var(--color-text-main);">${data.comercio}</div>
+      </div>
+      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Ref. Pedido</div>
+        <div style="font-weight: 600; color: var(--color-text-main);">${data.referencia_pedido}</div>
+      </div>
+      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Transporte</div>
+        <div style="font-weight: 600; color: var(--color-text-main);">${data.transporte || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Tracking: ${data.referencia_transporte || '-'}</span></div>
+      </div>
+      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Sucursal</div>
+        <div style="font-weight: 600; color: var(--color-text-main);">${data.sucursal || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Por: ${data.creado_por || '-'}</span></div>
+      </div>
     `;
     
     const tbody = document.getElementById('ret-modal-products');
@@ -2187,11 +2200,19 @@ window.openReturnsDetail = function(dataStr) {
     
     const comm = document.getElementById('ret-modal-comments');
     if (data.comentarios) {
-      comm.textContent = data.comentarios;
-      comm.style.fontStyle = 'normal';
+      comm.innerHTML = `
+        <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; font-style: normal; border: 1px solid rgba(245, 158, 11, 0.3);">
+          <strong><i class="ri-message-3-line"></i> Observaciones de Devolución:</strong><br/>
+          ${data.comentarios}
+        </div>
+      `;
+      comm.style.padding = '0';
+      comm.style.backgroundColor = 'transparent';
     } else {
-      comm.textContent = 'Sin comentarios registrados.';
+      comm.innerHTML = 'Sin comentarios registrados.';
       comm.style.fontStyle = 'italic';
+      comm.style.padding = '1rem';
+      comm.style.backgroundColor = 'var(--color-surface)';
     }
     
     document.getElementById('modal-returns-detail').classList.add('active');
