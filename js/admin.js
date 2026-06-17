@@ -1,5 +1,14 @@
 import supabase from './supabase.js';
 
+// Capturador de errores global para depuración en tiempo real
+window.onerror = function (message, source, lineno, colno, error) {
+  alert(`Error detectado en admin.js:\n${message}\n\nArchivo: ${source}\nLínea: ${lineno}:${colno}`);
+  return false;
+};
+window.onunhandledrejection = function (event) {
+  alert(`Error de Promesa no manejada en admin.js:\n${event.reason}`);
+};
+
 console.log('DEBUG: Iniciando js/admin.js...');
 
 async function init() {
