@@ -3,8 +3,8 @@
 :root {
   color-scheme: light;
   /* Brand Colors */
-  --color-primary: #05fa93; /* Mint / Neon Green */
-  --color-primary-hover: #04d980;
+  --color-primary: #2563eb; /* Royal Blue */
+  --color-primary-hover: #1d4ed8;
   --color-accent: #5e17eb; /* Purple */
   --color-accent-hover: #4b12bd;
   
@@ -17,7 +17,7 @@
   --color-border: #e2e8f0;
   --color-sidebar-bg: #0f172a;
   --color-sidebar-text: #94a3b8;
-  --color-sidebar-active: #05fa93;
+  --color-sidebar-active: #3b82f6;
   --color-sidebar-hover: rgba(255, 255, 255, 0.05);
 
   /* Semantic Colors */
@@ -41,7 +41,7 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-glow: 0 0 15px rgba(5, 250, 147, 0.4);
+  --shadow-glow: 0 0 15px rgba(37, 99, 235, 0.4);
   --shadow-glow-accent: 0 0 15px rgba(94, 23, 235, 0.4);
 
   /* Border Radius */
@@ -80,7 +80,7 @@
 
   --color-sidebar-bg: #070a13;
   --color-sidebar-text: #94a3b8;
-  --color-sidebar-active: #05fa93;
+  --color-sidebar-active: #3b82f6;
   --color-sidebar-hover: rgba(255, 255, 255, 0.03);
   
   /* Adjusted Shadows for Dark Mode */
@@ -165,7 +165,7 @@ h1, h2, h3, h4, h5, h6 {
 
 .btn-primary {
   background-color: var(--color-primary);
-  color: var(--color-text-main);
+  color: #ffffff;
   font-weight: 600;
   box-shadow: var(--shadow-md);
 }
