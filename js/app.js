@@ -2905,17 +2905,23 @@ async function fetchAndRenderSalesData() {
         let safeData = '{}';
         try { safeData = encodeURIComponent(JSON.stringify(s)); } catch(e){}
 
+        let badgeClass = 'badge-neutral';
+        const pago = (s.modo_pago || '').toLowerCase();
+        if (pago.includes('efectivo')) badgeClass = 'badge-success';
+        else if (pago.includes('tarjeta') || pago.includes('crédito') || pago.includes('débito')) badgeClass = 'badge-info';
+        else if (pago.includes('transferencia')) badgeClass = 'badge-warning';
+
         html += `
-          <tr>
-            <td style="white-space: nowrap;">${dateStr}</td>
-            <td><strong>${s.codigo_venta || 'N/A'}</strong></td>
-            <td>${s.comercio || 'N/A'}</td>
-            <td>${s.nombre_cliente || 'N/A'}</td>
-            <td>${s.sucursal || 'N/A'}</td>
-            <td>${montoFmt}</td>
-            <td><span class="badge badge-neutral">${s.modo_pago || 'N/A'}</span></td>
+          <tr style="transition: background-color 0.2s;">
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${s.codigo_venta || 'N/A'}</span></td>
+            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${s.comercio || 'N/A'}</td>
+            <td><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.nombre_cliente || 'N/A'}</td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.sucursal || 'N/A'}</td>
+            <td><strong style="color: #10b981; font-size: 1.05rem;">${montoFmt}</strong></td>
+            <td><span class="badge ${badgeClass}">${s.modo_pago || 'N/A'}</span></td>
             <td>
-              <button class="btn btn-outline" onclick="window.openSalesDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+              <button class="btn btn-outline" onclick="window.openSalesDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
             </td>
           </tr>
         `;
