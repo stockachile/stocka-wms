@@ -2348,15 +2348,15 @@ window.showInfoModal = function(title, contentHtml) {
   modal.className = 'modal-overlay';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 450px;">
-      <div class="modal-header">
-        <h3>${title}</h3>
+    <div class="modal-content" style="max-width: 500px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">${title}</h3>
         <button class="modal-close" id="btn-close-generic-info">&times;</button>
       </div>
-      <div class="modal-body" style="font-size: 0.95rem; color: var(--color-text-main); line-height: 1.6;">
+      <div class="modal-body" style="font-size: 0.95rem; color: var(--color-text-main); line-height: 1.6; overflow-y: auto; flex: 1; padding: 1.25rem;">
         ${contentHtml}
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
         <button class="btn btn-primary" id="btn-ok-generic-info" style="width: 100%;">Entendido</button>
       </div>
     </div>
