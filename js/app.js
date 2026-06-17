@@ -97,6 +97,9 @@ async function init() {
           } else if (view === 'returns') {
             viewTitle.textContent = 'Logística Inversa';
             renderReturns();
+          } else if (view === 'pickups') {
+            viewTitle.textContent = 'Punto de Retiro';
+            renderPickups();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -2241,3 +2244,328 @@ window.showInfoModal = function(title, contentHtml) {
     if (e.target === modal) closeModal();
   });
 };;
+
+﻿// ====== PUNTO DE RETIRO ======
+let pickupsCurrentPage = 1;
+const pickupsPageSize = 50;
+
+window.renderPickups = async function() {
+  const content = document.getElementById('app-content');
+  
+  content.innerHTML = `
+    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+      <div>
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Punto de Retiro</h2>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+          Revisa las entregas y retiros en sucursales en tiempo real.
+        </p>
+      </div>
+      <div style="display: flex; gap: 0.5rem;">
+        <button id="btn-export-pickups-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981;">
+          <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
+        </button>
+        <button id="btn-export-pickups-excel" class="btn btn-outline" style="background-color: white; color: #059669; border-color: #059669;">
+          <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
+          <input type="text" id="filter-pickups-search" class="form-input" placeholder="Buscar por pedido, cliente, RUT, sucursal...">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Estado</label>
+          <select id="filter-pickups-status" class="form-input">
+            <option value="">Todos</option>
+            <option value="ENTREGADO">Entregado</option>
+            <option value="EN SUCURSAL">En Sucursal</option>
+            <option value="PENDIENTE">Pendiente</option>
+            <option value="EN RUTA">En Ruta</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
+          <input type="date" id="filter-pickups-date-from" class="form-input">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
+          <input type="date" id="filter-pickups-date-to" class="form-input">
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+      <div class="card-body" style="overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha Registro</th>
+              <th>Estado</th>
+              <th>Comercio</th>
+              <th>Pedido</th>
+              <th>Cliente</th>
+              <th>Sucursal</th>
+              <th>F. Entrega</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="pickups-tbody">
+            <tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
+        <div id="pickups-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
+          Mostrando 0 registros
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-pickups-prev" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Anterior</button>
+          <button id="btn-pickups-next" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Siguiente</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Listeners de Filtros
+  const filters = ['filter-pickups-status', 'filter-pickups-date-from', 'filter-pickups-date-to'];
+  filters.forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      pickupsCurrentPage = 1;
+      fetchAndRenderPickupsData();
+    });
+  });
+
+  let searchTimeout;
+  document.getElementById('filter-pickups-search').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      pickupsCurrentPage = 1;
+      fetchAndRenderPickupsData();
+    }, 400);
+  });
+
+  // Listeners Paginación
+  document.getElementById('btn-pickups-prev').addEventListener('click', () => {
+    if (pickupsCurrentPage > 1) {
+      pickupsCurrentPage--;
+      fetchAndRenderPickupsData();
+    }
+  });
+
+  document.getElementById('btn-pickups-next').addEventListener('click', () => {
+    pickupsCurrentPage++;
+    fetchAndRenderPickupsData();
+  });
+
+  // Listeners Exportación
+  document.getElementById('btn-export-pickups-csv').addEventListener('click', () => exportPickupsData('csv'));
+  document.getElementById('btn-export-pickups-excel').addEventListener('click', () => exportPickupsData('excel'));
+
+  pickupsCurrentPage = 1;
+  await fetchAndRenderPickupsData();
+};
+
+function buildPickupsQuery(query) {
+  const fSearch = document.getElementById('filter-pickups-search').value.trim();
+  const fStatus = document.getElementById('filter-pickups-status').value;
+  const fFrom = document.getElementById('filter-pickups-date-from').value;
+  const fTo = document.getElementById('filter-pickups-date-to').value;
+
+  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (fStatus) query = query.eq('estado_pedido', fStatus);
+  if (fSearch) {
+    query = query.or(`pedido.ilike.%${fSearch}%,nombre_apellido.ilike.%${fSearch}%,rut.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+  }
+  
+  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
+  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+
+  return query;
+}
+
+async function fetchAndRenderPickupsData() {
+  const tbody = document.getElementById('pickups-tbody');
+  const btnPrev = document.getElementById('btn-pickups-prev');
+  const btnNext = document.getElementById('btn-pickups-next');
+  const info = document.getElementById('pickups-pagination-info');
+
+  tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  btnPrev.disabled = true;
+  btnNext.disabled = true;
+
+  try {
+    let query = supabase.from('store_pickups').select('*', { count: 'exact' });
+    query = buildPickupsQuery(query);
+
+    const from = (pickupsCurrentPage - 1) * pickupsPageSize;
+    const to = from + pickupsPageSize - 1;
+
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data: pickups, error, count } = await query;
+    if (error) throw error;
+
+    let html = '';
+    if (!pickups || pickups.length === 0) {
+      html = '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+    } else {
+      pickups.forEach(p => {
+        const d = new Date(p.created_at);
+        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        
+        let badgeClass = 'badge-neutral';
+        const st = p.estado_pedido ? p.estado_pedido.toUpperCase() : '';
+        if (st === 'ENTREGADO') badgeClass = 'badge-success';
+        else if (st === 'EN SUCURSAL') badgeClass = 'badge-primary';
+        else if (st === 'PENDIENTE') badgeClass = 'badge-warning';
+
+        let safeData = '{}';
+        try { safeData = encodeURIComponent(JSON.stringify(p)); } catch(e){}
+
+        html += `
+          <tr>
+            <td style="white-space: nowrap;">${dateStr}</td>
+            <td><span class="badge ${badgeClass}">${st || 'N/A'}</span></td>
+            <td>${p.comercio || 'N/A'}</td>
+            <td><strong>${p.pedido || 'N/A'}</strong></td>
+            <td>${p.nombre_apellido || 'N/A'}</td>
+            <td>${p.sucursal || 'N/A'}</td>
+            <td>${p.fecha_retiro ? p.fecha_retiro + (p.hora_retiro ? ' ' + p.hora_retiro : '') : '-'}</td>
+            <td>
+              <button class="btn btn-outline" onclick="window.openPickupsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    tbody.innerHTML = html;
+    
+    const currentEnd = Math.min(from + pickupsPageSize, count || 0);
+    info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    
+    btnPrev.disabled = pickupsCurrentPage <= 1;
+    btnNext.disabled = currentEnd >= (count || 0);
+
+  } catch (err) {
+    console.error('Error:', err);
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+  }
+}
+
+async function exportPickupsData(format) {
+  try {
+    const info = document.getElementById('pickups-pagination-info');
+    const oldText = info.textContent;
+    info.textContent = 'Preparando exportación...';
+    
+    let query = supabase.from('store_pickups').select('*').order('created_at', { ascending: false });
+    query = buildPickupsQuery(query);
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      alert('No hay datos para exportar con estos filtros.');
+      info.textContent = oldText;
+      return;
+    }
+
+    const rows = data.map(p => {
+      const d = new Date(p.created_at);
+      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      
+      return {
+        'ID': p.id,
+        'Fecha y Hora': dateStr,
+        'Estado': p.estado_pedido,
+        'Comercio': p.comercio,
+        'Pedido': p.pedido,
+        'Cliente': p.nombre_apellido,
+        'RUT': p.rut,
+        'Sucursal': p.sucursal,
+        'Fecha Retiro': p.fecha_retiro,
+        'Hora Retiro': p.hora_retiro,
+        'Picker Entrega': p.picker_entrega,
+        'Observaciones': p.observaciones,
+        'Avisado Correo': p.avisado_x_mail ? 'Sí' : 'No',
+        'Notif Automatica': p.notificado_automatico ? 'Sí' : 'No'
+      };
+    });
+
+    const timestamp = new Date().toISOString().slice(0,10);
+    const filename = `punto_retiro_${timestamp}`;
+
+    if (format === 'csv') {
+      const headers = Object.keys(rows[0]);
+      const csvRows = rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','));
+      const csvContent = "\ufeff" + [headers.join(','), ...csvRows].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } else if (format === 'excel') {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería de Excel no está cargada.');
+        info.textContent = oldText;
+        return;
+      }
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Punto Retiro");
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+    }
+
+    info.textContent = oldText;
+  } catch(e) {
+    console.error('Error Exporting:', e);
+    alert('Error al exportar: ' + e.message);
+  }
+}
+
+window.openPickupsDetail = function(dataStr) {
+  try {
+    const data = JSON.parse(decodeURIComponent(dataStr));
+    
+    let content = `
+      <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
+        <p><strong>Comercio:</strong> ${data.comercio || '-'}</p>
+        <p><strong>Pedido:</strong> ${data.pedido || '-'}</p>
+        <p><strong>Cliente:</strong> ${data.nombre_apellido || '-'} (${data.rut || '-'})</p>
+        <p><strong>Sucursal:</strong> ${data.sucursal || '-'}</p>
+        <p><strong>Estado:</strong> ${data.estado_pedido || '-'}</p>
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
+        <p><strong>Fecha Retiro:</strong> ${data.fecha_retiro || '-'} ${data.hora_retiro || ''}</p>
+        <p><strong>Entregado Por (Picker):</strong> ${data.picker_entrega || '-'}</p>
+        <p><strong>Avisado Correo:</strong> ${data.avisado_x_mail ? 'Sí' : 'No'}</p>
+        <p><strong>Observaciones:</strong> ${data.observaciones || '-'}</p>
+      </div>
+    `;
+
+    if (window.Swal) {
+      Swal.fire({
+        title: 'Detalle de Pedido (Retiro)',
+        html: content,
+        confirmButtonText: 'Cerrar',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    } else {
+      alert("Comercio: " + data.comercio + "\nPedido: " + data.pedido + "\nEstado: " + data.estado_pedido + "\nSucursal: " + data.sucursal);
+    }
+    
+  } catch(e) {
+    console.error(e);
+    alert('Error al abrir detalle');
+  }
+};
