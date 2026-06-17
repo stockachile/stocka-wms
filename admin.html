@@ -150,13 +150,13 @@
 
   <!-- Modal Crear Usuario -->
   <div class="modal-overlay" id="modal-create-user">
-    <div class="modal-content" style="max-width: 550px;">
-      <div class="modal-header">
-        <h3>Crear Nuevo Usuario</h3>
-        <button class="modal-close" data-close="modal-create-user">&times;</button>
+    <div class="modal-content" style="max-width: 550px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">Crear Nuevo Usuario</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-create-user').classList.remove('active')">&times;</button>
       </div>
-      <form id="form-create-user">
-        <div class="modal-body">
+      <form id="form-create-user" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
           <div id="modal-user-alert-container"></div>
           
           <div class="form-group">
@@ -202,9 +202,9 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" data-close="modal-create-user">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;" id="btn-save-new-user">Crear Usuario</button>
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-create-user').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-new-user">Crear Usuario</button>
         </div>
       </form>
     </div>
@@ -212,14 +212,14 @@
 
   <!-- Modal Gestionar Módulos -->
   <div class="modal-overlay" id="modal-manage-modules">
-    <div class="modal-content" style="max-width: 500px;">
-      <div class="modal-header">
-        <h3>Restringir Módulos de Acceso</h3>
-        <button class="modal-close" data-close="modal-manage-modules">&times;</button>
+    <div class="modal-content" style="max-width: 500px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">Restringir Módulos de Acceso</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-modules').classList.remove('active')">&times;</button>
       </div>
-      <form id="form-manage-modules">
+      <form id="form-manage-modules" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
         <input type="hidden" id="manage-modules-user-id">
-        <div class="modal-body">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
           <div id="modal-modules-alert-container"></div>
           <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 1rem;">
             Selecciona los módulos a los que tendrá acceso el usuario <strong id="manage-modules-username"></strong> (Rol: <span id="manage-modules-user-role" style="font-weight: 600;"></span>):
@@ -231,9 +231,9 @@
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" data-close="modal-manage-modules">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;" id="btn-save-modules">Guardar Permisos</button>
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-modules').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-modules">Guardar Permisos</button>
         </div>
       </form>
     </div>
