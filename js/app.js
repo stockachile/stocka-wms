@@ -2131,17 +2131,17 @@ async function fetchAndRenderReturnsData() {
         try { safeData = encodeURIComponent(JSON.stringify(r)); } catch(e){}
 
         html += `
-          <tr>
-            <td style="white-space: nowrap;">${dateStr}</td>
+          <tr style="transition: background-color 0.2s;">
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td><span class="badge ${badgeClass}">${r.tipo_movimiento}</span></td>
-            <td>${r.comercio || 'N/A'}</td>
-            <td><strong>${r.referencia_pedido}</strong></td>
-            <td>${r.transporte || 'N/A'}</td>
-            <td>${r.sucursal || 'N/A'}</td>
-            <td>${r.referencia_transporte || 'N/A'}</td>
-            <td>${r.cantidad_total}</td>
+            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${r.comercio || 'N/A'}</td>
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${r.referencia_pedido}</span></td>
+            <td><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.sucursal || 'N/A'}</td>
+            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
+            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td>
-              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
             </td>
           </tr>
         `;
@@ -2247,62 +2247,91 @@ window.openReturnsDetail = function(dataStr) {
   try {
     const data = JSON.parse(decodeURIComponent(dataStr));
     
-    document.getElementById('ret-modal-title').textContent = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
+    const title = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
+    const badgeClass = data.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
     
-    document.getElementById('ret-modal-info').innerHTML = `
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio</div>
-        <div style="font-weight: 600; color: var(--color-text-main);">${data.comercio}</div>
-      </div>
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Ref. Pedido</div>
-        <div style="font-weight: 600; color: var(--color-text-main);">${data.referencia_pedido}</div>
-      </div>
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Transporte</div>
-        <div style="font-weight: 600; color: var(--color-text-main);">${data.transporte || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Tracking: ${data.referencia_transporte || '-'}</span></div>
-      </div>
-      <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Sucursal</div>
-        <div style="font-weight: 600; color: var(--color-text-main);">${data.sucursal || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Por: ${data.creado_por || '-'}</span></div>
-      </div>
-    `;
-    
-    const tbody = document.getElementById('ret-modal-products');
-    tbody.innerHTML = '';
-    
+    let prodHtml = '<ul style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main);">';
     if (data.productos && Array.isArray(data.productos)) {
       data.productos.forEach(p => {
-        tbody.innerHTML += `
-          <tr>
-            <td>${p.producto_devuelto || '-'}</td>
-            <td>${p.producto_reemplazo || '-'}</td>
-            <td>${p.cantidad || 1}</td>
-          </tr>
-        `;
+        prodHtml += `<li style="margin-bottom: 0.25rem;"><strong>${p.cantidad || 1}x</strong> Devuelve: ${p.producto_devuelto || '-'} &rarr; Reemplazo: ${p.producto_reemplazo || '-'}</li>`;
       });
     } else {
-      tbody.innerHTML = '<tr><td colspan="3" class="text-center">Sin detalles de productos.</td></tr>';
+      prodHtml += `<li><span style="color: var(--color-text-muted);">Sin detalles de productos</span></li>`;
     }
-    
-    const comm = document.getElementById('ret-modal-comments');
-    if (data.comentarios) {
-      comm.innerHTML = `
-        <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; font-style: normal; border: 1px solid rgba(245, 158, 11, 0.3);">
-          <strong><i class="ri-message-3-line"></i> Observaciones de Devolución:</strong><br/>
-          ${data.comentarios}
+    prodHtml += '</ul>';
+
+    let content = `
+      <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Referencia Pedido</span>
+            <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.referencia_pedido || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Tipo Movimiento</span>
+            <span class="badge ${badgeClass}">${data.tipo_movimiento || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Transporte / Courier</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.transporte || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Tracking / Código</span>
+            <span style="font-family: monospace; font-size: 0.9rem; color: var(--color-text-main);"><i class="ri-qr-code-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.referencia_transporte || '-'}</span>
+          </div>
         </div>
-      `;
-      comm.style.padding = '0';
-      comm.style.backgroundColor = 'transparent';
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-store-2-line" style="margin-right:0.25rem;"></i> Origen</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Comercio</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal Destino</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-user-star-line" style="margin-right:0.25rem;"></i> Gestión Interna</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Registrado Por</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.creado_por || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Cantidad Total (Artículos)</span>
+                <strong style="color: var(--color-text-main); font-size: 1.1rem;">${data.cantidad_total || 0}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-shopping-cart-2-line" style="margin-right:0.25rem;"></i> Productos</h4>
+          <div style="font-size: 0.95rem;">
+            ${prodHtml}
+          </div>
+        </div>
+        
+        ${data.comentarios ? `
+        <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.9rem;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-message-3-line"></i> Observaciones</h4>
+          ${data.comentarios}
+        </div>` : ''}
+      </div>
+    `;
+
+    if (typeof showInfoModal === 'function') {
+      showInfoModal(title, content);
     } else {
-      comm.innerHTML = 'Sin comentarios registrados.';
-      comm.style.fontStyle = 'italic';
-      comm.style.padding = '1rem';
-      comm.style.backgroundColor = 'var(--color-surface)';
+      alert("Movimiento: " + data.referencia_pedido + "\nComercio: " + data.comercio);
     }
     
-    document.getElementById('modal-returns-detail').classList.add('active');
   } catch(e) {
     console.error(e);
     alert('Error al abrir detalle');
@@ -2549,16 +2578,16 @@ async function fetchAndRenderPickupsData() {
         try { safeData = encodeURIComponent(JSON.stringify(p)); } catch(e){}
 
         html += `
-          <tr>
-            <td style="white-space: nowrap;">${dateStr}</td>
+          <tr style="transition: background-color 0.2s;">
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td><span class="badge ${badgeClass}">${st || 'N/A'}</span></td>
-            <td>${p.comercio || 'N/A'}</td>
-            <td><strong>${p.pedido || 'N/A'}</strong></td>
-            <td>${p.nombre_apellido || 'N/A'}</td>
-            <td>${p.sucursal || 'N/A'}</td>
-            <td>${p.fecha_retiro ? p.fecha_retiro + (p.hora_retiro ? ' ' + p.hora_retiro : '') : '-'}</td>
+            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${p.comercio || 'N/A'}</td>
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${p.pedido || 'N/A'}</span></td>
+            <td><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${p.nombre_apellido || 'N/A'}</td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${p.sucursal || 'N/A'}</td>
+            <td><strong style="color: var(--color-text-main); font-size: 0.95rem;">${p.fecha_retiro ? p.fecha_retiro + (p.hora_retiro ? ' ' + p.hora_retiro : '') : '-'}</strong></td>
             <td>
-              <button class="btn btn-outline" onclick="window.openPickupsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+              <button class="btn btn-outline" onclick="window.openPickupsDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
             </td>
           </tr>
         `;
@@ -2666,39 +2695,62 @@ window.openPickupsDetail = function(dataStr) {
     else if (st.includes('PENDIENTE')) badgeClass = 'badge-warning';
 
     let content = `
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.9rem;">
-        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio</div>
-          <div style="font-weight: 600; color: var(--color-text-main);">${data.comercio || '-'}</div>
+      <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Código Pedido</span>
+            <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.pedido || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Estado Retiro</span>
+            <span class="badge ${badgeClass}">${st || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Fecha Programada</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.fecha_retiro || '-'} ${data.hora_retiro || ''}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Entregado por</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-user-star-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.picker_entrega || '-'}</span>
+          </div>
         </div>
-        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Pedido</div>
-          <div style="font-weight: 600; color: var(--color-text-main);">${data.pedido || '-'}</div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-store-2-line" style="margin-right:0.25rem;"></i> Origen</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Comercio</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-user-line" style="margin-right:0.25rem;"></i> Cliente</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Nombre</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.nombre_apellido || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">RUT / Documento</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.rut || '-'}</strong>
+              </div>
+            </div>
+          </div>
         </div>
-        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-user-line"></i> Cliente</div>
-          <div style="font-weight: 600; color: var(--color-text-main);">${data.nombre_apellido || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Rut: ${data.rut || '-'}</span></div>
-        </div>
-        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Sucursal</div>
-          <div style="font-weight: 600; color: var(--color-text-main);">${data.sucursal || '-'}</div>
-        </div>
+
+        ${data.observaciones ? `
+        <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.9rem;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-message-3-line"></i> Observaciones</h4>
+          ${data.observaciones}
+        </div>` : ''}
       </div>
-      <div style="margin-top: 0.75rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="ri-truck-line"></i> Logística</div>
-        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
-          <span class="badge ${badgeClass}">${st || '-'}</span>
-          <span style="font-size: 0.8rem; color: var(--color-text-main);"><i class="ri-calendar-event-line"></i> Retiro: ${data.fecha_retiro || '-'} ${data.hora_retiro || ''}</span>
-        </div>
-        <div style="font-size: 0.8rem; color: var(--color-text-muted);">
-          <strong>Entregado por:</strong> ${data.picker_entrega || '-'} &nbsp;|&nbsp; <strong>Aviso Mail:</strong> ${data.avisado_x_mail ? 'Sí' : 'No'}
-        </div>
-      </div>
-      ${data.observaciones ? `
-      <div style="margin-top: 0.75rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem;">
-        <strong><i class="ri-message-3-line"></i> Observaciones:</strong><br/>
-        ${data.observaciones}
-      </div>` : ''}
     `;
 
     if (window.showInfoModal) {
