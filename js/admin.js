@@ -1279,7 +1279,8 @@ window.openUserComerciosModal = function(userId, assignedDataStr) {
       btn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
     }
   });
-});
+};
+
 
 // ==========================================
 // Modal handlers for Creating Users (RPC)
