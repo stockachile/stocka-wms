@@ -2538,28 +2538,50 @@ window.openPickupsDetail = function(dataStr) {
   try {
     const data = JSON.parse(decodeURIComponent(dataStr));
     
+    let badgeClass = 'badge-neutral';
+    const st = data.estado_pedido || '';
+    if (st.includes('LISTO')) badgeClass = 'badge-success';
+    else if (st.includes('ENTREGADO')) badgeClass = 'badge-info';
+    else if (st.includes('PENDIENTE')) badgeClass = 'badge-warning';
+
     let content = `
-      <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
-        <p><strong>Comercio:</strong> ${data.comercio || '-'}</p>
-        <p><strong>Pedido:</strong> ${data.pedido || '-'}</p>
-        <p><strong>Cliente:</strong> ${data.nombre_apellido || '-'} (${data.rut || '-'})</p>
-        <p><strong>Sucursal:</strong> ${data.sucursal || '-'}</p>
-        <p><strong>Estado:</strong> ${data.estado_pedido || '-'}</p>
-        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
-        <p><strong>Fecha Retiro:</strong> ${data.fecha_retiro || '-'} ${data.hora_retiro || ''}</p>
-        <p><strong>Entregado Por (Picker):</strong> ${data.picker_entrega || '-'}</p>
-        <p><strong>Avisado Correo:</strong> ${data.avisado_x_mail ? 'Sí' : 'No'}</p>
-        <p><strong>Observaciones:</strong> ${data.observaciones || '-'}</p>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.9rem;">
+        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio</div>
+          <div style="font-weight: 600; color: var(--color-text-main);">${data.comercio || '-'}</div>
+        </div>
+        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-shopping-cart-2-line"></i> Pedido</div>
+          <div style="font-weight: 600; color: var(--color-text-main);">${data.pedido || '-'}</div>
+        </div>
+        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-user-line"></i> Cliente</div>
+          <div style="font-weight: 600; color: var(--color-text-main);">${data.nombre_apellido || '-'} <span style="font-weight: 400; font-size: 0.8rem; color: var(--color-text-muted);"><br/>Rut: ${data.rut || '-'}</span></div>
+        </div>
+        <div style="background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Sucursal</div>
+          <div style="font-weight: 600; color: var(--color-text-main);">${data.sucursal || '-'}</div>
+        </div>
       </div>
+      <div style="margin-top: 0.75rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="color: var(--color-text-muted); font-size: 0.7rem; text-transform: uppercase; margin-bottom: 0.5rem;"><i class="ri-truck-line"></i> Logística</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
+          <span class="badge ${badgeClass}">${st || '-'}</span>
+          <span style="font-size: 0.8rem; color: var(--color-text-main);"><i class="ri-calendar-event-line"></i> Retiro: ${data.fecha_retiro || '-'} ${data.hora_retiro || ''}</span>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-muted);">
+          <strong>Entregado por:</strong> ${data.picker_entrega || '-'} &nbsp;|&nbsp; <strong>Aviso Mail:</strong> ${data.avisado_x_mail ? 'Sí' : 'No'}
+        </div>
+      </div>
+      ${data.observaciones ? `
+      <div style="margin-top: 0.75rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem;">
+        <strong><i class="ri-message-3-line"></i> Observaciones:</strong><br/>
+        ${data.observaciones}
+      </div>` : ''}
     `;
 
-    if (window.Swal) {
-      Swal.fire({
-        title: 'Detalle de Pedido (Retiro)',
-        html: content,
-        confirmButtonText: 'Cerrar',
-        confirmButtonColor: 'var(--color-primary)'
-      });
+    if (window.showInfoModal) {
+      window.showInfoModal('Detalle de Retiro', content);
     } else {
       alert("Comercio: " + data.comercio + "\nPedido: " + data.pedido + "\nEstado: " + data.estado_pedido + "\nSucursal: " + data.sucursal);
     }
