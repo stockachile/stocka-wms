@@ -568,43 +568,67 @@ async function renderIntegrations() {
 
     if (shopifyErr) throw shopifyErr;
 
+    // Obtener la integración de París
+    const { data: parisIntegration, error: parisErr } = await supabase
+      .from('merchant_integrations')
+      .select('*')
+      .eq('merchant_id', merchantId)
+      .eq('platform', 'Paris')
+      .maybeSingle();
+
+    if (parisErr) throw parisErr;
+
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
     const shopifyStatusText = hasShopify 
       ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
+    const hasParis = !!parisIntegration;
+    const parisUrl = hasParis ? parisIntegration.shop_url : 'https://cencosud-prod.mirakl.net/api';
+    const parisStatusText = hasParis 
+      ? (parisIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
     const isObserver = userRole === 'observer';
     const disabledAttr = isObserver ? 'disabled' : '';
 
-    const buttonHtml = isObserver 
+    const shopifyButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasShopify 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>');
 
+    const parisButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasParis 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-paris" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar París Marketplace</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-paris" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar París</button>');
+
     appContent.innerHTML = getObserverBanner() + `
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          En esta sección puedes conectar WMS STOCKA con tus tiendas en línea. 
-          Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados. Además, el <strong>inventario</strong> se mantendrá actualizado en tiempo real entre tus bodegas y tu plataforma de venta.
+          En esta sección puedes conectar WMS STOCKA con tus tiendas en línea y marketplaces. 
+          Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados.
         </p>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
         <!-- Left Column: Active/Available Integrations -->
         <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          
+          <!-- Shopify Card -->
           <div class="card" style="border: none; box-shadow: var(--shadow-md);">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-3-line"></i> Shopify Integration</h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? '#f0fdf4' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? '#bbf7d0' : 'var(--color-border)'};">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
                  <div style="display: flex; align-items: center; gap: 1rem;">
                     <div>
-                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#166534' : 'var(--color-text-main)'};">Shopify Store</h4>
-                      <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#10b981' : 'var(--color-text-main)'};">Shopify Store</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
                     </div>
                  </div>
                  <div>
@@ -615,40 +639,78 @@ async function renderIntegrations() {
               <form id="form-shopify-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
-                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? '#f8fafc' : '#ffffff'};">
+                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                 </div>
                 <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? 'display:none;' : ''}">
                   <label class="form-label" style="font-weight: 600;">Access Token (Admin API)</label>
-                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'} ${disabledAttr}>
+                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
                   <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Debe comenzar con <strong>shpat_</strong>.</p>
                 </div>
                 
                 <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${buttonHtml}
+                  ${shopifyButtonHtml}
                 </div>
               </form>
             </div>
           </div>
+
+          <!-- Paris Marketplace Card -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> París Marketplace (Cencosud)</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasParis ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasParis ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasParis ? '#10b981' : 'var(--color-text-main)'};">París Store (Mirakl)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${parisStatusText}
+                 </div>
+              </div>
+              
+              <form id="form-paris-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de la API (Mirakl)</label>
+                  <input type="text" id="paris-url" class="form-input" placeholder="ej. https://cencosud-prod.mirakl.net/api" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                  <input type="password" id="paris-token" class="form-input" placeholder="Ingresa tu API Key de Cencosud" ${hasParis ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${parisButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+
         </div>
 
         <!-- Right Column: Manual/Guide -->
-        <div>
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: #f8fafc;">
-            <div class="card-header" style="background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
-                <span><i class="ri-shopping-bag-3-line"></i></span> Guía de Integración Shopify
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          
+          <!-- Shopify Guide -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-shopping-bag-3-line" style="color: var(--color-primary);"></i></span> Guía de Integración Shopify
               </h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
-              <ol style="margin: 0; padding-left: 1.25rem; color: #334155; font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
                 <li>
-                  <strong style="color: #0f172a;">Crear Aplicación Personalizada:</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">En el panel de administración de tu tienda Shopify, ve a <em>Configuración &gt; Aplicaciones y canales de ventas &gt; Desarrollar aplicaciones</em>. Haz clic en el botón <strong>Crear una aplicación</strong> y asígnale un nombre (ej: WMS STOCKA).</p>
+                  <strong style="color: var(--color-text-main);">Crear Aplicación Personalizada:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En el panel de administración de tu tienda Shopify, ve a <em>Configuración &gt; Aplicaciones y canales de ventas &gt; Desarrollar aplicaciones</em>. Haz clic en el botón <strong style="color: var(--color-text-main);">Crear una aplicación</strong> y asígnale un nombre (ej: WMS STOCKA).</p>
                 </li>
                 <li>
-                  <strong style="color: #0f172a;">Configurar Alcances de la API (Scopes):</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Haz clic en <strong>Configurar alcances de la API del panel de control</strong>. Deberás seleccionar los permisos de <strong>lectura y escritura</strong> (read and write) para las siguientes áreas:</p>
-                  <ul style="margin: 0.5rem 0 0 0; padding-left: 1rem; color: #475569; font-size: 0.85rem;">
+                  <strong style="color: var(--color-text-main);">Configurar Alcances de la API (Scopes):</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Haz clic en <strong style="color: var(--color-text-main);">Configurar alcances de la API del panel de control</strong>. Deberás seleccionar los permisos de <strong style="color: var(--color-text-main);">lectura y escritura</strong> (read and write) para las siguientes áreas:</p>
+                  <ul style="margin: 0.5rem 0 0 0; padding-left: 1rem; color: var(--color-text-muted); font-size: 0.85rem;">
                      <li><em>Orders</em> (Pedidos)</li>
                      <li><em>Products</em> (Productos)</li>
                      <li><em>Inventory</em> (Inventario)</li>
@@ -656,16 +718,46 @@ async function renderIntegrations() {
                   </ul>
                 </li>
                 <li>
-                  <strong style="color: #0f172a;">Instalar la Aplicación:</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Una vez configurados los alcances, guarda los cambios y haz clic en el botón <strong>Instalar aplicación</strong> ubicado en la parte superior derecha.</p>
+                  <strong style="color: var(--color-text-main);">Instalar la Aplicación:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez configurados los alcances, guarda los cambios y haz clic en el botón <strong style="color: var(--color-text-main);">Instalar aplicación</strong> ubicado en la parte superior derecha.</p>
                 </li>
                 <li>
-                  <strong style="color: #0f172a;">Obtener el Access Token:</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Ve a la pestaña <strong>Credenciales de la API</strong> y revela el <em>Token de acceso de la API del panel de control</em> (este token empieza con <code>shpat_</code>). Cópialo y pégalo en el formulario de la izquierda junto con la URL de tu tienda.</p>
+                  <strong style="color: var(--color-text-main);">Obtener el Access Token:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Ve a la pestaña <strong style="color: var(--color-text-main);">Credenciales de la API</strong> y revela el <em>Token de acceso de la API del panel de control</em> (este token empieza con <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">shpat_</code>). Cópialo y pégalo en el formulario de la izquierda junto con la URL de tu tienda.</p>
                 </li>
               </ol>
             </div>
           </div>
+
+          <!-- Paris Guide -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración París
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <li>
+                  <strong style="color: var(--color-text-main);">Entrar al Seller Center:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de París (Cencosud) y navega a la sección <strong style="color: var(--color-text-main);">Mi Cuenta > Integraciones</strong>.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Habilitar Modo Integrador:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Activa el switch que dice <strong style="color: var(--color-text-main);">"Sí, quiero"</strong> bajo la pregunta <em>¿Quieres operar en Market Place usando un integrador?</em>.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Obtener la API Key:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez activado, copia la <strong style="color: var(--color-text-main);">API Key</strong> generada. Pégala en el formulario de la izquierda.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de París coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
+
         </div>
       </div>
     `;
@@ -718,6 +810,63 @@ async function renderIntegrations() {
               .eq('platform', 'Shopify');
             if(delErr) throw delErr;
             alert('Tienda desconectada.');
+            renderIntegrations();
+          } catch(err) {
+             console.error(err);
+             alert('Error al desconectar: ' + err.message);
+          }
+        }
+      });
+    }
+
+    // Paris Submit Listener
+    if(!hasParis) {
+      document.getElementById('form-paris-integration').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        const btn = document.getElementById('btn-save-paris');
+        btn.disabled = true;
+        btn.textContent = 'Conectando...';
+
+        const paris_url = document.getElementById('paris-url').value.trim();
+        const token = document.getElementById('paris-token').value.trim();
+
+        try {
+          const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+            merchant_id: merchantId,
+            platform: 'Paris',
+            shop_url: paris_url,
+            access_token: token,
+            is_active: true
+          }]);
+          if(insErr) throw insErr;
+          
+          alert('Integración con París Marketplace guardada correctamente.');
+          renderIntegrations(); // Recargar vista
+        } catch(err) {
+          console.error(err);
+          alert('Error al guardar la integración: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Conectar París Marketplace';
+        }
+      });
+    } else {
+      document.getElementById('btn-disconnect-paris').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        if(confirm('¿Estás seguro que deseas desconectar tu cuenta de París Marketplace?')) {
+          try {
+            const { error: delErr } = await supabase.from('merchant_integrations')
+              .delete()
+              .eq('merchant_id', merchantId)
+              .eq('platform', 'Paris');
+            if(delErr) throw delErr;
+            alert('Conexión con París eliminada.');
             renderIntegrations();
           } catch(err) {
              console.error(err);
