@@ -1205,9 +1205,6 @@ document.addEventListener('change', async (e) => {
       alert('Error al actualizar el rol: ' + err.message);
     }
   }
-
-  // El manejo de los checkboxes ahora se hace dentro del nuevo modal de comercios
-  }
 });
 
 // Modal para gestionar comercios asignados
