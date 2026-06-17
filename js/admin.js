@@ -29,7 +29,7 @@ async function init() {
     console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, company_name, full_name')
+      .select('role, company_name, full_name, allowed_modules')
       .eq('id', session.user.id)
       .single();
     
@@ -53,12 +53,7 @@ async function init() {
       userEmailSpan.textContent = `${displayName} (ADMIN)`;
     }
 
-    // Initial View
-    viewTitle.textContent = 'Gestor de Pedidos';
-    console.log('DEBUG: Renderizando vista de pedidos de administrador...');
-    renderAdminOrders();
-
-    // Navigation
+    // Navigation and Filtering
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -90,6 +85,53 @@ async function init() {
           }
         });
       });
+    }
+
+    // Filter Navigation based on allowed_modules for Admin
+    const allowedModulesStr = profile?.allowed_modules || 'all';
+    let allowedModules = [];
+    let firstVisibleItem = null;
+
+    if (navItems) {
+      if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
+        allowedModules = allowedModulesStr.split(',').map(m => m.trim());
+        
+        navItems.forEach(item => {
+          const view = item.getAttribute('data-view');
+          if (allowedModules.includes(view)) {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'block';
+            else item.style.display = 'block';
+            if (!firstVisibleItem) firstVisibleItem = item;
+          } else {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'none';
+            else item.style.display = 'none';
+          }
+        });
+      } else {
+        // Por defecto, si es 'all' todos los ítems de navegación están permitidos
+        if (navItems.length > 0) firstVisibleItem = navItems[0];
+      }
+    }
+
+    // Initial View selection based on allowed modules
+    if (firstVisibleItem) {
+      const defaultView = 'orders_admin';
+      const isDefaultAllowed = (allowedModulesStr === 'all' || allowedModules.includes(defaultView));
+      
+      if (isDefaultAllowed) {
+        viewTitle.textContent = 'Gestor de Pedidos';
+        console.log('DEBUG: Renderizando vista de pedidos de administrador...');
+        renderAdminOrders();
+      } else {
+        console.log('DEBUG: Vista por defecto restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
+        firstVisibleItem.click();
+      }
+    } else {
+      const appContent = document.getElementById('app-content');
+      appContent.innerHTML = `<div class="card" style="padding: 2rem; text-align: center;"><p style="color: var(--color-text-muted);">No tienes módulos asignados. Contacta al propietario del sistema.</p></div>`;
+      viewTitle.textContent = 'Sin Acceso';
     }
 
     // Logout
@@ -1053,6 +1095,16 @@ async function renderUsersAdmin() {
                 ${comerciosHtml}
               </div>
             </td>
+            <td>
+              <button class="btn btn-outline btn-manage-modules" 
+                      data-user-id="${user.id}" 
+                      data-user-name="${user.full_name || 'Sin nombre'}" 
+                      data-user-role="${user.role}" 
+                      data-allowed-modules="${user.allowed_modules || 'all'}" 
+                      style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                <i class="ri-settings-5-line"></i> Módulos
+              </button>
+            </td>
           </tr>
         `;
       });
@@ -1079,6 +1131,7 @@ async function renderUsersAdmin() {
                 <th>Fecha de Registro</th>
                 <th>Rol</th>
                 <th>Comercios Asignados (Solo Clientes)</th>
+                <th>Permisos</th>
               </tr>
             </thead>
             <tbody>
@@ -1226,7 +1279,34 @@ window.openUserComerciosModal = function(userId, assignedDataStr) {
 // Modal handlers for Creating Users (RPC)
 // ==========================================
 
-// Abrir y cerrar el modal
+// ==========================================
+// Modal handlers for Creating Users (RPC)
+// ==========================================
+
+const CLIENT_MODULES = [
+  { id: 'inventory', label: 'Inventario' },
+  { id: 'orders', label: 'Pedidos' },
+  { id: 'shipments', label: 'Despachos' },
+  { id: 'movements', label: 'Movimientos' },
+  { id: 'warehouses', label: 'Bodegas' },
+  { id: 'pending', label: 'Por Asignar' },
+  { id: 'returns', label: 'Logística Inversa' },
+  { id: 'pickups', label: 'Punto de Retiro' },
+  { id: 'sales', label: 'Punto de Ventas' },
+  { id: 'integrations', label: 'Integraciones' },
+  { id: 'profile', label: 'Mi Perfil' }
+];
+
+const ADMIN_MODULES = [
+  { id: 'orders_admin', label: 'Gestor de Pedidos' },
+  { id: 'consolidated_shipments', label: 'Envíos Consolidados' },
+  { id: 'reassign_admin', label: 'Reubicar Stock' },
+  { id: 'manual_in_admin', label: 'Ingreso Manual' },
+  { id: 'users_admin', label: 'Gestionar Usuarios' },
+  { id: 'integrations', label: 'Integraciones' }
+];
+
+// Abrir y cerrar el modal de creación de usuario
 document.addEventListener('click', (e) => {
   if (e.target && e.target.id === 'btn-open-create-user-modal') {
     e.preventDefault();
@@ -1238,23 +1318,39 @@ document.addEventListener('click', (e) => {
       document.getElementById('modal-user-alert-container').innerHTML = '';
       document.getElementById('new-user-comercios-group').style.display = 'none';
       
+      // Mostrar y precargar los módulos correspondientes a 'observer' (rol por defecto)
+      const modulesGroup = document.getElementById('new-user-modules-group');
+      const modulesList = document.getElementById('new-user-modules-list');
+      if (modulesGroup && modulesList) {
+        modulesGroup.style.display = 'block';
+        modulesList.innerHTML = '';
+        CLIENT_MODULES.forEach(mod => {
+          modulesList.innerHTML += `
+            <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" class="new-user-module-cb" value="${mod.id}" checked>
+              <span>${mod.label}</span>
+            </label>
+          `;
+        });
+      }
+      
       modal.classList.add('active');
     }
   }
 });
 
-// Alternar visibilidad de comercios según el rol seleccionado en el formulario
+// Alternar visibilidad de comercios y módulos según el rol seleccionado en el formulario de creación
 document.addEventListener('change', async (e) => {
   if (e.target && e.target.id === 'new-user-role') {
     const role = e.target.value;
-    const group = document.getElementById('new-user-comercios-group');
-    const list = document.getElementById('new-user-comercios-list');
+    const commerceGroup = document.getElementById('new-user-comercios-group');
+    const commerceList = document.getElementById('new-user-comercios-list');
     
+    // Alternar Comercios (Solo clientes)
     if (role === 'client') {
-      group.style.display = 'block';
-      list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Cargando comercios...</span>`;
+      commerceGroup.style.display = 'block';
+      commerceList.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Cargando comercios...</span>`;
       
-      // Intentar cargar dinámicamente si la caché está vacía
       if (!window.cachedComercios || window.cachedComercios.length === 0) {
         try {
           const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
@@ -1274,11 +1370,11 @@ document.addEventListener('change', async (e) => {
       const comercios = window.cachedComercios || [];
       if (comercios.length === 0) {
         const errorDetail = window.lastComerciosError ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${window.lastComerciosError.message || JSON.stringify(window.lastComerciosError)}</small>` : '';
-        list.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No hay comercios configurados en la base de datos (asegúrate de ejecutar el script SQL y recargar la página).${errorDetail}</span>`;
+        commerceList.innerHTML = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No hay comercios configurados en la base de datos.${errorDetail}</span>`;
       } else {
-        list.innerHTML = '';
+        commerceList.innerHTML = '';
         comercios.forEach(com => {
-          list.innerHTML += `
+          commerceList.innerHTML += `
             <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
               <input type="checkbox" class="new-user-comercio-cb" value="${com.nombre}">
               <span>${com.nombre} (${com.sigla})</span>
@@ -1287,7 +1383,24 @@ document.addEventListener('change', async (e) => {
         });
       }
     } else {
-      group.style.display = 'none';
+      commerceGroup.style.display = 'none';
+    }
+
+    // Alternar Módulos
+    const modulesGroup = document.getElementById('new-user-modules-group');
+    const modulesList = document.getElementById('new-user-modules-list');
+    if (modulesGroup && modulesList) {
+      modulesGroup.style.display = 'block';
+      modulesList.innerHTML = '';
+      const targetModules = (role === 'admin') ? ADMIN_MODULES : CLIENT_MODULES;
+      targetModules.forEach(mod => {
+        modulesList.innerHTML += `
+          <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" class="new-user-module-cb" value="${mod.id}" checked>
+            <span>${mod.label}</span>
+          </label>
+        `;
+      });
     }
   }
 });
@@ -1314,6 +1427,16 @@ document.addEventListener('submit', async (e) => {
       }
     }
 
+    // Obtener módulos seleccionados
+    const checkedModules = Array.from(document.querySelectorAll('.new-user-module-cb:checked')).map(cb => cb.value);
+    const targetModulesList = (role === 'admin') ? ADMIN_MODULES : CLIENT_MODULES;
+    let allowedModulesString = 'all';
+    if (checkedModules.length === 0) {
+      allowedModulesString = '';
+    } else if (checkedModules.length < targetModulesList.length) {
+      allowedModulesString = checkedModules.join(', ');
+    }
+
     saveBtn.disabled = true;
     saveBtn.textContent = 'Creando usuario...';
     alertContainer.innerHTML = '';
@@ -1326,7 +1449,8 @@ document.addEventListener('submit', async (e) => {
         p_full_name: name,
         p_company_name: company,
         p_role: role,
-        p_comercio: commerceString
+        p_comercio: commerceString,
+        p_allowed_modules: allowedModulesString
       });
 
       if (error) throw error;
@@ -1348,6 +1472,118 @@ document.addEventListener('submit', async (e) => {
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Crear Usuario';
+    }
+  }
+});
+
+// ==========================================
+// Handlers para Restringir Módulos
+// ==========================================
+
+// Manejar la apertura del modal para restringir módulos
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-manage-modules');
+  if (btn) {
+    e.preventDefault();
+    const userId = btn.getAttribute('data-user-id');
+    const username = btn.getAttribute('data-user-name');
+    const role = btn.getAttribute('data-user-role');
+    const allowedModulesStr = btn.getAttribute('data-allowed-modules') || 'all';
+
+    const modal = document.getElementById('modal-manage-modules');
+    if (modal) {
+      document.getElementById('manage-modules-user-id').value = userId;
+      document.getElementById('manage-modules-username').textContent = username;
+      document.getElementById('manage-modules-user-role').textContent = role === 'admin' ? 'Administrador' : (role === 'client' ? 'Cliente' : 'Observador');
+      document.getElementById('modal-modules-alert-container').innerHTML = '';
+
+      const listContainer = document.getElementById('manage-modules-checkboxes-list');
+      listContainer.innerHTML = '';
+
+      const targetModules = (role === 'admin') ? ADMIN_MODULES : CLIENT_MODULES;
+      const allowedModules = allowedModulesStr !== 'all' && allowedModulesStr !== '' 
+        ? allowedModulesStr.split(',').map(m => m.trim()) 
+        : targetModules.map(m => m.id); // Si es 'all', todos marcados por defecto
+
+      targetModules.forEach(mod => {
+        const isChecked = allowedModules.includes(mod.id) ? 'checked' : '';
+        listContainer.innerHTML += `
+          <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; user-select: none;">
+            <input type="checkbox" class="manage-module-cb" value="${mod.id}" ${isChecked}>
+            <span>${mod.label}</span>
+          </label>
+        `;
+      });
+
+      modal.classList.add('active');
+    }
+  }
+});
+
+// Guardar la configuración de módulos permitidos
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'form-manage-modules') {
+    e.preventDefault();
+    const alertContainer = document.getElementById('modal-modules-alert-container');
+    const saveBtn = document.getElementById('btn-save-modules');
+    const userId = document.getElementById('manage-modules-user-id').value;
+    const roleText = document.getElementById('manage-modules-user-role').textContent;
+    const role = roleText === 'Administrador' ? 'admin' : (roleText === 'Cliente' ? 'client' : 'observer');
+
+    const checkboxes = document.querySelectorAll('.manage-module-cb');
+    const checked = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+
+    const targetModulesList = (role === 'admin') ? ADMIN_MODULES : CLIENT_MODULES;
+    let allowedModulesString = 'all';
+    
+    if (checked.length === 0) {
+      allowedModulesString = '';
+    } else if (checked.length < targetModulesList.length) {
+      allowedModulesString = checked.join(', ');
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando...';
+    alertContainer.innerHTML = '';
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ allowed_modules: allowedModulesString })
+        .eq('id', userId);
+
+      if (error) throw error;
+
+      alertContainer.innerHTML = `<div class="alert alert-success" style="display: block;">¡Permisos de módulos actualizados con éxito!</div>`;
+      
+      setTimeout(() => {
+        const modal = document.getElementById('modal-manage-modules');
+        if (modal) modal.classList.remove('active');
+        e.target.reset();
+        
+        // Recargar la tabla de perfiles
+        renderUsersAdmin();
+      }, 1500);
+
+    } catch (err) {
+      console.error('Error al actualizar módulos permitidos:', err);
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Error: ${err.message || 'No se pudieron actualizar los permisos.'}</div>`;
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar Permisos';
+    }
+  }
+});
+
+// Cerrar cualquier modal que use data-close o .modal-close (Cerrado por delegación global)
+document.addEventListener('click', (e) => {
+  const closeBtn = e.target.closest('[data-close]');
+  if (closeBtn) {
+    e.preventDefault();
+    const modalId = closeBtn.getAttribute('data-close');
+    const modal = document.getElementById(modalId);
+    if (modal) {
+      modal.classList.remove('active');
     }
   }
 });

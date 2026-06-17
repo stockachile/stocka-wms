@@ -194,10 +194,46 @@
               <!-- Se inyecta dinámicamente -->
             </div>
           </div>
+
+          <div class="form-group" id="new-user-modules-group" style="display: none; background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-top: 1rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem;">Asignar Módulos</label>
+            <div id="new-user-modules-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <!-- Se inyecta dinámicamente -->
+            </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" data-close="modal-create-user">Cancelar</button>
           <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;" id="btn-save-new-user">Crear Usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Gestionar Módulos -->
+  <div class="modal-overlay" id="modal-manage-modules">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3>Restringir Módulos de Acceso</h3>
+        <button class="modal-close" data-close="modal-manage-modules">&times;</button>
+      </div>
+      <form id="form-manage-modules">
+        <input type="hidden" id="manage-modules-user-id">
+        <div class="modal-body">
+          <div id="modal-modules-alert-container"></div>
+          <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+            Selecciona los módulos a los que tendrá acceso el usuario <strong id="manage-modules-username"></strong> (Rol: <span id="manage-modules-user-role" style="font-weight: 600;"></span>):
+          </p>
+          
+          <div class="form-group" style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div id="manage-modules-checkboxes-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <!-- Se inyecta dinámicamente según el rol -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="modal-manage-modules">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;" id="btn-save-modules">Guardar Permisos</button>
         </div>
       </form>
     </div>

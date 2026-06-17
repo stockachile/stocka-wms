@@ -34,7 +34,7 @@ async function init() {
     console.log('DEBUG: Consultando perfil en la base de datos para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, company_name, full_name, comercio')
+      .select('role, company_name, full_name, comercio, allowed_modules')
       .eq('id', session.user.id)
       .single();
 
@@ -62,11 +62,7 @@ async function init() {
       userEmailSpan.textContent = displayName;
     }
 
-    // Render initial view
-    console.log('DEBUG: Renderizando vista inicial de inventario...');
-    renderInventory();
-
-    // Navigation Logic
+    // Navigation Logic Setup
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -112,6 +108,53 @@ async function init() {
           }
         });
       });
+    }
+
+    // Filter Navigation based on allowed_modules for Clients
+    const allowedModulesStr = profile?.allowed_modules || 'all';
+    let allowedModules = [];
+    let firstVisibleItem = null;
+
+    if (navItems) {
+      if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
+        allowedModules = allowedModulesStr.split(',').map(m => m.trim());
+        
+        navItems.forEach(item => {
+          const view = item.getAttribute('data-view');
+          if (allowedModules.includes(view)) {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'block';
+            else item.style.display = 'block';
+            if (!firstVisibleItem) firstVisibleItem = item;
+          } else {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'none';
+            else item.style.display = 'none';
+          }
+        });
+      } else {
+        // Por defecto, si es 'all' todos los ítems están permitidos
+        if (navItems.length > 0) firstVisibleItem = navItems[0];
+      }
+    }
+
+    // Initial View selection based on allowed modules for Client
+    if (firstVisibleItem) {
+      const defaultView = 'inventory';
+      const isDefaultAllowed = (allowedModulesStr === 'all' || allowedModules.includes(defaultView));
+      
+      if (isDefaultAllowed) {
+        console.log('DEBUG: Renderizando vista inicial de inventario...');
+        viewTitle.textContent = 'Inventario';
+        renderInventory();
+      } else {
+        console.log('DEBUG: Vista de inventario restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
+        firstVisibleItem.click();
+      }
+    } else {
+      const appContent = document.getElementById('app-content');
+      appContent.innerHTML = `<div class="card" style="padding: 2rem; text-align: center;"><p style="color: var(--color-text-muted);">No tienes módulos asignados. Contacta a un administrador para obtener acceso.</p></div>`;
+      viewTitle.textContent = 'Sin Acceso';
     }
 
     // Logout Logic
