@@ -1970,7 +1970,14 @@ window.renderReturns = async function() {
   document.getElementById('btn-export-csv').addEventListener('click', () => exportReturnsData('csv'));
   document.getElementById('btn-export-excel').addEventListener('click', () => exportReturnsData('excel'));
   document.getElementById('btn-info-export').addEventListener('click', () => {
-    alert('Guía de Exportación:\n\n1. Utiliza los filtros (Tipo, Buscador, Fechas) para acotar tu búsqueda.\n2. Haz clic en "CSV" o "Excel" para descargar el reporte.\n3. El archivo generado sólo contendrá los registros que coincidan con los filtros actuales.');
+    showInfoModal(
+      'Guía de Exportación',
+      `<ol style="margin: 0; padding-left: 1.5rem;">
+         <li style="margin-bottom: 0.5rem;">Utiliza los filtros (Tipo, Buscador, Fechas) para acotar tu búsqueda.</li>
+         <li style="margin-bottom: 0.5rem;">Haz clic en <strong>"CSV"</strong> o <strong>"Excel"</strong> para descargar el reporte.</li>
+         <li>El archivo generado sólo contendrá los registros que coincidan con los filtros actuales en pantalla.</li>
+       </ol>`
+    );
   });
 
   // Carga Inicial
@@ -2189,4 +2196,48 @@ window.openReturnsDetail = function(dataStr) {
     console.error(e);
     alert('Error al abrir detalle');
   }
-};
+}
+
+// Modal Genérico de Información
+window.showInfoModal = function(title, contentHtml) {
+  let modal = document.getElementById('modal-generic-info');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-generic-info';
+  modal.className = 'modal-overlay';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3>${title}</h3>
+        <button class="modal-close" id="btn-close-generic-info">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size: 0.95rem; color: var(--color-text-main); line-height: 1.6;">
+        ${contentHtml}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="btn-ok-generic-info" style="width: 100%;">Entendido</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => {
+      modal.remove();
+    }, 300);
+  };
+
+  document.getElementById('btn-close-generic-info').addEventListener('click', closeModal);
+  document.getElementById('btn-ok-generic-info').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+};;
