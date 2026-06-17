@@ -94,6 +94,9 @@ async function init() {
           } else if (view === 'pending') {
             viewTitle.textContent = 'Por Asignar';
             renderPending();
+          } else if (view === 'returns') {
+            viewTitle.textContent = 'Logística Inversa';
+            renderReturns();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -1117,17 +1120,13 @@ async function renderShipments() {
         const dateObj = s.created_at ? new Date(s.created_at) : null;
         const dateStr = dateObj ? dateObj.toLocaleDateString() : '-';
         
-        let badgeBg = '#f3f4f6';
-        let badgeColor = '#374151';
+        let badgeClass = 'badge-neutral';
         if (s.global_status === 'DESPACHADO') {
-          badgeBg = '#d1fae5';
-          badgeColor = '#065f46';
+          badgeClass = 'badge-success';
         } else if (s.global_status === 'SIN MOVIMIENTO') {
-          badgeBg = '#fef3c7';
-          badgeColor = '#92400e';
+          badgeClass = 'badge-warning';
         } else if (s.global_status === 'ALERTA') {
-          badgeBg = '#fee2e2';
-          badgeColor = '#991b1b';
+          badgeClass = 'badge-danger';
         }
 
         const platformBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
@@ -1154,7 +1153,7 @@ async function renderShipments() {
             <td><span style="font-weight:500;">${s.courier || '-'}</span></td>
             <td>${trackingDisplay}</td>
             <td>
-              <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 0.25rem 0.5rem; text-transform: capitalize;">
+              <span class="badge ${badgeClass}" style="text-transform: capitalize;">
                 ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
               </span>
             </td>
@@ -1847,3 +1846,141 @@ async function renderProfile() {
     appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
   }
 }
+
+// ====== LOGISTICA INVERSA ======
+window.renderReturns = async function() {
+  const content = document.getElementById('app-content');
+  content.innerHTML = '<div class="text-center" style="padding: 3rem;"><div class="spinner" style="margin: 0 auto; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid var(--color-primary); border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 1rem;">Cargando devoluciones y cambios...</p></div>';
+
+  try {
+    let query = supabase
+      .from('reverse_logistics')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    // Filtrar por comercio si el usuario tiene un comercio asignado
+    if (currentCompany) {
+      query = query.ilike('comercio', currentCompany);
+    }
+
+    const { data: returns, error } = await query;
+
+    if (error) throw error;
+
+    let html = `
+      <div style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Logística Inversa</h2>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+          Revisa las devoluciones y cambios generados en tiempo real desde las sucursales y puntos de retiro.
+        </p>
+      </div>
+      <div class="card">
+        <div class="card-body" style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Fecha y Hora</th>
+                <th>Tipo</th>
+                <th>Comercio</th>
+                <th>Ref. Pedido</th>
+                <th>Transporte</th>
+                <th>Sucursal</th>
+                <th>Ref. Transporte</th>
+                <th>Cant.</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+    `;
+
+    if (!returns || returns.length === 0) {
+      html += '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros de logística inversa todavía.</td></tr>';
+    } else {
+      returns.forEach(r => {
+        const d = new Date(r.created_at);
+        // Formato: DD/MM/YYYY HH:MM
+        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        const badgeClass = r.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
+        
+        let safeData = '{}';
+        try { safeData = encodeURIComponent(JSON.stringify(r)); } catch(e){}
+
+        html += `
+          <tr>
+            <td style="white-space: nowrap;">${dateStr}</td>
+            <td><span class="badge ${badgeClass}">${r.tipo_movimiento}</span></td>
+            <td>${r.comercio || 'N/A'}</td>
+            <td><strong>${r.referencia_pedido}</strong></td>
+            <td>${r.transporte || 'N/A'}</td>
+            <td>${r.sucursal || 'N/A'}</td>
+            <td>${r.referencia_transporte || 'N/A'}</td>
+            <td>${r.cantidad_total}</td>
+            <td>
+              <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    html += `
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    content.innerHTML = html;
+  } catch (err) {
+    console.error('Error loading returns:', err);
+    content.innerHTML = '<div class="card"><div class="card-body text-center" style="color: var(--color-danger);">Aún no se ha creado la tabla reverse_logistics o hubo un error: ' + err.message + '</div></div>';
+  }
+};
+
+window.openReturnsDetail = function(dataStr) {
+  try {
+    const data = JSON.parse(decodeURIComponent(dataStr));
+    
+    document.getElementById('ret-modal-title').textContent = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
+    
+    document.getElementById('ret-modal-info').innerHTML = `
+      <div><strong style="color:var(--color-text-muted);">Comercio:</strong><br/>${data.comercio}</div>
+      <div><strong style="color:var(--color-text-muted);">Ref. Pedido:</strong><br/>${data.referencia_pedido}</div>
+      <div><strong style="color:var(--color-text-muted);">Transporte:</strong><br/>${data.transporte || '-'}</div>
+      <div><strong style="color:var(--color-text-muted);">Tracking / Ref:</strong><br/>${data.referencia_transporte || '-'}</div>
+      <div><strong style="color:var(--color-text-muted);">Sucursal:</strong><br/>${data.sucursal || '-'}</div>
+      <div><strong style="color:var(--color-text-muted);">Creado Por:</strong><br/>${data.creado_por || '-'}</div>
+    `;
+    
+    const tbody = document.getElementById('ret-modal-products');
+    tbody.innerHTML = '';
+    
+    if (data.productos && Array.isArray(data.productos)) {
+      data.productos.forEach(p => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${p.producto_devuelto || '-'}</td>
+            <td>${p.producto_reemplazo || '-'}</td>
+            <td>${p.cantidad || 1}</td>
+          </tr>
+        `;
+      });
+    } else {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center">Sin detalles de productos.</td></tr>';
+    }
+    
+    const comm = document.getElementById('ret-modal-comments');
+    if (data.comentarios) {
+      comm.textContent = data.comentarios;
+      comm.style.fontStyle = 'normal';
+    } else {
+      comm.textContent = 'Sin comentarios registrados.';
+      comm.style.fontStyle = 'italic';
+    }
+    
+    document.getElementById('modal-returns-detail').classList.add('active');
+  } catch(e) {
+    console.error(e);
+    alert('Error al abrir detalle');
+  }
+};

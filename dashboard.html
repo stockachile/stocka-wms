@@ -25,6 +25,7 @@
           <li><a href="#" class="nav-item" data-view="movements"><i class="ri-loop-right-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Movimientos</a></li>
           <li><a href="#" class="nav-item" data-view="warehouses"><i class="ri-building-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Bodegas</a></li>
           <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="pending"><i class="ri-error-warning-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Por Asignar</a></li>
+          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="returns"><i class="ri-arrow-go-back-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Logística Inversa</a></li>
           <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Integraciones</a></li>
           <li><a href="#" class="nav-item" data-view="profile"><i class="ri-user-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Mi Perfil</a></li>
         </ul>
@@ -147,6 +148,43 @@
           <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;">Confirmar Pedido</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal Logistica Inversa Detalle -->
+  <div class="modal-overlay" id="modal-returns-detail">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h3 id="ret-modal-title">Detalle del Movimiento</h3>
+        <button class="modal-close" data-close="modal-returns-detail">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="ret-modal-info" style="margin-bottom: 1.5rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.9rem;">
+          <!-- Dynamically filled -->
+        </div>
+        <div style="margin-bottom: 1rem;">
+          <h4 style="margin-bottom: 0.5rem; color: var(--color-text-main);">Productos</h4>
+          <table class="data-table" style="font-size: 0.85rem;">
+            <thead>
+              <tr>
+                <th>Devuelto</th>
+                <th>Reemplazo</th>
+                <th>Cant.</th>
+              </tr>
+            </thead>
+            <tbody id="ret-modal-products">
+              <!-- Dynamically filled -->
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <h4 style="margin-bottom: 0.5rem; color: var(--color-text-main);">Comentarios</h4>
+          <p id="ret-modal-comments" style="padding: 1rem; background-color: var(--color-surface); border-radius: 8px; font-style: italic; font-size: 0.9rem; color: var(--color-text-muted);">Sin comentarios.</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" data-close="modal-returns-detail" style="width: 100%;">Cerrar</button>
+      </div>
     </div>
   </div>
 

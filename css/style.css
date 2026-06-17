@@ -25,6 +25,17 @@
   --color-danger: #ef4444;
   --color-info: #3b82f6;
 
+  /* Badge Colors Light Mode */
+  --badge-success-bg: rgba(5, 250, 147, 0.15);
+  --badge-success-text: #065f46;
+  --badge-danger-bg: rgba(239, 68, 68, 0.15);
+  --badge-danger-text: #b91c1c;
+  --badge-warning-bg: rgba(245, 158, 11, 0.15);
+  --badge-warning-text: #92400e;
+  --badge-info-bg: rgba(59, 130, 246, 0.15);
+  --badge-info-text: #1e40af;
+  --badge-neutral-bg: #f3f4f6;
+  --badge-neutral-text: #374151;
   /* Shadows */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -52,6 +63,19 @@
   --color-text-main: #f8fafc;
   --color-text-muted: #94a3b8;
   --color-border: #1e293b;
+  
+  /* Badge Colors Dark Mode */
+  --badge-success-bg: rgba(5, 250, 147, 0.15);
+  --badge-success-text: #6ee7b7;
+  --badge-danger-bg: rgba(239, 68, 68, 0.15);
+  --badge-danger-text: #fca5a5;
+  --badge-warning-bg: rgba(245, 158, 11, 0.15);
+  --badge-warning-text: #fcd34d;
+  --badge-info-bg: rgba(59, 130, 246, 0.15);
+  --badge-info-text: #93c5fd;
+  --badge-neutral-bg: rgba(255, 255, 255, 0.1);
+  --badge-neutral-text: #cbd5e1;
+
   --color-sidebar-bg: #070a13;
   --color-sidebar-text: #94a3b8;
   --color-sidebar-active: #05fa93;

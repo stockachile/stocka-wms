@@ -323,8 +323,8 @@ async function renderIntegrations() {
 
     const hasOptiroute = !!optirouteIntegration;
     const optirouteStatusText = hasOptiroute 
-      ? (optirouteIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
-      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+      ? (optirouteIntegration.is_active ? '<span class="badge badge-success">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-neutral">No configurada</span>';
 
     appContent.innerHTML = `
       <div style="margin-bottom: 2rem;">
@@ -730,17 +730,13 @@ async function renderConsolidatedShipments() {
             const dateObj = s.created_at ? new Date(s.created_at) : null;
             const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-';
             
-            let badgeBg = '#f3f4f6';
-            let badgeColor = '#374151';
+            let badgeClass = 'badge-neutral';
             if (s.global_status === 'DESPACHADO') {
-              badgeBg = '#d1fae5';
-              badgeColor = '#065f46';
+              badgeClass = 'badge-success';
             } else if (s.global_status === 'SIN MOVIMIENTO') {
-              badgeBg = '#fef3c7';
-              badgeColor = '#92400e';
+              badgeClass = 'badge-warning';
             } else if (s.global_status === 'ALERTA') {
-              badgeBg = '#fee2e2';
-              badgeColor = '#991b1b';
+              badgeClass = 'badge-danger';
             }
 
             const originBadge = s.source_table === 'lightdata_envios' ? 'LightData' 
@@ -770,7 +766,7 @@ async function renderConsolidatedShipments() {
                 </td>
                 <td>${s.comuna_destino || '-'}</td>
                 <td><span style="font-size:0.875rem; text-transform:capitalize;">${s.status || '-'}</span></td>
-                <td><span style="background-color: ${badgeBg}; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">${s.global_status || 'DESCONOCIDO'}</span></td>
+                <td><span class="badge ${badgeClass}">${s.global_status || 'DESCONOCIDO'}</span></td>
                 <td>${clientVisibilityBadge}</td>
                 <td style="font-size:0.875rem; color:var(--color-text-muted);">${dateStr}</td>
               </tr>

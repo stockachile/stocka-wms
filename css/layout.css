@@ -187,7 +187,7 @@
 }
 
 .data-table tbody tr:hover {
-  background-color: rgba(5, 250, 147, 0.05); /* very light mint green */
+  background-color: var(--color-surface-hover);
 }
 
 /* Status Badges */
@@ -201,18 +201,28 @@
 }
 
 .badge-success {
-  background-color: #d1fae5;
-  color: #047857;
+  background-color: var(--badge-success-bg);
+  color: var(--badge-success-text);
 }
 
 .badge-warning {
-  background-color: #fef3c7;
-  color: #b45309;
+  background-color: var(--badge-warning-bg);
+  color: var(--badge-warning-text);
 }
 
 .badge-danger {
-  background-color: #fee2e2;
-  color: #b91c1c;
+  background-color: var(--badge-danger-bg);
+  color: var(--badge-danger-text);
+}
+
+.badge-info {
+  background-color: var(--badge-info-bg);
+  color: var(--badge-info-text);
+}
+
+.badge-neutral {
+  background-color: var(--badge-neutral-bg);
+  color: var(--badge-neutral-text);
 }
 
 /* Modals */
