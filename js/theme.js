@@ -51,4 +51,10 @@ document.addEventListener('DOMContentLoaded', () => {
       setTheme(newTheme);
     }
   });
+  // Expand the clickable area of date inputs to trigger calendar picker anywhere on the input
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('input[type="date"]')) {
+      try { e.target.showPicker(); } catch(err) {}
+    }
+  });
 });
