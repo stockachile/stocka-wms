@@ -3037,14 +3037,14 @@ window.openSalesDetail = function(dataStr) {
   try {
     const data = JSON.parse(decodeURIComponent(dataStr));
     
-    let prodHtml = '<ul>';
+    let prodHtml = '<ul style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main);">';
     if (data.productos) {
       try {
         let parsed = data.productos;
         if (typeof parsed === 'string') parsed = JSON.parse(parsed);
         if (Array.isArray(parsed)) {
           parsed.forEach(p => {
-            prodHtml += `<li>${p.cantidad || 1}x ${p.producto || 'N/A'}</li>`;
+            prodHtml += `<li style="margin-bottom: 0.25rem;"><strong>${p.cantidad || 1}x</strong> ${p.producto || 'N/A'}</li>`;
           });
         }
       } catch(e) {}
@@ -3054,44 +3054,84 @@ window.openSalesDetail = function(dataStr) {
     let factHtml = '';
     if (data.documento_tipo === 'FACTURA') {
       factHtml = `
-        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
-        <p><strong>Datos de Facturación:</strong></p>
-        <p>RUT: ${data.rut_facturacion || '-'}</p>
-        <p>Razón Social: ${data.razon_social_facturacion || '-'}</p>
-        <p>Giro: ${data.giro_facturacion || '-'}</p>
-        <p>Dirección: ${data.direccion_facturacion || '-'}</p>
+        <div style="grid-column: 1 / -1; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); padding: 1rem; border-radius: var(--radius-md); margin-top: 0.5rem;">
+          <h4 style="margin: 0 0 0.75rem 0; color: #3b82f6; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-file-list-3-line"></i> Datos de Facturación</h4>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">RUT</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.rut_facturacion || '-'}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Razón Social</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.razon_social_facturacion || '-'}</strong></div>
+            <div><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Giro</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.giro_facturacion || '-'}</strong></div>
+            <div style="grid-column: 1 / -1;"><span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Dirección</span><strong style="color: var(--color-text-main); font-size: 0.9rem;">${data.direccion_facturacion || '-'}</strong></div>
+          </div>
+        </div>
       `;
     }
 
     let montoFmt = data.monto_total ? '$' + Number(data.monto_total).toLocaleString('es-CL') : 'N/A';
 
     let content = `
-      <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
-        <p><strong>Comercio:</strong> ${data.comercio || '-'}</p>
-        <p><strong>Código Venta:</strong> ${data.codigo_venta || '-'}</p>
-        <p><strong>Sucursal:</strong> ${data.sucursal || '-'}</p>
-        <p><strong>Vendedor:</strong> ${data.creado_por || '-'}</p>
-        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
-        <p><strong>Cliente:</strong> ${data.nombre_cliente || '-'}</p>
-        <p><strong>Correo:</strong> ${data.correo_cliente || '-'}</p>
-        <p><strong>Teléfono:</strong> ${data.telefono_cliente || '-'}</p>
-        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
-        <p><strong>Pago:</strong> ${data.modo_pago || '-'} (${data.documento_tipo || '-'})</p>
-        <p><strong>Total:</strong> ${montoFmt}</p>
-        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
-        <p><strong>Productos:</strong></p>
-        ${prodHtml}
+      <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Código de Venta</span>
+            <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.codigo_venta || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Total Pagado</span>
+            <span style="font-size: 1.25rem; font-weight: 700; color: #10b981;">${montoFmt}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Documento y Pago</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-bank-card-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.modo_pago || '-'} <small>(${data.documento_tipo || '-'})</small></span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Vendedor</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-user-star-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.creado_por || '-'}</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-store-2-line" style="margin-right:0.25rem;"></i> Origen</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Comercio</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-user-line" style="margin-right:0.25rem;"></i> Cliente</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Nombre</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.nombre_cliente || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Contacto</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.correo_cliente || '-'}<br>${data.telefono_cliente || '-'}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-shopping-cart-2-line" style="margin-right:0.25rem;"></i> Productos</h4>
+          <div style="font-size: 0.95rem;">
+            ${prodHtml}
+          </div>
+        </div>
+        
         ${factHtml}
       </div>
     `;
 
-    if (window.Swal) {
-      Swal.fire({
-        title: 'Detalle de Venta',
-        html: content,
-        confirmButtonText: 'Cerrar',
-        confirmButtonColor: 'var(--color-primary)'
-      });
+    if (typeof showInfoModal === 'function') {
+      showInfoModal('Detalle de Venta', content);
     } else {
       alert("Venta: " + data.codigo_venta + "\nTotal: " + montoFmt);
     }
