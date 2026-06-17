@@ -960,7 +960,18 @@ async function renderShipments() {
       .eq('visible_to_client', true);
     
     if (currentCompany) {
-      courierQuery = courierQuery.ilike('empresa_comercio_proveedor', currentCompany);
+      const companyList = [];
+      currentCompany.split(',').forEach(c => {
+        const trimmed = c.trim();
+        if (trimmed) {
+          companyList.push(trimmed);
+          companyList.push(trimmed.toLowerCase());
+          companyList.push(trimmed.toUpperCase());
+        }
+      });
+      if (companyList.length > 0) {
+        courierQuery = courierQuery.in('empresa_comercio_proveedor', companyList);
+      }
     }
     
     const { data: courierData } = await courierQuery;
@@ -1250,7 +1261,18 @@ async function renderShipments() {
           .eq('visible_to_client', true);
 
         if (currentCompany) {
-          query = query.ilike('empresa_comercio_proveedor', currentCompany);
+          const companyList = [];
+          currentCompany.split(',').forEach(c => {
+            const trimmed = c.trim();
+            if (trimmed) {
+              companyList.push(trimmed);
+              companyList.push(trimmed.toLowerCase());
+              companyList.push(trimmed.toUpperCase());
+            }
+          });
+          if (companyList.length > 0) {
+            query = query.in('empresa_comercio_proveedor', companyList);
+          }
         }
 
         // Aplicar filtros a nivel de base de datos
@@ -2049,7 +2071,20 @@ function buildReturnsQuery(query) {
   const fFrom = document.getElementById('filter-ret-date-from').value;
   const fTo = document.getElementById('filter-ret-date-to').value;
 
-  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (currentCompany) {
+    const companyList = [];
+    currentCompany.split(',').forEach(c => {
+      const trimmed = c.trim();
+      if (trimmed) {
+        companyList.push(trimmed);
+        companyList.push(trimmed.toLowerCase());
+        companyList.push(trimmed.toUpperCase());
+      }
+    });
+    if (companyList.length > 0) {
+      query = query.in('comercio', companyList);
+    }
+  }
   if (fType) query = query.eq('tipo_movimiento', fType);
   if (fSearch) {
     query = query.or(`referencia_pedido.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
@@ -2449,7 +2484,20 @@ function buildPickupsQuery(query) {
   const fFrom = document.getElementById('filter-pickups-date-from').value;
   const fTo = document.getElementById('filter-pickups-date-to').value;
 
-  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (currentCompany) {
+    const companyList = [];
+    currentCompany.split(',').forEach(c => {
+      const trimmed = c.trim();
+      if (trimmed) {
+        companyList.push(trimmed);
+        companyList.push(trimmed.toLowerCase());
+        companyList.push(trimmed.toUpperCase());
+      }
+    });
+    if (companyList.length > 0) {
+      query = query.in('comercio', companyList);
+    }
+  }
   if (fStatus) query = query.eq('estado_pedido', fStatus);
   if (fSearch) {
     query = query.or(`pedido.ilike.%${fSearch}%,nombre_apellido.ilike.%${fSearch}%,rut.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
@@ -2797,7 +2845,20 @@ function buildSalesQuery(query) {
   const fFrom = document.getElementById('filter-sales-date-from').value;
   const fTo = document.getElementById('filter-sales-date-to').value;
 
-  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (currentCompany) {
+    const companyList = [];
+    currentCompany.split(',').forEach(c => {
+      const trimmed = c.trim();
+      if (trimmed) {
+        companyList.push(trimmed);
+        companyList.push(trimmed.toLowerCase());
+        companyList.push(trimmed.toUpperCase());
+      }
+    });
+    if (companyList.length > 0) {
+      query = query.in('comercio', companyList);
+    }
+  }
   if (fPayment) query = query.eq('modo_pago', fPayment);
   if (fSearch) {
     query = query.or(`codigo_venta.ilike.%${fSearch}%,nombre_cliente.ilike.%${fSearch}%,correo_cliente.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
