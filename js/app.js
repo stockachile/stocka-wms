@@ -977,18 +977,28 @@ async function renderShipments() {
     const { data: courierData } = await courierQuery;
     const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
 
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const defaultDateFrom = `${year}-${month}-01`;
+    const defaultDateTo = `${year}-${month}-${day}`;
+
     let allData = [];
     let filters = {
       search: '',
       status: '',
       courier: '',
-      dateFrom: '',
-      dateTo: ''
+      dateFrom: defaultDateFrom,
+      dateTo: defaultDateTo
     };
     let sort = {
       field: 'created_at',
       asc: false
     };
+    let currentPage = 1;
+    const pageSize = 50;
+    let totalFilteredRows = 0;
 
     // Render basic page wrapper with KPI grid, filters layout, and table skeleton
     appContent.innerHTML = `
@@ -1053,11 +1063,11 @@ async function renderShipments() {
         </div>
         <div class="filter-item">
           <label class="filter-label">Desde</label>
-          <input type="date" id="ship-date-from" class="filter-input">
+          <input type="date" id="ship-date-from" class="filter-input" value="${filters.dateFrom}">
         </div>
         <div class="filter-item">
           <label class="filter-label">Hasta</label>
-          <input type="date" id="ship-date-to" class="filter-input">
+          <input type="date" id="ship-date-to" class="filter-input" value="${filters.dateTo}">
         </div>
         <button id="ship-btn-export" class="btn-filter-action btn-export" style="border:none;">
           <span><i class="ri-inbox-archive-line"></i></span> Exportar Excel
@@ -1085,6 +1095,8 @@ async function renderShipments() {
             </tbody>
           </table>
         </div>
+        <!-- Contenedor para controles de paginación -->
+        <div id="shipments-pagination-container"></div>
       </div>
     `;
 
@@ -1097,56 +1109,62 @@ async function renderShipments() {
       courierSelect.appendChild(opt);
     });
 
+    // Renderizado de paginación
+    const renderPagination = () => {
+      const pagContainer = document.getElementById('shipments-pagination-container');
+      const totalPages = Math.ceil(totalFilteredRows / pageSize);
+
+      if (totalPages <= 1) {
+        pagContainer.innerHTML = '';
+        return;
+      }
+
+      const fromRow = (currentPage - 1) * pageSize + 1;
+      const toRow = Math.min(currentPage * pageSize, totalFilteredRows);
+
+      pagContainer.innerHTML = `
+        <div class="shipments-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background-color: var(--color-bg-card); border-top: 1px solid var(--color-border); border-bottom-left-radius: 8px; border-bottom-right-radius: 8px;">
+          <span style="font-size: 0.875rem; color: var(--color-text-muted);">
+            Mostrando <strong style="color: var(--color-text-main);">${fromRow}</strong> a 
+            <strong style="color: var(--color-text-main);">${toRow}</strong> de 
+            <strong style="color: var(--color-text-main);">${totalFilteredRows}</strong> resultados
+          </span>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button id="ship-prev-page" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem;" ${currentPage === 1 ? 'disabled' : ''}>
+              <i class="ri-arrow-left-s-line"></i> Anterior
+            </button>
+            <span style="font-size: 0.875rem; color: var(--color-text-muted); padding: 0 0.5rem;">
+              Pág. <strong>${currentPage}</strong> de <strong>${totalPages}</strong>
+            </span>
+            <button id="ship-next-page" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem;" ${currentPage >= totalPages ? 'disabled' : ''}>
+              Siguiente <i class="ri-arrow-right-s-line"></i>
+            </button>
+          </div>
+        </div>
+      `;
+
+      // Event listeners para botones de paginación
+      const btnPrev = document.getElementById('ship-prev-page');
+      const btnNext = document.getElementById('ship-next-page');
+
+      if (btnPrev && currentPage > 1) {
+        btnPrev.addEventListener('click', async () => {
+          currentPage--;
+          await fetchAndRenderTable();
+        });
+      }
+
+      if (btnNext && currentPage < totalPages) {
+        btnNext.addEventListener('click', async () => {
+          currentPage++;
+          await fetchAndRenderTable();
+        });
+      }
+    };
+
     // Filtering, sorting and rendering implementation
     const applyFiltersAndRenderTable = () => {
-      let filtered = allData.filter(s => {
-        // 1. Text search filter
-        if (filters.search) {
-          const query = filters.search.toLowerCase();
-          const ref = (s.pedido_referencia || '').toLowerCase();
-          const dest = (s.nombre_destinatario || '').toLowerCase();
-          const tracking = (s.tracking || '').toLowerCase();
-          const courier = (s.courier || '').toLowerCase();
-          const commune = (s.comuna_destino || '').toLowerCase();
-          const dir = (s.direccion_destino || '').toLowerCase();
-          
-          if (!ref.includes(query) && 
-              !dest.includes(query) && 
-              !tracking.includes(query) && 
-              !courier.includes(query) && 
-              !commune.includes(query) && 
-              !dir.includes(query)) {
-            return false;
-          }
-        }
-
-        // 2. Global status filter
-        if (filters.status && s.global_status !== filters.status) {
-          return false;
-        }
-
-        // 3. Courier filter
-        if (filters.courier && s.courier !== filters.courier) {
-          return false;
-        }
-
-        // 4. Date range filter
-        if (s.created_at) {
-          const itemDate = new Date(s.created_at);
-          if (filters.dateFrom) {
-            const fromDate = new Date(filters.dateFrom + 'T00:00:00');
-            if (itemDate < fromDate) return false;
-          }
-          if (filters.dateTo) {
-            const toDate = new Date(filters.dateTo + 'T23:59:59');
-            if (itemDate > toDate) return false;
-          }
-        } else if (filters.dateFrom || filters.dateTo) {
-          return false;
-        }
-
-        return true;
-      });
+      let filtered = [...allData];
 
       // Sort dataset in-memory
       filtered.sort((a, b) => {
@@ -1166,21 +1184,11 @@ async function renderShipments() {
         return 0;
       });
 
-      // Update Top KPIs
-      const totalCount = allData.length;
-      const totalDespachado = allData.filter(s => s.global_status === 'DESPACHADO').length;
-      const totalSinMov = allData.filter(s => s.global_status === 'SIN MOVIMIENTO').length;
-      const totalAlerta = allData.filter(s => s.global_status === 'ALERTA').length;
-
-      document.getElementById('kpi-total-val').textContent = totalCount;
-      document.getElementById('kpi-despachado-val').textContent = totalDespachado;
-      document.getElementById('kpi-sin-movimiento-val').textContent = totalSinMov;
-      document.getElementById('kpi-alerta-val').textContent = totalAlerta;
-
       // Render Table Rows
       const tbody = document.getElementById('shipments-table-body');
       if (filtered.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">No se encontraron despachos con los filtros aplicados.</td></tr>`;
+        document.getElementById('shipments-pagination-container').innerHTML = '';
         return;
       }
 
@@ -1247,21 +1255,19 @@ async function renderShipments() {
           }
         });
       });
+
+      // Render pagination controls
+      renderPagination();
     };
 
-    // Función para obtener los datos desde Supabase con filtros a nivel de base de datos
+    // Función para obtener los datos desde Supabase con filtros y paginación
     const fetchAndRenderTable = async () => {
       const tbody = document.getElementById('shipments-table-body');
       tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem;">Cargando despachos...</td></tr>`;
 
       try {
-        let query = supabase
-          .from('envios_unificados')
-          .select('*')
-          .eq('visible_to_client', true);
-
+        const companyList = [];
         if (currentCompany) {
-          const companyList = [];
           currentCompany.split(',').forEach(c => {
             const trimmed = c.trim();
             if (trimmed) {
@@ -1270,12 +1276,38 @@ async function renderShipments() {
               companyList.push(trimmed.toUpperCase());
             }
           });
-          if (companyList.length > 0) {
-            query = query.in('empresa_comercio_proveedor', companyList);
-          }
         }
 
-        // Aplicar filtros a nivel de base de datos
+        // 1. Query para KPIs en paralelo (sin limit/range de paginación ni búsqueda por texto)
+        let kpiQuery = supabase
+          .from('envios_unificados')
+          .select('global_status')
+          .eq('visible_to_client', true);
+        
+        if (companyList.length > 0) {
+          kpiQuery = kpiQuery.in('empresa_comercio_proveedor', companyList);
+        }
+        if (filters.courier) {
+          kpiQuery = kpiQuery.eq('courier', filters.courier);
+        }
+        if (filters.dateFrom) {
+          kpiQuery = kpiQuery.gte('created_at', filters.dateFrom + 'T00:00:00Z');
+        }
+        if (filters.dateTo) {
+          kpiQuery = kpiQuery.lte('created_at', filters.dateTo + 'T23:59:59Z');
+        }
+
+        // 2. Query paginada y filtrada para la tabla
+        let query = supabase
+          .from('envios_unificados')
+          .select('*', { count: 'exact' })
+          .eq('visible_to_client', true);
+
+        if (companyList.length > 0) {
+          query = query.in('empresa_comercio_proveedor', companyList);
+        }
+
+        // Aplicar filtros
         if (filters.courier) {
           query = query.eq('courier', filters.courier);
         }
@@ -1285,14 +1317,39 @@ async function renderShipments() {
         if (filters.dateTo) {
           query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
         }
+        if (filters.status) {
+          query = query.eq('global_status', filters.status);
+        }
+        if (filters.search) {
+          const term = `%${filters.search}%`;
+          query = query.or(`pedido_referencia.ilike.${term},nombre_destinatario.ilike.${term},tracking.ilike.${term},courier.ilike.${term},comuna_destino.ilike.${term},direccion_destino.ilike.${term}`);
+        }
 
-        // Ordenar por fecha descendente (más recientes primero)
+        // Ordenar y limitar por rango de paginación
         query = query.order('created_at', { ascending: false });
+        query = query.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
 
-        const { data, error } = await query;
-        if (error) throw error;
+        // Ejecutar consultas en paralelo
+        const [kpiRes, dataRes] = await Promise.all([kpiQuery, query]);
 
-        allData = data || [];
+        if (kpiRes.error) throw kpiRes.error;
+        if (dataRes.error) throw dataRes.error;
+
+        // Actualizar KPIs
+        const kpis = kpiRes.data || [];
+        const totalCount = kpis.length;
+        const totalDespachado = kpis.filter(s => s.global_status === 'DESPACHADO').length;
+        const totalSinMov = kpis.filter(s => s.global_status === 'SIN MOVIMIENTO').length;
+        const totalAlerta = kpis.filter(s => s.global_status === 'ALERTA').length;
+
+        document.getElementById('kpi-total-val').textContent = totalCount;
+        document.getElementById('kpi-despachado-val').textContent = totalDespachado;
+        document.getElementById('kpi-sin-movimiento-val').textContent = totalSinMov;
+        document.getElementById('kpi-alerta-val').textContent = totalAlerta;
+
+        allData = dataRes.data || [];
+        totalFilteredRows = dataRes.count || 0;
+
         applyFiltersAndRenderTable();
       } catch (err) {
         console.error('Error fetching shipments data:', err);
@@ -1300,97 +1357,143 @@ async function renderShipments() {
       }
     };
 
-    // Bind filters event listeners
+    // Bind filters event listeners con de-bounce para búsqueda
+    let searchTimeout;
     document.getElementById('ship-search-input').addEventListener('input', (e) => {
       filters.search = e.target.value;
-      applyFiltersAndRenderTable();
+      currentPage = 1; // Resetear a página 1
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(async () => {
+        await fetchAndRenderTable();
+      }, 300);
     });
 
     const statusTabs = document.querySelectorAll('#ship-status-tabs .shipment-tab');
     statusTabs.forEach(tab => {
-      tab.addEventListener('click', (e) => {
+      tab.addEventListener('click', async (e) => {
         statusTabs.forEach(t => t.classList.remove('active'));
         e.target.classList.add('active');
         filters.status = e.target.getAttribute('data-status');
-        applyFiltersAndRenderTable();
+        currentPage = 1; // Resetear a página 1
+        await fetchAndRenderTable();
       });
     });
 
     document.getElementById('ship-courier-select').addEventListener('change', async (e) => {
       filters.courier = e.target.value;
+      currentPage = 1; // Resetear a página 1
       await fetchAndRenderTable();
     });
 
     document.getElementById('ship-date-from').addEventListener('change', async (e) => {
       filters.dateFrom = e.target.value;
+      currentPage = 1; // Resetear a página 1
       await fetchAndRenderTable();
     });
 
     document.getElementById('ship-date-to').addEventListener('change', async (e) => {
       filters.dateTo = e.target.value;
+      currentPage = 1; // Resetear a página 1
       await fetchAndRenderTable();
     });
 
-    // Excel Export CSV logic
-    document.getElementById('ship-btn-export').addEventListener('click', () => {
-      let filtered = allData.filter(s => {
+    // Excel Export CSV logic con consulta completa sin paginación
+    document.getElementById('ship-btn-export').addEventListener('click', async () => {
+      const tbody = document.getElementById('shipments-table-body');
+      const originalHtml = tbody.innerHTML;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem;">Generando reporte de exportación...</td></tr>`;
+
+      try {
+        const companyList = [];
+        if (currentCompany) {
+          currentCompany.split(',').forEach(c => {
+            const trimmed = c.trim();
+            if (trimmed) {
+              companyList.push(trimmed);
+              companyList.push(trimmed.toLowerCase());
+              companyList.push(trimmed.toUpperCase());
+            }
+          });
+        }
+
+        let query = supabase
+          .from('envios_unificados')
+          .select('*')
+          .eq('visible_to_client', true);
+
+        if (companyList.length > 0) {
+          query = query.in('empresa_comercio_proveedor', companyList);
+        }
+
+        if (filters.courier) {
+          query = query.eq('courier', filters.courier);
+        }
+        if (filters.dateFrom) {
+          query = query.gte('created_at', filters.dateFrom + 'T00:00:00Z');
+        }
+        if (filters.dateTo) {
+          query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
+        }
+        if (filters.status) {
+          query = query.eq('global_status', filters.status);
+        }
         if (filters.search) {
-          const query = filters.search.toLowerCase();
-          const ref = (s.pedido_referencia || '').toLowerCase();
-          const dest = (s.nombre_destinatario || '').toLowerCase();
-          const tracking = (s.tracking || '').toLowerCase();
-          const courier = (s.courier || '').toLowerCase();
-          const commune = (s.comuna_destino || '').toLowerCase();
-          const dir = (s.direccion_destino || '').toLowerCase();
-          if (!ref.includes(query) && !dest.includes(query) && !tracking.includes(query) && !courier.includes(query) && !commune.includes(query) && !dir.includes(query)) return false;
+          const term = `%${filters.search}%`;
+          query = query.or(`pedido_referencia.ilike.${term},nombre_destinatario.ilike.${term},tracking.ilike.${term},courier.ilike.${term},comuna_destino.ilike.${term},direccion_destino.ilike.${term}`);
         }
-        if (filters.status && s.global_status !== filters.status) return false;
-        if (filters.courier && s.courier !== filters.courier) return false;
-        if (s.created_at) {
-          const itemDate = new Date(s.created_at);
-          if (filters.dateFrom) {
-            const fromDate = new Date(filters.dateFrom + 'T00:00:00');
-            if (itemDate < fromDate) return false;
-          }
-          if (filters.dateTo) {
-            const toDate = new Date(filters.dateTo + 'T23:59:59');
-            if (itemDate > toDate) return false;
-          }
-        } else if (filters.dateFrom || filters.dateTo) {
-          return false;
-        }
-        return true;
-      });
 
-      // Headers and data mapping
-      const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
-      const rows = filtered.map(s => {
-        const platformName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
-        const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
-        return [
-          s.pedido_referencia || '',
-          platformName,
-          s.courier || '',
-          s.tracking || '',
-          s.nombre_destinatario || '',
-          `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
-          s.comuna_destino || '',
-          s.global_status || '',
-          s.status || '',
-          dateStr
-        ];
-      });
+        query = query.order('created_at', { ascending: false });
 
-      // Built UTF-8 CSV with BOM for Excel Spanish compatibility
-      const csvContent = "\ufeff" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `despachos_stocka_${new Date().toISOString().slice(0,10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const filtered = data || [];
+
+        // Headers y mapeo de datos
+        const headers = ['Referencia Pedido', 'Origen Logistica', 'Courier', 'Tracking', 'Destinatario', 'Direccion', 'Comuna', 'Estado Global', 'Estado Original', 'Fecha Creacion'];
+        const rows = filtered.map(s => {
+          const platformName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
+          const dateStr = s.created_at ? new Date(s.created_at).toLocaleString() : '-';
+          return [
+            s.pedido_referencia || '',
+            platformName,
+            s.courier || '',
+            s.tracking || '',
+            s.nombre_destinatario || '',
+            `${s.direccion_destino || ''} ${s.complemento_destino || ''}`,
+            s.comuna_destino || '',
+            s.global_status || '',
+            s.status || '',
+            dateStr
+          ];
+        });
+
+        // Built UTF-8 CSV con BOM para compatibilidad con Excel
+        const csvContent = "\ufeff" + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `despachos_stocka_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (err) {
+        console.error('Error exporting shipments:', err);
+        alert('Error al exportar los despachos: ' + err.message);
+      } finally {
+        tbody.innerHTML = originalHtml;
+        // Volver a vincular eventos de clicks de la tabla
+        tbody.querySelectorAll('.clickable-row').forEach(row => {
+          row.addEventListener('click', () => {
+            const id = row.getAttribute('data-id');
+            const shipment = allData.find(x => x.id === id);
+            if (shipment) {
+              showShipmentDetailsModal(shipment);
+            }
+          });
+        });
+      }
     });
 
     // Sorting headers listeners
