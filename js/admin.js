@@ -1021,6 +1021,7 @@ async function renderUsersAdmin() {
           ? user.comercio.split(',').map(c => c.trim())
           : [];
 
+        window.adminComerciosList = comercios; // Exponer a nivel global para el modal
         let comerciosHtml = '';
         if (user.role !== 'client') {
           comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
@@ -1028,15 +1029,16 @@ async function renderUsersAdmin() {
           const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
           comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
         } else {
-          comercios.forEach(com => {
-            const isChecked = currentComercios.includes(com.nombre) ? 'checked' : '';
-            comerciosHtml += `
-              <label style="display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 1.25rem; font-size: 0.85rem; cursor: pointer; user-select: none;">
-                <input type="checkbox" class="user-comercio-cb" data-user-id="${user.id}" value="${com.nombre}" ${isChecked}>
-                <span>${com.nombre} (${com.sigla})</span>
-              </label>
-            `;
-          });
+          const assignedCount = currentComercios.length;
+          const assignedDataStr = encodeURIComponent(JSON.stringify(currentComercios));
+          comerciosHtml = `
+            <button class="btn btn-outline btn-sm" onclick="openUserComerciosModal('${user.id}', '${assignedDataStr}')" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <i class="ri-store-2-line"></i> Gestionar Comercios (${assignedCount})
+            </button>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${assignedCount > 0 ? currentComercios.join(', ') : 'Ninguno asignado'}
+            </div>
+          `;
         }
 
         rowsHtml += `
@@ -1142,34 +1144,82 @@ document.addEventListener('change', async (e) => {
     }
   }
 
-  if (e.target && e.target.classList.contains('user-comercio-cb')) {
-    const userId = e.target.getAttribute('data-user-id');
-    
-    // Buscar todos los checkboxes seleccionados de este usuario
-    const checkboxes = document.querySelectorAll(`.user-comercio-cb[data-user-id="${userId}"]`);
-    const checkedComercios = Array.from(checkboxes)
-      .filter(cb => cb.checked)
-      .map(cb => cb.value);
+  // El manejo de los checkboxes ahora se hace dentro del nuevo modal de comercios
+  }
+});
 
-    const commerceString = checkedComercios.length > 0 
-      ? checkedComercios.join(', ') 
-      : 'no asignado';
+// Modal para gestionar comercios asignados
+window.openUserComerciosModal = function(userId, assignedDataStr) {
+  const currentComercios = JSON.parse(decodeURIComponent(assignedDataStr));
+  const comercios = window.adminComerciosList || [];
+  
+  let modal = document.getElementById('modal-manage-comercios');
+  if (modal) modal.remove();
+
+  let checkboxesHtml = '';
+  comercios.forEach(com => {
+    const isChecked = currentComercios.includes(com.nombre) ? 'checked' : '';
+    checkboxesHtml += `
+      <label style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border); cursor: pointer; transition: background 0.2s;">
+        <input type="checkbox" class="modal-comercio-cb" value="${com.nombre}" ${isChecked} style="width: 1.25rem; height: 1.25rem; cursor: pointer; accent-color: var(--color-primary);">
+        <span style="font-size: 0.95rem; color: var(--color-text-main); font-weight: 500;">${com.nombre} <small style="color: var(--color-text-muted); font-weight: normal; margin-left: 0.25rem;">(${com.sigla})</small></span>
+      </label>
+    `;
+  });
+
+  modal = document.createElement('div');
+  modal.id = 'modal-manage-comercios';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 480px; display: flex; flex-direction: column; max-height: 85vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Asignar Comercios</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 0; background: var(--color-bg);">
+        <div style="display: flex; flex-direction: column;">
+          ${checkboxesHtml}
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+        <button class="btn btn-primary" id="btn-save-comercios" style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-save-line"></i> Guardar Cambios</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
+
+  document.getElementById('btn-save-comercios').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+
+    const checkboxes = modal.querySelectorAll('.modal-comercio-cb:checked');
+    const checkedComercios = Array.from(checkboxes).map(cb => cb.value);
+    const commerceString = checkedComercios.length > 0 ? checkedComercios.join(', ') : 'no asignado';
 
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ comercio: commerceString })
-        .eq('id', userId);
-
+      const { error } = await supabase.from('profiles').update({ comercio: commerceString }).eq('id', userId);
       if (error) throw error;
       
-      console.log(`Comercios actualizados para el usuario ${userId}: ${commerceString}`);
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 300);
+      
+      if (typeof renderUsersAdmin === 'function') {
+        renderUsersAdmin();
+      }
     } catch (err) {
-      console.error('Error al actualizar comercios asignados:', err);
-      alert('Error al actualizar comercios asignados: ' + err.message);
-      e.target.checked = !e.target.checked; // Revertir selección en caso de error
+      console.error('Error al guardar:', err);
+      alert('Error al guardar comercios: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
     }
-  }
+  });
 });
 
 // ==========================================

@@ -2612,3 +2612,373 @@ window.openPickupsDetail = function(dataStr) {
     alert('Error al abrir detalle');
   }
 };
+
+﻿
+// ====== PUNTO DE VENTAS ======
+let salesCurrentPage = 1;
+const salesPageSize = 50;
+
+window.renderSales = async function() {
+  const content = document.getElementById('app-content');
+  
+  content.innerHTML = `
+    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+      <div>
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Punto de Ventas (POS)</h2>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
+          Revisa las ventas realizadas en sucursales en tiempo real.
+        </p>
+      </div>
+      <div style="display: flex; gap: 0.5rem;">
+        <button id="btn-export-sales-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981;">
+          <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
+        </button>
+        <button id="btn-export-sales-excel" class="btn btn-outline" style="background-color: white; color: #059669; border-color: #059669;">
+          <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
+          <input type="text" id="filter-sales-search" class="form-input" placeholder="Buscar por código, cliente, correo, sucursal...">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Modo de Pago</label>
+          <select id="filter-sales-payment" class="form-input">
+            <option value="">Todos</option>
+            <option value="Tarjeta de Débito">Tarjeta de Débito</option>
+            <option value="Tarjeta de Crédito">Tarjeta de Crédito</option>
+            <option value="Efectivo">Efectivo</option>
+            <option value="Transferencia">Transferencia</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
+          <input type="date" id="filter-sales-date-from" class="form-input">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
+          <input type="date" id="filter-sales-date-to" class="form-input">
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+      <div class="card-body" style="overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha Venta</th>
+              <th>Código Venta</th>
+              <th>Comercio</th>
+              <th>Cliente</th>
+              <th>Sucursal</th>
+              <th>Monto Total</th>
+              <th>Modo Pago</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="sales-tbody">
+            <tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
+        <div id="sales-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
+          Mostrando 0 registros
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-sales-prev" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Anterior</button>
+          <button id="btn-sales-next" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Siguiente</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Listeners de Filtros
+  const filters = ['filter-sales-payment', 'filter-sales-date-from', 'filter-sales-date-to'];
+  filters.forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      salesCurrentPage = 1;
+      fetchAndRenderSalesData();
+    });
+  });
+
+  let searchTimeout;
+  document.getElementById('filter-sales-search').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      salesCurrentPage = 1;
+      fetchAndRenderSalesData();
+    }, 400);
+  });
+
+  // Listeners Paginación
+  document.getElementById('btn-sales-prev').addEventListener('click', () => {
+    if (salesCurrentPage > 1) {
+      salesCurrentPage--;
+      fetchAndRenderSalesData();
+    }
+  });
+
+  document.getElementById('btn-sales-next').addEventListener('click', () => {
+    salesCurrentPage++;
+    fetchAndRenderSalesData();
+  });
+
+  // Listeners Exportación
+  document.getElementById('btn-export-sales-csv').addEventListener('click', () => exportSalesData('csv'));
+  document.getElementById('btn-export-sales-excel').addEventListener('click', () => exportSalesData('excel'));
+
+  salesCurrentPage = 1;
+  await fetchAndRenderSalesData();
+};
+
+function buildSalesQuery(query) {
+  const fSearch = document.getElementById('filter-sales-search').value.trim();
+  const fPayment = document.getElementById('filter-sales-payment').value;
+  const fFrom = document.getElementById('filter-sales-date-from').value;
+  const fTo = document.getElementById('filter-sales-date-to').value;
+
+  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (fPayment) query = query.eq('modo_pago', fPayment);
+  if (fSearch) {
+    query = query.or(`codigo_venta.ilike.%${fSearch}%,nombre_cliente.ilike.%${fSearch}%,correo_cliente.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+  }
+  
+  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
+  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+
+  return query;
+}
+
+async function fetchAndRenderSalesData() {
+  const tbody = document.getElementById('sales-tbody');
+  const btnPrev = document.getElementById('btn-sales-prev');
+  const btnNext = document.getElementById('btn-sales-next');
+  const info = document.getElementById('sales-pagination-info');
+
+  tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  btnPrev.disabled = true;
+  btnNext.disabled = true;
+
+  try {
+    let query = supabase.from('store_sales').select('*', { count: 'exact' });
+    query = buildSalesQuery(query);
+
+    const from = (salesCurrentPage - 1) * salesPageSize;
+    const to = from + salesPageSize - 1;
+
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data: sales, error, count } = await query;
+    if (error) throw error;
+
+    let html = '';
+    if (!sales || sales.length === 0) {
+      html = '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+    } else {
+      sales.forEach(s => {
+        const d = new Date(s.created_at);
+        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        
+        let montoFmt = s.monto_total ? '$' + Number(s.monto_total).toLocaleString('es-CL') : 'N/A';
+
+        let safeData = '{}';
+        try { safeData = encodeURIComponent(JSON.stringify(s)); } catch(e){}
+
+        html += `
+          <tr>
+            <td style="white-space: nowrap;">${dateStr}</td>
+            <td><strong>${s.codigo_venta || 'N/A'}</strong></td>
+            <td>${s.comercio || 'N/A'}</td>
+            <td>${s.nombre_cliente || 'N/A'}</td>
+            <td>${s.sucursal || 'N/A'}</td>
+            <td>${montoFmt}</td>
+            <td><span class="badge badge-neutral">${s.modo_pago || 'N/A'}</span></td>
+            <td>
+              <button class="btn btn-outline" onclick="window.openSalesDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;"><i class="ri-eye-line" style="margin-right:0.25rem;"></i> Ver Detalle</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    tbody.innerHTML = html;
+    
+    const currentEnd = Math.min(from + salesPageSize, count || 0);
+    info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    
+    btnPrev.disabled = salesCurrentPage <= 1;
+    btnNext.disabled = currentEnd >= (count || 0);
+
+  } catch (err) {
+    console.error('Error:', err);
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+  }
+}
+
+async function exportSalesData(format) {
+  try {
+    const info = document.getElementById('sales-pagination-info');
+    const oldText = info.textContent;
+    info.textContent = 'Preparando exportación...';
+    
+    let query = supabase.from('store_sales').select('*').order('created_at', { ascending: false });
+    query = buildSalesQuery(query);
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      alert('No hay datos para exportar con estos filtros.');
+      info.textContent = oldText;
+      return;
+    }
+
+    const rows = data.map(s => {
+      const d = new Date(s.created_at);
+      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      
+      let prodStr = '';
+      if (s.productos) {
+        try {
+          let parsed = s.productos;
+          if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+          if (Array.isArray(parsed)) {
+            prodStr = parsed.map(p => `${p.cantidad || 1}x ${p.producto || 'N/A'}`).join(' || ');
+          }
+        } catch(e) {}
+      }
+
+      return {
+        'ID': s.id,
+        'Fecha Venta': dateStr,
+        'Código Venta': s.codigo_venta,
+        'Comercio': s.comercio,
+        'Sucursal': s.sucursal,
+        'Monto Total': s.monto_total,
+        'Modo Pago': s.modo_pago,
+        'Documento': s.documento_tipo,
+        'Nombre Cliente': s.nombre_cliente,
+        'Correo Cliente': s.correo_cliente,
+        'Teléfono': s.telefono_cliente,
+        'Vendedor (Creado Por)': s.creado_por,
+        'Productos': prodStr,
+        'Comentarios': s.comentarios,
+        'RUT Facturación': s.rut_facturacion,
+        'Razón Social': s.razon_social_facturacion,
+        'Giro': s.giro_facturacion,
+        'Dirección Facturación': s.direccion_facturacion
+      };
+    });
+
+    const timestamp = new Date().toISOString().slice(0,10);
+    const filename = `punto_ventas_${timestamp}`;
+
+    if (format === 'csv') {
+      const headers = Object.keys(rows[0]);
+      const csvRows = rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','));
+      const csvContent = "\ufeff" + [headers.join(','), ...csvRows].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } else if (format === 'excel') {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería de Excel no está cargada.');
+        info.textContent = oldText;
+        return;
+      }
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Punto Ventas");
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+    }
+
+    info.textContent = oldText;
+  } catch(e) {
+    console.error('Error Exporting:', e);
+    alert('Error al exportar: ' + e.message);
+  }
+}
+
+window.openSalesDetail = function(dataStr) {
+  try {
+    const data = JSON.parse(decodeURIComponent(dataStr));
+    
+    let prodHtml = '<ul>';
+    if (data.productos) {
+      try {
+        let parsed = data.productos;
+        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(p => {
+            prodHtml += `<li>${p.cantidad || 1}x ${p.producto || 'N/A'}</li>`;
+          });
+        }
+      } catch(e) {}
+    }
+    prodHtml += '</ul>';
+
+    let factHtml = '';
+    if (data.documento_tipo === 'FACTURA') {
+      factHtml = `
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
+        <p><strong>Datos de Facturación:</strong></p>
+        <p>RUT: ${data.rut_facturacion || '-'}</p>
+        <p>Razón Social: ${data.razon_social_facturacion || '-'}</p>
+        <p>Giro: ${data.giro_facturacion || '-'}</p>
+        <p>Dirección: ${data.direccion_facturacion || '-'}</p>
+      `;
+    }
+
+    let montoFmt = data.monto_total ? '$' + Number(data.monto_total).toLocaleString('es-CL') : 'N/A';
+
+    let content = `
+      <div style="text-align: left; font-size: 0.95rem; line-height: 1.5;">
+        <p><strong>Comercio:</strong> ${data.comercio || '-'}</p>
+        <p><strong>Código Venta:</strong> ${data.codigo_venta || '-'}</p>
+        <p><strong>Sucursal:</strong> ${data.sucursal || '-'}</p>
+        <p><strong>Vendedor:</strong> ${data.creado_por || '-'}</p>
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
+        <p><strong>Cliente:</strong> ${data.nombre_cliente || '-'}</p>
+        <p><strong>Correo:</strong> ${data.correo_cliente || '-'}</p>
+        <p><strong>Teléfono:</strong> ${data.telefono_cliente || '-'}</p>
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
+        <p><strong>Pago:</strong> ${data.modo_pago || '-'} (${data.documento_tipo || '-'})</p>
+        <p><strong>Total:</strong> ${montoFmt}</p>
+        <hr style="margin: 10px 0; border: none; border-top: 1px solid #eee;" />
+        <p><strong>Productos:</strong></p>
+        ${prodHtml}
+        ${factHtml}
+      </div>
+    `;
+
+    if (window.Swal) {
+      Swal.fire({
+        title: 'Detalle de Venta',
+        html: content,
+        confirmButtonText: 'Cerrar',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    } else {
+      alert("Venta: " + data.codigo_venta + "\nTotal: " + montoFmt);
+    }
+    
+  } catch(e) {
+    console.error(e);
+    alert('Error al abrir detalle de venta');
+  }
+};
