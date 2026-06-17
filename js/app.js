@@ -1848,57 +1848,182 @@ async function renderProfile() {
 }
 
 // ====== LOGISTICA INVERSA ======
+let returnsCurrentPage = 1;
+const returnsPageSize = 50;
+
 window.renderReturns = async function() {
   const content = document.getElementById('app-content');
-  content.innerHTML = '<div class="text-center" style="padding: 3rem;"><div class="spinner" style="margin: 0 auto; width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid var(--color-primary); border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 1rem;">Cargando devoluciones y cambios...</p></div>';
-
-  try {
-    let query = supabase
-      .from('reverse_logistics')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    // Filtrar por comercio si el usuario tiene un comercio asignado
-    if (currentCompany) {
-      query = query.ilike('comercio', currentCompany);
-    }
-
-    const { data: returns, error } = await query;
-
-    if (error) throw error;
-
-    let html = `
-      <div style="margin-bottom: 2rem;">
+  
+  content.innerHTML = `
+    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+      <div>
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Logística Inversa</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Revisa las devoluciones y cambios generados en tiempo real desde las sucursales y puntos de retiro.
+          Revisa las devoluciones y cambios. Filtra, pagina y exporta los datos.
         </p>
       </div>
-      <div class="card">
-        <div class="card-body" style="overflow-x: auto;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Fecha y Hora</th>
-                <th>Tipo</th>
-                <th>Comercio</th>
-                <th>Ref. Pedido</th>
-                <th>Transporte</th>
-                <th>Sucursal</th>
-                <th>Ref. Transporte</th>
-                <th>Cant.</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-    `;
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button id="btn-info-export" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-muted); padding: 0.5rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-full);" title="¿Cómo exportar?">
+          <i class="ri-information-line" style="font-size: 1.25rem;"></i>
+        </button>
+        <button id="btn-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981;">
+          <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
+        </button>
+        <button id="btn-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669;">
+          <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
+        </button>
+      </div>
+    </div>
 
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Tipo de Movimiento</label>
+          <select id="filter-ret-type" class="form-input">
+            <option value="">Todos</option>
+            <option value="CAMBIO">Cambio</option>
+            <option value="DEVOLUCION">Devolución</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
+          <input type="text" id="filter-ret-search" class="form-input" placeholder="Buscar por pedido, transporte, tracking...">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
+          <input type="date" id="filter-ret-date-from" class="form-input">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
+          <input type="date" id="filter-ret-date-to" class="form-input">
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+      <div class="card-body" style="overflow-x: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha y Hora</th>
+              <th>Tipo</th>
+              <th>Comercio</th>
+              <th>Ref. Pedido</th>
+              <th>Transporte</th>
+              <th>Sucursal</th>
+              <th>Ref. Transporte</th>
+              <th>Cant.</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="returns-tbody">
+            <tr><td colspan="9" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
+        <div id="returns-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
+          Mostrando 0 registros
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-ret-prev" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Anterior</button>
+          <button id="btn-ret-next" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Siguiente</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Añadir Listeners de Filtros
+  const filters = ['filter-ret-type', 'filter-ret-date-from', 'filter-ret-date-to'];
+  filters.forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      returnsCurrentPage = 1;
+      fetchAndRenderReturnsData();
+    });
+  });
+
+  let searchTimeout;
+  document.getElementById('filter-ret-search').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      returnsCurrentPage = 1;
+      fetchAndRenderReturnsData();
+    }, 400);
+  });
+
+  // Listeners de paginación
+  document.getElementById('btn-ret-prev').addEventListener('click', () => {
+    if (returnsCurrentPage > 1) {
+      returnsCurrentPage--;
+      fetchAndRenderReturnsData();
+    }
+  });
+
+  document.getElementById('btn-ret-next').addEventListener('click', () => {
+    returnsCurrentPage++;
+    fetchAndRenderReturnsData();
+  });
+
+  // Listeners Exportación
+  document.getElementById('btn-export-csv').addEventListener('click', () => exportReturnsData('csv'));
+  document.getElementById('btn-export-excel').addEventListener('click', () => exportReturnsData('excel'));
+  document.getElementById('btn-info-export').addEventListener('click', () => {
+    alert('Guía de Exportación:\n\n1. Utiliza los filtros (Tipo, Buscador, Fechas) para acotar tu búsqueda.\n2. Haz clic en "CSV" o "Excel" para descargar el reporte.\n3. El archivo generado sólo contendrá los registros que coincidan con los filtros actuales.');
+  });
+
+  // Carga Inicial
+  returnsCurrentPage = 1;
+  await fetchAndRenderReturnsData();
+};
+
+function buildReturnsQuery(query) {
+  const fType = document.getElementById('filter-ret-type').value;
+  const fSearch = document.getElementById('filter-ret-search').value.trim();
+  const fFrom = document.getElementById('filter-ret-date-from').value;
+  const fTo = document.getElementById('filter-ret-date-to').value;
+
+  if (currentCompany) query = query.ilike('comercio', currentCompany);
+  if (fType) query = query.eq('tipo_movimiento', fType);
+  if (fSearch) {
+    query = query.or(`referencia_pedido.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+  }
+  
+  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
+  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+
+  return query;
+}
+
+async function fetchAndRenderReturnsData() {
+  const tbody = document.getElementById('returns-tbody');
+  const btnPrev = document.getElementById('btn-ret-prev');
+  const btnNext = document.getElementById('btn-ret-next');
+  const info = document.getElementById('returns-pagination-info');
+
+  tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  btnPrev.disabled = true;
+  btnNext.disabled = true;
+
+  try {
+    let query = supabase.from('reverse_logistics').select('*', { count: 'exact' });
+    query = buildReturnsQuery(query);
+
+    const from = (returnsCurrentPage - 1) * returnsPageSize;
+    const to = from + returnsPageSize - 1;
+
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data: returns, error, count } = await query;
+    if (error) throw error;
+
+    let html = '';
     if (!returns || returns.length === 0) {
-      html += '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros de logística inversa todavía.</td></tr>';
+      html = '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
     } else {
       returns.forEach(r => {
         const d = new Date(r.created_at);
-        // Formato: DD/MM/YYYY HH:MM
         const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
         const badgeClass = r.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
         
@@ -1923,19 +2048,100 @@ window.renderReturns = async function() {
       });
     }
 
-    html += `
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
+    tbody.innerHTML = html;
+    
+    // Update pagination
+    const currentEnd = Math.min(from + returnsPageSize, count || 0);
+    info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    
+    btnPrev.disabled = returnsCurrentPage <= 1;
+    btnNext.disabled = currentEnd >= (count || 0);
 
-    content.innerHTML = html;
   } catch (err) {
-    console.error('Error loading returns:', err);
-    content.innerHTML = '<div class="card"><div class="card-body text-center" style="color: var(--color-danger);">Aún no se ha creado la tabla reverse_logistics o hubo un error: ' + err.message + '</div></div>';
+    console.error('Error:', err);
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
   }
-};
+}
+
+async function exportReturnsData(format) {
+  try {
+    const info = document.getElementById('returns-pagination-info');
+    const oldText = info.textContent;
+    info.textContent = 'Preparando exportación...';
+    
+    let query = supabase.from('reverse_logistics').select('*').order('created_at', { ascending: false });
+    query = buildReturnsQuery(query);
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      alert('No hay datos para exportar con estos filtros.');
+      info.textContent = oldText;
+      return;
+    }
+
+    // 3. Prepare data array
+    const rows = data.map(r => {
+      const d = new Date(r.created_at);
+      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      
+      let productosStr = '';
+      if (r.productos && Array.isArray(r.productos)) {
+        productosStr = r.productos.map(p => `Devuelve: ${p.producto_devuelto || '-'} | Reemplaza: ${p.producto_reemplazo || '-'} | Cant: ${p.cantidad || 1}`).join(' || ');
+      }
+
+      return {
+        'ID': r.id,
+        'Fecha y Hora': dateStr,
+        'Tipo': r.tipo_movimiento,
+        'Comercio': r.comercio,
+        'Referencia Pedido': r.referencia_pedido,
+        'Transporte': r.transporte,
+        'Sucursal': r.sucursal,
+        'Tracking': r.referencia_transporte,
+        'Cantidad': r.cantidad_total,
+        'Creado Por': r.creado_por,
+        'Comentarios': r.comentarios,
+        'Detalle Productos': productosStr
+      };
+    });
+
+    const timestamp = new Date().toISOString().slice(0,10);
+    const filename = `logistica_inversa_${timestamp}`;
+
+    if (format === 'csv') {
+      const headers = Object.keys(rows[0]);
+      const csvRows = rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','));
+      const csvContent = "\ufeff" + [headers.join(','), ...csvRows].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } else if (format === 'excel') {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería de Excel no está cargada. Intenta recargar la página.');
+        info.textContent = oldText;
+        return;
+      }
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Logística Inversa");
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+    }
+
+    info.textContent = oldText;
+  } catch(e) {
+    console.error('Error Exporting:', e);
+    alert('Error al exportar: ' + e.message);
+  }
+}
 
 window.openReturnsDetail = function(dataStr) {
   try {
