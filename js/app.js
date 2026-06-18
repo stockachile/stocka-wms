@@ -1,5 +1,29 @@
 import supabase from './supabase.js';
 
+// Función global para descargar archivos en PDF codificados en Base64
+window.downloadBase64Pdf = function(base64, filename) {
+  try {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error al descargar el PDF en Base64:', err);
+    alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
+  }
+};
+
 // Capturador de errores global para depuración en tiempo real
 window.onerror = function (message, source, lineno, colno, error) {
   alert(`Error detectado en app.js:\n${message}\n\nArchivo: ${source}\nLínea: ${lineno}:${colno}`);
@@ -405,6 +429,7 @@ async function renderOrders() {
         item,
         cantidad,
         sku,
+        label_base64,
         order_items (quantity, products(sku, name))
       `)
       .eq('merchant_id', currentMerchantId)
@@ -472,7 +497,7 @@ async function renderOrders() {
         }
 
         const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : '#6b7280');
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : '#6b7280'));
         const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
 
         const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -485,6 +510,10 @@ async function renderOrders() {
 
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+        
+        if (order.label_base64) {
+          labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+        }
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
@@ -595,6 +624,16 @@ async function renderIntegrations() {
 
     if (parisErr) throw parisErr;
 
+    // Obtener la integración de Falabella
+    const { data: falabellaIntegration, error: falabellaErr } = await supabase
+      .from('merchant_integrations')
+      .select('*')
+      .eq('merchant_id', merchantId)
+      .eq('platform', 'Falabella')
+      .maybeSingle();
+
+    if (falabellaErr) throw falabellaErr;
+
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
     const shopifyStatusText = hasShopify 
@@ -605,6 +644,13 @@ async function renderIntegrations() {
     const parisUrl = hasParis ? parisIntegration.shop_url : 'https://api-developers.ecomm.cencosud.com';
     const parisStatusText = hasParis 
       ? (parisIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    const hasFalabella = !!falabellaIntegration;
+    const falabellaUrl = hasFalabella ? falabellaIntegration.shop_url : 'https://sellercenter-api.falabella.com';
+    const falabellaUser = hasFalabella ? falabellaIntegration.username : '';
+    const falabellaStatusText = hasFalabella 
+      ? (falabellaIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     const isObserver = userRole === 'observer';
@@ -621,6 +667,12 @@ async function renderIntegrations() {
       : (!hasParis 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-paris" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar París Marketplace</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-paris" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar París</button>');
+
+    const falabellaButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasFalabella 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Falabella API</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>');
 
     appContent.innerHTML = getObserverBanner() + `
       <div style="margin-bottom: 2rem;">
@@ -706,6 +758,45 @@ async function renderIntegrations() {
             </div>
           </div>
 
+          <!-- Falabella Marketplace Card -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${falabellaStatusText}
+                 </div>
+              </div>
+              
+              <form id="form-falabella-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
+                  <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
+                  <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                  <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${falabellaButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+
         </div>
 
         <!-- Right Column: Manual/Guide -->
@@ -770,6 +861,31 @@ async function renderIntegrations() {
                 <li>
                   <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
                   <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de París coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- Falabella Guide -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <li>
+                  <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu Seller Center de Falabella (Mirakl) y ve a la sección de configuración de perfil / API Key. Necesitarás tu <strong>User ID</strong> (email de acceso API) y la <strong>API Key</strong> correspondiente.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Configurar URL de la API:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">La URL de producción es <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">https://sellercenter-api.falabella.com/</code>. Ingresa esta URL en el campo de la izquierda.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
                 </li>
               </ol>
             </div>
@@ -884,6 +1000,65 @@ async function renderIntegrations() {
               .eq('platform', 'Paris');
             if(delErr) throw delErr;
             alert('Conexión con París eliminada.');
+            renderIntegrations();
+          } catch(err) {
+             console.error(err);
+             alert('Error al desconectar: ' + err.message);
+          }
+        }
+      });
+    }
+
+    // Falabella Submit Listener
+    if(!hasFalabella) {
+      document.getElementById('form-falabella-integration').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        const btn = document.getElementById('btn-save-falabella');
+        btn.disabled = true;
+        btn.textContent = 'Conectando...';
+
+        const falabella_url = document.getElementById('falabella-url').value.trim();
+        const falabella_user = document.getElementById('falabella-user').value.trim();
+        const token = document.getElementById('falabella-token').value.trim();
+
+        try {
+          const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+            merchant_id: merchantId,
+            platform: 'Falabella',
+            shop_url: falabella_url,
+            username: falabella_user,
+            access_token: token,
+            is_active: true
+          }]);
+          if(insErr) throw insErr;
+          
+          alert('Integración con Falabella guardada correctamente.');
+          renderIntegrations(); // Recargar vista
+        } catch(err) {
+          console.error(err);
+          alert('Error al guardar la integración: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Conectar Falabella API';
+        }
+      });
+    } else {
+      document.getElementById('btn-disconnect-falabella').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        if(confirm('¿Estás seguro que deseas desconectar tu cuenta de Falabella?')) {
+          try {
+            const { error: delErr } = await supabase.from('merchant_integrations')
+              .delete()
+              .eq('merchant_id', merchantId)
+              .eq('platform', 'Falabella');
+            if(delErr) throw delErr;
+            alert('Conexión con Falabella eliminada.');
             renderIntegrations();
           } catch(err) {
              console.error(err);
@@ -1385,23 +1560,23 @@ async function renderShipments() {
           : '-';
 
         rowsHtml += `
-          <tr class="clickable-row" data-id="${s.id}">
-            <td><strong>${s.pedido_referencia || '-'}</strong></td>
-            <td style="font-weight: 500;">${dateStr}</td>
+          <tr class="clickable-row" data-id="${s.id}" style="transition: background-color 0.2s;">
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${s.pedido_referencia || '-'}</span></td>
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td>
-              <div style="font-weight:600;">${s.nombre_destinatario || '-'}</div>
-              <div style="font-size:0.75rem; color:var(--color-text-muted);">${s.telefono_destino || ''}</div>
+              <div style="font-weight:600; color: var(--color-text-main);"><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.nombre_destinatario || '-'}</div>
+              <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-phone-line" style="margin-right: 0.25rem;"></i>${s.telefono_destino || '-'}</div>
             </td>
-            <td>${s.comuna_destino || '-'}</td>
-            <td><span style="font-weight:500;">${s.courier || '-'}</span></td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.comuna_destino || '-'}</td>
+            <td><span style="font-weight:600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.courier || '-'}</span></td>
             <td>${trackingDisplay}</td>
             <td>
-              <span class="badge ${badgeClass}" style="text-transform: capitalize;">
+              <span class="badge ${badgeClass}" style="text-transform: capitalize; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
                 ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
               </span>
             </td>
             <td>
-              <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+              <span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.35rem 0.75rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; border: 1px solid ${platformColor}30;">
                 ${platformBadge}
               </span>
             </td>

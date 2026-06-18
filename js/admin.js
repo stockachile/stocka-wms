@@ -1,5 +1,29 @@
 import supabase from './supabase.js';
 
+// Función global para descargar archivos en PDF codificados en Base64
+window.downloadBase64Pdf = function(base64, filename) {
+  try {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error al descargar el PDF en Base64:', err);
+    alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
+  }
+};
+
 // Capturador de errores global para depuración en tiempo real
 window.onerror = function (message, source, lineno, colno, error) {
   alert(`Error detectado en admin.js:\n${message}\n\nArchivo: ${source}\nLínea: ${lineno}:${colno}`);
@@ -219,6 +243,7 @@ async function renderAdminOrders() {
         item,
         cantidad,
         sku,
+        label_base64,
         profiles (company_name),
         order_items (quantity, products(sku, name))
       `)
@@ -266,7 +291,7 @@ async function renderAdminOrders() {
         let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
 
         const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : '#6b7280');
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : '#6b7280'));
         const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
 
         const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -279,6 +304,10 @@ async function renderAdminOrders() {
 
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+        
+        if (order.label_base64) {
+          labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+        }
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
@@ -826,22 +855,30 @@ async function renderConsolidatedShipments() {
               ? `<span style="background-color: #f0fdf4; color: #16a34a; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight:600;">Visible</span>`
               : `<span style="background-color: #fef2f2; color: #dc2626; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight:600;">Oculto</span>`;
 
-            rowsHtml += `
-              <tr>
-                <td><strong>${s.pedido_referencia || '-'}</strong></td>
-                <td><span style="background-color: ${originColor}15; color: ${originColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">${originBadge}</span></td>
-                <td>${s.courier || '-'} ${trackingDisplay !== '-' ? `(${trackingDisplay})` : ''}</td>
-                <td>
-                  <div style="font-weight:500;">${s.nombre_destinatario || '-'}</div>
-                  <div style="font-size:0.75rem; color:var(--color-text-muted);">${s.telefono_destino || ''}</div>
-                </td>
-                <td>${s.comuna_destino || '-'}</td>
-                <td><span style="font-size:0.875rem; text-transform:capitalize;">${s.status || '-'}</span></td>
-                <td><span class="badge ${badgeClass}">${s.global_status || 'DESCONOCIDO'}</span></td>
-                <td>${clientVisibilityBadge}</td>
-                <td style="font-size:0.875rem; color:var(--color-text-muted);">${dateStr}</td>
-              </tr>
-            `;
+        rowsHtml += `
+          <tr style="transition: background-color 0.2s;">
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${s.pedido_referencia || '-'}</span></td>
+            <td>
+              <span style="background-color: ${originColor}15; color: ${originColor}; padding: 0.35rem 0.75rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700; border: 1px solid ${originColor}30;">
+                ${originBadge}
+              </span>
+            </td>
+            <td><span style="font-weight:600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.courier || '-'}</span> ${trackingDisplay !== '-' ? `<span style="margin-left:0.25rem;">(${trackingDisplay})</span>` : ''}</td>
+            <td>
+              <div style="font-weight:600; color: var(--color-text-main);"><i class="ri-user-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.nombre_destinatario || '-'}</div>
+              <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-phone-line" style="margin-right: 0.25rem;"></i>${s.telefono_destino || '-'}</div>
+            </td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.comuna_destino || '-'}</td>
+            <td><span style="font-size:0.875rem; text-transform:capitalize; color: var(--color-text-main);">${s.status || '-'}</span></td>
+            <td>
+              <span class="badge ${badgeClass}" style="text-transform: capitalize; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+                ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
+              </span>
+            </td>
+            <td>${clientVisibilityBadge}</td>
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+          </tr>
+        `;
           });
         }
       } else {

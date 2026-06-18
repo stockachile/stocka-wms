@@ -1,0 +1,752 @@
+/**
+ * CONFIGURACIÓN GLOBAL
+ */
+const API_BASE_URL_CL = 'https://sellercenter-api.falabella.com/';
+const ID_CARPETA_ETIQUETAS = '1Dl46GR9smKeq3w2Gs1GRvtAP05mzsr_T'; 
+const NOMBRE_HOJA_DESTINO = "Pedidos_Falabella";
+const ID_PLANILLA_DESTINO = '1w3iT9mxNM8zFzsVqv6QxYJTGnUFwJS571Sx1HiRVl2k';
+const NOMBRE_PESTAÑA_DESTINO = 'Sheet1';
+
+/**
+ * 1. REGISTRO DE CUENTAS
+ */
+function registrarCuentaFalabella() {
+  const NOMBRE_TIENDA = 'BACK IN TIME'; // CAMBIAR AQUÍ
+  const USER_ID = 'hola@backintime.cl'; // CAMBIAR AQUÍ
+  const API_KEY = '0cedbc8c5e3789bea15ab707125571fdbc48da30'; // CAMBIAR AQUÍ
+
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+    
+    cuentas = cuentas.filter(c => c.nombre !== NOMBRE_TIENDA);
+    cuentas.push({ nombre: NOMBRE_TIENDA, userId: USER_ID, apiKey: API_KEY });
+    
+    props.setProperty('CUENTAS_FALABELLA', JSON.stringify(cuentas));
+    console.log("✅ Tienda '" + NOMBRE_TIENDA + "' guardada en memoria.");
+  } catch (e) {
+    console.error("❌ Error al guardar cuenta: " + e.toString());
+  }
+}
+
+/**
+ * 2. MOTOR DE SINCRONIZACIÓN
+ */
+function ejecutarSincronizacionFalabella() {
+  const props = PropertiesService.getScriptProperties();
+  const cuentasRaw = props.getProperty('CUENTAS_FALABELLA');
+  
+  if (!cuentasRaw) {
+    console.warn("⚠️ No hay cuentas registradas. Ejecuta primero 'registrarCuentaFalabella'.");
+    return;
+  }
+
+  const cuentas = JSON.parse(cuentasRaw);
+
+  cuentas.forEach(cuenta => {
+    try {
+      console.log("⏳ Iniciando consulta para: " + cuenta.nombre);
+      const pedidos = obtenerPedidosFalabella(cuenta);
+      
+      if (pedidos && pedidos.length > 0) {
+        volcarDatosUnificados(pedidos, cuenta);
+        console.log("✅ Finalizado: " + cuenta.nombre);
+      } else {
+        console.log("ℹ️ Sin pedidos nuevos para " + cuenta.nombre);
+      }
+    } catch (e) {
+      console.error("❌ Error crítico en " + cuenta.nombre + ": " + e.toString());
+    }
+  });
+}
+
+/**
+ * 3. LLAMADA API CON CONTROL DE ERRORES
+ */
+function obtenerPedidosFalabella(cuenta) {
+  const ahora = new Date();
+  const timestamp = ahora.toISOString().split('.')[0] + 'Z';
+  const hace3Dias = new Date();
+  hace3Dias.setDate(hace3Dias.getDate() - 3);
+  const createdAfter = hace3Dias.toISOString().split('.')[0] + 'Z';
+
+  const params = {
+    'Action': 'GetOrders',
+    'CreatedAfter': createdAfter,
+    'Format': 'JSON',
+    'Timestamp': timestamp,
+    'UserID': cuenta.userId,
+    'Version': '1.0'
+  };
+
+  const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+  const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+  const res = UrlFetchApp.fetch(urlFinal, {method: 'get', muteHttpExceptions: true});
+  const json = JSON.parse(res.getContentText());
+
+  try {
+    // La estructura Mirakl suele ser SuccessResponse -> Body -> Orders -> Order
+    let ordersObj = json.SuccessResponse.Body.Orders;
+    let listaFinal = [];
+
+    if (ordersObj && ordersObj.Order) {
+      listaFinal = Array.isArray(ordersObj.Order) ? ordersObj.Order : [ordersObj.Order];
+    } else if (Array.isArray(ordersObj)) {
+      listaFinal = ordersObj;
+    }
+
+    return listaFinal;
+  } catch (e) {
+    console.error("Error al navegar el JSON de pedidos: " + e.message);
+    return [];
+  }
+}
+
+function obtenerItemsDePedido(orderId, cuenta) {
+  const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+  const params = {
+    'Action': 'GetOrderItems',
+    'Format': 'JSON',
+    'OrderId': orderId,
+    'Timestamp': timestamp,
+    'UserID': cuenta.userId,
+    'Version': '1.0'
+  };
+
+  const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+  const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+  try {
+    const res = UrlFetchApp.fetch(urlFinal, { muteHttpExceptions: true });
+    const json = JSON.parse(res.getContentText());
+    let itemsObj = json.SuccessResponse.Body.OrderItems;
+    let items = itemsObj && itemsObj.OrderItem ? (Array.isArray(itemsObj.OrderItem) ? itemsObj.OrderItem : [itemsObj.OrderItem]) : [];
+
+    // Dentro de obtenerItemsDePedido, asegúrate de tener estas líneas:
+return items.map(item => {
+  const skuActual = item.Sku || item.SellerSku || "S/SKU";
+  
+  // Buscamos el ProductId en el catálogo
+  item.BarCodeFinal = obtenerBarcodeDesdeCatalogo(skuActual, cuenta);
+  
+  item.SellerSku = skuActual;
+  return item;
+});
+  } catch (e) {
+    return [];
+  }
+}
+
+
+/**
+ * VOLCADO PRINCIPAL (Con Filtro de Duplicados para Planilla Externa)
+ */
+function volcarDatosUnificados(pedidos, cuenta) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let hoja = ss.getSheetByName(NOMBRE_HOJA_DESTINO) || ss.insertSheet(NOMBRE_HOJA_DESTINO);
+  
+  // Encabezados estilo MELI
+  const encabezados = [
+    'Cuenta', 'ID Pedido', 'ID Venta', 'Fecha', 'SKU', 'Producto', 'Cant', 
+    'Variaciones', 'Usuario', 'Nombre Real', 'N° Envío', 'Tipo Envío', 
+    'Estado Venta', 'Total', 'Status Logístico', 'Link Etiqueta', 
+    'Límite Despacho 🕒', 'Entrega Estimada 🚚', 'Código de Barras', 'TOTU'
+  ];
+
+  if (hoja.getLastRow() === 0) {
+    hoja.appendRow(encabezados).getRange(1, 1, 1, encabezados.length).setFontWeight("bold").setBackground("#f3f3f3");
+  }
+
+  // 1. Obtener IDs existentes en la PRINCIPAL para no duplicar filas
+  const ultimaFila = hoja.getLastRow();
+  const idsExistentesPrincipal = ultimaFila > 1 ? hoja.getRange(2, 2, ultimaFila - 1, 1).getValues().flat().map(String) : [];
+
+  // 2. Obtener IDs existentes en la EXTERNA para no duplicar envíos
+  const ssDestino = SpreadsheetApp.openById(ID_PLANILLA_DESTINO);
+  const hojaDestino = ssDestino.getSheetByName(NOMBRE_PESTAÑA_DESTINO);
+  const ultimaFilaExt = hojaDestino.getLastRow();
+  const idsExistentesExterna = ultimaFilaExt > 1 ? hojaDestino.getRange(2, 1, ultimaFilaExt - 1, 1).getValues().flat().map(String) : [];
+
+  console.log("🚀 Iniciando procesamiento de " + pedidos.length + " pedidos...");
+
+  pedidos.reverse().forEach(p => {
+    const orderId = String(p.OrderId || "");
+    const orderNumber = String(p.OrderNumber || "");
+    const estadoLimpio = (p.Statuses && p.Statuses.Status ? p.Statuses.Status : (p.Status || "")).toLowerCase().trim();
+    const sumatoriaTotal = parseInt(p.ItemsCount) || 1;
+
+    // Solo procesamos si NO está en la principal
+    if (orderId && !idsExistentesPrincipal.includes(orderId)) {
+      const items = obtenerItemsDePedido(orderId, cuenta);
+      
+      if (items && items.length > 0) {
+        const urlEtiqueta = descargarEtiquetaFalabella(orderId, cuenta);
+
+        items.forEach(item => {
+          // Escribir en la principal
+          hoja.appendRow([
+            cuenta.nombre, "'" + orderId, "'" + orderNumber, p.CreatedAt || "",
+            "'" + (item.SellerSku), item.Name || "", 1, "", p.CustomerFirstName || "",
+            (p.CustomerFirstName || "") + " " + (p.CustomerLastName || ""), "'" + orderId,
+            p.ShippingType || "", p.Statuses ? p.Statuses.Status : "", item.ItemPrice || 0,
+            item.Status || "", urlEtiqueta, p.PromisedShippingTime || "", "", 
+            "'" + (item.BarCodeFinal), // Código de barras de variante
+            sumatoriaTotal
+          ]);
+
+          // EXPORTACIÓN A EXTERNA (Solo si es PENDING y NO existe ya allá)
+          if (estadoLimpio === "pending" && !idsExistentesExterna.includes(orderNumber)) {
+            enviarAPlanillaExterna(hojaDestino, p, item, sumatoriaTotal);
+          }
+        });
+      }
+    }
+  });
+}
+
+/**
+ * ENVÍO A PLANILLA EXTERNA (Optimizado para evitar duplicados)
+ */
+function enviarAPlanillaExterna(p, item, nombreCuenta, sumatoriaReal) {
+  try {
+    const ssDestino = SpreadsheetApp.openById(ID_PLANILLA_DESTINO);
+    const hojaDestino = ssDestino.getSheetByName(NOMBRE_PESTAÑA_DESTINO);
+    
+    // 1. Obtener y formatear el SLA
+    let slaOriginal = p.PromisedShippingTime || ""; // Viene como "YYYY-MM-DD HH:mm:ss"
+    let slaFormateado = "";
+
+    if (slaOriginal !== "") {
+      // Reemplazamos el espacio por 'T' para asegurar compatibilidad de formato ISO
+      let fechaIso = slaOriginal.replace(" ", "T");
+      let fechaObjeto = new Date(fechaIso);
+      
+      // Formateamos a DD/MM/AA HH:MM
+      slaFormateado = Utilities.formatDate(fechaObjeto, "GMT-3", "dd/MM/yy HH:mm");
+    }
+
+    // 2. Concatenamos el texto con el SLA
+    const hubConSla = "HUB FALABELLA SLA" + slaFormateado;
+
+    const filaDestino = [
+      "'" + (p.OrderNumber || ""), // A: ID VENTA
+      "FALABELLA",                // B: "FALABELLA"
+      1,                          // C: Cant (individual)
+      "'" + item.BarCodeFinal,    // D: Código de barras (ProductId)
+      item.Name || "",            // E: PRODUCTO
+      "", "", "", "",             // F, G, H, I (Vacíos)
+      (p.CustomerFirstName || "") + " " + (p.CustomerLastName || ""), // J: NOMBRE REAL
+      "'" + (p.OrderId || ""),    // K: NUMERO DE ENVIO
+      hubConSla,                  // L: CONCATENACIÓN -> "HUB FALABELLA DD/MM/AA HH:MM"
+      sumatoriaReal               // M: SUMATORIA TOTAL DEL PEDIDO
+    ];
+
+    hojaDestino.appendRow(filaDestino);
+    console.log("📤 Enviado a externa: " + p.OrderId + " | " + hubConSla);
+  } catch (e) {
+    console.error("❌ Error en exportación a planilla externa: " + e.message);
+  }
+}
+
+function generarFirmaFalabella(apiKey, queryString) {
+  // Aseguramos que no haya un "?" al inicio
+  const queryParaFirmar = queryString.startsWith('?') ? queryString.substring(1) : queryString;
+  
+  // Calcular HMAC SHA256
+  const signatureByte = Utilities.computeHmacSha256Signature(queryParaFirmar, apiKey);
+  
+  // Convertir a Hexadecimal
+  return signatureByte.map(byte => {
+    const v = (byte & 0xFF).toString(16);
+    return v.length === 1 ? "0" + v : v;
+  }).join("");
+}
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('🚀 Falabella Control')
+    .addItem('Sincronizar Recientes (3 días)', 'ejecutarSincronizacionFalabella')
+    .addItem('🔄 Actualizar Estados de Envío', 'actualizarEstadosFalabella')
+    .addItem('🏷️ Re-intentar Etiquetas Pendientes', 'actualizarEtiquetasPendientes')
+    .addSeparator()
+    .addItem('🔍 Buscar por ID de Pedido', 'traerPedidoManual')
+    .addItem('📅 Carga Histórica (Fecha personalizada)', 'traerPedidosPorFecha')
+    .addSeparator()
+    .addItem('Limpiar Configuración (Reset)', 'limpiarConfiguracionFalabella')
+    .addToUi();
+}
+
+/**
+ * BUSCAR UN PEDIDO ESPECÍFICO (Por OrderId)
+ */
+function traerPedidoManual() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Traer pedido específico', 'Ingresa el ID del pedido (OrderId):', ui.ButtonSet.OK_CANCEL);
+  
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const orderId = respuesta.getResponseText().trim();
+    if (!orderId) return;
+
+    const props = PropertiesService.getScriptProperties();
+    const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+    
+    if (cuentas.length === 0) {
+      ui.alert("⚠️ No hay cuentas registradas.");
+      return;
+    }
+
+    // Buscamos en todas las cuentas registradas
+    cuentas.forEach(cuenta => {
+      try {
+        const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+        const params = {
+          'Action': 'GetOrder', // Nota: GetOrder (singular) para un ID específico
+          'Format': 'JSON',
+          'OrderId': orderId,
+          'Timestamp': timestamp,
+          'UserID': cuenta.userId,
+          'Version': '1.0'
+        };
+
+        const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+        const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+        const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+        const res = UrlFetchApp.fetch(urlFinal, {muteHttpExceptions: true});
+        const json = JSON.parse(res.getContentText());
+
+        if (json.SuccessResponse && json.SuccessResponse.Body && json.SuccessResponse.Body.Orders) {
+          const pedido = json.SuccessResponse.Body.Orders;
+          const pedidosArray = Array.isArray(pedido) ? pedido : [pedido];
+          volcarDatosUnificados(pedidosArray, cuenta);
+          ui.alert("✅ Pedido encontrado y agregado desde la cuenta: " + cuenta.nombre);
+        }
+      } catch (e) {
+        console.error("Error buscando en " + cuenta.nombre);
+      }
+    });
+  }
+}
+
+/**
+ * CARGA HISTÓRICA CORREGIDA (Criterio: PENDING y exportación externa)
+ */
+function traerPedidosPorFecha() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Carga Histórica', 'Ingresa fecha de inicio (Formato: YYYY-MM-DD):', ui.ButtonSet.OK_CANCEL);
+  
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const fechaInput = respuesta.getResponseText().trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaInput)) {
+      ui.alert("❌ Formato inválido. Usa YYYY-MM-DD");
+      return;
+    }
+
+    // Aseguramos formato ISO correcto para Falabella
+    const createdAfter = fechaInput + "T00:00:00Z";
+    const props = PropertiesService.getScriptProperties();
+    const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+
+    cuentas.forEach(cuenta => {
+      try {
+        const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+        const params = {
+          'Action': 'GetOrders',
+          'CreatedAfter': createdAfter,
+          'Format': 'JSON',
+          'Timestamp': timestamp,
+          'UserID': cuenta.userId,
+          'Version': '1.0'
+        };
+
+        const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+        const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+        const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+        const res = UrlFetchApp.fetch(urlFinal, {muteHttpExceptions: true});
+        const json = JSON.parse(res.getContentText());
+
+        if (json.SuccessResponse && json.SuccessResponse.Body && json.SuccessResponse.Body.Orders) {
+          const ordersObj = json.SuccessResponse.Body.Orders;
+          let listaFinal = [];
+
+          if (ordersObj.Order) {
+            listaFinal = Array.isArray(ordersObj.Order) ? ordersObj.Order : [ordersObj.Order];
+          } else if (Array.isArray(ordersObj)) {
+            listaFinal = ordersObj;
+          }
+
+          if (listaFinal.length > 0) {
+            console.log("📥 Encontrados " + listaFinal.length + " pedidos. Procesando...");
+            volcarDatosUnificados(listaFinal, cuenta);
+          } else {
+            ui.alert("No se encontraron pedidos desde esa fecha para " + cuenta.nombre);
+          }
+        }
+      } catch (e) {
+        console.error("Error histórico: " + e.message);
+      }
+    });
+    ui.alert("✅ Proceso completado. Revisa la planilla.");
+  }
+}
+/**
+ * NUEVA FUNCIÓN: Descarga el PDF desde Falabella y lo sube a tu Drive
+ */
+function descargarEtiquetaFalabella(orderId, cuenta) {
+  const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+  
+  // Para etiquetas, Falabella usa OrderItemIds o OrderIdList. 
+  // Usaremos el estándar de OrderIdList.
+  const params = {
+    'Action': 'GetDocument',
+    'DocumentType': 'ShippingLabel',
+    'OrderIdList': `[${orderId}]`,
+    'Format': 'JSON',
+    'Timestamp': timestamp,
+    'UserID': cuenta.userId,
+    'Version': '1.0'
+  };
+
+  const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+  const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+  try {
+    const res = UrlFetchApp.fetch(urlFinal, { muteHttpExceptions: true });
+    
+    if (res.getResponseCode() === 200) {
+      const contentType = res.getHeaders()['Content-Type'];
+      
+      // Si la API nos devuelve el PDF directamente
+      if (contentType && contentType.indexOf('application/pdf') > -1) {
+        const carpeta = DriveApp.getFolderById(ID_CARPETA_ETIQUETAS);
+        const nombreArchivo = `Etiqueta_Falabella_${orderId}.pdf`;
+        const archivo = carpeta.createFile(res.getBlob()).setName(nombreArchivo);
+        return archivo.getUrl();
+      } 
+      
+      // A veces Mirakl devuelve un JSON con el PDF en Base64
+      const json = JSON.parse(res.getContentText());
+      if (json.SuccessResponse && json.SuccessResponse.Body && json.SuccessResponse.Body.Documents) {
+        const docBase64 = json.SuccessResponse.Body.Documents.Document.FileContent;
+        const decodedPdf = Utilities.base64Decode(docBase64);
+        const blob = Utilities.newBlob(decodedPdf, 'application/pdf', `Etiqueta_Falabella_${orderId}.pdf`);
+        const carpeta = DriveApp.getFolderById(ID_CARPETA_ETIQUETAS);
+        const archivo = carpeta.createFile(blob);
+        return archivo.getUrl();
+      }
+    }
+    return "No disponible";
+  } catch (e) {
+    console.error("Error descargando etiqueta: " + e.message);
+    return "Error descarga";
+  }
+}
+
+/**
+ * REVISA LAS FILAS QUE DICEN "No disponible" E INTENTA DESCARGAR LA ETIQUETA NUEVAMENTE
+ */
+function actualizarEtiquetasPendientes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hoja = ss.getSheetByName(NOMBRE_HOJA_DESTINO);
+  if (!hoja) return;
+
+  const datos = hoja.getDataRange().getValues();
+  const props = PropertiesService.getScriptProperties();
+  const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+
+  console.log("🔄 Buscando etiquetas pendientes...");
+
+  // Recorremos desde la fila 2
+  for (let i = 1; i < datos.length; i++) {
+    const fila = i + 1;
+    const nombreCuenta = datos[i][0];
+    const orderId = datos[i][1].toString().replace(/'/g, ""); // Limpiamos la comilla simple
+    const linkActual = datos[i][10]; // Columna K (índice 10)
+
+    if (linkActual === "No disponible" || linkActual === "Error descarga") {
+      const cuenta = cuentas.find(c => c.nombre === nombreCuenta);
+      if (cuenta) {
+        console.log("📄 Re-intentando etiqueta para pedido: " + orderId);
+        const nuevoLink = descargarEtiquetaFalabella(orderId, cuenta);
+        
+        if (nuevoLink !== "No disponible") {
+          hoja.getRange(fila, 11).setValue(nuevoLink);
+          // Opcional: Pintar de verde la celda si se logró descargar
+          hoja.getRange(fila, 11).setBackground("#d9ead3");
+        }
+      }
+    }
+  }
+  console.log("✅ Proceso de actualización de etiquetas terminado.");
+}
+
+function actualizarEstadosFalabella() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hoja = ss.getSheetByName(NOMBRE_HOJA_DESTINO);
+  if (!hoja) return;
+
+  const ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return;
+
+  // LIMITADOR: Solo procesar 40 filas por ejecución para evitar el error de tiempo
+  const MAX_FILAS_POR_VEZ = 40; 
+  const datos = hoja.getRange(2, 1, ultimaFila - 1, 20).getValues();
+  
+  const props = PropertiesService.getScriptProperties();
+  const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+  
+  let filasProcesadas = 0;
+
+  for (let i = 0; i < datos.length; i++) {
+    // Si ya procesamos el máximo permitido, salimos para que no de error de tiempo
+    if (filasProcesadas >= MAX_FILAS_POR_VEZ) {
+      console.log("⏱️ Límite de filas por ejecución alcanzado. El resto se procesará en el siguiente ciclo.");
+      break; 
+    }
+
+    const fila = datos[i];
+    const nombreCuenta = fila[0];
+    const orderId = String(fila[1]).replace(/'/g, "");
+    const estadoActual = String(fila[14]); // Status Logístico (Col O)
+    const filaHoja = i + 2;
+
+    const estadosFinales = ["delivered", "canceled", "cancelled", "returned", "failed"];
+    
+    if (orderId && orderId !== "" && !estadosFinales.includes(estadoActual.toLowerCase())) {
+      try {
+        const cuenta = cuentas.find(c => c.nombre === nombreCuenta);
+        if (!cuenta) continue;
+
+        // Lógica de consulta a la API...
+        // (Aquí va tu código actual de fetch a GetOrder)
+        
+        filasProcesadas++;
+        Utilities.sleep(100); // Pausa breve para no saturar la API
+      } catch (e) {
+        console.error("Error en fila " + filaHoja + ": " + e.message);
+      }
+    }
+  }
+}
+
+/**
+ * 3. ENVIAR A PLANILLA EXTERNA (Corregido para Columna M destino)
+ */
+function enviarAPlanillaExterna(hojaDestino, p, item, sumatoriaReal) {
+  try {
+    if (!hojaDestino) throw new Error("No se encontró la pestaña destino.");
+    
+    // 1. Formatear el SLA
+    let slaOriginal = p.PromisedShippingTime || ""; 
+    let hubConSla = "HUB FALABELLA SLA --/--/-- --:--";
+
+    if (slaOriginal !== "") {
+      let fechaIso = slaOriginal.replace(" ", "T");
+      let fechaObjeto = new Date(fechaIso);
+      hubConSla = "HUB FALABELLA SLA " + Utilities.formatDate(fechaObjeto, "GMT-3", "dd/MM/yy HH:mm");
+    }
+
+    // 2. Obtener la Fecha Actual (Para la columna P)
+    let fechaEnvio = Utilities.formatDate(new Date(), "GMT-3", "dd/MM/yyyy HH:mm");
+
+    // 3. Rescatar los datos de Dirección del pedido (Si existen)
+    let direccion = p.AddressShipping ? (p.AddressShipping.Address1 || "") : "";
+    let comuna = p.AddressShipping ? (p.AddressShipping.City || "") : "";
+    let complemento = p.AddressShipping ? (p.AddressShipping.Address2 || p.AddressShipping.Address5 || "") : "";
+
+    // 4. MAPEO EXACTO DE COLUMNAS (De la A a la V)
+    const filaDestino = [
+      "'" + (p.OrderNumber || ""),   // A: ORDEN
+      "FALABELLA",                   // B: AGENCIA
+      1,                             // C: CANT
+      "'" + (item.BarCodeFinal || ""), // D: SKU (Código de barras)
+      item.Name || "",               // E: ITEM
+      "",                            // F: COLOR-DISEÑO-CONTENEDOR
+      "",                            // G: T
+      "",                            // H: V
+      "",                            // I: V
+      (p.CustomerFirstName || "") + " " + (p.CustomerLastName || ""), // J: CLIENTE
+      "'" + (p.OrderId || ""),       // K: TRACKING (N° Envío)
+      hubConSla,                     // L: OPERADOR (SLA)
+      sumatoriaReal,                 // M: TOTU
+      "",                            // N: Estado (Vacío)
+      "",                            // O: OBSERVACIONES (Vacío)
+      fechaEnvio,                    // P: FECHA (AUTO) - Fecha de cuando se envía
+      "",                            // Q: CORREO (Vacío)
+      "",                            // R: FONO (Vacío)
+      direccion,                     // S: DIRECCION
+      comuna,                        // T: COMUNA
+      complemento,                   // U: COMPL.
+      ""                             // V: URL (Vacío)
+    ];
+
+    hojaDestino.appendRow(filaDestino);
+    console.log("✅ Pedido " + p.OrderId + " mapeado y enviado a externa.");
+  } catch (e) { 
+    console.error("❌ Error en envío a externa: " + e.message); 
+  }
+}
+
+/**
+ * Función para forzar el envío de lo que ya está en la hoja y sea PENDING
+ */
+function forzarEnvioExternoDesdeHoja() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const hoja = ss.getSheetByName(NOMBRE_HOJA_DESTINO);
+  if (!hoja) return;
+
+  const datos = hoja.getDataRange().getValues();
+
+  for (let i = 1; i < datos.length; i++) {
+    const estado = String(datos[i][12]).toLowerCase().trim(); // Columna M
+    const orderId = String(datos[i][1]).replace(/'/g, "");
+    const totalItemsDesdeHoja = datos[i][19]; // Columna T (Total Items)
+    
+    if (estado === "pending") {
+      const pFicticio = { 
+        OrderNumber: datos[i][2].toString().replace(/'/g, ""), 
+        OrderId: orderId,
+        CustomerFirstName: datos[i][8], 
+        ItemsCount: totalItemsDesdeHoja 
+      };
+      const itemFicticio = { 
+        SellerSku: datos[i][4].toString().replace(/'/g, ""), 
+        Name: datos[i][5], 
+        BarCode: datos[i][18] ? datos[i][18].toString().replace(/'/g, "") : "" 
+      };
+      
+      enviarAPlanillaExterna(pFicticio, itemFicticio, datos[i][0], totalItemsDesdeHoja);
+    }
+  }
+}
+
+/**
+ * DIAGNÓSTICO PROFUNDO: Muestra todos los datos de un pedido en el Log
+ */
+function inspeccionarPedidoCompleto() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Inspección Técnica', 'Ingresa el ID del pedido (OrderId):', ui.ButtonSet.OK_CANCEL);
+  
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const orderId = respuesta.getResponseText().trim();
+    const props = PropertiesService.getScriptProperties();
+    const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+    const cuenta = cuentas[0]; // Usamos la primera cuenta registrada
+
+    if (!cuenta) {
+      ui.alert("No hay cuenta registrada.");
+      return;
+    }
+
+    const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+    const params = {
+      'Action': 'GetOrderItems', // Aquí es donde suelen estar los códigos de barras
+      'Format': 'JSON',
+      'OrderId': orderId,
+      'Timestamp': timestamp,
+      'UserID': cuenta.userId,
+      'Version': '1.0'
+    };
+
+    const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+    const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+    const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+    const res = UrlFetchApp.fetch(urlFinal, {muteHttpExceptions: true});
+    const textoPuro = res.getContentText();
+    
+    // Imprimimos el resultado formateado en el log
+    console.log("🔍 DATOS COMPLETOS DEL PEDIDO " + orderId + ":");
+    console.log(JSON.stringify(JSON.parse(textoPuro), null, 2));
+    
+    ui.alert("✅ Inspección terminada. Abre el 'Registro de ejecuciones' para ver los datos.");
+  }
+}
+
+/**
+ * BUSCA EL CÓDIGO DE BARRAS EN EL CATÁLOGO USANDO EL SKU
+ */
+function obtenerBarcodeDesdeCatalogo(sku, cuenta) {
+  if (!sku || sku === "S/SKU") return "";
+
+  const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+  const params = {
+    'Action': 'GetProducts',
+    'Format': 'JSON',
+    'Search': sku, 
+    'Timestamp': timestamp,
+    'UserID': cuenta.userId,
+    'Version': '1.0'
+  };
+
+  const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+  const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+  const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+  try {
+    const res = UrlFetchApp.fetch(urlFinal, { muteHttpExceptions: true });
+    const json = JSON.parse(res.getContentText());
+    
+    if (json.SuccessResponse && json.SuccessResponse.Body && json.SuccessResponse.Body.Products) {
+      const productos = json.SuccessResponse.Body.Products.Product;
+      const prod = Array.isArray(productos) ? productos[0] : productos;
+      
+      // EXTRACCIÓN DEL PRODUCT ID (El código 100000... que encontramos)
+      return prod.ProductId || prod.MainProduct.SellerSku || sku;
+    }
+  } catch (e) {
+    console.error("Error buscando ProductId para " + sku + ": " + e.message);
+  }
+  return sku; 
+}
+
+/**
+ * ESCÁNER DE PRODUCTO: Muestra todos los datos del catálogo para un SKU
+ */
+function inspeccionarProductoCompleto() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Inspección de Catálogo', 'Ingresa el SKU del producto (ej: GRIS001XXL):', ui.ButtonSet.OK_CANCEL);
+  
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const sku = respuesta.getResponseText().trim();
+    const props = PropertiesService.getScriptProperties();
+    const cuentas = JSON.parse(props.getProperty('CUENTAS_FALABELLA') || "[]");
+    const cuenta = cuentas[0];
+
+    if (!cuenta) {
+      ui.alert("No hay cuenta registrada.");
+      return;
+    }
+
+    const timestamp = new Date().toISOString().split('.')[0] + 'Z';
+    const params = {
+      'Action': 'GetProducts',
+      'Format': 'JSON',
+      'Search': sku, // Buscamos por el SKU exacto
+      'Timestamp': timestamp,
+      'UserID': cuenta.userId,
+      'Version': '1.0'
+    };
+
+    const queryString = Object.keys(params).sort().map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+    const signature = generarFirmaFalabella(cuenta.apiKey, queryString);
+    const urlFinal = API_BASE_URL_CL + '?' + queryString + "&Signature=" + signature;
+
+    try {
+      const res = UrlFetchApp.fetch(urlFinal, {muteHttpExceptions: true});
+      const json = JSON.parse(res.getContentText());
+      
+      console.log("🔍 DATOS DEL PRODUCTO EN EL CATÁLOGO:");
+      console.log(JSON.stringify(json, null, 2));
+      
+      ui.alert("✅ Inspección terminada. Revisa el 'Registro de ejecuciones'.");
+    } catch (e) {
+      ui.alert("❌ Error: " + e.message);
+    }
+  }
+}
