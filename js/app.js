@@ -480,8 +480,8 @@ async function renderOrders() {
         const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
         const orderDisplayId = order.external_order_number 
-          ? `${order.external_order_number} <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; font-weight: normal;">(${order.id.split('-')[0]})</span>` 
-          : order.id.split('-')[0];
+          ? `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">(${order.id.split('-')[0]})</span>` 
+          : `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.id.split('-')[0]}</span>`;
 
         let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
         let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -497,13 +497,13 @@ async function renderOrders() {
         }
 
         rowsHtml += `
-          <tr>
+          <tr style="transition: background-color 0.2s;">
             <td>${orderDisplayId}</td>
             <td>${originHtml}</td>
-            <td>${dateStr}</td>
-            <td><strong>${skuStr}</strong></td>
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
             <td>${nameStr}</td>
-            <td>${qtyStr}</td>
+            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
             <td>${trackingHtml}</td>
             <td>${labelHtml}</td>
             <td><span style="background-color: ${badgeColor}; color: ${badgeTextColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; text-transform: capitalize; font-weight: 600;">${order.status}</span></td>
