@@ -400,6 +400,11 @@ async function renderOrders() {
         status,
         created_at,
         external_order_number,
+        external_platform,
+        origen,
+        item,
+        cantidad,
+        sku,
         order_items (quantity, products(sku, name))
       `)
       .eq('merchant_id', currentMerchantId)
@@ -427,7 +432,7 @@ async function renderOrders() {
 
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
+      rowsHtml = `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
     } else {
       orders.forEach(order => {
         // Buscar el envío en el listado cargado
@@ -466,7 +471,13 @@ async function renderOrders() {
           badgeTextColor = '#374151';
         }
 
-        let itemsStr = order.order_items.map(oi => `${oi.quantity}x ${oi.products.sku}`).join(', ');
+        const platform = order.origen || order.external_platform || 'Manual';
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : '#6b7280');
+        const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+
+        const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
+        const nameStr = order.item || order.order_items.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
+        const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
         const orderDisplayId = order.external_order_number 
           ? `${order.external_order_number} <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; font-weight: normal;">(${order.id.split('-')[0]})</span>` 
@@ -488,8 +499,11 @@ async function renderOrders() {
         rowsHtml += `
           <tr>
             <td>${orderDisplayId}</td>
+            <td>${originHtml}</td>
             <td>${dateStr}</td>
-            <td>${itemsStr}</td>
+            <td><strong>${skuStr}</strong></td>
+            <td>${nameStr}</td>
+            <td>${qtyStr}</td>
             <td>${trackingHtml}</td>
             <td>${labelHtml}</td>
             <td><span style="background-color: ${badgeColor}; color: ${badgeTextColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; text-transform: capitalize; font-weight: 600;">${order.status}</span></td>
@@ -511,8 +525,11 @@ async function renderOrders() {
             <thead>
               <tr>
                 <th>ID Pedido</th>
+                <th>Origen</th>
                 <th>Fecha</th>
-                <th>Ítems</th>
+                <th>SKU</th>
+                <th>Nombre Producto</th>
+                <th>Cantidad</th>
                 <th>Seguimiento</th>
                 <th>Etiqueta</th>
                 <th>Estado</th>
@@ -585,7 +602,7 @@ async function renderIntegrations() {
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     const hasParis = !!parisIntegration;
-    const parisUrl = hasParis ? parisIntegration.shop_url : 'https://cencosud-prod.mirakl.net/api';
+    const parisUrl = hasParis ? parisIntegration.shop_url : 'https://api-developers.ecomm.cencosud.com';
     const parisStatusText = hasParis 
       ? (parisIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
@@ -674,8 +691,8 @@ async function renderIntegrations() {
               
               <form id="form-paris-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">URL de la API (Mirakl)</label>
-                  <input type="text" id="paris-url" class="form-input" placeholder="ej. https://cencosud-prod.mirakl.net/api" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <label class="form-label" style="font-weight: 600;">URL de la API (Cencosud)</label>
+                  <input type="text" id="paris-url" class="form-input" placeholder="ej. https://api-developers.ecomm.cencosud.com" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                 </div>
                 <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? 'display:none;' : ''}">
                   <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>

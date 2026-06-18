@@ -238,19 +238,56 @@ h1, h2, h3, h4, h5, h6 {
   padding: 2rem;
 }
 
+.auth-split-container {
+  display: flex;
+  gap: 2rem;
+  width: 100%;
+  max-width: 950px;
+  justify-content: center;
+  align-items: stretch;
+}
+
 .auth-card {
   background: var(--color-surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 450px;
+  flex: 1;
   padding: 2.5rem;
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.auth-image-card {
+  flex: 1;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-width: 450px;
+  position: relative;
+  overflow: hidden;
+  display: none; /* hidden on mobile */
+}
+
+@media (min-width: 768px) {
+  .auth-image-card {
+    display: block;
+  }
+}
+
+.auth-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* Decorative element for card */
-.auth-card::before {
+.auth-card::before, .auth-image-card::before {
   content: '';
   position: absolute;
   top: 0;
@@ -258,6 +295,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 100%;
   height: 6px;
   background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+  z-index: 10;
 }
 
 .auth-logo {
@@ -268,6 +306,18 @@ h1, h2, h3, h4, h5, h6 {
 .auth-logo img {
   max-width: 180px;
   height: auto;
+}
+
+.auth-logo img.dark-logo {
+  display: none;
+}
+
+[data-theme="dark"] .auth-logo img.light-logo {
+  display: none;
+}
+
+[data-theme="dark"] .auth-logo img.dark-logo {
+  display: inline-block;
 }
 
 .auth-title {

@@ -35,7 +35,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 // FUNCIÓN PRINCIPAL DE SINCRONIZACIÓN
 // ==========================================
 async function syncParisData() {
-  console.log('🔄 Iniciando sincronización con París Marketplace (Mirakl)...');
+  console.log('🔄 Iniciando sincronización con París Marketplace (Cencosud API)...');
 
   try {
     // 1. Obtener todas las integraciones activas de París en Supabase
@@ -100,7 +100,7 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
-  // B. Normalizar URL base de la API
+  // B. Normalizar URL base de la API de Cencosud
   let baseUrl = integration.shop_url.trim();
   if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
     baseUrl = 'https://' + baseUrl;
@@ -109,108 +109,161 @@ async function syncMerchantOrders(integration) {
     baseUrl = baseUrl.slice(0, -1);
   }
 
-  const ordersUrl = `${baseUrl}/orders?order_state_codes=WAITING_ACCEPTANCE,PREPARATION&limit=100`;
-
-  console.log(`--> Consultando pedidos en la API de París...`);
-
   try {
-    const response = await fetch(ordersUrl, {
+    // 1. Autenticar usando el API Key (Bearer Token) para obtener el Access Token JWT
+    console.log(`--> Autenticando API Key con Cencosud...`);
+    const authRes = await fetch(`${baseUrl}/v1/auth/apiKey`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${integration.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!authRes.ok) {
+      throw new Error(`Error en autenticación API Key Cencosud: Status ${authRes.status}`);
+    }
+
+    const authData = await authRes.json();
+    const jwtToken = authData.accessToken;
+    console.log(`✅ Autenticación exitosa. Token JWT obtenido.`);
+
+    // 2. Obtener las últimas 100 órdenes desde Cencosud
+    console.log(`--> Consultando pedidos en la API de París (Cencosud)...`);
+    const ordersRes = await fetch(`${baseUrl}/v1/orders?limit=100`, {
       method: 'GET',
       headers: {
-        'Authorization': integration.access_token,
+        'Authorization': `Bearer ${jwtToken}`,
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       }
     });
 
-    if (!response.ok) {
-      throw new Error(`Error en API de París (Mirakl): ${response.status} ${response.statusText}`);
+    if (!ordersRes.ok) {
+      throw new Error(`Error en API de París (Cencosud): ${ordersRes.status} ${ordersRes.statusText}`);
     }
 
-    const data = await response.json();
-    const orders = data.orders || [];
+    const data = await ordersRes.json();
+    const orders = data.data || [];
     console.log(`Se encontraron ${orders.length} pedidos.`);
 
     for (const order of orders) {
-      console.log(`\nProcesando pedido París ID: ${order.order_id} (Estado actual: ${order.order_state})`);
+      const orderId = order.originOrderNumber || order.id;
+      const statusName = order.status?.name || 'created';
+      
+      console.log(`\nProcesando pedido París ID: ${orderId} (Estado actual: ${statusName})`);
+
+      // Clasificación de estados
+      const isDelivered = statusName === 'delivered' || order.status?.id === 4;
+      const isCancelled = statusName.toLowerCase().includes('cancel') || 
+                          order.status?.description?.toLowerCase().includes('cancel') ||
+                          order.status?.id === 2; // ID común de cancelación
+      
+      const isActive = !isDelivered && !isCancelled;
 
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status')
         .eq('merchant_id', integration.merchant_id)
-        .eq('external_order_number', order.order_id)
+        .eq('external_order_number', orderId)
         .maybeSingle();
 
-      // 2. Si el pedido está en espera de aceptación ("WAITING_ACCEPTANCE"), aceptarlo automáticamente en Mirakl
-      if (order.order_state === 'WAITING_ACCEPTANCE') {
-        console.log(`--> El pedido requiere aceptación. Aceptando automáticamente...`);
-        const acceptUrl = `${baseUrl}/orders/${order.order_id}/accept`;
-        
-        // Estructura requerida por Mirakl para la aceptación/rechazo de líneas
-        const acceptPayload = {
-          order_lines: order.order_lines.map(line => ({
-            id: line.order_line_id,
-            accepted: true
-          }))
-        };
-
-        try {
-          const acceptRes = await fetch(acceptUrl, {
-            method: 'PUT',
-            headers: {
-              'Authorization': integration.access_token,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(acceptPayload)
-          });
-
-          if (!acceptRes.ok) {
-            console.error(`❌ Error al aceptar pedido ${order.order_id} en París: ${acceptRes.status} ${acceptRes.statusText}`);
-            continue; // Saltar inserción local hasta que sea aceptado con éxito
+      // Obtener todos los ítems de todos los sub-pedidos y la primera dirección de despacho
+      const allItems = [];
+      let shippingAddress = null;
+      
+      if (order.subOrders && Array.isArray(order.subOrders)) {
+        for (const subOrder of order.subOrders) {
+          if (subOrder.items && Array.isArray(subOrder.items)) {
+            allItems.push(...subOrder.items);
           }
+          if (subOrder.shippingAddress && !shippingAddress) {
+            shippingAddress = subOrder.shippingAddress;
+          }
+        }
+      }
+      
+      if (!shippingAddress) {
+        shippingAddress = order.billingAddress;
+      }
 
-          console.log(`✅ Pedido ${order.order_id} aceptado con éxito en París.`);
-          order.order_state = 'PREPARATION'; // Forzar cambio de estado local temporalmente para procesarlo
-        } catch (acceptErr) {
-          console.error(`❌ Excepción al intentar aceptar pedido ${order.order_id}:`, acceptErr.message);
-          continue;
+      // 1. Agrupar ítems por SKU y recolectar nombres
+      const itemQuantities = {};
+      const itemNames = [];
+      for (const item of allItems) {
+        let sku = item.sellerSku || item.sku;
+        if (sku) {
+          sku = sku.replace(/\s+/g, '');
+          itemQuantities[sku] = (itemQuantities[sku] || 0) + 1;
+        }
+        if (item.name && !itemNames.includes(item.name)) {
+          itemNames.push(item.name);
         }
       }
 
-      // 3. Mapear datos comunes del pedido
+      const flatSku = Object.keys(itemQuantities).join(', ');
+      const flatItemName = itemNames.join(', ');
+      const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
+
+      // Calcular valor total de la orden sumando precios de los ítems
+      const totalValue = allItems.reduce((sum, item) => sum + Number(item.priceAfterDiscounts || item.grossPrice || 0), 0);
+
+      // Mapear datos comunes del pedido
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
-        external_order_number: order.order_id,
+        external_order_number: orderId,
         external_platform: 'Paris',
-        payment_status: order.order_state,
-        total_value: order.total_price,
-        customer_email: order.customer?.billing_address?.email || order.customer?.email,
-        customer_phone: order.customer?.shipping_address?.phone || order.customer?.billing_address?.phone,
-        customer_name: `${order.customer?.firstname || ''} ${order.customer?.lastname || ''}`.trim() || 'Cliente París',
-        shipping_address: order.customer?.shipping_address?.street_1 || 'No especificada',
-        shipping_city: order.customer?.shipping_address?.city || order.customer?.shipping_address?.municipality || 'No especificada',
-        shipping_complement: order.customer?.shipping_address?.street_2 || '',
-        raw_paris_data: order
+        payment_status: statusName,
+        total_value: totalValue,
+        customer_email: order.customer?.email || 'no-email@paris.cl',
+        customer_phone: shippingAddress?.phone || order.customer?.phone || 'No especificado',
+        customer_name: `${shippingAddress?.firstName || order.customer?.firstName || ''} ${shippingAddress?.lastName || order.customer?.lastName || ''}`.trim() || 'Cliente París',
+        shipping_address: shippingAddress?.address1 || 'No especificada',
+        shipping_city: shippingAddress?.city || 'No especificada',
+        shipping_complement: [shippingAddress?.address2, shippingAddress?.address3].filter(Boolean).join(', ') || '',
+        raw_paris_data: order,
+        // Nuevas columnas planas solicitadas
+        origen: 'Paris',
+        item: flatItemName,
+        cantidad: flatQuantity,
+        sku: flatSku
       };
 
       let localOrderId = null;
+      let shouldInsertItems = false;
 
       if (existingOrder) {
-        // Actualizar pedido existente
-        const { error: updErr } = await supabase
-          .from('orders')
-          .update(orderDataToSave)
-          .eq('id', existingOrder.id);
-
-        if (updErr) {
-          console.error(`❌ Error al actualizar pedido local ${order.order_id}:`, updErr.message);
+        // Si el pedido se canceló en origen, actualizar su estado en WMS
+        if (isCancelled && existingOrder.status !== 'cancelado') {
+          await supabase
+            .from('orders')
+            .update({ ...orderDataToSave, status: 'cancelado' })
+            .eq('id', existingOrder.id);
+          console.log(`🚫 Pedido ${orderId} cancelado en París. Actualizado en el WMS.`);
         } else {
-          console.log(`📝 Actualizado pedido local ${order.order_id}`);
+          // Actualizar datos del pedido manteniendo el estado WMS actual
+          await supabase
+            .from('orders')
+            .update(orderDataToSave)
+            .eq('id', existingOrder.id);
+          console.log(`📝 Actualizado pedido local ${orderId}`);
         }
         localOrderId = existingOrder.id;
-      } else {
-        // Insertar nuevo pedido
+
+        // Mecanismo de auto-recuperación (Healer):
+        // Verificar si la orden existente ya tiene items en la tabla order_items
+        const { data: existingItems, error: itemsCheckErr } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('order_id', localOrderId);
+
+        if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
+          console.log(`ℹ️ Pedido existente ${orderId} no tiene ítems registrados. Se procederá a ingresarlos.`);
+          shouldInsertItems = true;
+        }
+      } else if (isActive) {
+        // Insertar nuevo pedido activo en WMS
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
           .insert([{ ...orderDataToSave, status: 'para procesar' }])
@@ -218,29 +271,54 @@ async function syncMerchantOrders(integration) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${order.order_id}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${orderId}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${order.order_id}`);
+        console.log(`📥 Insertado nuevo pedido local ${orderId} con estado 'para procesar'`);
         localOrderId = newOrder.id;
+        shouldInsertItems = true;
+      } else {
+        console.log(`ℹ️ Pedido ${orderId} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
+      }
 
-        // 4. Registrar ítems en order_items para reserva de stock
-        for (const line of order.order_lines) {
-          const sku = line.offer_sku || line.product_sku;
-          
-          if (!sku) {
-            console.warn(`⚠️ Ítem de orden sin SKU definido. ID Línea: ${line.order_line_id}`);
-            continue;
-          }
+      if (localOrderId && shouldInsertItems) {
 
+        for (const [sku, qty] of Object.entries(itemQuantities)) {
           // Buscar producto por SKU en la base de datos
-          const { data: product } = await supabase
+          let { data: product } = await supabase
             .from('products')
             .select('id')
             .eq('merchant_id', integration.merchant_id)
             .eq('sku', sku)
             .maybeSingle();
+
+          if (!product) {
+            // Auto-crear producto faltante
+            const orderItemDetail = allItems.find(item => (item.sellerSku || item.sku)?.replace(/\s+/g, '') === sku);
+            const productName = orderItemDetail?.name || 'Producto París ' + sku;
+            const productPrice = Number(orderItemDetail?.priceAfterDiscounts || orderItemDetail?.grossPrice || 0);
+
+            const { data: newProd, error: prodErr } = await supabase
+              .from('products')
+              .insert([{
+                merchant_id: integration.merchant_id,
+                sku: sku,
+                name: productName,
+                price: productPrice,
+                description: 'Creado automáticamente desde integración de París (Cencosud)',
+                raw_paris_data: orderItemDetail
+              }])
+              .select('id')
+              .single();
+
+            if (!prodErr && newProd) {
+              console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${productName}")`);
+              product = newProd;
+            } else {
+              console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
+            }
+          }
 
           if (product) {
             const { error: itemErr } = await supabase
@@ -249,16 +327,16 @@ async function syncMerchantOrders(integration) {
                 order_id: localOrderId,
                 product_id: product.id,
                 warehouse_id: warehouseId,
-                quantity: line.quantity
+                quantity: qty
               }]);
 
             if (itemErr) {
-              console.error(`❌ Error al insertar ítem SKU ${sku} para orden ${order.order_id}:`, itemErr.message);
+              console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
             } else {
-              console.log(`   + Registrado ítem: SKU ${sku} x ${line.quantity} (Stock Reservado)`);
+              console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
             }
           } else {
-            console.warn(`⚠️ SKU ${sku} no encontrado en base de datos. No se pudo asociar a la orden local.`);
+            console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
           }
         }
       }

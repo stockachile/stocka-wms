@@ -211,6 +211,11 @@ async function renderAdminOrders() {
         status,
         created_at,
         external_order_number,
+        external_platform,
+        origen,
+        item,
+        cantidad,
+        sku,
         profiles (company_name),
         order_items (quantity, products(sku, name))
       `)
@@ -238,7 +243,7 @@ async function renderAdminOrders() {
 
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos en el sistema.</td></tr>`;
+      rowsHtml = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos en el sistema.</td></tr>`;
     } else {
       orders.forEach(order => {
         // Buscar el envío en el listado cargado
@@ -255,9 +260,15 @@ async function renderAdminOrders() {
         const dateObj = new Date(dateSource);
         const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
         
-        let itemsStr = order.order_items.map(oi => `${oi.quantity}x ${oi.products.sku}`).join(', ');
-
         let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
+
+        const platform = order.origen || order.external_platform || 'Manual';
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : '#6b7280');
+        const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+
+        const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
+        const nameStr = order.item || order.order_items.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
+        const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
         const orderDisplayId = order.external_order_number 
           ? `${order.external_order_number} <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; font-weight: normal;">(${order.id.split('-')[0]})</span>` 
@@ -280,8 +291,11 @@ async function renderAdminOrders() {
           <tr>
             <td>${orderDisplayId}</td>
             <td><strong>${order.profiles?.company_name || 'Desconocido'}</strong></td>
+            <td>${originHtml}</td>
             <td>${dateStr}</td>
-            <td>${itemsStr}</td>
+            <td><strong>${skuStr}</strong></td>
+            <td>${nameStr}</td>
+            <td>${qtyStr}</td>
             <td>${trackingHtml}</td>
             <td>${labelHtml}</td>
             <td>
@@ -305,8 +319,11 @@ async function renderAdminOrders() {
               <tr>
                 <th>ID</th>
                 <th>Cliente</th>
+                <th>Origen</th>
                 <th>Fecha</th>
-                <th>Ítems</th>
+                <th>SKU</th>
+                <th>Nombre Producto</th>
+                <th>Cantidad</th>
                 <th>Seguimiento</th>
                 <th>Etiqueta</th>
                 <th>Estado</th>
