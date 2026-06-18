@@ -85,6 +85,9 @@ async function init() {
           } else if (view === 'manual_in_admin') {
             viewTitle.textContent = 'Ingreso Manual';
             renderManualIn();
+          } else if (view === 'upload_products_admin') {
+            viewTitle.textContent = 'Carga de Planillas';
+            renderUploadProducts();
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
@@ -413,10 +416,10 @@ async function renderIntegrations() {
               <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-truck-line"></i> Optiroute API</h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasOptiroute ? '#f0fdf4' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasOptiroute ? '#bbf7d0' : 'var(--color-border)'};">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasOptiroute ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasOptiroute ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
                  <div style="display: flex; align-items: center; gap: 1rem;">
                     <div>
-                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasOptiroute ? '#166534' : 'var(--color-text-main)'};">Optiroute Tracking</h4>
+                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasOptiroute ? '#10b981' : 'var(--color-text-main)'};">Optiroute Tracking</h4>
                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de estado de despacho global.</p>
                     </div>
                  </div>
@@ -428,20 +431,20 @@ async function renderIntegrations() {
               <form id="form-optiroute-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
-                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" ${hasOptiroute ? 'readonly' : 'required'} style="background-color: ${hasOptiroute ? '#f8fafc' : '#ffffff'};">
+                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" ${hasOptiroute ? 'readonly' : 'required'} style="background-color: ${hasOptiroute ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                 </div>
 
                 <!-- Credential Helper (Only if not connected) -->
                 ${!hasOptiroute ? `
-                  <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: #f8fafc;">
+                  <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: var(--color-surface);">
                     <summary style="font-size: 0.875rem; font-weight: 600; cursor: pointer; color: var(--color-accent);"><i class="ri-key-line"></i> Generar Token usando credenciales</summary>
                     <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
                       <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Ingresa las credenciales de tu cuenta Optiroute para obtener el token automáticamente:</p>
                       <div class="form-group" style="margin: 0;">
-                        <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem;">
+                        <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
                       </div>
                       <div class="form-group" style="margin: 0;">
-                        <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem;">
+                        <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
                       </div>
                       <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem; width: auto; font-weight: 600; border-color: var(--color-accent); color: var(--color-accent);">Obtener Token</button>
                       <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.5rem; font-size: 0.8rem; margin: 0;"></div>
@@ -463,29 +466,29 @@ async function renderIntegrations() {
 
         <!-- Right Column: Manual/Guides -->
         <div>
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: #f8fafc;">
-            <div class="card-header" style="background-color: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: #0f172a;"><i class="ri-book-read-line"></i> Guía de Integración Optiroute</h3>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);"><i class="ri-book-read-line" style="color: var(--color-primary);"></i> Guía de Integración Optiroute</h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
               
               <div class="tab-content">
-                <ol style="margin: 0; padding-left: 1.25rem; color: #334155; font-size: 0.95rem; display: flex; flex-direction: column; gap: 1rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1rem;">
                   <li>
-                    <strong style="color: #0f172a;">¿Qué hace esta integración?</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">WMS STOCKA consultará periódicamente la API de Optiroute para obtener el estado de tránsito y entrega de las rutas de todos los pedidos, actualizando el WMS en tiempo real a nivel global.</p>
+                    <strong style="color: var(--color-text-main);">¿Qué hace esta integración?</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">WMS STOCKA consultará periódicamente la API de Optiroute para obtener el estado de tránsito y entrega de las rutas de todos los pedidos, actualizando el WMS en tiempo real a nivel global.</p>
                   </li>
                   <li>
-                    <strong style="color: #0f172a;">Obtener Token Automáticamente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Usa la sección desplegable <em>"Generar Token usando credenciales"</em> de la izquierda. Ingresa tu correo y contraseña de Optiroute para obtenerlo de inmediato.</p>
+                    <strong style="color: var(--color-text-main);">Obtener Token Automáticamente:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Usa la sección desplegable <em>"Generar Token usando credenciales"</em> de la izquierda. Ingresa tu correo y contraseña de Optiroute para obtenerlo de inmediato.</p>
                   </li>
                   <li>
-                    <strong style="color: #0f172a;">Obtener Token Manualmente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem; line-height: 1.5;">Si prefieres obtener tu token mediante un comando en la consola de tu computador:</p>
-                    <pre style="background: #e2e8f0; padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem; color: #0f172a;">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
+                    <strong style="color: var(--color-text-main);">Obtener Token Manualmente:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Si prefieres obtener tu token mediante un comando en la consola de tu computador:</p>
+                    <pre style="background: var(--color-bg); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem; color: var(--color-text-main); border: 1px solid var(--color-border);">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
   -F "username=tu-correo@empresa.com" \\
   -F "password=tu-contrasena"</pre>
-                    <p style="margin: 0.25rem 0 0 0; color: #475569; font-size: 0.85rem;">Copia el valor de 'token' retornado y pégalo arriba.</p>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">Copia el valor de 'token' retornado y pégalo arriba.</p>
                   </li>
                 </ol>
               </div>
@@ -1326,6 +1329,7 @@ const ADMIN_MODULES = [
   { id: 'consolidated_shipments', label: 'Envíos Consolidados' },
   { id: 'reassign_admin', label: 'Reubicar Stock' },
   { id: 'manual_in_admin', label: 'Ingreso Manual' },
+  { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
   { id: 'integrations', label: 'Integraciones' }
 ];
@@ -1611,5 +1615,574 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+
+// ==========================================
+// Product Sheet Upload (Carga de Planillas) View & Logic
+// ==========================================
+
+let currentParsedProducts = [];
+let currentRawJsonData = [];
+
+async function renderUploadProducts() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando comercios registrados...</p>`;
+
+  try {
+    const { data: comercios, error: comerciosError } = await supabase
+      .from('v_comercios_config')
+      .select('id, nombre, sigla')
+      .order('nombre');
+
+    if (comerciosError) throw comerciosError;
+
+    appContent.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <h3>Carga Masiva de Productos</h3>
+        </div>
+        <div class="card-body">
+          <div id="upload-alert-container"></div>
+          
+          <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 2rem;">
+            <h4 style="margin-top: 0; margin-bottom: 0.5rem; font-weight: 600;"><i class="ri-information-line"></i> Instrucciones de carga</h4>
+            <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5;">
+              1. Seleccione el comercio al cual se asignarán los productos.<br>
+              2. Defina si las dimensiones del archivo están expresadas en Centímetros o Metros para el cálculo del volumen en m³.<br>
+              3. Suba un archivo Excel (.xlsx, .xls) o CSV (.csv). Las columnas requeridas son <strong>sku</strong> y <strong>Nombre</strong>. Opcionales: Código de barras, tipo, color, variable 1, variable 2, talla, largo, ancho, alto, volumen (si indica volumen manual, este anulará el cálculo automático).
+            </p>
+          </div>
+
+          <form id="form-upload-products" style="max-width: 800px; margin-bottom: 1.5rem;">
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label class="form-label" style="font-weight: 600;">1. Seleccionar Comercio (Cliente) <span style="color: red;">*</span></label>
+              <select id="upload-merchant-select" class="form-input" required style="max-width: 450px;">
+                <option value="">-- Seleccione el comercio --</option>
+                ${comercios && comercios.length > 0 
+                  ? comercios.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('')
+                  : '<option value="" disabled>No hay comercios registrados</option>'
+                }
+              </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label class="form-label" style="font-weight: 600;">2. Unidad de Dimensiones (para calcular volumen en m³)</label>
+              <div style="display: flex; gap: 2rem; margin-top: 0.5rem;">
+                <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+                  <input type="radio" name="dimension-unit" value="cm" checked style="cursor: pointer;">
+                  <span>Centímetros (cm) <small style="color: var(--color-text-muted);">(Volumen = L * An * Al / 1,000,000)</small></span>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+                  <input type="radio" name="dimension-unit" value="m" style="cursor: pointer;">
+                  <span>Metros (m) <small style="color: var(--color-text-muted);">(Volumen = L * An * Al)</small></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label class="form-label" style="font-weight: 600;">3. Archivo Excel o CSV <span style="color: red;">*</span></label>
+              <div style="display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem;">
+                <input type="file" id="upload-file-input" accept=".xlsx, .xls, .csv" class="form-input" style="display: none;">
+                <button type="button" id="btn-select-file" class="btn btn-outline" style="border-style: dashed; padding: 0.75rem 1.5rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-file-add-line" style="font-size: 1.1rem;"></i> Seleccionar archivo...
+                </button>
+                <span id="selected-file-name" style="color: var(--color-text-muted); font-style: italic;">Ningún archivo seleccionado</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+              <button type="button" id="btn-download-template" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 0.5rem; border-color: var(--color-border);">
+                <i class="ri-download-line"></i> Descargar Plantilla Ejemplo
+              </button>
+              <button type="button" id="btn-clear-upload" class="btn btn-outline" style="display: none;">Limpiar</button>
+            </div>
+          </form>
+
+          <!-- Previsualización (Oculta por defecto) -->
+          <div id="preview-section" style="display: none; border-top: 1px solid var(--color-border); padding-top: 2rem; margin-top: 2rem;">
+            <h4 style="margin-bottom: 1.25rem; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-eye-line" style="color: var(--color-accent);"></i> Previsualización y Validación de Datos
+            </h4>
+
+            <!-- Tarjetas de Resumen -->
+            <div style="display: flex; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+              <div style="flex: 1; min-width: 150px; padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background-color: var(--color-surface-hover); text-align: center;">
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600;">Filas Leídas</div>
+                <div id="summary-total" style="font-size: 1.75rem; font-weight: 700; color: var(--color-dark); margin-top: 0.25rem;">0</div>
+              </div>
+              <div style="flex: 1; min-width: 150px; padding: 1rem; border-radius: var(--radius-md); border: 1px solid #bbf7d0; background-color: #f0fdf4; text-align: center;">
+                <div style="font-size: 0.8rem; color: #166534; text-transform: uppercase; font-weight: 600;">Válidos (Listos)</div>
+                <div id="summary-valid" style="font-size: 1.75rem; font-weight: 700; color: #15803d; margin-top: 0.25rem;">0</div>
+              </div>
+              <div style="flex: 1; min-width: 150px; padding: 1rem; border-radius: var(--radius-md); border: 1px solid #fecaca; background-color: #fef2f2; text-align: center;">
+                <div style="font-size: 0.8rem; color: #991b1b; text-transform: uppercase; font-weight: 600;">Errores (Se omitirán)</div>
+                <div id="summary-errors" style="font-size: 1.75rem; font-weight: 700; color: #b91c1c; margin-top: 0.25rem;">0</div>
+              </div>
+            </div>
+
+            <!-- Tabla contenedora scrollable -->
+            <div style="max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
+              <table class="data-table" style="min-width: 1100px;">
+                <thead style="position: sticky; top: 0; background-color: var(--color-surface); z-index: 10; box-shadow: 0 1px 0 var(--color-border);">
+                  <tr>
+                    <th style="width: 110px;">Estado</th>
+                    <th>SKU</th>
+                    <th>Nombre</th>
+                    <th>Cód. Barras</th>
+                    <th>Tipo</th>
+                    <th>Color</th>
+                    <th>Variables</th>
+                    <th>Talla</th>
+                    <th>Dimensiones (L x An x Al)</th>
+                    <th>Volumen (m³)</th>
+                  </tr>
+                </thead>
+                <tbody id="preview-table-body">
+                  <!-- Se inyecta dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 1rem; align-items: center;">
+              <span id="save-loader" style="display: none; color: var(--color-text-muted); font-size: 0.9rem; align-items: center; gap: 0.5rem;">
+                <i class="ri-loader-2-line ri-spin" style="font-size: 1.25rem; color: var(--color-accent);"></i> Guardando productos...
+              </span>
+              <button type="button" id="btn-cancel-upload" class="btn btn-outline" style="border-color: var(--color-border);">Cancelar</button>
+              <button type="button" id="btn-save-products" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-save-line"></i> Guardar Productos
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    setupUploadEventListeners();
+
+  } catch (err) {
+    console.error('Error rendering upload view:', err);
+    appContent.innerHTML = `
+      <div class="card" style="padding: 2rem; text-align: center;">
+        <p style="color: red; font-weight: 600;">Error al cargar vista de planillas</p>
+        <p style="color: var(--color-text-muted); font-size: 0.9rem;">${err.message || err}</p>
+      </div>
+    `;
+  }
+}
+
+function setupUploadEventListeners() {
+  const fileInput = document.getElementById('upload-file-input');
+  const btnSelectFile = document.getElementById('btn-select-file');
+  const selectedFileName = document.getElementById('selected-file-name');
+  const btnDownloadTemplate = document.getElementById('btn-download-template');
+  const btnClearUpload = document.getElementById('btn-clear-upload');
+  const btnCancelUpload = document.getElementById('btn-cancel-upload');
+  const btnSaveProducts = document.getElementById('btn-save-products');
+  const dimensionRadios = document.getElementsByName('dimension-unit');
+
+  // Trigger file dialog
+  btnSelectFile.addEventListener('click', () => fileInput.click());
+
+  // Handle template download
+  btnDownloadTemplate.addEventListener('click', downloadSampleTemplate);
+
+  // File selected handler
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      selectedFileName.textContent = file.name;
+      btnClearUpload.style.display = 'inline-flex';
+      handleFileSelection(file);
+    }
+  });
+
+  // Radio button changes to recalculate volume instantly
+  dimensionRadios.forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (currentRawJsonData.length > 0) {
+        recalculateAndRender();
+      }
+    });
+  });
+
+  // Clear/Cancel action
+  const resetAll = () => {
+    fileInput.value = '';
+    selectedFileName.textContent = 'Ningún archivo seleccionado';
+    btnClearUpload.style.display = 'none';
+    document.getElementById('preview-section').style.display = 'none';
+    document.getElementById('upload-alert-container').innerHTML = '';
+    currentParsedProducts = [];
+    currentRawJsonData = [];
+  };
+
+  btnClearUpload.addEventListener('click', resetAll);
+  btnCancelUpload.addEventListener('click', resetAll);
+
+  // Save Products
+  btnSaveProducts.addEventListener('click', saveProductsToSupabase);
+}
+
+function downloadSampleTemplate() {
+  const headers = ['sku', 'Nombre', 'Codigo de barras', 'tipo', 'color', 'variable 1', 'variable 2', 'talla', 'largo', 'ancho', 'alto', 'volumen'];
+  const rows = [
+    ['CAM-BLANCA-M', 'Camiseta Algodon Blanca M', '7701234567890', 'Ropa', 'Blanco', 'Algodon', 'Manga Corta', 'M', '30', '25', '2', ''],
+    ['ZAP-RUN-42', 'Zapatilla Deportiva Running 42', '7709876543210', 'Calzado', 'Negro', 'Running', 'Suela Goma', '42', '32', '20', '12', ''],
+    ['CAJA-GRANDE', 'Caja de Carton Grande', '', 'Embalaje', 'Cafe', 'Corrugado', '', 'Unica', '1.0', '0.8', '0.6', '0.48']
+  ];
+  
+  // Create CSV format with BOM for Spanish accents
+  const csvContent = "\uFEFF" 
+    + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\n');
+  
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", "plantilla_productos_stocka.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function handleFileSelection(file) {
+  const alertContainer = document.getElementById('upload-alert-container');
+  alertContainer.innerHTML = '';
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      
+      if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+        throw new Error("El archivo seleccionado no tiene hojas de cálculo legibles.");
+      }
+      
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+      
+      if (!jsonData || jsonData.length === 0) {
+        throw new Error("El archivo seleccionado no contiene filas de datos.");
+      }
+      
+      currentRawJsonData = jsonData;
+      recalculateAndRender();
+
+    } catch (err) {
+      console.error('Error parsing sheet file:', err);
+      alertContainer.innerHTML = `
+        <div class="alert alert-error" style="display: block; margin-bottom: 1.5rem;">
+          <strong>Error al leer planilla:</strong> ${err.message || 'Formato incorrecto o archivo dañado.'}
+        </div>
+      `;
+      document.getElementById('preview-section').style.display = 'none';
+      currentParsedProducts = [];
+      currentRawJsonData = [];
+    }
+  };
+
+  reader.onerror = () => {
+    alertContainer.innerHTML = `
+      <div class="alert alert-error" style="display: block; margin-bottom: 1.5rem;">
+        Error al leer el archivo físico. Inténtelo de nuevo.
+      </div>
+    `;
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function recalculateAndRender() {
+  const dimensionUnit = document.querySelector('input[name="dimension-unit"]:checked').value;
+  
+  currentParsedProducts = currentRawJsonData.map(row => {
+    const normalized = normalizeRowKeys(row);
+    return mapRowToProduct(normalized, dimensionUnit);
+  });
+  
+  renderPreviewTable();
+}
+
+function normalizeRowKeys(row) {
+  const normalized = {};
+  for (const key in row) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      const normKey = key.trim().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, '_');
+      
+      normalized[normKey] = row[key];
+    }
+  }
+  return normalized;
+}
+
+function mapRowToProduct(row, dimensionUnit) {
+  const findValue = (keys) => {
+    for (const k of keys) {
+      if (row[k] !== undefined && row[k] !== null && row[k] !== '') {
+        return row[k];
+      }
+    }
+    return '';
+  };
+
+  const sku = findValue(['sku', 'cod_articulo', 'codigo_articulo', 'ref', 'codigo']).toString().trim();
+  const name = findValue(['nombre', 'name', 'nombre_producto', 'title', 'titulo', 'descripcion_producto']).toString().trim();
+  const barcode = findValue(['codigo_de_barras', 'codigo_barras', 'barcode', 'barras', 'cod_barras', 'ean', 'upc', 'cod_barra']).toString().trim();
+  
+  const type = findValue(['tipo', 'type', 'categoria', 'category', 'clase', 'rubro']).toString().trim();
+  const color = findValue(['color', 'colour', 'tono', 'color_item']).toString().trim();
+  const variable_1 = findValue(['variable_1', 'variable1', 'var_1', 'var1', 'variable', 'var1_atributo']).toString().trim();
+  const variable_2 = findValue(['variable_2', 'variable2', 'var_2', 'var2', 'var2_atributo']).toString().trim();
+  const talla = findValue(['talla', 'tallas', 'size', 'medida', 'talle']).toString().trim();
+
+  // Dimensiones (numéricos)
+  const largoVal = parseFloat(findValue(['largo', 'length', 'length_cm', 'largo_cm', 'longitud', 'depth']).toString().replace(',', '.'));
+  const anchoVal = parseFloat(findValue(['ancho', 'width', 'width_cm', 'ancho_cm', 'anchura']).toString().replace(',', '.'));
+  const altoVal = parseFloat(findValue(['alto', 'height', 'height_cm', 'alto_cm', 'altura']).toString().replace(',', '.'));
+  
+  const largo = isNaN(largoVal) ? null : largoVal;
+  const ancho = isNaN(anchoVal) ? null : anchoVal;
+  const alto = isNaN(altoVal) ? null : altoVal;
+
+  // Volumen manual
+  const volumenVal = parseFloat(findValue(['volumen', 'volume', 'volumen_m3', 'vol', 'm3']).toString().replace(',', '.'));
+  let volumen = isNaN(volumenVal) ? null : volumenVal;
+  let isCalculated = false;
+
+  // Calcular si no viene el volumen y tenemos todas las dimensiones
+  if (volumen === null && largo !== null && ancho !== null && alto !== null) {
+    isCalculated = true;
+    if (dimensionUnit === 'cm') {
+      volumen = (largo * ancho * alto) / 1000000;
+    } else {
+      volumen = largo * ancho * alto;
+    }
+    volumen = Math.round(volumen * 1000000) / 1000000;
+  }
+
+  // Validaciones
+  const errors = [];
+  if (!sku) errors.push('Falta SKU');
+  if (!name) errors.push('Falta Nombre');
+
+  return {
+    sku,
+    name,
+    barcode: barcode || null,
+    type: type || null,
+    color: color || null,
+    variable_1: variable_1 || null,
+    variable_2: variable_2 || null,
+    talla: talla || null,
+    largo,
+    ancho,
+    alto,
+    volumen,
+    isCalculated,
+    isValid: errors.length === 0,
+    errors
+  };
+}
+
+function renderPreviewTable() {
+  const products = currentParsedProducts || [];
+  const totalEl = document.getElementById('summary-total');
+  const validEl = document.getElementById('summary-valid');
+  const errorsEl = document.getElementById('summary-errors');
+  const tbody = document.getElementById('preview-table-body');
+  const previewSection = document.getElementById('preview-section');
+  const btnSave = document.getElementById('btn-save-products');
+
+  if (products.length === 0) {
+    previewSection.style.display = 'none';
+    return;
+  }
+
+  previewSection.style.display = 'block';
+
+  let validCount = 0;
+  let errorCount = 0;
+  let tbodyHtml = '';
+
+  products.forEach(p => {
+    if (p.isValid) {
+      validCount++;
+    } else {
+      errorCount++;
+    }
+
+    const statusHtml = p.isValid
+      ? `<span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-fill"></i> Listo</span>`
+      : `<span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="${p.errors.join(', ')}"><i class="ri-error-warning-fill"></i> Error: ${p.errors.join(', ')}</span>`;
+
+    const dimsHtml = (p.largo !== null || p.ancho !== null || p.alto !== null)
+      ? `${p.largo ?? '-'} x ${p.ancho ?? '-'} x ${p.alto ?? '-'}`
+      : `<span style="color: var(--color-text-muted); font-style: italic;">Sin dimens.</span>`;
+
+    const volHtml = p.volumen !== null
+      ? `${p.volumen.toFixed(6)} m³ ${p.isCalculated ? '<span style="color: var(--color-text-muted); font-size: 0.7rem; font-weight: normal;">(calc)</span>' : '<span style="color: var(--color-accent); font-size: 0.7rem; font-weight: bold;">(manual)</span>'}`
+      : `<span style="color: var(--color-text-muted); font-style: italic;">N/A</span>`;
+
+    const variablesHtml = (p.variable_1 || p.variable_2)
+      ? `${p.variable_1 ? `V1: ${p.variable_1}` : ''}${p.variable_1 && p.variable_2 ? ', ' : ''}${p.variable_2 ? `V2: ${p.variable_2}` : ''}`
+      : `<span style="color: var(--color-text-muted); font-style: italic;">-</span>`;
+
+    tbodyHtml += `
+      <tr style="${p.isValid ? '' : 'background-color: #fef2f2;'}">
+        <td>${statusHtml}</td>
+        <td style="font-weight: 700; color: var(--color-dark);">${p.sku}</td>
+        <td>${p.name}</td>
+        <td>${p.barcode || '-'}</td>
+        <td>${p.type || '-'}</td>
+        <td>${p.color || '-'}</td>
+        <td>${variablesHtml}</td>
+        <td>${p.talla || '-'}</td>
+        <td>${dimsHtml}</td>
+        <td style="font-weight: 600; font-family: monospace;">${volHtml}</td>
+      </tr>
+    `;
+  });
+
+  totalEl.textContent = products.length;
+  validEl.textContent = validCount;
+  errorsEl.textContent = errorCount;
+  tbody.innerHTML = tbodyHtml;
+
+  btnSave.disabled = (validCount === 0);
+  if (validCount === 0) {
+    btnSave.style.opacity = '0.5';
+    btnSave.style.cursor = 'not-allowed';
+  } else {
+    btnSave.style.opacity = '1';
+    btnSave.style.cursor = 'pointer';
+  }
+}
+
+async function saveProductsToSupabase() {
+  const alertContainer = document.getElementById('upload-alert-container');
+  const merchantSelect = document.getElementById('upload-merchant-select');
+  const btnSave = document.getElementById('btn-save-products');
+  const loader = document.getElementById('save-loader');
+  
+  alertContainer.innerHTML = '';
+  
+  const selectedSigla = merchantSelect.value;
+  if (!selectedSigla) {
+    alert("Por favor, seleccione un comercio antes de guardar los productos.");
+    merchantSelect.focus();
+    return;
+  }
+
+  const validProducts = currentParsedProducts.filter(p => p.isValid);
+  if (validProducts.length === 0) {
+    alert("No hay productos válidos para guardar.");
+    return;
+  }
+
+  const confirmed = confirm(`¿Está seguro que desea cargar/actualizar ${validProducts.length} productos en el comercio seleccionado?`);
+  if (!confirmed) return;
+
+  btnSave.disabled = true;
+  btnSave.style.opacity = '0.5';
+  loader.style.display = 'inline-flex';
+
+  let selectedMerchantId = null;
+
+  try {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, company_name, email, comercio')
+      .eq('role', 'client');
+
+    if (profilesError) throw profilesError;
+
+    // Buscar coincidencia de sigla en el comercio asignado del perfil
+    const matchedProfile = profiles.find(p => {
+      if (!p.comercio || p.comercio === 'no asignado') return false;
+      const siglaList = p.comercio.split(',').map(s => s.trim().toLowerCase());
+      return siglaList.includes(selectedSigla.toLowerCase()) || siglaList.includes('all');
+    });
+
+    if (!matchedProfile) {
+      throw new Error(`No se encontró ningún usuario Cliente con el comercio '${selectedSigla}' asignado. Configure la asignación en 'Gestionar Usuarios' primero.`);
+    }
+
+    selectedMerchantId = matchedProfile.id;
+
+  } catch (err) {
+    console.error('Error matching commerce to merchant user:', err);
+    alertContainer.innerHTML = `
+      <div class="alert alert-error" style="display: block; margin-bottom: 1.5rem;">
+        <strong>Error de asignación:</strong> ${err.message || 'No se pudo vincular el comercio con un usuario.'}
+      </div>
+    `;
+    btnSave.disabled = false;
+    btnSave.style.opacity = '1';
+    loader.style.display = 'none';
+    return;
+  }
+
+  try {
+    const productsToInsert = validProducts.map(p => ({
+      merchant_id: selectedMerchantId,
+      sku: p.sku,
+      name: p.name,
+      barcode: p.barcode,
+      type: p.type,
+      color: p.color,
+      variable_1: p.variable_1,
+      variable_2: p.variable_2,
+      talla: p.talla,
+      largo: p.largo,
+      ancho: p.ancho,
+      alto: p.alto,
+      volumen: p.volumen,
+      length: p.largo,
+      width: p.ancho,
+      height: p.alto
+    }));
+
+    const BATCH_SIZE = 100;
+    let insertedCount = 0;
+
+    for (let i = 0; i < productsToInsert.length; i += BATCH_SIZE) {
+      const batch = productsToInsert.slice(i, i + BATCH_SIZE);
+      const { error: upsertError } = await supabase
+        .from('products')
+        .upsert(batch, { onConflict: 'merchant_id,sku' });
+
+      if (upsertError) throw upsertError;
+      insertedCount += batch.length;
+    }
+
+    alertContainer.innerHTML = `
+      <div class="alert alert-success" style="display: block; margin-bottom: 1.5rem;">
+        <strong>¡Carga masiva completada!</strong> Se guardaron / actualizaron ${insertedCount} productos con éxito en el comercio.
+      </div>
+    `;
+
+    document.getElementById('preview-section').style.display = 'none';
+    document.getElementById('upload-file-input').value = '';
+    document.getElementById('selected-file-name').textContent = 'Ningún archivo seleccionado';
+    document.getElementById('btn-clear-upload').style.display = 'none';
+    currentParsedProducts = [];
+    currentRawJsonData = [];
+
+  } catch (err) {
+    console.error('Error uploading products to Supabase:', err);
+    alertContainer.innerHTML = `
+      <div class="alert alert-error" style="display: block; margin-bottom: 1.5rem;">
+        <strong>Error al guardar en base de datos:</strong> ${err.message || 'Verifique su conexión y los datos del archivo.'}
+      </div>
+    `;
+  } finally {
+    btnSave.disabled = false;
+    btnSave.style.opacity = '1';
+    loader.style.display = 'none';
+  }
+}
 
 
