@@ -1189,7 +1189,14 @@ async function renderIntegrations() {
       // Cargar productos del usuario
       const { data: userAuth } = await supabase.auth.getUser();
       if(userAuth && userAuth.user) {
-        const { data: products } = await supabase.from('products').select('id, name, sku').eq('merchant_id', userAuth.user.id);
+        const companyList = getCompanyList();
+        let query = supabase.from('products').select('id, name, sku');
+        if (companyList.length > 0) {
+          query = query.in('comercio', companyList);
+        } else {
+          query = query.eq('comercio', 'no asignado');
+        }
+        const { data: products } = await query;
         if(products) {
           selectProd.innerHTML = '<option value="">Selecciona un producto</option>';
           products.forEach(p => {
@@ -1230,7 +1237,13 @@ async function renderIntegrations() {
       // 1. Crear el producto
       const { data: newProd, error: errProd } = await supabase
         .from('products')
-        .insert([{ merchant_id: merchantId, sku: sku, name: name, description: desc }])
+        .insert([{
+          merchant_id: merchantId,
+          comercio: currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA',
+          sku: sku,
+          name: name,
+          description: desc
+        }])
         .select()
         .single();
       
@@ -1338,7 +1351,11 @@ async function renderIntegrations() {
       // 1. Crear el Pedido Padre
       const { data: newOrder, error: errOrder } = await supabase
         .from('orders')
-        .insert([{ merchant_id: merchantId, status: 'para procesar' }])
+        .insert([{
+          merchant_id: merchantId,
+          comercio: currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA',
+          status: 'para procesar'
+        }])
         .select()
         .single();
       

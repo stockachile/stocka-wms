@@ -226,3 +226,78 @@ CREATE POLICY "Clientes ven sus propios pedidos de Optiroute por referencia" ON 
         )
     )
   );
+
+-- 6. Limpiar duplicados de productos para el mismo (comercio, sku) antes de aplicar la restricción UNIQUE
+-- Conservamos la primera entrada (MIN(id)) y re-asociamos inventario, movimientos e items de pedidos
+DO $$
+DECLARE
+  r RECORD;
+  v_kept_id UUID;
+  v_dup_prod RECORD;
+  v_inv RECORD;
+BEGIN
+  -- Asegurar que la columna comercio esté asignada para buscar duplicados correctamente
+  UPDATE public.products SET comercio = 'STOCKA' WHERE comercio IS NULL OR TRIM(comercio) = '';
+
+  FOR r IN 
+    SELECT comercio, sku, COUNT(*), MIN(id) as kept_id
+    FROM public.products
+    GROUP BY comercio, sku
+    HAVING COUNT(*) > 1
+  LOOP
+    v_kept_id := r.kept_id;
+    
+    -- 1. Actualizar movimientos
+    UPDATE public.movements
+    SET product_id = v_kept_id
+    WHERE product_id IN (
+      SELECT id FROM public.products 
+      WHERE comercio = r.comercio AND sku = r.sku AND id <> v_kept_id
+    );
+
+    -- 2. Actualizar order_items
+    UPDATE public.order_items
+    SET product_id = v_kept_id
+    WHERE product_id IN (
+      SELECT id FROM public.products 
+      WHERE comercio = r.comercio AND sku = r.sku AND id <> v_kept_id
+    );
+
+    -- 3. Manejar inventario (evitando duplicar registros UNIQUE para el mismo producto y bodega)
+    FOR v_dup_prod IN 
+      SELECT id FROM public.products 
+      WHERE comercio = r.comercio AND sku = r.sku AND id <> v_kept_id
+    Loop
+      FOR v_inv IN 
+        SELECT id, warehouse_id, quantity, committed_quantity 
+        FROM public.inventory 
+        WHERE product_id = v_dup_prod.id
+      LOOP
+        IF EXISTS (
+          SELECT 1 FROM public.inventory 
+          WHERE product_id = v_kept_id AND warehouse_id = v_inv.warehouse_id
+        ) THEN
+          UPDATE public.inventory
+          SET quantity = quantity + v_inv.quantity,
+              committed_quantity = committed_quantity + v_inv.committed_quantity
+          WHERE product_id = v_kept_id AND warehouse_id = v_inv.warehouse_id;
+          
+          DELETE FROM public.inventory WHERE id = v_inv.id;
+        ELSE
+          UPDATE public.inventory
+          SET product_id = v_kept_id
+          WHERE id = v_inv.id;
+        END IF;
+      END LOOP;
+    END LOOP;
+
+    -- 4. Eliminar los productos duplicados
+    DELETE FROM public.products
+    WHERE comercio = r.comercio AND sku = r.sku AND id <> v_kept_id;
+
+  END LOOP;
+END $$;
+
+-- 7. Reemplazar la restricción de unicidad en la tabla products
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_merchant_id_sku_key;
+ALTER TABLE public.products ADD CONSTRAINT products_comercio_sku_key UNIQUE (comercio, sku);

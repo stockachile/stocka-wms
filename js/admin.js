@@ -544,7 +544,8 @@ async function renderIntegrations() {
             platform: 'Optiroute',
             shop_url: 'app.optiroute.cl',
             access_token: token,
-            is_active: true
+            is_active: true,
+            comercio: 'STOCKA'
           }]);
           if(insErr) throw insErr;
           
@@ -630,7 +631,7 @@ async function renderIntegrations() {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
-              .eq('merchant_id', merchantId)
+              .eq('comercio', 'STOCKA')
               .eq('platform', 'Optiroute');
             if(delErr) throw delErr;
             alert('Optiroute desconectado.');
@@ -1968,7 +1969,7 @@ async function loadExistingMerchantSkus() {
       const { data: existingProducts } = await supabase
         .from('products')
         .select('sku')
-        .eq('merchant_id', matchedProfile.id);
+        .eq('comercio', selectedMerchantSigla);
 
       if (existingProducts) {
         existingProducts.forEach(p => {
@@ -2242,6 +2243,7 @@ async function saveProductsToSupabase() {
   try {
     const productsToInsert = validProducts.map(p => ({
       merchant_id: selectedMerchantId,
+      comercio: selectedSigla,
       sku: p.sku,
       name: p.name,
       barcode: p.barcode,
@@ -2266,7 +2268,7 @@ async function saveProductsToSupabase() {
       const batch = productsToInsert.slice(i, i + BATCH_SIZE);
       const { error: upsertError } = await supabase
         .from('products')
-        .upsert(batch, { onConflict: 'merchant_id,sku' });
+        .upsert(batch, { onConflict: 'comercio,sku' });
 
       if (upsertError) throw upsertError;
       insertedCount += batch.length;
