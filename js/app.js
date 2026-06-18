@@ -39,6 +39,21 @@ let userRole = 'observer';
 let currentMerchantId = null;
 let currentCompany = null;
 
+function getCompanyList() {
+  const companyList = [];
+  if (currentCompany) {
+    currentCompany.split(',').forEach(c => {
+      const trimmed = c.trim();
+      if (trimmed) {
+        companyList.push(trimmed);
+        companyList.push(trimmed.toLowerCase());
+        companyList.push(trimmed.toUpperCase());
+      }
+    });
+  }
+  return companyList;
+}
+
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
@@ -214,15 +229,23 @@ async function renderInventory() {
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando inventario...</p>`;
 
   try {
-    const { data: inventory, error } = await supabase
+    const companyList = getCompanyList();
+    let query = supabase
       .from('inventory')
       .select(`
         quantity,
         committed_quantity,
-        products!inner (sku, name, merchant_id),
+        products!inner (sku, name, comercio),
         warehouses (name)
-      `)
-      .eq('products.merchant_id', currentMerchantId);
+      `);
+
+    if (companyList.length > 0) {
+      query = query.in('products.comercio', companyList);
+    } else {
+      query = query.eq('products.comercio', 'no asignado');
+    }
+
+    const { data: inventory, error } = await query;
 
     if (error) throw error;
 
@@ -297,17 +320,26 @@ async function renderMovements() {
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando movimientos...</p>`;
 
   try {
-    const { data: movements, error } = await supabase
+    const companyList = getCompanyList();
+    let query = supabase
       .from('movements')
       .select(`
         date,
         type,
         quantity,
-        products!inner (sku, merchant_id),
+        products!inner (sku, comercio),
         warehouses (name)
-      `)
-      .eq('products.merchant_id', currentMerchantId)
-      .order('date', { ascending: false });
+      `);
+
+    if (companyList.length > 0) {
+      query = query.in('products.comercio', companyList);
+    } else {
+      query = query.eq('products.comercio', 'no asignado');
+    }
+
+    query = query.order('date', { ascending: false });
+
+    const { data: movements, error } = await query;
 
     if (error) throw error;
 
@@ -417,23 +449,27 @@ async function renderOrders() {
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando pedidos...</p>`;
 
   try {
-    const { data: orders, error } = await supabase
+    const companyList = getCompanyList();
+    let query = supabase
       .from('orders')
       .select(`
         id,
         status,
         created_at,
         external_order_number,
-        external_platform,
-        origen,
-        item,
-        cantidad,
-        sku,
-        label_base64,
+        comercio,
         order_items (quantity, products(sku, name))
-      `)
-      .eq('merchant_id', currentMerchantId)
-      .order('created_at', { ascending: false });
+      `);
+
+    if (companyList.length > 0) {
+      query = query.in('comercio', companyList);
+    } else {
+      query = query.eq('comercio', 'no asignado');
+    }
+
+    query = query.order('created_at', { ascending: false });
+
+    const { data: orders, error } = await query;
 
     if (error) throw error;
 
@@ -604,11 +640,29 @@ async function renderIntegrations() {
     if(!userAuth || !userAuth.user) throw new Error("No autenticado");
     const merchantId = userAuth.user.id;
 
+    const assignedComercios = (currentCompany || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+    if (assignedComercios.length === 0) {
+      appContent.innerHTML = `
+        <div class="alert alert-warning" style="display: block; margin: 2rem;">
+          <i class="ri-error-warning-line"></i> No tienes comercios asociados. Debes tener al menos un comercio asignado para gestionar integraciones.
+        </div>
+      `;
+      return;
+    }
+
+    if (!window.activeIntegrationCommerce || !assignedComercios.includes(window.activeIntegrationCommerce)) {
+      window.activeIntegrationCommerce = assignedComercios[0];
+    }
+
     // Obtener la integración de Shopify
     const { data: shopifyIntegration, error: shopifyErr } = await supabase
       .from('merchant_integrations')
       .select('*')
-      .eq('merchant_id', merchantId)
+      .eq('comercio', window.activeIntegrationCommerce)
       .eq('platform', 'Shopify')
       .maybeSingle();
 
@@ -618,7 +672,7 @@ async function renderIntegrations() {
     const { data: parisIntegration, error: parisErr } = await supabase
       .from('merchant_integrations')
       .select('*')
-      .eq('merchant_id', merchantId)
+      .eq('comercio', window.activeIntegrationCommerce)
       .eq('platform', 'Paris')
       .maybeSingle();
 
@@ -628,7 +682,7 @@ async function renderIntegrations() {
     const { data: falabellaIntegration, error: falabellaErr } = await supabase
       .from('merchant_integrations')
       .select('*')
-      .eq('merchant_id', merchantId)
+      .eq('comercio', window.activeIntegrationCommerce)
       .eq('platform', 'Falabella')
       .maybeSingle();
 
@@ -674,6 +728,25 @@ async function renderIntegrations() {
           ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Falabella API</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>');
 
+    let selectorHtml = '';
+    if (assignedComercios.length > 1) {
+      selectorHtml = `
+        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.75rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label style="font-weight: 600; color: var(--color-text-main); font-size: 0.95rem;"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Seleccionar Comercio para Integrar:</label>
+          <select id="select-integration-commerce" class="form-input" style="max-width: 250px; font-weight: 600; cursor: pointer;">
+            ${assignedComercios.map(c => `<option value="${c}" ${c === window.activeIntegrationCommerce ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    } else {
+      selectorHtml = `
+        <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.95rem;">
+          <span style="color: var(--color-text-muted);"><i class="ri-store-2-line" style="margin-right: 0.25rem;"></i> Comercio Activo:</span>
+          <strong style="color: var(--color-primary);">${window.activeIntegrationCommerce}</strong>
+        </div>
+      `;
+    }
+
     appContent.innerHTML = getObserverBanner() + `
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
@@ -682,6 +755,8 @@ async function renderIntegrations() {
           Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados.
         </p>
       </div>
+
+      ${selectorHtml}
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
         <!-- Left Column: Active/Available Integrations -->
@@ -916,7 +991,8 @@ async function renderIntegrations() {
             platform: 'Shopify',
             shop_url: shop_url,
             access_token: token,
-            is_active: true
+            is_active: true,
+            comercio: window.activeIntegrationCommerce
           }]);
           if(insErr) throw insErr;
           
@@ -939,7 +1015,7 @@ async function renderIntegrations() {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
-              .eq('merchant_id', merchantId)
+              .eq('comercio', window.activeIntegrationCommerce)
               .eq('platform', 'Shopify');
             if(delErr) throw delErr;
             alert('Tienda desconectada.');
@@ -973,7 +1049,8 @@ async function renderIntegrations() {
             platform: 'Paris',
             shop_url: paris_url,
             access_token: token,
-            is_active: true
+            is_active: true,
+            comercio: window.activeIntegrationCommerce
           }]);
           if(insErr) throw insErr;
           
@@ -996,7 +1073,7 @@ async function renderIntegrations() {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
-              .eq('merchant_id', merchantId)
+              .eq('comercio', window.activeIntegrationCommerce)
               .eq('platform', 'Paris');
             if(delErr) throw delErr;
             alert('Conexión con París eliminada.');
@@ -1032,7 +1109,8 @@ async function renderIntegrations() {
             shop_url: falabella_url,
             username: falabella_user,
             access_token: token,
-            is_active: true
+            is_active: true,
+            comercio: window.activeIntegrationCommerce
           }]);
           if(insErr) throw insErr;
           
@@ -1055,7 +1133,7 @@ async function renderIntegrations() {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
-              .eq('merchant_id', merchantId)
+              .eq('comercio', window.activeIntegrationCommerce)
               .eq('platform', 'Falabella');
             if(delErr) throw delErr;
             alert('Conexión con Falabella eliminada.');
@@ -1065,6 +1143,14 @@ async function renderIntegrations() {
              alert('Error al desconectar: ' + err.message);
           }
         }
+      });
+    }
+
+    const commerceSelect = document.getElementById('select-integration-commerce');
+    if (commerceSelect) {
+      commerceSelect.addEventListener('change', (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        renderIntegrations();
       });
     }
 
@@ -2393,8 +2479,8 @@ window.renderReturns = async function() {
         </p>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center;">
-        <button id="btn-info-export" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-muted); padding: 0.5rem; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-full);" title="¿Cómo exportar?">
-          <i class="ri-information-line" style="font-size: 1.25rem;"></i>
+        <button id="btn-info-export" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
+          <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
         </button>
         <button id="btn-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
@@ -2847,7 +2933,10 @@ window.renderPickups = async function() {
           Revisa las entregas y retiros en sucursales en tiempo real.
         </p>
       </div>
-      <div style="display: flex; gap: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button id="btn-info-export-pickups" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
+          <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
+        </button>
         <button id="btn-export-pickups-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
         </button>
@@ -2952,6 +3041,16 @@ window.renderPickups = async function() {
   // Listeners Exportación
   document.getElementById('btn-export-pickups-csv').addEventListener('click', () => exportPickupsData('csv'));
   document.getElementById('btn-export-pickups-excel').addEventListener('click', () => exportPickupsData('excel'));
+  document.getElementById('btn-info-export-pickups').addEventListener('click', () => {
+    showInfoModal(
+      'Guía de Exportación',
+      `<ol style="margin: 0; padding-left: 1.5rem;">
+         <li style="margin-bottom: 0.5rem;">Utiliza los filtros (Buscador, Fechas, Estado) para acotar tu búsqueda.</li>
+         <li style="margin-bottom: 0.5rem;">Haz clic en <strong>"CSV"</strong> o <strong>"Excel"</strong> para descargar el reporte.</li>
+         <li>El archivo generado sólo contendrá los registros que coincidan con los filtros actuales en pantalla.</li>
+       </ol>`
+    );
+  });
 
   pickupsCurrentPage = 1;
   await fetchAndRenderPickupsData();
@@ -3231,7 +3330,10 @@ window.renderSales = async function() {
           Revisa las ventas realizadas en sucursales en tiempo real.
         </p>
       </div>
-      <div style="display: flex; gap: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button id="btn-info-export-sales" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
+          <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
+        </button>
         <button id="btn-export-sales-csv" class="btn btn-outline" style="background-color: white; color: #10b981; border-color: #10b981;">
           <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
         </button>
@@ -3336,6 +3438,16 @@ window.renderSales = async function() {
   // Listeners Exportación
   document.getElementById('btn-export-sales-csv').addEventListener('click', () => exportSalesData('csv'));
   document.getElementById('btn-export-sales-excel').addEventListener('click', () => exportSalesData('excel'));
+  document.getElementById('btn-info-export-sales').addEventListener('click', () => {
+    showInfoModal(
+      'Guía de Exportación',
+      `<ol style="margin: 0; padding-left: 1.5rem;">
+         <li style="margin-bottom: 0.5rem;">Utiliza el buscador para acotar tu búsqueda.</li>
+         <li style="margin-bottom: 0.5rem;">Haz clic en <strong>"CSV"</strong> o <strong>"Excel"</strong> para descargar el reporte.</li>
+         <li>El archivo generado sólo contendrá las ventas que coincidan con los filtros actuales en pantalla.</li>
+       </ol>`
+    );
+  });
 
   salesCurrentPage = 1;
   await fetchAndRenderSalesData();

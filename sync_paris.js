@@ -165,7 +165,7 @@ async function syncMerchantOrders(integration) {
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', orderId)
         .maybeSingle();
 
@@ -212,6 +212,7 @@ async function syncMerchantOrders(integration) {
       // Mapear datos comunes del pedido
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
+        comercio: integration.comercio,
         external_order_number: orderId,
         external_platform: 'Paris',
         payment_status: statusName,
@@ -289,7 +290,7 @@ async function syncMerchantOrders(integration) {
           let { data: product } = await supabase
             .from('products')
             .select('id')
-            .eq('merchant_id', integration.merchant_id)
+            .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
 
@@ -303,6 +304,7 @@ async function syncMerchantOrders(integration) {
               .from('products')
               .insert([{
                 merchant_id: integration.merchant_id,
+                comercio: integration.comercio,
                 sku: sku,
                 name: productName,
                 price: productPrice,

@@ -22,10 +22,10 @@ async function syncOptirouteData() {
   console.log('🔄 Iniciando sincronización con Optiroute API...');
 
   try {
-    // 1. Obtener todas las integraciones activas de Optiroute en Supabase junto a su profile
+    // 1. Obtener todas las integraciones activas de Optiroute en Supabase
     const { data: integrations, error: intError } = await supabase
       .from('merchant_integrations')
-      .select('*, profiles(company_name)')
+      .select('*')
       .eq('platform', 'Optiroute')
       .eq('is_active', true);
 
@@ -187,7 +187,7 @@ async function syncMerchantOrders(integration) {
         const upsertPayload = {
           id: String(optiOrder.id),
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
-          empresa_comercio_proveedor: integration.profiles?.company_name || 'STOCKA',
+          empresa_comercio_proveedor: integration.comercio || 'STOCKA',
           tracking: optiOrder.tracking ? optiOrder.tracking.trim() : null,
           tracking_url: optiOrder.tracking_url ? optiOrder.tracking_url.trim() : null,
           courier: 'STOCKA X',

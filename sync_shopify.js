@@ -76,12 +76,13 @@ async function syncOrders(integration) {
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', order.name)
         .maybeSingle();
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
+        comercio: integration.comercio,
         external_order_number: order.name, // Ej: #1001
         external_platform: 'Shopify',
         payment_status: order.financial_status,
@@ -149,12 +150,13 @@ async function syncProducts(integration) {
             const { data: existingProduct } = await supabase
                 .from('products')
                 .select('id')
-                .eq('merchant_id', integration.merchant_id)
+                .eq('comercio', integration.comercio)
                 .eq('sku', variant.sku || variant.id.toString())
                 .maybeSingle();
 
             const productDataToSave = {
                 merchant_id: integration.merchant_id,
+                comercio: integration.comercio,
                 sku: variant.sku || variant.id.toString(), // Si no tiene SKU, usamos el ID como fallback
                 name: `${product.title} ${variant.title !== 'Default Title' ? '- ' + variant.title : ''}`,
                 description: product.body_html,
