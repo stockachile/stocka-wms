@@ -1712,6 +1712,7 @@ async function renderUploadProducts() {
               <div style="flex: 1; min-width: 150px; padding: 1rem; border-radius: var(--radius-md); border: 1px solid #bbf7d0; background-color: #f0fdf4; text-align: center;">
                 <div style="font-size: 0.8rem; color: #166534; text-transform: uppercase; font-weight: 600;">Válidos (Listos)</div>
                 <div id="summary-valid" style="font-size: 1.75rem; font-weight: 700; color: #15803d; margin-top: 0.25rem;">0</div>
+                <div id="summary-valid-detail" style="font-size: 0.75rem; color: #166534; margin-top: 0.25rem;">0 nuevos / 0 act.</div>
               </div>
               <div style="flex: 1; min-width: 150px; padding: 1rem; border-radius: var(--radius-md); border: 1px solid #fecaca; background-color: #fef2f2; text-align: center;">
                 <div style="font-size: 0.8rem; color: #991b1b; text-transform: uppercase; font-weight: 600;">Errores (Se omitirán)</div>
@@ -1820,6 +1821,16 @@ function setupUploadEventListeners() {
 
   // Save Products
   btnSaveProducts.addEventListener('click', saveProductsToSupabase);
+
+  // Recalculate on merchant change to verify if SKUs exist or are new
+  const merchantSelect = document.getElementById('upload-merchant-select');
+  if (merchantSelect) {
+    merchantSelect.addEventListener('change', () => {
+      if (currentRawJsonData.length > 0) {
+        recalculateAndRender();
+      }
+    });
+  }
 }
 
 function downloadSampleTemplate() {
@@ -1893,12 +1904,63 @@ function handleFileSelection(file) {
   reader.readAsArrayBuffer(file);
 }
 
-function recalculateAndRender() {
+let existingMerchantSkus = new Set();
+
+async function loadExistingMerchantSkus() {
+  const merchantSelect = document.getElementById('upload-merchant-select');
+  const selectedMerchantSigla = merchantSelect ? merchantSelect.value : '';
+  
+  existingMerchantSkus.clear();
+  if (!selectedMerchantSigla) return;
+
+  try {
+    const { data: profiles, error: pError } = await supabase
+      .from('profiles')
+      .select('id, comercio')
+      .eq('role', 'client');
+
+    if (pError || !profiles) return;
+
+    const matchedProfile = profiles.find(p => {
+      if (!p.comercio || p.comercio === 'no asignado') return false;
+      const siglaList = p.comercio.split(',').map(s => s.trim().toLowerCase());
+      return siglaList.includes(selectedMerchantSigla.toLowerCase()) || siglaList.includes('all');
+    });
+
+    if (matchedProfile) {
+      const { data: existingProducts } = await supabase
+        .from('products')
+        .select('sku')
+        .eq('merchant_id', matchedProfile.id);
+
+      if (existingProducts) {
+        existingProducts.forEach(p => {
+          if (p.sku) existingMerchantSkus.add(p.sku.trim().toLowerCase());
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Error loading existing merchant SKUs:", err);
+  }
+}
+
+async function recalculateAndRender() {
   const dimensionUnit = document.querySelector('input[name="dimension-unit"]:checked').value;
+  
+  // Cargar SKUs existentes antes de mapear
+  await loadExistingMerchantSkus();
   
   currentParsedProducts = currentRawJsonData.map(row => {
     const normalized = normalizeRowKeys(row);
-    return mapRowToProduct(normalized, dimensionUnit);
+    const mapped = mapRowToProduct(normalized, dimensionUnit);
+    
+    if (mapped.isValid && mapped.sku) {
+      mapped.isUpdate = existingMerchantSkus.has(mapped.sku.trim().toLowerCase());
+    } else {
+      mapped.isUpdate = false;
+    }
+    
+    return mapped;
   });
   
   renderPreviewTable();
@@ -2005,17 +2067,27 @@ function renderPreviewTable() {
 
   let validCount = 0;
   let errorCount = 0;
+  let newCount = 0;
+  let updateCount = 0;
   let tbodyHtml = '';
 
   products.forEach(p => {
     if (p.isValid) {
       validCount++;
+      if (p.isUpdate) {
+        updateCount++;
+      } else {
+        newCount++;
+      }
     } else {
       errorCount++;
     }
 
     const statusHtml = p.isValid
-      ? `<span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-fill"></i> Listo</span>`
+      ? (p.isUpdate 
+          ? `<span style="color: #d97706; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="El SKU ya existe. Se actualizará con los nuevos datos."><i class="ri-refresh-line"></i> Actualizar</span>`
+          : `<span style="color: #16a34a; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-add-circle-fill"></i> Nuevo</span>`
+        )
       : `<span style="color: #dc2626; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="${p.errors.join(', ')}"><i class="ri-error-warning-fill"></i> Error: ${p.errors.join(', ')}</span>`;
 
     const dimsHtml = (p.largo !== null || p.ancho !== null || p.alto !== null)
@@ -2050,6 +2122,11 @@ function renderPreviewTable() {
   validEl.textContent = validCount;
   errorsEl.textContent = errorCount;
   tbody.innerHTML = tbodyHtml;
+
+  const validDetailEl = document.getElementById('summary-valid-detail');
+  if (validDetailEl) {
+    validDetailEl.textContent = `${newCount} nuevos / ${updateCount} por act.`;
+  }
 
   btnSave.disabled = (validCount === 0);
   if (validCount === 0) {

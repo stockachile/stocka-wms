@@ -2117,15 +2117,21 @@ async function renderProfile() {
               <input type="url" id="profile-avatar-url" class="form-input" value="${avatarUrl}" placeholder="https://ejemplo.com/mi-avatar.jpg">
             </div>
 
-            <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin: 1.5rem 0;">
-              <h4 style="font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-dark); text-transform: uppercase;">Atributos Asignados por Administrador</h4>
-              <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.85rem;">
-                <span style="color: var(--color-text-muted);">Rol del Sistema:</span>
-                <strong style="color: var(--color-accent);">${roleText}</strong>
-              </div>
-              <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
-                <span style="color: var(--color-text-muted);">Comercios Asociados:</span>
-                <strong style="color: var(--color-primary); text-align: right; max-width: 60%; word-break: break-all;">${assignedComercios}</strong>
+            <div style="background-color: var(--color-bg); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin: 1.5rem 0;">
+              <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1.25rem; color: var(--color-text-main); text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shield-user-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Atributos del Sistema</h4>
+              
+              <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                <div>
+                  <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Rol Asignado</span>
+                  <span style="background-color: rgba(139, 92, 246, 0.15); color: #8b5cf6; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.85rem; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.3); display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-user-star-line"></i> ${roleText}</span>
+                </div>
+                
+                <div>
+                  <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Comercios Asociados</span>
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                    ${assignedComercios.split(',').map(c => `<span style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line" style="color: var(--color-primary);"></i> ${c.trim()}</span>`).join('')}
+                  </div>
+                </div>
               </div>
             </div>
 
