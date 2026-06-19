@@ -240,7 +240,7 @@ BEGIN
   UPDATE public.products SET comercio = 'STOCKA' WHERE comercio IS NULL OR TRIM(comercio) = '';
 
   FOR r IN 
-    SELECT comercio, sku, COUNT(*), MIN(id) as kept_id
+    SELECT comercio, sku, COUNT(*), MIN(id::text)::uuid as kept_id
     FROM public.products
     GROUP BY comercio, sku
     HAVING COUNT(*) > 1
