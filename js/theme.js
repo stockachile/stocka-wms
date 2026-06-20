@@ -57,4 +57,27 @@ document.addEventListener('DOMContentLoaded', () => {
       try { e.target.showPicker(); } catch(err) {}
     }
   });
+
+  // Fetch UF del día desde mindicador.cl
+  const ufValueEl = document.getElementById('uf-value');
+  if (ufValueEl) {
+    // Intentar desde caché primero (dura el mismo día)
+    const cached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
+    const today = new Date().toISOString().slice(0, 10);
+    if (cached && cached.date === today) {
+      ufValueEl.textContent = cached.value;
+    } else {
+      fetch('https://mindicador.cl/api/uf')
+        .then(r => r.json())
+        .then(data => {
+          const val = data?.serie?.[0]?.valor;
+          if (val) {
+            const formatted = val.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            ufValueEl.textContent = `$${formatted}`;
+            localStorage.setItem('stocka-uf', JSON.stringify({ date: today, value: `$${formatted}` }));
+          }
+        })
+        .catch(() => { ufValueEl.textContent = 'N/D'; });
+    }
+  }
 });
