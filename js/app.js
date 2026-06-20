@@ -45,6 +45,8 @@ window.appCalendarState = {
   events: [],
   selectedDateStr: null
 };
+
+function getCompanyList() {
   const companyList = [];
   if (currentCompany) {
     currentCompany.split(',').forEach(c => {
