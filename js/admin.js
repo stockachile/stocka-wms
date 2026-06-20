@@ -2488,35 +2488,100 @@ async function renderAdminDashboard() {
         </div>
       </div>
 
-      <!-- Gestión de Notificaciones -->
+      <!-- Gestión de Comunicaciones -->
       <div class="card" style="grid-column: 1 / -1;">
         <div class="card-header">
-          <h3><i class="ri-notification-badge-line" style="margin-right: 0.5rem; color: var(--color-warning);"></i> Enviar Notificación Global</h3>
+          <h3><i class="ri-broadcast-line" style="margin-right: 0.5rem; color: var(--color-warning);"></i> Gestión de Comunicaciones</h3>
         </div>
         <div class="card-body">
-          <form id="form-create-notification">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-              <div class="form-group">
-                <label class="form-label">Título de Notificación</label>
-                <input type="text" id="notif-title" class="form-input" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Destinatarios</label>
-                <select id="notif-target" class="form-input" required>
-                  <option value="all">Todos los usuarios</option>
-                  <option value="client">Solo Clientes</option>
-                  <option value="admin">Solo Administradores</option>
-                </select>
-              </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2rem;">
+            
+            <!-- Barra Superior -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
+              <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-layout-top-line" style="color: var(--color-primary);"></i> Barra Superior</h4>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Crea un banner visible en el tope de la pantalla para todos los usuarios. Solo un banner activo a la vez.</p>
+              <form id="form-create-banner">
+                <input type="hidden" id="banner-id">
+                <div class="form-group">
+                  <label class="form-label">Texto del Aviso</label>
+                  <input type="text" id="banner-content" class="form-input" required>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div class="form-group">
+                    <label class="form-label">Color de Fondo</label>
+                    <input type="color" id="banner-bg" class="form-input" value="#2563eb" style="height: 40px; padding: 0.2rem;">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Color de Texto</label>
+                    <input type="color" id="banner-text" class="form-input" value="#ffffff" style="height: 40px; padding: 0.2rem;">
+                  </div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+                  <input type="checkbox" id="banner-active" style="width: 1.2rem; height: 1.2rem;">
+                  <label for="banner-active" style="font-weight: 600; cursor: pointer; margin: 0;">Activar este Banner</label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Guardar Barra Superior</button>
+              </form>
             </div>
-            <div class="form-group">
-              <label class="form-label">Mensaje</label>
-              <input type="text" id="notif-message" class="form-input" required>
+
+            <!-- Pop-up Interactivo -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
+              <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-window-line" style="color: var(--color-accent);"></i> Pop-up al Inicio</h4>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Muestra una ventana modal bloqueante al iniciar sesión que exige confirmación de lectura.</p>
+              <form id="form-create-popup">
+                <input type="hidden" id="popup-id">
+                <div class="form-group">
+                  <label class="form-label">Título del Pop-up</label>
+                  <input type="text" id="popup-title" class="form-input" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Contenido Detallado</label>
+                  <textarea id="popup-content" class="form-input" rows="4" required style="resize: vertical;"></textarea>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+                  <input type="checkbox" id="popup-active" style="width: 1.2rem; height: 1.2rem;">
+                  <label for="popup-active" style="font-weight: 600; cursor: pointer; margin: 0;">Activar este Pop-up</label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; background-color: var(--color-accent);">Guardar Pop-up</button>
+              </form>
             </div>
-            <button type="submit" class="btn btn-primary" style="background-color: var(--color-warning); color: #000;">Enviar Notificación Global</button>
-          </form>
+
+            <!-- Notificación Inbox -->
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem;">
+              <h4 style="margin-top: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-mail-send-line" style="color: var(--color-warning);"></i> Enviar a Inbox</h4>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">Envía una notificación directa a la campanita de los usuarios con segmentación.</p>
+              <form id="form-create-notification">
+                <div class="form-group">
+                  <label class="form-label">Título del Mensaje</label>
+                  <input type="text" id="notif-title" class="form-input" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Mensaje</label>
+                  <input type="text" id="notif-message" class="form-input" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Destinatarios</label>
+                  <select id="notif-target" class="form-input" required onchange="document.getElementById('notif-individual-container').style.display = this.value === 'individual' ? 'block' : 'none';">
+                    <option value="all">Todos los usuarios</option>
+                    <option value="client">Solo Clientes</option>
+                    <option value="admin">Solo Administradores</option>
+                    <option value="individual">Usuario Individual...</option>
+                  </select>
+                </div>
+                <div class="form-group" id="notif-individual-container" style="display: none;">
+                  <label class="form-label">Seleccionar Usuario</label>
+                  <select id="notif-user-id" class="form-input">
+                    <option value="">Cargando usuarios...</option>
+                  </select>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%; background-color: var(--color-warning); color: #000;">Enviar Notificación Directa</button>
+              </form>
+            </div>
+            
+          </div>
+          
           <hr style="margin: 2rem 0;">
-          <h4>Historial de Notificaciones</h4>
+          <h4>Historial Reciente de Inbox</h4>
           <div id="admin-notif-list" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
         </div>
       </div>
@@ -2564,15 +2629,15 @@ async function renderAdminDashboard() {
       setupCalendarListeners_admin();
     }
 
-    // Load Notifications
-    const { data: notifs } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false });
+    // Load Notifications (Inbox)
+    const { data: notifs } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false }).limit(20);
     const notifList = document.getElementById('admin-notif-list');
     if(notifs && notifs.length > 0) {
       notifList.innerHTML = notifs.map(n => `
         <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
           <div>
             <div style="font-weight: 600;">${n.title}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted);">Enviado a: ${n.target_role} - ${new Date(n.created_at).toLocaleString()}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">Enviado a: ${n.target_role === 'individual' ? 'Usuario Individual' : n.target_role} - ${new Date(n.created_at).toLocaleString()}</div>
           </div>
           <div>
             <button class="btn btn-outline delete-notif-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
@@ -2580,10 +2645,37 @@ async function renderAdminDashboard() {
         </div>
       `).join('');
     } else {
-      notifList.innerHTML = '<p style="color: var(--color-text-muted);">No hay notificaciones.</p>';
+      notifList.innerHTML = '<p style="color: var(--color-text-muted);">No hay notificaciones enviadas recientemente.</p>';
     }
 
-    attachEditDeleteListeners(news, events);
+    // Load active banner and popups (Admin view simply loads the latest to populate the form if they want to edit, or we can just list them. We'll populate form with latest active)
+    const { data: banners } = await supabase.from('system_banners').select('*').order('created_at', { ascending: false }).limit(1);
+    if(banners && banners.length > 0) {
+      const b = banners[0];
+      document.getElementById('banner-id').value = b.id;
+      document.getElementById('banner-content').value = b.content;
+      document.getElementById('banner-bg').value = b.bg_color;
+      document.getElementById('banner-text').value = b.text_color;
+      document.getElementById('banner-active').checked = b.is_active;
+    }
+
+    const { data: popups } = await supabase.from('system_popups').select('*').order('created_at', { ascending: false }).limit(1);
+    if(popups && popups.length > 0) {
+      const p = popups[0];
+      document.getElementById('popup-id').value = p.id;
+      document.getElementById('popup-title').value = p.title;
+      document.getElementById('popup-content').value = p.content;
+      document.getElementById('popup-active').checked = p.is_active;
+    }
+
+    // Load profiles for direct messaging
+    const { data: profiles } = await supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true });
+    const userSelect = document.getElementById('notif-user-id');
+    if (userSelect && profiles) {
+      userSelect.innerHTML = '<option value="">-- Seleccione un Usuario --</option>' + profiles.map(p => `<option value="${p.id}">${p.full_name || 'Sin Nombre'} (${p.email || 'Sin Correo'})</option>`).join('');
+    }
+
+    attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events);
   }
 
   function attachEditDeleteListeners(newsData, eventsData) {
@@ -2819,17 +2911,80 @@ async function renderAdminDashboard() {
     } catch(err) { console.error(err); alert('Error al guardar evento'); }
   });
 
+  document.getElementById('form-create-banner').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        content: document.getElementById('banner-content').value,
+        bg_color: document.getElementById('banner-bg').value,
+        text_color: document.getElementById('banner-text').value,
+        is_active: document.getElementById('banner-active').checked
+      };
+      
+      const existingId = document.getElementById('banner-id').value;
+      if (existingId) {
+        await supabase.from('system_banners').update(payload).eq('id', existingId);
+      } else {
+        await supabase.from('system_banners').insert([payload]);
+      }
+      
+      // If activated, optionally deactivate others. For simplicity, we just keep one or assume the admin knows.
+      if (payload.is_active && existingId) {
+         await supabase.from('system_banners').update({is_active: false}).neq('id', existingId);
+      }
+
+      alert('Barra superior guardada');
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al guardar banner'); }
+  });
+
+  document.getElementById('form-create-popup').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        title: document.getElementById('popup-title').value,
+        content: document.getElementById('popup-content').value,
+        is_active: document.getElementById('popup-active').checked
+      };
+      
+      const existingId = document.getElementById('popup-id').value;
+      if (existingId) {
+        await supabase.from('system_popups').update(payload).eq('id', existingId);
+      } else {
+        await supabase.from('system_popups').insert([payload]);
+      }
+      
+      if (payload.is_active && existingId) {
+         await supabase.from('system_popups').update({is_active: false}).neq('id', existingId);
+      }
+
+      alert('Pop-up guardado');
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al guardar pop-up'); }
+  });
+
   document.getElementById('form-create-notification').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
+      const target = document.getElementById('notif-target').value;
+      let userId = null;
+      if (target === 'individual') {
+        userId = document.getElementById('notif-user-id').value;
+        if (!userId) {
+          alert('Debes seleccionar un usuario para el envío individual');
+          return;
+        }
+      }
+
       await supabase.from('dashboard_notifications').insert([{
         title: document.getElementById('notif-title').value,
         message: document.getElementById('notif-message').value,
-        target_role: document.getElementById('notif-target').value,
-        user_id: null // Global broadcast based on target_role
+        target_role: target,
+        user_id: userId
       }]);
-      alert('Notificación enviada exitosamente');
+      alert('Notificación de Inbox enviada exitosamente');
       e.target.reset();
+      document.getElementById('notif-individual-container').style.display = 'none';
       loadAdminData();
     } catch(err) { console.error(err); alert('Error al enviar notificación'); }
   });

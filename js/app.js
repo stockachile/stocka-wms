@@ -117,6 +117,11 @@ async function init() {
       userEmailSpan.textContent = displayName;
     }
 
+    // Check system banners and popups
+    if (typeof window.checkSystemCommunications === 'function') {
+      window.checkSystemCommunications(currentMerchantId);
+    }
+
     // Navigation Logic Setup
     if (navItems) {
       navItems.forEach(item => {
@@ -260,22 +265,27 @@ async function initNotifications(userId) {
 
   async function fetchNotifications() {
     try {
-      const { data, error } = await supabase
-        .from('dashboard_notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(10);
+      if (!currentMerchantId) return;
+      // Fetch user's read records
+      const { data: readRecords } = await supabase.from('user_notification_reads').select('entity_id').eq('user_id', currentMerchantId).eq('entity_type', 'notification');
+      const readIds = readRecords ? readRecords.map(r => r.entity_id) : [];
 
+      const rolesToMatch = ['all', userRole];
+      const { data, error } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false }).limit(30);
       if (error) throw error;
 
-      if (!data || data.length === 0) {
+      const filteredData = data ? data.filter(n => {
+        return (rolesToMatch.includes(n.target_role) && !n.user_id) || n.user_id === currentMerchantId;
+      }) : [];
+
+      if (!filteredData || filteredData.length === 0) {
         list.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>';
         badge.style.display = 'none';
         markReadBtn.style.display = 'none';
         return;
       }
 
-      const unreadCount = data.filter(n => !n.is_read).length;
+      const unreadCount = filteredData.filter(n => !readIds.includes(n.id)).length;
       if (unreadCount > 0) {
         badge.textContent = unreadCount;
         badge.style.display = 'flex';
@@ -285,24 +295,24 @@ async function initNotifications(userId) {
         markReadBtn.style.display = 'none';
       }
 
-      list.innerHTML = data.map(n => `
-        <div class="notification-item ${n.is_read ? '' : 'unread'}" data-id="${n.id}">
+      list.innerHTML = filteredData.map(n => {
+        const isReadLocally = readIds.includes(n.id);
+        return `
+        <div class="notification-item ${isReadLocally ? '' : 'unread'}" data-id="${n.id}">
           <div class="notification-title">${n.title}</div>
           <div class="notification-message">${n.message}</div>
           <span class="notification-time">${new Date(n.created_at).toLocaleString()}</span>
         </div>
-      `).join('');
+      `}).join('');
 
-      // Add click to mark as read
       document.querySelectorAll('.notification-item.unread').forEach(item => {
         item.addEventListener('click', async () => {
           const id = item.getAttribute('data-id');
-          await supabase.from('dashboard_notifications').update({ is_read: true }).eq('id', id);
+          await supabase.from('user_notification_reads').insert([{ user_id: currentMerchantId, entity_type: 'notification', entity_id: id }]);
           item.classList.remove('unread');
-          fetchNotifications(); // Refresh count
+          fetchNotifications();
         });
       });
-
     } catch (err) {
       console.error('Error fetching notifications:', err);
     }
@@ -312,10 +322,14 @@ async function initNotifications(userId) {
     markReadBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        const { data } = await supabase.from('dashboard_notifications').select('id').eq('is_read', false);
-        if(data && data.length > 0) {
-          const ids = data.map(n => n.id);
-          await supabase.from('dashboard_notifications').update({ is_read: true }).in('id', ids);
+        const unreadItems = document.querySelectorAll('.notification-item.unread');
+        const inserts = Array.from(unreadItems).map(item => ({
+          user_id: currentMerchantId,
+          entity_type: 'notification',
+          entity_id: item.getAttribute('data-id')
+        }));
+        if(inserts.length > 0) {
+          await supabase.from('user_notification_reads').insert(inserts);
           fetchNotifications();
         }
       } catch(err) { console.error(err); }
@@ -2603,14 +2617,15 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
 // ==========================================
 
 function getObserverBanner() {
+  let html = window.activeSystemBannerHtml || '';
   if (userRole === 'observer') {
-    return `
+    html += `
       <div class="observer-banner" style="background-color: #fef3c7; color: #d97706; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; border: 1px solid #fde68a; font-size: 0.9rem;">
         <span><i class="ri-error-warning-line"></i></span> <strong>Modo Observador:</strong> Tienes acceso de solo lectura. No puedes realizar acciones, crear pedidos/productos ni modificar integraciones.
       </div>
     `;
   }
-  return '';
+  return html;
 }
 
 async function renderProfile() {
@@ -4056,4 +4071,97 @@ window.openSalesDetail = function(dataStr) {
     console.error(e);
     alert('Error al abrir detalle de venta');
   }
+};
+
+// ==========================================
+// System Communications (Banners & Popups)
+// ==========================================
+window.activeSystemBannerHtml = '';
+
+window.checkSystemCommunications = async function(userId) {
+  try {
+    // 1. Fetch active Banner
+    const { data: banners } = await supabase.from('system_banners').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(1);
+    if (banners && banners.length > 0) {
+      const banner = banners[0];
+      const { data: readBanner } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'banner').eq('entity_id', banner.id);
+      if (!readBanner || readBanner.length === 0) {
+        window.activeSystemBannerHtml = `
+          <div id="system-banner-${banner.id}" style="background-color: ${banner.bg_color || '#2563eb'}; color: ${banner.text_color || '#ffffff'}; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+            <div style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-information-fill"></i> ${banner.content}</div>
+            <button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex;"><i class="ri-close-line"></i></button>
+          </div>
+        `;
+        // Force refresh the current view if it's already rendered
+        const activeNav = document.querySelector('.nav-item.active');
+        if (activeNav) {
+          // Instead of full click, if view is dashboard, we just re-render to avoid loop if not handled well
+          const view = activeNav.getAttribute('data-view');
+          if (view === 'dashboard') {
+             // Let it be, the initial renderDashboard is usually called AFTER this if it's the first load
+             // Or we just re-render appContent
+          }
+        }
+      }
+    }
+
+    // 2. Fetch active Popup
+    const { data: popups } = await supabase.from('system_popups').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(1);
+    if (popups && popups.length > 0) {
+      const popup = popups[0];
+      const { data: readPopup } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'popup').eq('entity_id', popup.id);
+      if (!readPopup || readPopup.length === 0) {
+        window.showSystemPopupModal(popup, userId);
+      }
+    }
+  } catch (err) {
+    console.error('Error checking system communications:', err);
+  }
+};
+
+window.dismissSystemBanner = async function(bannerId, userId) {
+  const el = document.getElementById(`system-banner-${bannerId}`);
+  if (el) el.style.display = 'none';
+  window.activeSystemBannerHtml = '';
+  await supabase.from('user_notification_reads').insert([{ user_id: userId, entity_type: 'banner', entity_id: bannerId }]);
+};
+
+window.showSystemPopupModal = function(popup, userId) {
+  const modalId = 'system-popup-modal';
+  if (document.getElementById(modalId)) return;
+  
+  const modal = document.createElement('div');
+  modal.id = modalId;
+  modal.style.position = 'fixed';
+  modal.style.top = '0';
+  modal.style.left = '0';
+  modal.style.width = '100vw';
+  modal.style.height = '100vh';
+  modal.style.backgroundColor = 'rgba(0,0,0,0.6)';
+  modal.style.zIndex = '999999';
+  modal.style.display = 'flex';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
+  modal.style.backdropFilter = 'blur(4px)';
+  
+  const formattedContent = popup.content.replace(/\n/g, '<br>');
+  
+  modal.innerHTML = `
+    <div style="background: var(--color-surface); padding: 2rem; border-radius: var(--radius-lg); max-width: 500px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); position: relative; animation: slideUp 0.3s ease-out forwards;">
+      <h3 style="margin-top: 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--color-border);">
+        <i class="ri-notification-3-line" style="color: var(--color-accent);"></i> ${popup.title}
+      </h3>
+      <div style="color: var(--color-text-muted); line-height: 1.6; margin-bottom: 2rem; margin-top: 1.5rem; font-size: 1rem; max-height: 50vh; overflow-y: auto;">
+        ${formattedContent}
+      </div>
+      <button onclick="dismissSystemPopup('${popup.id}', '${userId}')" class="btn btn-primary" style="width: 100%; background-color: var(--color-accent); font-size: 1rem; padding: 0.75rem;">Entendido, cerrar aviso</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+window.dismissSystemPopup = async function(popupId, userId) {
+  const modal = document.getElementById('system-popup-modal');
+  if (modal) modal.remove();
+  await supabase.from('user_notification_reads').insert([{ user_id: userId, entity_type: 'popup', entity_id: popupId }]);
 };
