@@ -39,7 +39,12 @@ let userRole = 'observer';
 let currentMerchantId = null;
 let currentCompany = null;
 
-function getCompanyList() {
+// Global state for calendar component
+window.appCalendarState = {
+  currentDate: new Date(),
+  events: [],
+  selectedDateStr: null
+};
   const companyList = [];
   if (currentCompany) {
     currentCompany.split(',').forEach(c => {
@@ -359,38 +364,8 @@ async function renderDashboard() {
       });
     }
 
-    // Obtener Calendario y Noticias
-    const { data: events, error: evErr } = await supabase
-      .from('dashboard_events')
-      .select('*')
-      .gte('event_date', new Date().toISOString())
-      .order('event_date', { ascending: true })
-      .limit(5);
-
+    // Obtener Noticias (El calendario se carga asíncronamente)
     const { data: news, error: newsErr } = await supabase
-      .from('dashboard_news')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    let eventsHtml = '';
-    if (!events || events.length === 0) {
-      eventsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay eventos próximos programados.</div>';
-    } else {
-      eventsHtml = events.map(e => `
-        <div class="dashboard-list-item">
-          <div class="event-date">
-            <div style="font-size: 1.1rem; color: var(--color-text-main); line-height: 1;">${new Date(e.event_date).getDate()}</div>
-            <div style="font-size: 0.75rem; text-transform: uppercase;">${new Date(e.event_date).toLocaleString('es', { month: 'short' })}</div>
-          </div>
-          <div class="event-dot ${e.color_type || 'info'}"></div>
-          <div class="item-content">
-            <h4>${e.title}</h4>
-            <p>${e.description || 'Sin descripción adicional.'}</p>
-          </div>
-        </div>
-      `).join('');
-    }
 
     let newsHtml = '';
     if (!news || news.length === 0) {
@@ -458,8 +433,12 @@ async function renderDashboard() {
           <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
             <h3 style="margin: 0;"><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Calendario de Operaciones</h3>
           </div>
-          <div class="card-body" style="padding: 0; flex: 1;">
-            ${eventsHtml}
+          <div class="card-body" style="padding: 0; flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
+            <div id="calendar-grid-container" style="border-right: 1px solid var(--color-border); min-height: 380px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+              <div style="color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem;"></i> Cargando calendario...</div>
+            </div>
+            <div id="calendar-list-container" style="min-height: 380px;">
+            </div>
           </div>
         </div>
 
@@ -478,7 +457,73 @@ async function renderDashboard() {
     console.error('Error rendering dashboard:', error);
     appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
   }
+
+  // Load dynamic calendar data
+  if (typeof window.updateCalendarView_app === 'function') {
+    window.updateCalendarView_app();
+  }
 }
+
+window.updateCalendarView_app = async function() {
+  const startOfMonth = new Date(window.appCalendarState.currentDate.getFullYear(), window.appCalendarState.currentDate.getMonth(), 1).toISOString();
+  
+  const { data: events } = await supabase
+    .from('dashboard_events')
+    .select('*')
+    .gte('event_date', startOfMonth)
+    .order('event_date', { ascending: true });
+    
+  window.appCalendarState.events = events || [];
+  
+  const gridContainer = document.getElementById('calendar-grid-container');
+  const listContainer = document.getElementById('calendar-list-container');
+  
+  if (gridContainer && listContainer && window.renderCalendarUI) {
+    gridContainer.style.display = 'block'; // reset flex used for loader
+    gridContainer.innerHTML = window.renderCalendarUI(window.appCalendarState.events, window.appCalendarState.currentDate, window.appCalendarState.selectedDateStr);
+    listContainer.innerHTML = window.renderEventsListUI(window.appCalendarState.events, window.appCalendarState.selectedDateStr);
+    window.setupCalendarListeners_app();
+  }
+};
+
+window.setupCalendarListeners_app = function() {
+  const prevBtn = document.getElementById('cal-prev-month');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      window.appCalendarState.currentDate.setMonth(window.appCalendarState.currentDate.getMonth() - 1);
+      window.appCalendarState.selectedDateStr = null;
+      window.updateCalendarView_app();
+    });
+  }
+  
+  const nextBtn = document.getElementById('cal-next-month');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      window.appCalendarState.currentDate.setMonth(window.appCalendarState.currentDate.getMonth() + 1);
+      window.appCalendarState.selectedDateStr = null;
+      window.updateCalendarView_app();
+    });
+  }
+
+  document.querySelectorAll('.cal-day-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const dateStr = cell.getAttribute('data-date');
+      if (window.appCalendarState.selectedDateStr === dateStr) {
+        window.appCalendarState.selectedDateStr = null; // toggle off
+      } else {
+        window.appCalendarState.selectedDateStr = dateStr;
+      }
+      
+      const gridContainer = document.getElementById('calendar-grid-container');
+      const listContainer = document.getElementById('calendar-list-container');
+      if (gridContainer && listContainer && window.renderCalendarUI) {
+        gridContainer.innerHTML = window.renderCalendarUI(window.appCalendarState.events, window.appCalendarState.currentDate, window.appCalendarState.selectedDateStr);
+        listContainer.innerHTML = window.renderEventsListUI(window.appCalendarState.events, window.appCalendarState.selectedDateStr);
+        window.setupCalendarListeners_app();
+      }
+    });
+  });
+};
 
 async function renderInventory() {
   const appContent = document.getElementById('app-content');

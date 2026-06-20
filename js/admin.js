@@ -2444,10 +2444,18 @@ async function renderAdminDashboard() {
       <!-- Gestión de Eventos -->
       <div class="card" style="grid-column: 1 / -1;">
         <div class="card-header">
-          <h3><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Gestión de Eventos</h3>
+          <h3><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Gestión de Eventos y Calendario</h3>
         </div>
-        <div class="card-body" style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
-          <div>
+        <div class="card-body" style="display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 1rem;">
+          <div id="admin-calendar-grid-container" style="border-right: 1px solid var(--color-border); padding-right: 0.5rem; min-height: 380px; display: flex; align-items: center; justify-content: center; flex-direction: column;">
+            <div style="color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem;"></i> Cargando calendario...</div>
+          </div>
+          <div id="admin-calendar-list-container" style="border-right: 1px solid var(--color-border); padding-right: 0.5rem; min-height: 380px;">
+          </div>
+          <div style="padding-left: 0.5rem;">
+            <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem; background-color: var(--color-surface); border-radius: var(--radius-md) var(--radius-md) 0 0;">
+              <h4 style="margin: 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-add-circle-line" style="color: var(--color-primary);"></i> Crear o Editar Evento</h4>
+            </div>
             <form id="form-create-event">
               <input type="hidden" id="event-id">
               <div class="form-group">
@@ -2476,10 +2484,6 @@ async function renderAdminDashboard() {
                 <button type="button" id="btn-cancel-event" class="btn btn-outline" style="display: none;">Cancelar</button>
               </div>
             </form>
-          </div>
-          <div>
-            <h4>Eventos Agendados</h4>
-            <div id="admin-events-list" style="max-height: 400px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
           </div>
         </div>
       </div>
@@ -2523,6 +2527,7 @@ async function renderAdminDashboard() {
   async function loadAdminData() {
     // Load News
     const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    window.adminNewsData = news || [];
     const newsList = document.getElementById('admin-news-list');
     if(news && news.length > 0) {
       newsList.innerHTML = news.map(n => `
@@ -2543,22 +2548,20 @@ async function renderAdminDashboard() {
 
     // Load Events
     const { data: events } = await supabase.from('dashboard_events').select('*').order('event_date', { ascending: false });
-    const eventsList = document.getElementById('admin-events-list');
-    if(events && events.length > 0) {
-      eventsList.innerHTML = events.map(e => `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 600;"><span class="event-dot ${e.color_type}" style="display:inline-block; margin-right:5px;"></span> ${e.title}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted);">${new Date(e.event_date).toLocaleString()}</div>
-          </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-outline edit-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem;"><i class="ri-edit-line"></i></button>
-            <button class="btn btn-outline delete-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
-          </div>
-        </div>
-      `).join('');
-    } else {
-      eventsList.innerHTML = '<p style="color: var(--color-text-muted);">No hay eventos agendados.</p>';
+    
+    // Initialize Admin Calendar State if not exists
+    if (!window.adminCalendarState) {
+      window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
+    }
+    window.adminCalendarState.events = events || [];
+
+    const gridContainer = document.getElementById('admin-calendar-grid-container');
+    const listContainer = document.getElementById('admin-calendar-list-container');
+    if (gridContainer && listContainer && window.renderCalendarUI) {
+      gridContainer.style.display = 'block';
+      gridContainer.innerHTML = window.renderCalendarUI(window.adminCalendarState.events, window.adminCalendarState.currentDate, window.adminCalendarState.selectedDateStr);
+      listContainer.innerHTML = renderAdminEventsListUI(window.adminCalendarState.events, window.adminCalendarState.selectedDateStr);
+      setupCalendarListeners_admin();
     }
 
     // Load Notifications
@@ -2645,6 +2648,101 @@ async function renderAdminDashboard() {
           document.getElementById('event-color').value = ev.color_type;
           document.getElementById('btn-save-event').textContent = 'Actualizar Evento';
           document.getElementById('btn-cancel-event').style.display = 'block';
+        }
+      });
+    });
+  }
+
+  function renderAdminEventsListUI(events, selectedDateStr) {
+    let filteredEvents = events;
+    let title = 'Todos los Eventos (Admin)';
+
+    if (selectedDateStr) {
+      filteredEvents = events.filter(e => e.event_date.startsWith(selectedDateStr));
+      const [y, m, d] = selectedDateStr.split('-');
+      title = `Eventos del ${d}/${m}/${y}`;
+    }
+
+    if (filteredEvents.length === 0) {
+      return `
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0;">
+          <h4 style="margin: 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-list-check" style="color: var(--color-primary);"></i> ${title}</h4>
+        </div>
+        <div style="padding: 3rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
+          <i class="ri-calendar-check-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; opacity: 0.3; color: var(--color-text-muted);"></i>
+          No hay eventos programados.
+        </div>`;
+    }
+
+    const listHtml = filteredEvents.map(e => {
+      const d = new Date(e.event_date);
+      const timeStr = d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
+      let colorClass = e.color_type || 'primary';
+      if (colorClass === 'info') colorClass = 'primary';
+      
+      return `
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: flex-start; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
+          <div style="flex: 1;">
+            <div style="font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background-color: var(--color-${colorClass}); display: inline-block;"></span>
+              ${e.title}
+            </div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem;"><i class="ri-time-line"></i> ${timeStr} - ${d.toLocaleDateString('es')}</div>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">${e.description || 'Sin descripción'}</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; margin-left: 1rem;">
+            <button class="btn btn-outline edit-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; border-color: var(--color-border);"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-surface); border-radius: 0 var(--radius-md) 0 0;">
+        <h4 style="margin: 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-list-check" style="color: var(--color-primary);"></i> ${title}</h4>
+      </div>
+      <div style="max-height: 380px; overflow-y: auto;">
+        ${listHtml}
+      </div>
+    `;
+  }
+
+  function setupCalendarListeners_admin() {
+    const prevBtn = document.getElementById('cal-prev-month');
+    if (prevBtn) {
+      prevBtn.addEventListener('click', () => {
+        window.adminCalendarState.currentDate.setMonth(window.adminCalendarState.currentDate.getMonth() - 1);
+        window.adminCalendarState.selectedDateStr = null;
+        loadAdminData(); // re-render
+      });
+    }
+    
+    const nextBtn = document.getElementById('cal-next-month');
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        window.adminCalendarState.currentDate.setMonth(window.adminCalendarState.currentDate.getMonth() + 1);
+        window.adminCalendarState.selectedDateStr = null;
+        loadAdminData();
+      });
+    }
+
+    document.querySelectorAll('.cal-day-cell').forEach(cell => {
+      cell.addEventListener('click', () => {
+        const dateStr = cell.getAttribute('data-date');
+        if (window.adminCalendarState.selectedDateStr === dateStr) {
+          window.adminCalendarState.selectedDateStr = null;
+        } else {
+          window.adminCalendarState.selectedDateStr = dateStr;
+        }
+        
+        const gridContainer = document.getElementById('admin-calendar-grid-container');
+        const listContainer = document.getElementById('admin-calendar-list-container');
+        if (gridContainer && listContainer && window.renderCalendarUI) {
+          gridContainer.innerHTML = window.renderCalendarUI(window.adminCalendarState.events, window.adminCalendarState.currentDate, window.adminCalendarState.selectedDateStr);
+          listContainer.innerHTML = renderAdminEventsListUI(window.adminCalendarState.events, window.adminCalendarState.selectedDateStr);
+          setupCalendarListeners_admin();
+          attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events); // Re-attach because list re-rendered
         }
       });
     });
