@@ -683,7 +683,7 @@ async function renderMovements() {
       });
     }
 
-    appContent.innerHTML = `
+    appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header flex justify-between items-center">
           <h3>Historial de Movimientos</h3>
@@ -742,7 +742,7 @@ async function renderWarehouses() {
       });
     }
 
-    appContent.innerHTML = `
+    appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header">
           <h3>Bodegas Asignadas</h3>
@@ -932,7 +932,7 @@ async function renderOrders() {
 
 async function renderPending() {
   const appContent = document.getElementById('app-content');
-    appContent.innerHTML = `
+    appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header">
           <h3>Stock Pendiente de Asignación</h3>
@@ -1744,7 +1744,7 @@ async function renderShipments() {
     let totalFilteredRows = 0;
 
     // Render basic page wrapper with KPI grid, filters layout, and table skeleton
-    appContent.innerHTML = `
+    appContent.innerHTML = getObserverBanner() + `
       <div style="margin-bottom: 2rem;">
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Resumen de Despachos</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
