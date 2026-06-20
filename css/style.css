@@ -726,58 +726,97 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ==========================================================================
-   Theme Toggle Button Styles
+   Theme Toggle Button Styles — Pill Switch
    ========================================================================== */
 .theme-toggle-btn {
-  background-color: var(--color-surface-hover);
+  position: relative;
+  width: 64px;
+  height: 32px;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
   border: 1px solid var(--color-border);
   cursor: pointer;
-  padding: 0.5rem;
-  border-radius: var(--radius-full);
+  padding: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: var(--color-text-main);
-  transition: all 0.2s ease;
-  width: 40px;
-  height: 40px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: var(--shadow-sm);
+  justify-content: space-between;
+  padding: 0 6px;
+  transition: background 0.35s ease, border-color 0.35s ease, box-shadow 0.2s;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.15);
+  overflow: visible;
+  flex-shrink: 0;
 }
 
 .theme-toggle-btn:hover {
-  background-color: var(--color-bg);
   border-color: var(--color-primary);
-  transform: scale(1.05);
-  box-shadow: var(--shadow-md);
-  color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15), inset 0 1px 3px rgba(0,0,0,0.1);
 }
 
-.theme-toggle-icon {
+/* The sliding knob */
+.theme-toggle-btn::after {
+  content: '';
   position: absolute;
-  transition: all 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  top: 3px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.35s;
+  z-index: 2;
 }
 
+/* Dark mode: shift knob right + warm amber tones */
+html[data-theme="dark"] .theme-toggle-btn {
+  background: linear-gradient(135deg, #312e81, #4f46e5);
+  border-color: #4f46e5;
+}
+
+html[data-theme="dark"] .theme-toggle-btn::after {
+  transform: translateX(30px);
+  background: #fbbf24;
+  box-shadow: 0 1px 6px rgba(251, 191, 36, 0.5);
+}
+
+/* Light mode: cool sky tones */
+html:not([data-theme="dark"]) .theme-toggle-btn {
+  background: linear-gradient(135deg, #e0f2fe, #bae6fd);
+  border-color: #7dd3fc;
+}
+
+/* Icons inside the pill */
 .sun-icon {
+  width: 14px;
+  height: 14px;
+  color: #f59e0b;
   opacity: 1;
-  transform: translateY(0) rotate(0deg);
+  transition: opacity 0.3s, transform 0.3s;
+  transform: scale(1);
+  z-index: 1;
+  flex-shrink: 0;
 }
 
 .moon-icon {
-  opacity: 0;
-  transform: translateY(30px) rotate(45deg);
+  width: 14px;
+  height: 14px;
+  color: #e0e7ff;
+  opacity: 0.4;
+  transition: opacity 0.3s, transform 0.3s;
+  transform: scale(0.85);
+  z-index: 1;
+  flex-shrink: 0;
 }
 
-/* Dark Mode Icon Transitions */
+/* Dark Mode: highlight moon, dim sun */
 html[data-theme="dark"] .sun-icon {
-  opacity: 0;
-  transform: translateY(-30px) rotate(-45deg);
+  opacity: 0.35;
+  transform: scale(0.85);
 }
 
 html[data-theme="dark"] .moon-icon {
   opacity: 1;
-  transform: translateY(0) rotate(0deg);
+  transform: scale(1);
 }
 
 /* Floating Auth Theme Toggle */
