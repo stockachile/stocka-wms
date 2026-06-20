@@ -70,6 +70,7 @@ BEGIN
   END LOOP;
 END $$;
 
+ALTER TABLE public.merchant_integrations DROP CONSTRAINT IF EXISTS merchant_integrations_comercio_platform_key;
 ALTER TABLE public.merchant_integrations ADD CONSTRAINT merchant_integrations_comercio_platform_key UNIQUE (comercio, platform);
 
 -- 5. Recrear políticas de seguridad RLS basadas en el Comercio
@@ -319,6 +320,6 @@ BEGIN
   END LOOP;
 END $$;
 
--- 7. Reemplazar la restricción de unicidad en la tabla products
 ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_merchant_id_sku_key;
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS products_comercio_sku_key;
 ALTER TABLE public.products ADD CONSTRAINT products_comercio_sku_key UNIQUE (comercio, sku);
