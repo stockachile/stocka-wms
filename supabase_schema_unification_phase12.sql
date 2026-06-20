@@ -49,6 +49,27 @@ UPDATE public.order_alerts SET comercio = 'STOCKA' WHERE comercio IS NULL;
 
 -- 4. Reemplazar la restricción de unicidad en merchant_integrations
 ALTER TABLE public.merchant_integrations DROP CONSTRAINT IF EXISTS merchant_integrations_merchant_id_platform_key;
+
+-- Limpiar duplicados de merchant_integrations para el mismo (comercio, platform)
+DO $$
+DECLARE
+  r RECORD;
+  v_kept_id UUID;
+BEGIN
+  FOR r IN 
+    SELECT comercio, platform, COUNT(*), MIN(id::text)::uuid as kept_id
+    FROM public.merchant_integrations
+    GROUP BY comercio, platform
+    HAVING COUNT(*) > 1
+  LOOP
+    v_kept_id := r.kept_id;
+    
+    -- Eliminar las entradas duplicadas menos la conservada
+    DELETE FROM public.merchant_integrations
+    WHERE comercio = r.comercio AND platform = r.platform AND id <> v_kept_id;
+  END LOOP;
+END $$;
+
 ALTER TABLE public.merchant_integrations ADD CONSTRAINT merchant_integrations_comercio_platform_key UNIQUE (comercio, platform);
 
 -- 5. Recrear políticas de seguridad RLS basadas en el Comercio

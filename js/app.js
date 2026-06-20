@@ -120,7 +120,10 @@ async function init() {
 
           const view = e.target.getAttribute('data-view');
           
-          if (view === 'inventory') {
+          if (view === 'dashboard') {
+            viewTitle.textContent = 'Dashboard';
+            renderDashboard();
+          } else if (view === 'inventory') {
             viewTitle.textContent = 'Inventario';
             renderInventory();
           } else if (view === 'orders') {
@@ -169,7 +172,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view)) {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -188,13 +191,13 @@ async function init() {
 
     // Initial View selection based on allowed modules for Client
     if (firstVisibleItem) {
-      const defaultView = 'inventory';
-      const isDefaultAllowed = (allowedModulesStr === 'all' || allowedModules.includes(defaultView));
+      const defaultView = 'dashboard';
+      const isDefaultAllowed = true; // Dashboard is default for everyone
       
       if (isDefaultAllowed) {
-        console.log('DEBUG: Renderizando vista inicial de inventario...');
-        viewTitle.textContent = 'Inventario';
-        renderInventory();
+        console.log('DEBUG: Renderizando vista inicial Dashboard...');
+        viewTitle.textContent = 'Dashboard';
+        renderDashboard();
       } else {
         console.log('DEBUG: Vista de inventario restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
         firstVisibleItem.click();
@@ -214,6 +217,9 @@ async function init() {
       });
     }
 
+    // Notification Logic
+    initNotifications(session.user.id);
+
   } catch (err) {
     console.error('DEBUG: Error crítico durante la inicialización de app.js:', err);
   }
@@ -223,6 +229,256 @@ async function init() {
 init();
 
 // Supabase Rendering Functions
+
+// Helper para notificaciones
+async function initNotifications(userId) {
+  const btn = document.getElementById('notification-btn');
+  const dropdown = document.getElementById('notification-dropdown');
+  const badge = document.getElementById('notification-badge');
+  const list = document.getElementById('notification-list');
+  const markReadBtn = document.getElementById('mark-all-read-btn');
+
+  if (!btn || !dropdown) return;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== btn) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  async function fetchNotifications() {
+    try {
+      const { data, error } = await supabase
+        .from('dashboard_notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        list.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>';
+        badge.style.display = 'none';
+        markReadBtn.style.display = 'none';
+        return;
+      }
+
+      const unreadCount = data.filter(n => !n.is_read).length;
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount;
+        badge.style.display = 'flex';
+        markReadBtn.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+        markReadBtn.style.display = 'none';
+      }
+
+      list.innerHTML = data.map(n => `
+        <div class="notification-item ${n.is_read ? '' : 'unread'}" data-id="${n.id}">
+          <div class="notification-title">${n.title}</div>
+          <div class="notification-message">${n.message}</div>
+          <span class="notification-time">${new Date(n.created_at).toLocaleString()}</span>
+        </div>
+      `).join('');
+
+      // Add click to mark as read
+      document.querySelectorAll('.notification-item.unread').forEach(item => {
+        item.addEventListener('click', async () => {
+          const id = item.getAttribute('data-id');
+          await supabase.from('dashboard_notifications').update({ is_read: true }).eq('id', id);
+          item.classList.remove('unread');
+          fetchNotifications(); // Refresh count
+        });
+      });
+
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
+  }
+
+  if(markReadBtn) {
+    markReadBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        const { data } = await supabase.from('dashboard_notifications').select('id').eq('is_read', false);
+        if(data && data.length > 0) {
+          const ids = data.map(n => n.id);
+          await supabase.from('dashboard_notifications').update({ is_read: true }).in('id', ids);
+          fetchNotifications();
+        }
+      } catch(err) { console.error(err); }
+    });
+  }
+
+  fetchNotifications();
+  // Set interval to poll notifications every 2 minutes
+  setInterval(fetchNotifications, 120000);
+}
+
+// Render Dashboard
+async function renderDashboard() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando dashboard...</p>';
+
+  try {
+    // Obtener estadísticas rápidas
+    const companyList = getCompanyList();
+    let invQuery = supabase.from('inventory').select('quantity, committed_quantity');
+    let ordQuery = supabase.from('orders').select('id, status');
+    
+    if (companyList.length > 0) {
+      invQuery = supabase.from('inventory').select('quantity, committed_quantity, products!inner(comercio)').in('products.comercio', companyList);
+      ordQuery = ordQuery.in('comercio', companyList);
+    } else {
+      invQuery = supabase.from('inventory').select('quantity, committed_quantity, products!inner(comercio)').eq('products.comercio', 'no asignado');
+      ordQuery = ordQuery.eq('comercio', 'no asignado');
+    }
+
+    const [invRes, ordRes] = await Promise.all([invQuery, ordQuery]);
+
+    let totalStock = 0;
+    let availableStock = 0;
+    if (invRes.data) {
+      invRes.data.forEach(i => {
+        totalStock += i.quantity;
+        availableStock += (i.quantity - i.committed_quantity);
+      });
+    }
+
+    let activeOrders = 0;
+    let completedOrders = 0;
+    if (ordRes.data) {
+      ordRes.data.forEach(o => {
+        if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
+        if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
+      });
+    }
+
+    // Obtener Calendario y Noticias
+    const { data: events, error: evErr } = await supabase
+      .from('dashboard_events')
+      .select('*')
+      .gte('event_date', new Date().toISOString())
+      .order('event_date', { ascending: true })
+      .limit(5);
+
+    const { data: news, error: newsErr } = await supabase
+      .from('dashboard_news')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    let eventsHtml = '';
+    if (!events || events.length === 0) {
+      eventsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay eventos próximos programados.</div>';
+    } else {
+      eventsHtml = events.map(e => `
+        <div class="dashboard-list-item">
+          <div class="event-date">
+            <div style="font-size: 1.1rem; color: var(--color-text-main); line-height: 1;">${new Date(e.event_date).getDate()}</div>
+            <div style="font-size: 0.75rem; text-transform: uppercase;">${new Date(e.event_date).toLocaleString('es', { month: 'short' })}</div>
+          </div>
+          <div class="event-dot ${e.color_type || 'info'}"></div>
+          <div class="item-content">
+            <h4>${e.title}</h4>
+            <p>${e.description || 'Sin descripción adicional.'}</p>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    let newsHtml = '';
+    if (!news || news.length === 0) {
+      newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
+    } else {
+      newsHtml = news.map(n => `
+        <div class="dashboard-list-item" style="flex-direction: column; gap: 0.5rem;">
+          <div class="item-content" style="width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <h4 style="margin:0;">${n.title}</h4>
+              <span style="font-size: 0.7rem; color: var(--color-text-muted);">${new Date(n.created_at).toLocaleDateString()}</span>
+            </div>
+            ${n.subtitle ? `<div style="font-size: 0.85rem; font-weight: 600; color: var(--color-primary); margin-bottom: 0.5rem;">${n.subtitle}</div>` : ''}
+            <p style="-webkit-line-clamp: 3;">${n.body}</p>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    appContent.innerHTML = getObserverBanner() + `
+      <div class="dashboard-hero">
+        <h2>Bienvenido a STOCKA OS</h2>
+        <p>Tu Centro de Comando Modular para la gestión integral de inventario, despachos y logística inversa.</p>
+        <button class="btn btn-primary" style="margin-top: 1.5rem; border-radius: 99px; padding: 0.5rem 1.5rem;" onclick="document.querySelector('[data-view=\\'inventory\\']').click()">
+          <i class="ri-play-circle-line" style="margin-right: 0.5rem;"></i> Comenzar
+        </button>
+      </div>
+
+      <div style="margin-bottom: 2rem;">
+        <h3 style="margin-bottom: 1rem; font-size: 1.25rem;">Métricas Principales</h3>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem;">
+          <div class="stat-card stat-card-blue">
+            <i class="ri-box-3-line stat-icon"></i>
+            <div>
+              <div class="stat-value">${totalStock}</div>
+              <div class="stat-label">Stock Físico Total</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-green">
+            <i class="ri-check-double-line stat-icon"></i>
+            <div>
+              <div class="stat-value">${availableStock}</div>
+              <div class="stat-label">Stock Disponible</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-yellow">
+            <i class="ri-time-line stat-icon"></i>
+            <div>
+              <div class="stat-value">${activeOrders}</div>
+              <div class="stat-label">Pedidos en Proceso</div>
+            </div>
+          </div>
+          <div class="stat-card stat-card-purple">
+            <i class="ri-truck-line stat-icon"></i>
+            <div>
+              <div class="stat-value">${completedOrders}</div>
+              <div class="stat-label">Pedidos Completados</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dashboard-grid">
+        <div class="card" style="display: flex; flex-direction: column;">
+          <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+            <h3 style="margin: 0;"><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Calendario de Operaciones</h3>
+          </div>
+          <div class="card-body" style="padding: 0; flex: 1;">
+            ${eventsHtml}
+          </div>
+        </div>
+
+        <div class="card" style="display: flex; flex-direction: column;">
+          <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+            <h3 style="margin: 0;"><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-accent);"></i> Noticias del Sistema</h3>
+          </div>
+          <div class="card-body" style="padding: 0; flex: 1;">
+            ${newsHtml}
+          </div>
+        </div>
+      </div>
+    `;
+
+  } catch (error) {
+    console.error('Error rendering dashboard:', error);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
+  }
+}
 
 async function renderInventory() {
   const appContent = document.getElementById('app-content');
@@ -658,35 +914,17 @@ async function renderIntegrations() {
       window.activeIntegrationCommerce = assignedComercios[0];
     }
 
-    // Obtener la integración de Shopify
-    const { data: shopifyIntegration, error: shopifyErr } = await supabase
+    // Obtener las integraciones de este comercio
+    const { data: integrationsList, error: fetchErr } = await supabase
       .from('merchant_integrations')
       .select('*')
-      .eq('comercio', window.activeIntegrationCommerce)
-      .eq('platform', 'Shopify')
-      .maybeSingle();
+      .eq('comercio', window.activeIntegrationCommerce);
 
-    if (shopifyErr) throw shopifyErr;
+    if (fetchErr) throw fetchErr;
 
-    // Obtener la integración de París
-    const { data: parisIntegration, error: parisErr } = await supabase
-      .from('merchant_integrations')
-      .select('*')
-      .eq('comercio', window.activeIntegrationCommerce)
-      .eq('platform', 'Paris')
-      .maybeSingle();
-
-    if (parisErr) throw parisErr;
-
-    // Obtener la integración de Falabella
-    const { data: falabellaIntegration, error: falabellaErr } = await supabase
-      .from('merchant_integrations')
-      .select('*')
-      .eq('comercio', window.activeIntegrationCommerce)
-      .eq('platform', 'Falabella')
-      .maybeSingle();
-
-    if (falabellaErr) throw falabellaErr;
+    const shopifyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Shopify') : null;
+    const parisIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Paris') : null;
+    const falabellaIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Falabella') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
