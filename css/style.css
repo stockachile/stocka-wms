@@ -787,35 +787,36 @@ html:not([data-theme="dark"]) .theme-toggle-btn {
 
 /* Icons inside the pill */
 .sun-icon {
-  width: 14px;
-  height: 14px;
-  color: #f59e0b;
+  font-size: 15px;
+  color: #b45309;
   opacity: 1;
   transition: opacity 0.3s, transform 0.3s;
   transform: scale(1);
   z-index: 1;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 .moon-icon {
-  width: 14px;
-  height: 14px;
-  color: #e0e7ff;
-  opacity: 0.4;
+  font-size: 15px;
+  color: #6366f1;
+  opacity: 0.35;
   transition: opacity 0.3s, transform 0.3s;
-  transform: scale(0.85);
+  transform: scale(0.8);
   z-index: 1;
   flex-shrink: 0;
+  line-height: 1;
 }
 
 /* Dark Mode: highlight moon, dim sun */
 html[data-theme="dark"] .sun-icon {
-  opacity: 0.35;
-  transform: scale(0.85);
+  opacity: 0.3;
+  transform: scale(0.8);
 }
 
 html[data-theme="dark"] .moon-icon {
   opacity: 1;
+  color: #fbbf24;
   transform: scale(1);
 }
 
