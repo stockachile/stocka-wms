@@ -302,7 +302,7 @@ async function initNotifications(userId) {
           <div class="notification-title">${n.title}</div>
           <div class="notification-message">${n.message}</div>
           <span class="notification-time">${new Date(n.created_at).toLocaleString()}</span>
-          ${!isReadLocally ? `<button class="mark-read-single-btn" data-id="${n.id}" title="Marcar como leída" style="position: absolute; right: 0.75rem; top: 1rem; background: none; border: none; color: var(--color-primary); cursor: pointer; transition: all 0.2s;"><i class="ri-check-double-line" style="font-size: 1.25rem;"></i></button>` : ''}
+          <button ${isReadLocally ? 'disabled' : ''} class="mark-read-single-btn" data-id="${n.id}" title="${isReadLocally ? 'Notificación leída' : 'Marcar como leída'}" style="position: absolute; right: 0.75rem; top: 1rem; background: none; border: none; color: ${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-primary)'}; cursor: ${isReadLocally ? 'default' : 'pointer'}; opacity: ${isReadLocally ? '0.4' : '1'}; transition: all 0.2s;"><i class="ri-check-double-line" style="font-size: 1.25rem;"></i></button>
         </div>
       `}).join('');
 
