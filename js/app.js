@@ -298,18 +298,19 @@ async function initNotifications(userId) {
       list.innerHTML = filteredData.map(n => {
         const isReadLocally = readIds.includes(n.id);
         return `
-        <div class="notification-item ${isReadLocally ? '' : 'unread'}" data-id="${n.id}">
+        <div class="notification-item ${isReadLocally ? '' : 'unread'}" data-id="${n.id}" style="position: relative; padding-right: 2.5rem;">
           <div class="notification-title">${n.title}</div>
           <div class="notification-message">${n.message}</div>
           <span class="notification-time">${new Date(n.created_at).toLocaleString()}</span>
+          ${!isReadLocally ? `<button class="mark-read-single-btn" data-id="${n.id}" title="Marcar como leída" style="position: absolute; right: 0.75rem; top: 1rem; background: none; border: none; color: var(--color-primary); cursor: pointer; transition: all 0.2s;"><i class="ri-check-double-line" style="font-size: 1.25rem;"></i></button>` : ''}
         </div>
       `}).join('');
 
-      document.querySelectorAll('.notification-item.unread').forEach(item => {
-        item.addEventListener('click', async () => {
-          const id = item.getAttribute('data-id');
+      document.querySelectorAll('.mark-read-single-btn').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.getAttribute('data-id');
           await supabase.from('user_notification_reads').insert([{ user_id: currentMerchantId, entity_type: 'notification', entity_id: id }]);
-          item.classList.remove('unread');
           fetchNotifications();
         });
       });
