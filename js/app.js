@@ -382,7 +382,7 @@ async function renderDashboard() {
     }
 
     // Obtener Noticias (El calendario se carga asíncronamente)
-    const { data: news, error: newsErr } = await supabase
+    const { data: news, error: newsErr } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
 
     let newsHtml = '';
     if (!news || news.length === 0) {
