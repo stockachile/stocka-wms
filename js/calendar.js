@@ -30,7 +30,10 @@ window.renderCalendarUI = function(events, currentDate, selectedDateStr) {
 
   for (let day = 1; day <= daysInMonth; day++) {
     const dStr = `${year}-${String(month+1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayEvents = events.filter(e => e.event_date.startsWith(dStr));
+    const dayEvents = events.filter(e => {
+      const datePart = e.event_date.split('T')[0].split(' ')[0];
+      return datePart === dStr;
+    });
     const hasEvents = dayEvents.length > 0;
     const isSelected = selectedDateStr === dStr;
     const isToday = dStr === todayStr;
@@ -41,7 +44,8 @@ window.renderCalendarUI = function(events, currentDate, selectedDateStr) {
         ${dayEvents.slice(0,3).map(e => {
             let col = e.color_type || 'primary';
             if (col === 'info') col = 'primary';
-            return `<div style="width: 5px; height: 5px; border-radius: 50%; background-color: var(--color-${col});"></div>`;
+            if (col === 'alert') col = 'danger';
+            return `<div style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--color-${col});"></div>`;
         }).join('')}
       </div>`;
     }
@@ -92,13 +96,14 @@ window.renderEventsListUI = function(events, selectedDateStr) {
   }
 
   const listHtml = filteredEvents.map(e => {
-    // Parse using local time assumption to avoid timezone jump
-    const [y,m,d] = e.event_date.split('T')[0].split('-');
+    const datePart = e.event_date.split('T')[0].split(' ')[0];
+    const [y,m,d] = datePart.split('-');
     const eDate = new Date(y, m - 1, d);
     const day = String(eDate.getDate()).padStart(2, '0');
     const month = eDate.toLocaleString('es', { month: 'short' });
     let colorClass = e.color_type || 'primary';
     if (colorClass === 'info') colorClass = 'primary';
+    if (colorClass === 'alert') colorClass = 'danger';
     
     return `
       <div style="display: flex; gap: 1rem; padding: 1rem; border-bottom: 1px solid var(--color-border); align-items: flex-start; transition: background-color 0.2s; cursor: default;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
