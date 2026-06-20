@@ -471,7 +471,7 @@ async function renderDashboard() {
 
   } catch (error) {
     console.error('Error rendering dashboard:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
   }
 
   // Load dynamic calendar data
@@ -543,7 +543,7 @@ window.setupCalendarListeners_app = function() {
 
 async function renderInventory() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando inventario...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando inventario...</p>`;
 
   try {
     const companyList = getCompanyList();
@@ -628,13 +628,13 @@ async function renderInventory() {
     `;
   } catch (error) {
     console.error('Error fetching inventory:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el inventario: ${error.message}</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el inventario: ${error.message}</p>`;
   }
 }
 
 async function renderMovements() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando movimientos...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando movimientos...</p>`;
 
   try {
     const companyList = getCompanyList();
@@ -708,13 +708,13 @@ async function renderMovements() {
     `;
   } catch (error) {
     console.error('Error fetching movements:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los movimientos.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los movimientos.</p>`;
   }
 }
 
 async function renderWarehouses() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando bodegas...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando bodegas...</p>`;
 
   try {
     const { data: warehousesAssigned, error } = await supabase
@@ -757,13 +757,13 @@ async function renderWarehouses() {
     `;
   } catch (error) {
     console.error('Error fetching warehouses:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las bodegas.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las bodegas.</p>`;
   }
 }
 
 async function renderOrders() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando pedidos...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando pedidos...</p>`;
 
   try {
     const companyList = getCompanyList();
@@ -926,7 +926,7 @@ async function renderOrders() {
     `;
   } catch (error) {
     console.error('Error fetching orders:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
   }
 }
 
@@ -950,7 +950,7 @@ async function renderPending() {
 
 async function renderIntegrations() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando integraciones...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando integraciones...</p>`;
 
   try {
     const { data: userAuth } = await supabase.auth.getUser();
@@ -963,7 +963,7 @@ async function renderIntegrations() {
       .filter(c => c && c.toLowerCase() !== 'no asignado');
 
     if (assignedComercios.length === 0) {
-      appContent.innerHTML = `
+      appContent.innerHTML = getObserverBanner() + `
         <div class="alert alert-warning" style="display: block; margin: 2rem;">
           <i class="ri-error-warning-line"></i> No tienes comercios asociados. Debes tener al menos un comercio asignado para gestionar integraciones.
         </div>
@@ -1455,7 +1455,7 @@ async function renderIntegrations() {
 
   } catch (error) {
     console.error('Error fetching integrations:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
   }
 }
 
@@ -1691,7 +1691,7 @@ async function renderIntegrations() {
 
 async function renderShipments() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
 
   try {
     console.log('DEBUG: Cargando lista de couriers únicos para la empresa:', currentCompany);
@@ -2272,7 +2272,7 @@ async function renderShipments() {
 
   } catch (err) {
     console.error('Error rendering shipments:', err);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los despachos: ${err.message}</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los despachos: ${err.message}</p>`;
   }
 }
 
@@ -2630,7 +2630,7 @@ function getObserverBanner() {
 
 async function renderProfile() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando perfil...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando perfil...</p>`;
 
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -2776,7 +2776,7 @@ async function renderProfile() {
 
   } catch (err) {
     console.error("Error rendering profile view:", err);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
   }
 }
 
@@ -2787,7 +2787,7 @@ const returnsPageSize = 50;
 window.renderReturns = async function() {
   const content = document.getElementById('app-content');
   
-  content.innerHTML = `
+  content.innerHTML = getObserverBanner() + `
     <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Logística Inversa</h2>
@@ -3242,7 +3242,7 @@ const pickupsPageSize = 50;
 window.renderPickups = async function() {
   const content = document.getElementById('app-content');
   
-  content.innerHTML = `
+  content.innerHTML = getObserverBanner() + `
     <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Punto de Retiro</h2>
@@ -3639,7 +3639,7 @@ const salesPageSize = 50;
 window.renderSales = async function() {
   const content = document.getElementById('app-content');
   
-  content.innerHTML = `
+  content.innerHTML = getObserverBanner() + `
     <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
       <div>
         <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Punto de Ventas (POS)</h2>
