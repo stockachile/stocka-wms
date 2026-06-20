@@ -27,7 +27,7 @@ setTheme(currentTheme);
 
 // Initialize UI toggles once DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  const themeToggleBtns = document.querySelectorAll('.theme-toggle-btn');
+  const themeToggleBtns = document.querySelectorAll('.theme-toggle-btn:not(#notification-btn)');
 
   // 4. Toggle function
   const handleToggle = () => {
