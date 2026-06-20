@@ -785,38 +785,39 @@ html:not([data-theme="dark"]) .theme-toggle-btn {
   border-color: #7dd3fc;
 }
 
-/* Icons inside the pill */
+/* Icons inside the pill — siempre blanco para contrastar sobre el fondo de color */
 .sun-icon {
-  font-size: 15px;
-  color: #b45309;
+  font-size: 14px;
+  color: white;
   opacity: 1;
   transition: opacity 0.3s, transform 0.3s;
   transform: scale(1);
-  z-index: 1;
+  z-index: 3;
   flex-shrink: 0;
   line-height: 1;
+  text-shadow: 0 0 4px rgba(0,0,0,0.4);
 }
 
 .moon-icon {
-  font-size: 15px;
-  color: #6366f1;
-  opacity: 0.35;
+  font-size: 14px;
+  color: white;
+  opacity: 0.3;
   transition: opacity 0.3s, transform 0.3s;
   transform: scale(0.8);
-  z-index: 1;
+  z-index: 3;
   flex-shrink: 0;
   line-height: 1;
+  text-shadow: 0 0 4px rgba(0,0,0,0.4);
 }
 
-/* Dark Mode: highlight moon, dim sun */
+/* Dark Mode: luna activa, sol apagado */
 html[data-theme="dark"] .sun-icon {
-  opacity: 0.3;
+  opacity: 0.25;
   transform: scale(0.8);
 }
 
 html[data-theme="dark"] .moon-icon {
   opacity: 1;
-  color: #fbbf24;
   transform: scale(1);
 }
 
