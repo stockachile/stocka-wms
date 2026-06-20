@@ -97,7 +97,10 @@ async function init() {
           const view = e.target.getAttribute('data-view');
           console.log('DEBUG: Navegando a vista administrador:', view);
           
-          if (view === 'orders_admin') {
+          if (view === 'dashboard') {
+            viewTitle.textContent = 'Dashboard Admin';
+            renderAdminDashboard();
+          } else if (view === 'orders_admin') {
             viewTitle.textContent = 'Gestor de Pedidos';
             renderAdminOrders();
           } else if (view === 'consolidated_shipments') {
@@ -134,7 +137,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view)) {
+          if (allowedModules.includes(view) || view === 'dashboard') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -153,13 +156,13 @@ async function init() {
 
     // Initial View selection based on allowed modules
     if (firstVisibleItem) {
-      const defaultView = 'orders_admin';
-      const isDefaultAllowed = (allowedModulesStr === 'all' || allowedModules.includes(defaultView));
+      const defaultView = 'dashboard';
+      const isDefaultAllowed = true;
       
       if (isDefaultAllowed) {
-        viewTitle.textContent = 'Gestor de Pedidos';
-        console.log('DEBUG: Renderizando vista de pedidos de administrador...');
-        renderAdminOrders();
+        viewTitle.textContent = 'Dashboard Admin';
+        console.log('DEBUG: Renderizando vista Dashboard Admin...');
+        renderAdminDashboard();
       } else {
         console.log('DEBUG: Vista por defecto restringida, seleccionando primer módulo permitido:', firstVisibleItem.getAttribute('data-view'));
         firstVisibleItem.click();
@@ -188,6 +191,9 @@ async function init() {
         await updateOrderStatus(orderId, newStatus);
       }
     });
+
+    // Notification Logic
+    initNotifications(session.user.id);
 
   } catch (err) {
     console.error('DEBUG: Error crítico durante la inicialización de admin.js:', err);
@@ -2300,5 +2306,436 @@ async function saveProductsToSupabase() {
     loader.style.display = 'none';
   }
 }
+
+// ============================================================================
+// Dashboard Admin Module
+// ============================================================================
+
+async function initNotifications(userId) {
+  const btn = document.getElementById('notification-btn');
+  const dropdown = document.getElementById('notification-dropdown');
+  const badge = document.getElementById('notification-badge');
+  const list = document.getElementById('notification-list');
+  const markReadBtn = document.getElementById('mark-all-read-btn');
+
+  if (!btn || !dropdown) return;
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!dropdown.contains(e.target) && e.target !== btn) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  async function fetchNotifications() {
+    try {
+      const { data, error } = await supabase
+        .from('dashboard_notifications')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        list.innerHTML = '<div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>';
+        badge.style.display = 'none';
+        markReadBtn.style.display = 'none';
+        return;
+      }
+
+      const unreadCount = data.filter(n => !n.is_read).length;
+      if (unreadCount > 0) {
+        badge.textContent = unreadCount;
+        badge.style.display = 'flex';
+        markReadBtn.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+        markReadBtn.style.display = 'none';
+      }
+
+      list.innerHTML = data.map(n => `
+        <div class="notification-item ${n.is_read ? '' : 'unread'}" data-id="${n.id}">
+          <div class="notification-title">${n.title}</div>
+          <div class="notification-message">${n.message}</div>
+          <span class="notification-time">${new Date(n.created_at).toLocaleString()}</span>
+        </div>
+      `).join('');
+
+      document.querySelectorAll('.notification-item.unread').forEach(item => {
+        item.addEventListener('click', async () => {
+          const id = item.getAttribute('data-id');
+          await supabase.from('dashboard_notifications').update({ is_read: true }).eq('id', id);
+          item.classList.remove('unread');
+          fetchNotifications();
+        });
+      });
+
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
+  }
+
+  if(markReadBtn) {
+    markReadBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        const { data } = await supabase.from('dashboard_notifications').select('id').eq('is_read', false);
+        if(data && data.length > 0) {
+          const ids = data.map(n => n.id);
+          await supabase.from('dashboard_notifications').update({ is_read: true }).in('id', ids);
+          fetchNotifications();
+        }
+      } catch(err) { console.error(err); }
+    });
+  }
+
+  fetchNotifications();
+  setInterval(fetchNotifications, 120000);
+}
+
+async function renderAdminDashboard() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `
+    <div style="margin-bottom: 2rem;">
+      <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Gestión de Dashboard</h2>
+      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra las noticias, eventos y envía notificaciones a los usuarios.</p>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Gestión de Noticias -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <h3><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-accent);"></i> Gestión de Noticias</h3>
+        </div>
+        <div class="card-body" style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+          <div>
+            <form id="form-create-news">
+              <input type="hidden" id="news-id">
+              <div class="form-group">
+                <label class="form-label">Título</label>
+                <input type="text" id="news-title" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Subtítulo (Opcional)</label>
+                <input type="text" id="news-subtitle" class="form-input">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Cuerpo de la Noticia</label>
+                <textarea id="news-body" class="form-input" rows="4" required style="resize: vertical;"></textarea>
+              </div>
+              <div style="display: flex; gap: 1rem;">
+                <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 1;">Publicar Noticia</button>
+                <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+          <div>
+            <h4>Noticias Publicadas</h4>
+            <div id="admin-news-list" style="max-height: 400px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gestión de Eventos -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <h3><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Gestión de Eventos</h3>
+        </div>
+        <div class="card-body" style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+          <div>
+            <form id="form-create-event">
+              <input type="hidden" id="event-id">
+              <div class="form-group">
+                <label class="form-label">Título del Evento</label>
+                <input type="text" id="event-title" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Fecha y Hora</label>
+                <input type="datetime-local" id="event-date" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Tipo de Evento (Color)</label>
+                <select id="event-color" class="form-input" required>
+                  <option value="info">Información (Azul)</option>
+                  <option value="success">Éxito (Verde)</option>
+                  <option value="warning">Alerta (Amarillo)</option>
+                  <option value="alert">Crítico (Rojo)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Descripción</label>
+                <textarea id="event-desc" class="form-input" rows="2"></textarea>
+              </div>
+              <div style="display: flex; gap: 1rem;">
+                <button type="submit" id="btn-save-event" class="btn btn-primary" style="flex: 1;">Agendar Evento</button>
+                <button type="button" id="btn-cancel-event" class="btn btn-outline" style="display: none;">Cancelar</button>
+              </div>
+            </form>
+          </div>
+          <div>
+            <h4>Eventos Agendados</h4>
+            <div id="admin-events-list" style="max-height: 400px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Gestión de Notificaciones -->
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="card-header">
+          <h3><i class="ri-notification-badge-line" style="margin-right: 0.5rem; color: var(--color-warning);"></i> Enviar Notificación Global</h3>
+        </div>
+        <div class="card-body">
+          <form id="form-create-notification">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+              <div class="form-group">
+                <label class="form-label">Título de Notificación</label>
+                <input type="text" id="notif-title" class="form-input" required>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Destinatarios</label>
+                <select id="notif-target" class="form-input" required>
+                  <option value="all">Todos los usuarios</option>
+                  <option value="client">Solo Clientes</option>
+                  <option value="admin">Solo Administradores</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mensaje</label>
+              <input type="text" id="notif-message" class="form-input" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="background-color: var(--color-warning); color: #000;">Enviar Notificación Global</button>
+          </form>
+          <hr style="margin: 2rem 0;">
+          <h4>Historial de Notificaciones</h4>
+          <div id="admin-notif-list" style="max-height: 300px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Fetch and render functions
+  async function loadAdminData() {
+    // Load News
+    const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    const newsList = document.getElementById('admin-news-list');
+    if(news && news.length > 0) {
+      newsList.innerHTML = news.map(n => `
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600;">${n.title}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">${new Date(n.created_at).toLocaleDateString()}</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-outline edit-news-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem;"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-news-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      newsList.innerHTML = '<p style="color: var(--color-text-muted);">No hay noticias publicadas.</p>';
+    }
+
+    // Load Events
+    const { data: events } = await supabase.from('dashboard_events').select('*').order('event_date', { ascending: false });
+    const eventsList = document.getElementById('admin-events-list');
+    if(events && events.length > 0) {
+      eventsList.innerHTML = events.map(e => `
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600;"><span class="event-dot ${e.color_type}" style="display:inline-block; margin-right:5px;"></span> ${e.title}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">${new Date(e.event_date).toLocaleString()}</div>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-outline edit-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem;"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-event-btn" data-id="${e.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      eventsList.innerHTML = '<p style="color: var(--color-text-muted);">No hay eventos agendados.</p>';
+    }
+
+    // Load Notifications
+    const { data: notifs } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false });
+    const notifList = document.getElementById('admin-notif-list');
+    if(notifs && notifs.length > 0) {
+      notifList.innerHTML = notifs.map(n => `
+        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div style="font-weight: 600;">${n.title}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">Enviado a: ${n.target_role} - ${new Date(n.created_at).toLocaleString()}</div>
+          </div>
+          <div>
+            <button class="btn btn-outline delete-notif-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      notifList.innerHTML = '<p style="color: var(--color-text-muted);">No hay notificaciones.</p>';
+    }
+
+    attachEditDeleteListeners(news, events);
+  }
+
+  function attachEditDeleteListeners(newsData, eventsData) {
+    // News Delete
+    document.querySelectorAll('.delete-news-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        if(confirm('¿Eliminar esta noticia?')) {
+          await supabase.from('dashboard_news').delete().eq('id', e.currentTarget.getAttribute('data-id'));
+          loadAdminData();
+        }
+      });
+    });
+    // Events Delete
+    document.querySelectorAll('.delete-event-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        if(confirm('¿Eliminar este evento?')) {
+          await supabase.from('dashboard_events').delete().eq('id', e.currentTarget.getAttribute('data-id'));
+          loadAdminData();
+        }
+      });
+    });
+    // Notif Delete
+    document.querySelectorAll('.delete-notif-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        if(confirm('¿Eliminar esta notificación?')) {
+          await supabase.from('dashboard_notifications').delete().eq('id', e.currentTarget.getAttribute('data-id'));
+          loadAdminData();
+        }
+      });
+    });
+
+    // Edit News
+    document.querySelectorAll('.edit-news-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = newsData.find(x => x.id === id);
+        if(n) {
+          document.getElementById('news-id').value = n.id;
+          document.getElementById('news-title').value = n.title;
+          document.getElementById('news-subtitle').value = n.subtitle || '';
+          document.getElementById('news-body').value = n.body;
+          document.getElementById('btn-save-news').textContent = 'Actualizar Noticia';
+          document.getElementById('btn-cancel-news').style.display = 'block';
+        }
+      });
+    });
+    // Edit Events
+    document.querySelectorAll('.edit-event-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const ev = eventsData.find(x => x.id === id);
+        if(ev) {
+          document.getElementById('event-id').value = ev.id;
+          document.getElementById('event-title').value = ev.title;
+          document.getElementById('event-desc').value = ev.description || '';
+          
+          // Format date for datetime-local (YYYY-MM-DDThh:mm)
+          const d = new Date(ev.event_date);
+          const formattedDate = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+          document.getElementById('event-date').value = formattedDate;
+          
+          document.getElementById('event-color').value = ev.color_type;
+          document.getElementById('btn-save-event').textContent = 'Actualizar Evento';
+          document.getElementById('btn-cancel-event').style.display = 'block';
+        }
+      });
+    });
+  }
+
+  // Cancel buttons
+  document.getElementById('btn-cancel-news').addEventListener('click', () => {
+    document.getElementById('form-create-news').reset();
+    document.getElementById('news-id').value = '';
+    document.getElementById('btn-save-news').textContent = 'Publicar Noticia';
+    document.getElementById('btn-cancel-news').style.display = 'none';
+  });
+  
+  document.getElementById('btn-cancel-event').addEventListener('click', () => {
+    document.getElementById('form-create-event').reset();
+    document.getElementById('event-id').value = '';
+    document.getElementById('btn-save-event').textContent = 'Agendar Evento';
+    document.getElementById('btn-cancel-event').style.display = 'none';
+  });
+
+  loadAdminData();
+
+  // Handlers
+  document.getElementById('form-create-news').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const id = document.getElementById('news-id').value;
+      const payload = {
+        title: document.getElementById('news-title').value,
+        subtitle: document.getElementById('news-subtitle').value,
+        body: document.getElementById('news-body').value,
+        target_role: 'all'
+      };
+
+      if (id) {
+        await supabase.from('dashboard_news').update(payload).eq('id', id);
+        alert('Noticia actualizada exitosamente');
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        payload.created_by = user.id;
+        await supabase.from('dashboard_news').insert([payload]);
+        alert('Noticia publicada exitosamente');
+      }
+      
+      document.getElementById('btn-cancel-news').click(); // reset form
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al guardar noticia'); }
+  });
+
+  document.getElementById('form-create-event').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      const id = document.getElementById('event-id').value;
+      const payload = {
+        title: document.getElementById('event-title').value,
+        description: document.getElementById('event-desc').value,
+        event_date: new Date(document.getElementById('event-date').value).toISOString(),
+        color_type: document.getElementById('event-color').value,
+        target_role: 'all'
+      };
+
+      if (id) {
+        await supabase.from('dashboard_events').update(payload).eq('id', id);
+        alert('Evento actualizado exitosamente');
+      } else {
+        const { data: { user } } = await supabase.auth.getUser();
+        payload.created_by = user.id;
+        await supabase.from('dashboard_events').insert([payload]);
+        alert('Evento agendado exitosamente');
+      }
+
+      document.getElementById('btn-cancel-event').click(); // reset form
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al guardar evento'); }
+  });
+
+  document.getElementById('form-create-notification').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await supabase.from('dashboard_notifications').insert([{
+        title: document.getElementById('notif-title').value,
+        message: document.getElementById('notif-message').value,
+        target_role: document.getElementById('notif-target').value,
+        user_id: null // Global broadcast based on target_role
+      }]);
+      alert('Notificación enviada exitosamente');
+      e.target.reset();
+      loadAdminData();
+    } catch(err) { console.error(err); alert('Error al enviar notificación'); }
+  });
+}
+
 
 

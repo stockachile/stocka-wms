@@ -19,7 +19,8 @@
       </div>
       <nav class="sidebar-nav">
         <ul>
-          <li><a href="#" class="nav-item active" data-view="inventory"><i class="ri-box-3-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Inventario</a></li>
+          <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Dashboard</a></li>
+          <li><a href="#" class="nav-item" data-view="inventory"><i class="ri-box-3-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Inventario</a></li>
           <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Pedidos</a></li>
           <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Despachos</a></li>
           <li><a href="#" class="nav-item" data-view="movements"><i class="ri-loop-right-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Movimientos</a></li>
@@ -45,6 +46,21 @@
           <h2 id="view-title">Inventario</h2>
         </div>
         <div style="display: flex; align-items: center; gap: 1.5rem;">
+          <div class="notification-container" style="position: relative;">
+            <button id="notification-btn" class="theme-toggle-btn" aria-label="Notificaciones" style="position: relative;">
+              <i class="ri-notification-3-line" style="font-size: 1.25rem;"></i>
+              <span id="notification-badge" style="display: none; position: absolute; top: 0; right: 0; background-color: var(--color-danger); color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 0.65rem; font-weight: bold; align-items: center; justify-content: center;">0</span>
+            </button>
+            <div id="notification-dropdown" class="notification-dropdown" style="display: none; position: absolute; top: 120%; right: 0; width: 320px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 100;">
+              <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                Notificaciones
+                <button id="mark-all-read-btn" style="background: none; border: none; color: var(--color-primary); font-size: 0.75rem; cursor: pointer; display: none;">Marcar leídas</button>
+              </div>
+              <div id="notification-list" style="max-height: 300px; overflow-y: auto;">
+                <div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>
+              </div>
+            </div>
+          </div>
           <button class="theme-toggle-btn" aria-label="Cambiar tema">
             <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
             <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
