@@ -775,8 +775,8 @@ html[data-theme="dark"] .theme-toggle-btn {
 
 html[data-theme="dark"] .theme-toggle-btn::after {
   transform: translateX(30px);
-  background: #fbbf24;
-  box-shadow: 0 1px 6px rgba(251, 191, 36, 0.5);
+  background: #f0f0ff;
+  box-shadow: 0 1px 6px rgba(99, 102, 241, 0.5);
 }
 
 /* Light mode: azul cielo más saturado para que los íconos oscuros contrasten */

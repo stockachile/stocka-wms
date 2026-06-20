@@ -80,4 +80,19 @@ document.addEventListener('DOMContentLoaded', () => {
         .catch(() => { ufValueEl.textContent = 'N/D'; });
     }
   }
+
+  // Renderizar fecha del día en español
+  const dayNumEl  = document.getElementById('date-day-num');
+  const dateRestEl = document.getElementById('date-rest');
+  if (dayNumEl && dateRestEl) {
+    const now = new Date();
+    const dayNum = now.getDate();
+    const monthName = now.toLocaleDateString('es-CL', { month: 'short' });
+    const weekday  = now.toLocaleDateString('es-CL', { weekday: 'short' });
+    const year     = now.getFullYear();
+    // Capitaliza primera letra
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1).replace('.','');
+    dayNumEl.textContent  = dayNum;
+    dateRestEl.textContent = `${cap(weekday)} ${cap(monthName)} ${year}`;
+  }
 });

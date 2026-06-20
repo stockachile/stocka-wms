@@ -153,6 +153,37 @@
   color: var(--color-primary);
 }
 
+/* Date chip */
+.date-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 99px;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text-main);
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.date-chip i {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.date-chip .date-day {
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.date-chip .date-rest {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
 /* Icon action buttons in header */
 .header-icon-btn {
   width: 36px;
