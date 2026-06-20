@@ -4092,15 +4092,12 @@ window.checkSystemCommunications = async function(userId) {
             <button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex;"><i class="ri-close-line"></i></button>
           </div>
         `;
-        // Force refresh the current view if it's already rendered
-        const activeNav = document.querySelector('.nav-item.active');
-        if (activeNav) {
-          // Instead of full click, if view is dashboard, we just re-render to avoid loop if not handled well
-          const view = activeNav.getAttribute('data-view');
-          if (view === 'dashboard') {
-             // Let it be, the initial renderDashboard is usually called AFTER this if it's the first load
-             // Or we just re-render appContent
-          }
+        // Dynamically inject into app-content if not already there
+        const appContent = document.getElementById('app-content');
+        if (appContent && !document.getElementById(`system-banner-${banner.id}`)) {
+          const temp = document.createElement('div');
+          temp.innerHTML = window.activeSystemBannerHtml.trim();
+          appContent.prepend(temp.firstChild);
         }
       }
     }
