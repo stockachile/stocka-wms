@@ -779,44 +779,44 @@ html[data-theme="dark"] .theme-toggle-btn::after {
   box-shadow: 0 1px 6px rgba(251, 191, 36, 0.5);
 }
 
-/* Light mode: cool sky tones */
+/* Light mode: azul cielo más saturado para que los íconos oscuros contrasten */
 html:not([data-theme="dark"]) .theme-toggle-btn {
-  background: linear-gradient(135deg, #e0f2fe, #bae6fd);
-  border-color: #7dd3fc;
+  background: linear-gradient(135deg, #38bdf8, #0ea5e9);
+  border-color: #0284c7;
 }
 
-/* Icons inside the pill — siempre blanco para contrastar sobre el fondo de color */
+/* Icons inside the pill */
 .sun-icon {
   font-size: 14px;
-  color: white;
+  color: #92400e;       /* ámbar oscuro — contrasta sobre fondo celeste claro */
   opacity: 1;
   transition: opacity 0.3s, transform 0.3s;
   transform: scale(1);
   z-index: 3;
   flex-shrink: 0;
   line-height: 1;
-  text-shadow: 0 0 4px rgba(0,0,0,0.4);
 }
 
 .moon-icon {
   font-size: 14px;
-  color: white;
+  color: #3730a3;       /* índigo oscuro — contrasta sobre fondo celeste claro */
   opacity: 0.3;
   transition: opacity 0.3s, transform 0.3s;
   transform: scale(0.8);
   z-index: 3;
   flex-shrink: 0;
   line-height: 1;
-  text-shadow: 0 0 4px rgba(0,0,0,0.4);
 }
 
-/* Dark Mode: luna activa, sol apagado */
+/* Dark Mode: íconos blancos sobre fondo púrpura */
 html[data-theme="dark"] .sun-icon {
+  color: white;
   opacity: 0.25;
   transform: scale(0.8);
 }
 
 html[data-theme="dark"] .moon-icon {
+  color: white;
   opacity: 1;
   transform: scale(1);
 }
