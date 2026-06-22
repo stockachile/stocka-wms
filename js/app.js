@@ -775,6 +775,12 @@ async function renderOrders() {
         status,
         created_at,
         external_order_number,
+        external_platform,
+        origen,
+        item,
+        cantidad,
+        sku,
+        label_base64,
         comercio,
         order_items (quantity, products(sku, name))
       `);
