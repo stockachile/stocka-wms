@@ -851,7 +851,7 @@ async function renderOrders() {
         }
 
         const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : '#6b7280'));
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
         const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
 
         const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -987,6 +987,7 @@ async function renderIntegrations() {
     const shopifyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Shopify') : null;
     const parisIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Paris') : null;
     const falabellaIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Falabella') : null;
+    const meliIntegration = integrationsList ? integrationsList.find(i => i.platform === 'MercadoLibre') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
@@ -1005,6 +1006,13 @@ async function renderIntegrations() {
     const falabellaUser = hasFalabella ? falabellaIntegration.username : '';
     const falabellaStatusText = hasFalabella 
       ? (falabellaIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    const hasMeli = !!meliIntegration;
+    const meliClientId = hasMeli ? (meliIntegration.client_id || '') : '';
+    const meliRedirectUri = hasMeli ? (meliIntegration.shop_url || 'https://www.google.com') : 'https://www.google.com';
+    const meliStatusText = hasMeli 
+      ? (meliIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     const isObserver = userRole === 'observer';
@@ -1027,6 +1035,12 @@ async function renderIntegrations() {
       : (!hasFalabella 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Falabella API</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>');
+
+    const meliButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasMeli 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-meli" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar MercadoLibre API</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>');
 
     let selectorHtml = '';
     if (assignedComercios.length > 1) {
@@ -1172,6 +1186,55 @@ async function renderIntegrations() {
             </div>
           </div>
 
+          <!-- MercadoLibre Marketplace Card -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-top: 1.5rem;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${meliStatusText}
+                 </div>
+              </div>
+              
+              <form id="form-meli-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
+                  <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
+                  <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">Redirect URI</label>
+                  <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
+                  <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
+                  <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${meliButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+
         </div>
 
         <!-- Right Column: Manual/Guide -->
@@ -1261,6 +1324,33 @@ async function renderIntegrations() {
                 <li>
                   <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
                   <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- MercadoLibre Guide -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <li>
+                  <strong style="color: var(--color-text-main);">Obtener Código de Autorización:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                    Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
+                    <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
+                    Inicia sesión, autoriza el acceso y copia el código que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=TG-xxxxx</strong> y pégalo en el formulario de la izquierda.
+                  </p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Migración directa desde Google Sheets (Alternativa):</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                    Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong>Refresh Token Existente</strong> extraído del Apps Script.
+                  </p>
                 </li>
               </ol>
             </div>
@@ -1444,6 +1534,83 @@ async function renderIntegrations() {
           }
         }
       });
+    }
+
+    // MercadoLibre Submit Listener
+    if(!hasMeli) {
+      const formMeli = document.getElementById('form-meli-integration');
+      if (formMeli) {
+        formMeli.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const btn = document.getElementById('btn-save-meli');
+          btn.disabled = true;
+          btn.textContent = 'Conectando...';
+
+          const client_id = document.getElementById('meli-client-id').value.trim();
+          const client_secret = document.getElementById('meli-client-secret').value.trim();
+          const redirect_uri = document.getElementById('meli-redirect-uri').value.trim();
+          const auth_code = document.getElementById('meli-auth-code').value.trim();
+          const refresh_token = document.getElementById('meli-refresh-token').value.trim();
+
+          if (!auth_code && !refresh_token) {
+            alert('Debes ingresar al menos el Código de Autorización (para cuenta nueva) o el Refresh Token (para migración).');
+            btn.disabled = false;
+            btn.textContent = 'Conectar MercadoLibre API';
+            return;
+          }
+
+          try {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'MercadoLibre',
+              shop_url: redirect_uri,
+              client_id: client_id,
+              client_secret: client_secret,
+              access_token: refresh_token ? '' : auth_code, // Guardado inicialmente en access_token si no hay refresh token
+              refresh_token: refresh_token || null,
+              is_active: true,
+              comercio: window.activeIntegrationCommerce
+            }]);
+            if(insErr) throw insErr;
+            
+            alert('Integración con MercadoLibre guardada. La sincronización se iniciará en el próximo ciclo.');
+            renderIntegrations(); // Recargar vista
+          } catch(err) {
+            console.error(err);
+            alert('Error al guardar la integración: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Conectar MercadoLibre API';
+          }
+        });
+      }
+    } else {
+      const btnDisconnectMeli = document.getElementById('btn-disconnect-meli');
+      if (btnDisconnectMeli) {
+        btnDisconnectMeli.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          if(confirm('¿Estás seguro que deseas desconectar tu cuenta de MercadoLibre?')) {
+            try {
+              const { error: delErr } = await supabase.from('merchant_integrations')
+                .delete()
+                .eq('comercio', window.activeIntegrationCommerce)
+                .eq('platform', 'MercadoLibre');
+              if(delErr) throw delErr;
+              alert('Conexión con MercadoLibre eliminada.');
+              renderIntegrations();
+            } catch(err) {
+               console.error(err);
+               alert('Error al desconectar: ' + err.message);
+            }
+          }
+        });
+      }
     }
 
     const commerceSelect = document.getElementById('select-integration-commerce');

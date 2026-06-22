@@ -297,7 +297,7 @@ async function renderAdminOrders() {
         let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
 
         const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : '#6b7280'));
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
         const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
 
         const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -431,6 +431,72 @@ async function renderIntegrations() {
     const optirouteStatusText = hasOptiroute 
       ? (optirouteIntegration.is_active ? '<span class="badge badge-success">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-neutral">No configurada</span>';
+    // Obtener las integraciones de los comercios (clientes)
+    const { data: merchantInts, error: merchErr } = await supabase
+      .from('merchant_integrations')
+      .select(`
+        id,
+        platform,
+        shop_url,
+        username,
+        is_active,
+        comercio,
+        created_at,
+        profiles (
+          company_name
+        )
+      `)
+      .neq('platform', 'Optiroute')
+      .order('created_at', { ascending: false });
+
+    if (merchErr) throw merchErr;
+
+    let rowsHtml = '';
+    if (merchantInts && merchantInts.length > 0) {
+      merchantInts.forEach(mi => {
+        const companyName = mi.profiles?.company_name || 'Desconocido';
+        const commerceName = mi.comercio || 'No especificado';
+        const platform = mi.platform || 'Desconocida';
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+        
+        const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+        
+        const shopInfo = mi.username 
+          ? `${mi.username} (${mi.shop_url || '-'})` 
+          : (mi.shop_url || '-');
+
+        const dateStr = mi.created_at ? new Date(mi.created_at).toLocaleDateString('es-CL', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }) : '-';
+
+        const statusBadge = mi.is_active 
+          ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Activa</span>' 
+          : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Inactiva</span>';
+
+        rowsHtml += `
+          <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.2s;">
+            <td style="padding: 1rem 0.75rem;">
+              <strong style="color: var(--color-text-main);">${companyName}</strong>
+              <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Comercio: ${commerceName}</span>
+            </td>
+            <td style="padding: 1rem 0.75rem;">${platformHtml}</td>
+            <td style="padding: 1rem 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${shopInfo}</td>
+            <td style="padding: 1rem 0.75rem; color: var(--color-text-muted); font-size: 0.875rem;">${dateStr}</td>
+            <td style="padding: 1rem 0.75rem;">${statusBadge}</td>
+          </tr>
+        `;
+      });
+    } else {
+      rowsHtml = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay integraciones de comercios configuradas.</td>
+        </tr>
+      `;
+    }
 
     appContent.innerHTML = `
       <div style="margin-bottom: 2rem;">
@@ -441,7 +507,7 @@ async function renderIntegrations() {
         </p>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-bottom: 2.5rem;">
         <!-- Left Column: Active/Available Integrations -->
         <div style="display: flex; flex-direction: column; gap: 2rem;">
           
@@ -529,6 +595,34 @@ async function renderIntegrations() {
               </div>
 
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sección de Integraciones Activas de Comercios (Clientes) -->
+      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+          <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Integraciones Activas de Comercios</h3>
+        </div>
+        <div class="card-body" style="padding: 1.5rem;">
+          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0; margin-bottom: 1.5rem;">
+            Listado de los marketplaces y tiendas conectadas por tus clientes en el WMS.
+          </p>
+          <div style="overflow-x: auto;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Cliente / Empresa</th>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Plataforma</th>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Usuario / Tienda URL</th>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Fecha Conexión</th>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
