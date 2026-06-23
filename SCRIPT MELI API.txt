@@ -1,0 +1,1105 @@
+// ==========================================
+// CONFIGURACIÓN GLOBAL
+// ==========================================
+const ID_PLANILLA_PICKING = '1w3iT9mxNM8zFzsVqv6QxYJTGnUFwJS571Sx1HiRVl2k';
+const NOMBRE_HOJA_PICKING = 'Sheet1';
+const ID_CARPETA_ETIQUETAS = '1MAP5tb-Ogb4Hrcyw2ZTIq_reaidsKpPU';
+
+// Credenciales de Supabase para Sincronización Directa
+const SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+
+/**
+ * Crea un menú personalizado en Google Sheets
+ */
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('🚀 Meli Control')
+      .addItem('Sincronizar ahora (Recientes)', 'ejecutarSincronizacion')
+      .addItem('Enviar existentes a Picking', 'enviarExistentesAPicking')
+      .addItem('🛡️ Revisar Cancelaciones', 'revisarCancelaciones')
+      .addSeparator()
+      .addItem('Actualizar Estados Ahora', 'actualizarEstadosAutomatico')
+      .addItem('Traer ventas último mes', 'cargarVentasUltimoMes')
+      .addSeparator()
+      .addItem('Rescatar Pedido Manual', 'importarPedidoManual')
+      .addItem('🔌 Probar Conexión Supabase', 'probarConexionSupabase')
+      .addToUi();
+}
+
+// ==========================================
+// CONFIGURACIÓN DE CUENTAS
+// ==========================================
+function limpiarConfiguracion() {
+  PropertiesService.getScriptProperties().deleteProperty('CUENTAS_CONFIG');
+  console.log("🧹 Memoria limpia. Procede a registrar tus cuentas una por una.");
+}
+
+function registrarNuevaCuenta() {
+  const NOMBRE_TIENDA = 'SIMPLEMENTE CAFE'; 
+  const CLIENT_ID = '34091030018433';     
+  const CLIENT_SECRET = 'EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl';    
+  const CODE = 'TG-6a32fdbbbeaa6a0001d8df19-3460657214';           
+
+  const url = 'https://api.mercadolibre.com/oauth/token';
+  const payload = {
+    'grant_type': 'authorization_code',
+    'client_id': CLIENT_ID,
+    'client_secret': CLIENT_SECRET,
+    'code': CODE,
+    'redirect_uri': 'https://www.google.com' 
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(url, {method: 'post', payload: payload, muteHttpExceptions: true});
+    const json = JSON.parse(res.getContentText());
+
+    if (json.refresh_token) {
+      const userMe = JSON.parse(UrlFetchApp.fetch('https://api.mercadolibre.com/users/me', {
+        headers: {'Authorization': 'Bearer ' + json.access_token}
+      }).getContentText());
+
+      const props = PropertiesService.getScriptProperties();
+      let cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+      
+      cuentas = cuentas.filter(c => c.nombre !== NOMBRE_TIENDA);
+      
+      cuentas.push({
+        nombre: NOMBRE_TIENDA,
+        clientId: CLIENT_ID,
+        clientSecret: CLIENT_SECRET,
+        refreshToken: json.refresh_token,
+        userId: userMe.id
+      });
+      
+      props.setProperty('CUENTAS_CONFIG', JSON.stringify(cuentas));
+      console.log("✅ Cuenta '" + NOMBRE_TIENDA + "' vinculada con éxito. ID: " + userMe.id);
+    } else {
+      console.error("❌ Error en vinculación: " + res.getContentText());
+    }
+  } catch (e) {
+    console.error("❌ Error crítico: " + e.toString());
+  }
+}
+
+function renovarTokens(clientId, clientSecret, refreshToken) {
+  const url = 'https://api.mercadolibre.com/oauth/token';
+  const payload = {
+    'grant_type': 'refresh_token',
+    'client_id': clientId,
+    'client_secret': clientSecret,
+    'refresh_token': refreshToken
+  };
+
+  const res = UrlFetchApp.fetch(url, {method: 'post', payload: payload, muteHttpExceptions: true});
+  const resJson = JSON.parse(res.getContentText());
+  
+  if (resJson.error) throw new Error("Error renovando token: " + resJson.message || res.getContentText());
+  return resJson;
+}
+
+// ==========================================
+// SINCRONIZACIÓN PRINCIPAL
+// ==========================================
+function ejecutarSincronizacion() {
+  const ahora = new Date();
+  const hora = ahora.getHours();
+  const minutos = ahora.getMinutes();
+
+  if ((hora >= 20 || hora < 9) && minutos > 10) return;
+
+  const props = PropertiesService.getScriptProperties();
+  let cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+
+  if (cuentas.length === 0) return;
+
+  cuentas.forEach((cuenta, index) => {
+    try {
+      const tokens = renovarTokens(cuenta.clientId, cuenta.clientSecret, cuenta.refreshToken);
+      if (tokens && tokens.access_token) {
+        cuentas[index].refreshToken = tokens.refresh_token;
+        props.setProperty('CUENTAS_CONFIG', JSON.stringify(cuentas));
+        
+        const pedidos = obtenerPedidos(tokens.access_token, cuenta.userId);
+        if (pedidos && pedidos.length > 0) {
+          volcarDatosAHoja(pedidos, cuenta.nombre);
+        }
+      }
+    } catch (e) {
+      console.error("❌ Error en cuenta " + cuenta.nombre + ": " + e.message);
+    }
+  });
+}
+
+function obtenerPedidos(accessToken, userId) {
+  const url = `https://api.mercadolibre.com/orders/search?seller=${userId}&sort=date_desc`;
+  const res = UrlFetchApp.fetch(url, {
+    headers: {'Authorization': 'Bearer ' + accessToken},
+    muteHttpExceptions: true
+  });
+  return JSON.parse(res.getContentText()).results || [];
+}
+
+function volcarDatosAHoja(pedidos, nombreCuenta) {
+  const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 1");
+  const encabezados = [
+    'Cuenta', 'ID Pedido', 'ID Venta', 'Fecha', 'SKU', 'Producto', 'Cant', 
+    'Variaciones', 'Usuario', 'Nombre Real', 'N° Envío', 'Tipo Envío', 
+    'Estado Venta', 'Total', 'Status Logístico', 'Link Etiqueta', 
+    'Límite Despacho 🕒', 'Entrega Estimada 🚚', 'Picking Check',
+    'Dirección 🏠', 'Comuna 📍', 'Referencia 📝', 'Link Imagen 🔗'
+  ];
+
+  if (!hoja) return;
+  if (hoja.getLastRow() === 0) {
+    hoja.appendRow(encabezados);
+    hoja.getRange(1, 1, 1, encabezados.length).setFontWeight("bold").setBackground("#f3f3f3");
+  }
+
+  const idsExistentes = hoja.getLastRow() > 1 
+    ? hoja.getRange(2, 2, hoja.getLastRow() - 1, 1).getValues().flat().map(String) 
+    : [];
+
+  // --- CÁLCULO DINÁMICO DE TOTAL UNIDADES (TOTU) ---
+  // 1. Agrupar cantidades de pedidos entrantes por pack_id o id
+  const mapaTotuEntrantes = {};
+  pedidos.forEach(p => {
+    const key = String(p.pack_id || p.id);
+    const cantItems = p.order_items ? p.order_items.reduce((acc, item) => acc + item.quantity, 0) : 0;
+    if (!mapaTotuEntrantes[key]) mapaTotuEntrantes[key] = 0;
+    mapaTotuEntrantes[key] += cantItems;
+  });
+
+  // 2. Agrupar cantidades de pedidos existentes en la hoja por pack_id o id
+  const mapaTotuExistentes = {};
+  if (hoja.getLastRow() > 1) {
+    const rangeExistente = hoja.getRange(2, 1, hoja.getLastRow() - 1, 8); // Columnas A a H
+    const valoresExistentes = rangeExistente.getValues();
+    valoresExistentes.forEach(fila => {
+      const key = String(fila[2] || "").trim(); // Columna C (ID Venta / pack_id)
+      const cant = Number(fila[6]) || 0;        // Columna G (Cant)
+      if (key) {
+        if (!mapaTotuExistentes[key]) mapaTotuExistentes[key] = 0;
+        mapaTotuExistentes[key] += cant;
+      }
+    });
+  }
+
+  const props = PropertiesService.getScriptProperties();
+  const cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+  const configCuenta = cuentas.find(c => c.nombre === nombreCuenta);
+  const tokenActual = renovarTokens(configCuenta.clientId, configCuenta.clientSecret, configCuenta.refreshToken).access_token;
+
+  pedidos.reverse().forEach(p => {
+    if (!idsExistentes.includes(String(p.id))) {
+      
+      const fechaPedido = new Date(p.date_created);
+      const hoy = new Date();
+      const diasAntiguedad = (hoy.getTime() - fechaPedido.getTime()) / (1000 * 3600 * 24);
+      const hacerConsultasExtra = diasAntiguedad <= 7;
+
+      let shippingData = p.shipping;
+      let horaLimiteDespacho = "N/A";
+      let rangoEntrega = "N/A";
+      let direccion = ""; let comuna = ""; let referencia = "";
+
+      let nombreReal = (p.buyer.first_name || "") + " " + (p.buyer.last_name || "");
+      nombreReal = nombreReal.trim();
+      
+      if (nombreReal === "" && hacerConsultasExtra) {
+        try {
+          const resBilling = UrlFetchApp.fetch(`https://api.mercadolibre.com/orders/${p.id}/billing_info`, {
+             headers: {'Authorization': 'Bearer ' + tokenActual}, muteHttpExceptions: true
+          });
+          if (resBilling.getResponseCode() === 200) {
+            const billingData = JSON.parse(resBilling.getContentText());
+            const info = billingData.billing_info || (billingData.buyer && billingData.buyer.billing_info);
+            if (info) nombreReal = ((info.name || "") + " " + (info.last_name || "")).trim();
+            if (nombreReal === "" && info.identification) nombreReal = "Doc: " + info.identification.number;
+          }
+        } catch (e) { }
+      }
+
+      if (shippingData && shippingData.id && hacerConsultasExtra) {
+        try {
+          const resShip = UrlFetchApp.fetch(`https://api.mercadolibre.com/shipments/${shippingData.id}`, {
+            headers: {'Authorization': 'Bearer ' + tokenActual}, muteHttpExceptions: true
+          });
+          if (resShip.getResponseCode() === 200) {
+            shippingData = JSON.parse(resShip.getContentText());
+            if (shippingData.estimated_delivery_time && shippingData.estimated_delivery_time.time_frame) {
+              const tf = shippingData.estimated_delivery_time.time_frame;
+              rangoEntrega = `${tf.from} a ${tf.to} hs`;
+            }
+            if (shippingData.receiver_address) {
+              const addr = shippingData.receiver_address;
+              direccion = (addr.street_name || "") + " " + (addr.street_number || "");
+              if (direccion.trim() === "" && addr.address_line) direccion = addr.address_line;
+              if (addr.city && addr.city.name) comuna = addr.city.name;
+              else if (addr.municipality && addr.municipality.name) comuna = addr.municipality.name;
+              referencia = addr.comment || "";
+            }
+          }
+          
+          const resSla = UrlFetchApp.fetch(`https://api.mercadolibre.com/shipments/${shippingData.id}/sla`, {
+            headers: {'Authorization': 'Bearer ' + tokenActual}, muteHttpExceptions: true
+          });
+          if (resSla.getResponseCode() === 200) {
+            const slaData = JSON.parse(resSla.getContentText());
+            if (slaData.expected_date) {
+              const fechaLimite = new Date(slaData.expected_date);
+              horaLimiteDespacho = Utilities.formatDate(fechaLimite, "America/Santiago", "dd/MM/yy HH:mm");
+            }
+          }
+        } catch (e) { }
+      }
+
+      const keyPack = String(p.pack_id || p.id);
+      const totu = (mapaTotuEntrantes[keyPack] || 0) + (mapaTotuExistentes[keyPack] || 0);
+      const fechaVenta = Utilities.formatDate(new Date(p.date_created), "America/Santiago", "dd/MM/yyyy HH:mm");
+
+      p.order_items.forEach(item => {
+        let sku = extraerSku(item);
+        let infoEnvio = mapearEnvio(shippingData);
+        let linkEtiqueta = "Pendiente"; 
+        
+        let textoTipoSLA = infoEnvio.tipo;
+        if (horaLimiteDespacho !== "N/A") textoTipoSLA += "- SLA: " + horaLimiteDespacho;
+
+        // --- OBTENER ENLACE DE LA IMAGEN (Optimizado) ---
+        let linkImagen = "";
+        
+        // Primero intentamos sacar la foto que YA VIENE en el pedido (Costo cero)
+        if (item.item && item.item.thumbnail) {
+          linkImagen = item.item.thumbnail.replace("http://", "https://");
+        } 
+        
+        // Si no venía en el pedido y es reciente, intentamos buscarla en la API
+        if (!linkImagen && hacerConsultasExtra) {
+          linkImagen = obtenerImagenProducto(item.item.id, tokenActual);
+        }
+
+        // Si después de todo no hay nada o el pedido es viejo
+        if (!linkImagen) {
+          linkImagen = diasAntiguedad > 7 ? "N/A (>7 días)" : "Sin imagen";
+        }
+
+        let pickingStatus = "";
+        
+        if (infoEnvio.statusReal === 'ready_to_ship' && shippingData.logistic_type !== 'fulfillment') {
+          let infoEnvioPicking = { ...infoEnvio, tipo: textoTipoSLA };
+          enviarAPlanillaPickingMeli(p, item, infoEnvioPicking, direccion, comuna, referencia, totu, fechaVenta, linkImagen, nombreCuenta);
+          pickingStatus = "Enviado";
+        } else if (shippingData && shippingData.logistic_type === 'fulfillment') {
+          pickingStatus = "Meli Full";
+        }
+
+        hoja.appendRow([
+          nombreCuenta, "'" + String(p.id), "'" + String(p.pack_id || p.id), new Date(p.date_created),
+          "'" + String(sku), item.item.title, item.quantity,
+          item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(", ") : "N/A",
+          p.buyer.nickname, nombreReal, "'" + (shippingData ? shippingData.id : "N/A"),
+          textoTipoSLA, p.status, item.unit_price * item.quantity,
+          infoEnvio.statusReal, linkEtiqueta, horaLimiteDespacho, rangoEntrega, pickingStatus,
+          direccion, comuna, referencia, linkImagen
+        ]);
+        
+        if (pickingStatus === "Enviado") hoja.getRange(hoja.getLastRow(), 19).setBackground("#d9ead3");
+        else if (pickingStatus === "Meli Full") hoja.getRange(hoja.getLastRow(), 19).setBackground("#eeeeee").setFontColor("#999999");
+
+        // Registrar en base de datos meli_orders (si no es Full)
+        enviarARegistroMeli(
+          nombreCuenta,
+          p.id,
+          p.pack_id || p.id,
+          p.date_created,
+          sku,
+          item.item.title,
+          item.quantity,
+          item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(", ") : "N/A",
+          p.buyer.nickname,
+          nombreReal,
+          shippingData ? shippingData.id : "N/A",
+          textoTipoSLA,
+          p.status,
+          item.unit_price * item.quantity,
+          infoEnvio.statusReal,
+          linkEtiqueta,
+          horaLimiteDespacho,
+          rangoEntrega,
+          pickingStatus,
+          direccion,
+          comuna,
+          referencia,
+          linkImagen
+        );
+      });
+    }
+  });
+
+  if (hoja.getLastRow() > 1) {
+    hoja.getRange(2, 1, hoja.getLastRow()-1, encabezados.length).sort({column: 4, ascending: false});
+  }
+}
+
+// ==========================================
+// EXPORTACIÓN A SUPABASE
+// ==========================================
+function formatDateToISO(dateVal) {
+  if (!dateVal) return "";
+  
+  // Si es un objeto Date de JS
+  if (dateVal instanceof Date) {
+    return Utilities.formatDate(dateVal, "America/Santiago", "yyyy-MM-dd");
+  }
+  
+  const clean = String(dateVal).trim();
+  if (!clean || clean === "N/A" || clean === "null") return "";
+  
+  // Si ya está en formato YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  
+  // Si empieza con YYYY-MM-DD
+  const matchISO = clean.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (matchISO) return matchISO[1];
+  
+  // Si viene en formato DD/MM/AAAA o DD-MM-AAAA
+  const parts = clean.split(/[-/]/);
+  if (parts.length >= 3) {
+    const day = parts[0].padStart(2, '0');
+    const month = parts[1].padStart(2, '0');
+    const yearMatch = parts[2].match(/^(\d{4})/);
+    if (yearMatch) {
+      const year = yearMatch[1];
+      return `${year}-${month}-${day}`;
+    }
+  }
+  return "";
+}
+
+function enviarAPlanillaPickingMeli(p, item, infoEnvio, direccion, comuna, referencia, totu, fechaVenta, linkImagen, nombreCuenta) {
+  try {
+    const idReferencia = String(p.pack_id || p.id); 
+    let sku = extraerSku(item);
+    
+    const dir = direccion || "";
+    const com = comuna || "";
+    const ref = referencia || "";
+    const totalUnidades = totu || item.quantity;
+    const fechaFinal = fechaVenta || "";
+    const imagenUrl = linkImagen || "";
+    const cuenta = nombreCuenta || "";
+
+    const payload = {
+      sucursal: "Sucursal Virtual (Hub)",
+      order_number: idReferencia,
+      agenda: "MERCADOLIBRE",
+      quantity: parseInt(item.quantity, 10) || 1,
+      sku: sku,
+      name: item.item.title || "",
+      color: item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(", ") : "",
+      talla: "",
+      manga: "",
+      cuello: "",
+      client_name: ((p.buyer.first_name || "") + " " + (p.buyer.last_name || "")).trim(),
+      tracking: String(p.shipping ? p.shipping.id : "N/A"),
+      operator: infoEnvio.tipo,
+      totu: parseInt(totalUnidades, 10) || 1,
+      sheet_status: "Pendiente",
+      observation: "",
+      fecha: formatDateToISO(fechaFinal) || Utilities.formatDate(new Date(), "America/Santiago", "yyyy-MM-dd"),
+      contact_data_q: "",
+      contact_data_r: "",
+      contact_data_s: dir,
+      contact_data_t: com,
+      contact_data_u: ref,
+      extra_col_v: imagenUrl,
+      comercio: cuenta
+    };
+
+    const url = SUPABASE_URL + "/rest/v1/active_orders";
+    const options = {
+      "method": "POST",
+      "headers": {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+
+    const res = UrlFetchApp.fetch(url, options);
+    const code = res.getResponseCode();
+    if (code === 200 || code === 201) {
+      console.log("✅ Pedido " + idReferencia + " enviado exitosamente a Supabase.");
+    } else {
+      console.error("❌ Error al enviar a Supabase (Status: " + code + "): " + res.getContentText());
+    }
+  } catch (e) {
+    console.error("❌ Error en enviarAPlanillaPickingMeli (Supabase): " + e.message);
+  }
+}
+
+function enviarARegistroMeli(cuenta, idPedido, idVenta, fecha, sku, producto, cant, variaciones, usuario, nombreReal, nEnvio, tipoEnvio, estadoVenta, total, statusLogistico, linkEtiqueta, limiteDespacho, entregaEstimada, pickingCheck, direccion, comuna, referencia, linkImagen) {
+  try {
+    // Si el tipo de envío contiene "Full", no lo guardamos en la base de datos
+    if (tipoEnvio && (tipoEnvio.indexOf("Full") !== -1 || tipoEnvio.indexOf("Full 📦") !== -1)) {
+      console.log("ℹ️ Pedido Meli Full omitido de meli_orders: " + idPedido);
+      return;
+    }
+
+    const payload = {
+      cuenta: cuenta || "",
+      id_pedido: String(idPedido || ""),
+      id_venta: String(idVenta || ""),
+      fecha: formatDateToISO(fecha) || null,
+      sku: sku || "",
+      producto: producto || "",
+      cant: parseInt(cant, 10) || 1,
+      variaciones: variaciones || "",
+      usuario: usuario || "",
+      nombre_real: nombreReal || "",
+      n_envio: String(nEnvio || ""),
+      tipo_envio: tipoEnvio || "",
+      estado_venta: estadoVenta || "",
+      total: parseFloat(total) || 0,
+      status_logistico: statusLogistico || "",
+      link_etiqueta: linkEtiqueta || "",
+      limite_despacho: limiteDespacho || "",
+      entrega_estimada: entregaEstimada || "",
+      picking_check: pickingCheck || "",
+      direccion: direccion || "",
+      comuna: comuna || "",
+      referencia: referencia || "",
+      link_imagen: linkImagen || ""
+    };
+
+    const url = SUPABASE_URL + "/rest/v1/meli_orders";
+    const options = {
+      "method": "POST",
+      "headers": {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+      },
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+
+    const res = UrlFetchApp.fetch(url, options);
+    const code = res.getResponseCode();
+    if (code === 200 || code === 201) {
+      console.log("✅ Pedido " + idPedido + " registrado en base de datos meli_orders.");
+    } else {
+      console.error("❌ Error al registrar en meli_orders (Status: " + code + "): " + res.getContentText());
+    }
+  } catch (e) {
+    console.error("❌ Error en enviarARegistroMeli: " + e.message);
+  }
+}
+
+function actualizarEstadoEnRegistroMeli(idPedido, sku, variaciones, nuevoEstado, nuevoEstadoVenta) {
+  try {
+    const payload = {};
+    if (nuevoEstado) payload.status_logistico = nuevoEstado;
+    if (nuevoEstadoVenta) payload.estado_venta = nuevoEstadoVenta;
+
+    const url = SUPABASE_URL + "/rest/v1/meli_orders?id_pedido=eq." + idPedido + "&sku=eq." + encodeURIComponent(sku) + "&variaciones=eq." + encodeURIComponent(variaciones || 'N/A');
+    const options = {
+      "method": "PATCH",
+      "headers": {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY,
+        "Content-Type": "application/json"
+      },
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+
+    const res = UrlFetchApp.fetch(url, options);
+    const code = res.getResponseCode();
+    if (code === 200 || code === 204) {
+      console.log("✅ Estado de pedido " + idPedido + " actualizado en meli_orders.");
+    } else {
+      console.error("❌ Error actualizando estado en meli_orders (Status: " + code + "): " + res.getContentText());
+    }
+  } catch (e) {
+    console.error("❌ Error en actualizarEstadoEnRegistroMeli: " + e.message);
+  }
+}
+
+function enviarExistentesAPicking() {
+  const hojaMeli = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 1");
+  const ultimaFila = hojaMeli.getLastRow();
+  
+  if (ultimaFila < 2) return;
+
+  const rango = hojaMeli.getRange(2, 1, ultimaFila - 1, 23);
+  const datos = rango.getValues();
+  
+  const mapaTotu = {};
+  datos.forEach(fila => {
+    const packId = String(fila[2]);
+    const cantidad = Number(fila[6]);
+    if (!mapaTotu[packId]) mapaTotu[packId] = 0;
+    mapaTotu[packId] += cantidad;
+  });
+  
+  let contador = 0;
+
+  datos.forEach((fila, index) => {
+    const statusLogistico = fila[14];
+    const tipoEnvioTexto = fila[11];
+    const checkPicking = fila[18];
+    const packId = String(fila[2]);
+    
+    const dir = fila[19]; const com = fila[20]; const ref = fila[21];
+    const linkImagen = fila[22] || "";
+    
+    const rawDate = fila[3]; 
+    let fechaVenta = "";
+    if (rawDate) {
+      fechaVenta = Utilities.formatDate(new Date(rawDate), "America/Santiago", "dd/MM/yyyy HH:mm");
+    }
+
+    const filaActual = index + 2;
+
+    if (statusLogistico === 'ready_to_ship' && checkPicking !== 'Enviado' && !tipoEnvioTexto.includes("Full")) {
+      let slaOriginal = fila[16]; 
+      let tipoFormateado = tipoEnvioTexto;
+      if (slaOriginal && slaOriginal !== "N/A" && !tipoEnvioTexto.includes("- SLA:")) {
+        tipoFormateado += "- SLA: " + slaOriginal;
+      }
+      
+      const totuCalculado = mapaTotu[packId] || fila[6];
+
+      const pSimulado = {
+        id: fila[1], pack_id: packId,
+        buyer: { first_name: fila[9], last_name: "" },
+        shipping: { id: fila[10] },
+        order_items: [{ quantity: fila[6] }]
+      };
+      
+      const itemSimulado = {
+        quantity: fila[6],
+        item: { seller_sku: fila[4], title: fila[5], variation_attributes: [{ value_name: fila[7] }] }
+      };
+      
+      const infoEnvioSimulado = { tipo: tipoFormateado };
+
+      enviarAPlanillaPickingMeli(pSimulado, itemSimulado, infoEnvioSimulado, dir, com, ref, totuCalculado, fechaVenta, linkImagen, fila[0]);
+      
+      hojaMeli.getRange(filaActual, 12).setValue(tipoFormateado);
+      hojaMeli.getRange(filaActual, 19).setValue("Enviado").setBackground("#d9ead3");
+      contador++;
+    } else if (tipoEnvioTexto.includes("Full") && checkPicking === "") {
+      hojaMeli.getRange(filaActual, 19).setValue("Meli Full").setBackground("#eeeeee").setFontColor("#999999");
+    }
+  });
+
+  SpreadsheetApp.getUi().alert("Se enviaron " + contador + " pedidos con Imagen, Fecha y TOTU.");
+}
+
+// ==========================================
+// ACTUALIZACIÓN DE ESTADOS Y CANCELACIONES
+// ==========================================
+function actualizarEstadosAutomatico() {
+  const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 1");
+  const ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return;
+
+  const rango = hoja.getRange(2, 1, ultimaFila - 1, 23); // Leer 23 columnas (A a W)
+  const datos = rango.getValues();
+  
+  const props = PropertiesService.getScriptProperties();
+  const cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+
+  const hoy = new Date();
+  const tokensPorCuenta = {}; // Cache de tokens por tienda
+
+  for (let i = 0; i < datos.length; i++) {
+    const fila = datos[i];
+    const nombreCuenta = fila[0];
+    const idPedido = String(fila[1]);
+    const idVenta = String(fila[2]);
+    const fechaVentaRaw = fila[3]; // Columna D (Fecha)
+    const sku = fila[4];
+    const producto = fila[5];
+    const cant = fila[6];
+    const variaciones = fila[7];
+    const nombreReal = fila[9];
+    const shippingId = fila[10];   // Columna K (N° Envío)
+    const tipoEnvioTexto = fila[11]; // Columna L (Tipo Envío)
+    const estadoActual = fila[14]; // Columna O (Status Logístico)
+    const checkPicking = fila[18];  // Columna S (CHECK EXT)
+    const dir = fila[19];
+    const com = fila[20];
+    const ref = fila[21];
+    const linkImagen = fila[22];
+    const filaHoja = i + 2;
+
+    // --- FILTRO 7 DÍAS CON PARADA TEMPRANA (BREAK) ---
+    if (fechaVentaRaw) {
+      const fechaVenta = new Date(fechaVentaRaw);
+      const diasAntiguedad = (hoy.getTime() - fechaVenta.getTime()) / (1000 * 3600 * 24);
+      // Como la hoja está ordenada de más reciente a más antigua:
+      // Si el pedido tiene más de 7 días, todos los siguientes también los tendrán.
+      if (diasAntiguedad > 7) {
+        console.log("⏸️ Deteniendo actualización de estados: se alcanzó el límite de 7 días en la fila " + filaHoja);
+        break; 
+      }
+    }
+
+    if (shippingId && shippingId !== "N/A" && shippingId !== "null" && 
+        estadoActual !== "delivered" && estadoActual !== "cancelled" && estadoActual !== "returned") {
+      
+      try {
+        // Renovar y almacenar token solo una vez por cuenta
+        if (!tokensPorCuenta[nombreCuenta]) {
+          const cuenta = cuentas.find(c => c.nombre === nombreCuenta);
+          if (cuenta) {
+            const tokens = renovarTokens(cuenta.clientId, cuenta.clientSecret, cuenta.refreshToken);
+            if (tokens && tokens.access_token) {
+              tokensPorCuenta[nombreCuenta] = tokens.access_token;
+            }
+          }
+        }
+        
+        const token = tokensPorCuenta[nombreCuenta];
+        if (!token) continue;
+        
+        const url = `https://api.mercadolibre.com/shipments/${shippingId}`;
+        const res = UrlFetchApp.fetch(url, {
+          headers: {'Authorization': 'Bearer ' + token},
+          muteHttpExceptions: true
+        });
+        
+        if (res.getResponseCode() === 200) {
+          const shipData = JSON.parse(res.getContentText());
+          const nuevoEstado = shipData.status;
+
+          if (nuevoEstado !== estadoActual) {
+            hoja.getRange(filaHoja, 15).setValue(nuevoEstado);
+            if (nuevoEstado === "delivered") {
+              hoja.getRange(filaHoja, 1, 1, 16).setBackground("#d9ead3"); 
+            }
+            
+            // Actualizar estado logístico en meli_orders de Supabase
+            actualizarEstadoEnRegistroMeli(idPedido, sku, variaciones, nuevoEstado, null);
+
+            // Si cambió a ready_to_ship y no ha sido enviado, procesar el envío a active_orders
+            if (nuevoEstado === "ready_to_ship" && checkPicking !== "Enviado") {
+              if (tipoEnvioTexto && !tipoEnvioTexto.includes("Full")) {
+                let totuCalculado = 0;
+                datos.forEach(d => {
+                  if (String(d[2]) === idVenta) {
+                    totuCalculado += Number(d[6]) || 0;
+                  }
+                });
+                if (totuCalculado === 0) totuCalculado = Number(cant) || 1;
+
+                let slaOriginal = fila[16]; // Columna Q
+                let tipoFormateado = tipoEnvioTexto;
+                if (slaOriginal && slaOriginal !== "N/A" && !tipoEnvioTexto.includes("- SLA:")) {
+                  tipoFormateado += "- SLA: " + slaOriginal;
+                }
+
+                const pSimulado = {
+                  id: idPedido, pack_id: idVenta,
+                  buyer: { first_name: nombreReal, last_name: "" },
+                  shipping: { id: shippingId },
+                  order_items: [{ quantity: cant }]
+                };
+                
+                const itemSimulado = {
+                  quantity: cant,
+                  item: { seller_sku: sku, title: producto, variation_attributes: [{ value_name: variaciones }] }
+                };
+                
+                const infoEnvioSimulado = { tipo: tipoFormateado };
+
+                enviarAPlanillaPickingMeli(pSimulado, itemSimulado, infoEnvioSimulado, dir, com, ref, totuCalculado, fechaVentaRaw, linkImagen, nombreCuenta);
+
+                hoja.getRange(filaHoja, 12).setValue(tipoFormateado);
+                hoja.getRange(filaHoja, 19).setValue("Enviado").setBackground("#d9ead3");
+              } else if (tipoEnvioTexto && tipoEnvioTexto.includes("Full")) {
+                hoja.getRange(filaHoja, 19).setValue("Meli Full").setBackground("#eeeeee").setFontColor("#999999");
+              }
+            }
+          }
+        }
+      } catch (e) { }
+    }
+  }
+}
+
+function revisarCancelaciones() {
+  const hojaLocal = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 1");
+  const ultimaFila = hojaLocal.getLastRow();
+  if (ultimaFila < 2) return;
+
+  const datos = hojaLocal.getRange(2, 1, ultimaFila - 1, 19).getValues(); 
+  
+  const props = PropertiesService.getScriptProperties();
+  const cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+  if (cuentas.length === 0) return;
+
+  const tokensPorCuenta = {};
+  const hoy = new Date();
+
+  for (let i = 0; i < datos.length; i++) {
+    const fila = datos[i];
+    const cuenta = fila[0];            
+    const idPedido = String(fila[1]).replace(/'/g, ""); 
+    const idVenta = String(fila[2]).replace(/'/g, "");  
+    const fechaVentaRaw = fila[3];     // Columna D
+    const estadoVenta = fila[12];      // Columna M
+    const statusLogistico = fila[14];  // Columna O (NUEVO: Para saber si ya se fue)
+    const statusPicking = fila[18];    // Columna S
+    const filaActual = i + 2;
+
+    // --- MEJORA 1: REDUCIMOS A 3 DÍAS CON PARADA TEMPRANA (BREAK) ---
+    if (fechaVentaRaw) {
+      const fechaVenta = new Date(fechaVentaRaw);
+      const diasAntiguedad = (hoy.getTime() - fechaVenta.getTime()) / (1000 * 3600 * 24);
+      // Las cancelaciones críticas ocurren rápido. Ignoramos pedidos de más de 3 días para ahorrar tiempo.
+      // Como la hoja está ordenada de más reciente a más antigua, podemos romper el ciclo de inmediato.
+      if (diasAntiguedad > 3) {
+        console.log("⏸️ Deteniendo revisión de cancelaciones: se alcanzó el límite de 3 días en la fila " + filaActual);
+        break; 
+      }
+    }
+
+    // --- MEJORA 2: SOLO REVISAR SI SIGUE EN BODEGA ---
+    // Si ya dice "shipped" o "delivered", no perdemos tiempo revisándolo.
+    if (statusPicking === 'Enviado' && estadoVenta !== 'cancelled' && statusLogistico === 'ready_to_ship') {
+      try {
+        if (!tokensPorCuenta[cuenta]) {
+          const config = cuentas.find(c => c.nombre === cuenta);
+          if (config) {
+            tokensPorCuenta[cuenta] = renovarTokens(config.clientId, config.clientSecret, config.refreshToken).access_token;
+          }
+        }
+
+        const token = tokensPorCuenta[cuenta];
+        if (!token) continue;
+
+        const url = `https://api.mercadolibre.com/orders/${idPedido}`;
+        const res = UrlFetchApp.fetch(url, { headers: { 'Authorization': `Bearer ${token}` }, muteHttpExceptions: true });
+
+        if (res.getResponseCode() === 200) {
+          const pedidoData = JSON.parse(res.getContentText());
+          
+          if (pedidoData.status === 'cancelled') {
+            hojaLocal.getRange(filaActual, 13).setValue('cancelled');
+            hojaLocal.getRange(filaActual, 19).setValue('❌ CANCELADO')
+                     .setBackground('#ea9999').setFontColor('#cc0000').setFontWeight("bold"); 
+            alertarBodegaCancelacion(idVenta);
+
+            // Actualizar estado de cancelación en meli_orders de Supabase
+            actualizarEstadoEnRegistroMeli(idPedido, fila[4], fila[7], null, 'cancelled');
+          }
+        }
+      } catch (e) { }
+    }
+  }
+}
+
+function alertarBodegaCancelacion(idVenta) {
+  try {
+    const ssDestino = SpreadsheetApp.openById(ID_PLANILLA_PICKING);
+    const hojaDestino = ssDestino.getSheetByName(NOMBRE_HOJA_PICKING);
+    const ultimaFila = hojaDestino.getLastRow();
+    
+    if (ultimaFila < 1) return;
+
+    const idsBodega = hojaDestino.getRange(1, 1, ultimaFila, 1).getValues();
+
+    for (let i = 0; i < idsBodega.length; i++) {
+      const idCelda = String(idsBodega[i][0]).replace(/'/g, "");
+      
+      if (idCelda === idVenta || idCelda.includes(idVenta)) {
+        const filaReal = i + 1;
+        hojaDestino.getRange(filaReal, 1).setValue(`⛔ CANC - ${idVenta}`)
+                   .setBackground('#ea9999').setFontWeight("bold");
+        hojaDestino.getRange(filaReal, 2, 1, 20).setBackground('#fce5cd'); 
+      }
+    }
+  } catch (e) { }
+}
+
+// ==========================================
+// UTILIDADES Y AYUDANTES
+// ==========================================
+function obtenerImagenProducto(itemId, token) {
+  const cache = CacheService.getScriptCache();
+  const imagenGuardada = cache.get(itemId);
+  
+  if (imagenGuardada) return imagenGuardada; 
+  if (!itemId) return "No hay ID";
+
+  try {
+    // TRUCO ANTI-BLOQUEO: Usamos la ruta múltiple y un disfraz de navegador
+    const url = `https://api.mercadolibre.com/items?ids=${itemId}`;
+    const res = UrlFetchApp.fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+      },
+      muteHttpExceptions: true
+    });
+    
+    // Esta ruta devuelve un Array (lista), aunque le pidamos 1 solo producto
+    if (res.getResponseCode() === 200 || res.getResponseCode() === 206) {
+      const dataArray = JSON.parse(res.getContentText());
+      
+      // Verificamos que el producto realmente exista en la respuesta
+      if (dataArray && dataArray.length > 0 && dataArray[0].code === 200) {
+        const data = dataArray[0].body;
+        let img = data.secure_thumbnail || 
+                  (data.pictures && data.pictures.length > 0 ? data.pictures[0].secure_url : "") ||
+                  data.thumbnail;
+        
+        if (img) {
+          img = img.replace("http://", "https://");
+          cache.put(itemId, img, 21600); 
+          return img;
+        } else {
+          return "Sin foto";
+        }
+      } else {
+        return "Item no encontrado";
+      }
+    } else {
+      return `Error API: ${res.getResponseCode()}`; 
+    }
+  } catch (e) { 
+    return "Error técnico";
+  }
+}
+
+function extraerSku(item) {
+  let sku = item.item.seller_sku || item.item.seller_custom_field || "Sin SKU";
+  if (sku === "Sin SKU" && item.item.variation_attributes) {
+    const vSku = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
+    if (vSku) sku = vSku.value_name;
+  }
+  return sku;
+}
+
+function mapearEnvio(shipping) {
+  if (!shipping || !shipping.logistic_type) {
+    return { tipo: "Acordar / Retiro", statusReal: (shipping && shipping.status) ? shipping.status : "N/A" };
+  }
+  
+  const mapaLog = {
+    'self_service': 'FLEX ⚡', 
+    'fulfillment': 'Full 📦', 
+    'cross_docking': 'Colecta 🚚', 
+    'drop_off': 'CENTRO DE ENVIOS 🏪',
+    'xd_drop_off': 'CENTRO DE ENVIOS 🏪',
+    'custom': 'Acordar / Retiro',
+    'not_specified': 'Acordar / Retiro'
+  };
+
+  const tipoFinal = mapaLog[shipping.logistic_type] || shipping.logistic_type || "Acordar / Retiro";
+  
+  return {
+    tipo: tipoFinal,
+    statusReal: shipping.status || "Sin info"
+  };
+}
+
+function importarPedidoManual() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Rescate de Pedido', 'Ingresa el ID del Pedido:', ui.ButtonSet.OK_CANCEL);
+
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const orderId = respuesta.getResponseText().trim();
+    if (!orderId) return;
+
+    const props = PropertiesService.getScriptProperties();
+    const cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+    
+    if (cuentas.length === 0) return;
+
+    let encontrado = false;
+
+    for (let i = 0; i < cuentas.length; i++) {
+      const configCuenta = cuentas[i];
+      try {
+        const tokenObj = renovarTokens(configCuenta.clientId, configCuenta.clientSecret, configCuenta.refreshToken);
+        const url = `https://api.mercadolibre.com/orders/${orderId}`;
+        const response = UrlFetchApp.fetch(url, {
+          headers: { 'Authorization': `Bearer ${tokenObj.access_token}` },
+          muteHttpExceptions: true
+        });
+
+        if (response.getResponseCode() === 200) {
+          const pedido = JSON.parse(response.getContentText());
+          volcarDatosAHoja([pedido], configCuenta.nombre);
+          ui.alert(`✅ Pedido procesado con éxito en la cuenta "${configCuenta.nombre}".`);
+          encontrado = true;
+          break; 
+        }
+      } catch (e) { }
+    }
+    if (!encontrado) ui.alert(`❌ No se encontró el pedido o hubo un error de acceso.`);
+  }
+}
+
+function cargarVentasUltimoMes() {
+  const hoy = new Date();
+  const haceUnMes = new Date();
+  haceUnMes.setDate(hoy.getDate() - 30); 
+
+  const fechaFin = hoy.toISOString().split('T')[0];
+  const fechaInicio = haceUnMes.toISOString().split('T')[0];
+  
+  traerVentasHistoricas(fechaInicio, fechaFin);
+}
+
+function traerVentasHistoricas(fechaInicioStr, fechaFinStr) {
+  const props = PropertiesService.getScriptProperties();
+  let cuentas = JSON.parse(props.getProperty('CUENTAS_CONFIG') || "[]");
+
+  const fDesde = fechaInicioStr + "T00:00:00.000-00:00";
+  const fHasta = fechaFinStr + "T23:59:59.000-00:00";
+
+  cuentas.forEach((cuenta) => {
+    try {
+      const tokens = renovarTokens(cuenta.clientId, cuenta.clientSecret, cuenta.refreshToken);
+      let offset = 0;
+      let tieneMas = true;
+
+      while (tieneMas) {
+        const url = `https://api.mercadolibre.com/orders/search?seller=${cuenta.userId}&date_created.from=${fDesde}&date_created.to=${fHasta}&offset=${offset}&limit=50&sort=date_desc`;
+        const res = UrlFetchApp.fetch(url, {
+          headers: {'Authorization': 'Bearer ' + tokens.access_token},
+          muteHttpExceptions: true
+        });
+        
+        const data = JSON.parse(res.getContentText());
+        const pedidos = data.results || [];
+
+        if (pedidos.length > 0) {
+          volcarDatosAHoja(pedidos, cuenta.nombre);
+          offset += 50;
+          tieneMas = data.paging.total > offset;
+        } else {
+          tieneMas = false;
+        }
+        Utilities.sleep(200); 
+      }
+    } catch (e) { }
+  });
+}
+
+function repararTiposVacios() {
+  const hoja = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Hoja 1");
+  const ultimaFila = hoja.getLastRow();
+  if (ultimaFila < 2) return;
+
+  const rango = hoja.getRange(2, 11, ultimaFila - 1, 2); 
+  const datos = rango.getValues();
+
+  datos.forEach((fila, index) => {
+    const idEnvio = fila[0]; 
+    const tipoActual = fila[1]; 
+    const filaHoja = index + 2;
+
+    if (!tipoActual || tipoActual === "") {
+      if (!idEnvio || idEnvio === "N/A" || idEnvio === "null") {
+        hoja.getRange(filaHoja, 12).setValue("Acordar / Retiro");
+      } else {
+        hoja.getRange(filaHoja, 12).setValue("Mercado Envíos");
+      }
+    }
+  });
+}
+
+function probarImagenAPI() {
+  const ui = SpreadsheetApp.getUi();
+  const respuesta = ui.prompt('Test de Imagen', 'Ingresa el ID de un Producto (ej: MLC123456789):', ui.ButtonSet.OK_CANCEL);
+  
+  if (respuesta.getSelectedButton() == ui.Button.OK) {
+    const itemId = respuesta.getResponseText().trim();
+    if (!itemId) return;
+    
+    const url = `https://api.mercadolibre.com/items/${itemId}`;
+    const res = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
+    
+    if (res.getResponseCode() === 200) {
+      const data = JSON.parse(res.getContentText());
+      let img = data.secure_thumbnail || (data.pictures && data.pictures.length > 0 ? data.pictures[0].secure_url : "") || data.thumbnail;
+      ui.alert("✅ Éxito", "URL Encontrada:\n" + img, ui.ButtonSet.OK);
+    } else {
+      ui.alert("❌ Error", "Código: " + res.getResponseCode() + "\nMensaje: " + res.getContentText(), ui.ButtonSet.OK);
+    }
+  }
+}
+
+/**
+ * Prueba la conexión con la base de datos de Supabase desde Google Apps Script
+ */
+function probarConexionSupabase() {
+  const ui = SpreadsheetApp.getUi();
+  const url = SUPABASE_URL + "/rest/v1/active_orders?limit=1";
+  const options = {
+    "method": "GET",
+    "headers": {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + SUPABASE_ANON_KEY
+    },
+    "muteHttpExceptions": true
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(url, options);
+    const code = res.getResponseCode();
+    if (code === 200) {
+      ui.alert("🔌 Conexión Exitosa", "Se logró conectar a Supabase exitosamente.\nCódigo de respuesta: " + code, ui.ButtonSet.OK);
+    } else {
+      ui.alert("❌ Error de Conexión", "Supabase respondió con código " + code + "\nMensaje: " + res.getContentText(), ui.ButtonSet.OK);
+    }
+  } catch (e) {
+    ui.alert("❌ Error Técnico", "No se pudo establecer la conexión:\n" + e.toString(), ui.ButtonSet.OK);
+  }
+}
+
+// ==========================================
+// ENDPOINT PARA ENVÍO DE CORREOS DESDE PICKER
+// ==========================================
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const { to, subject, html } = data;
+    
+    if (!to || !subject || !html) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: "Faltan campos requeridos (to, subject, html)"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Enviar correo utilizando el servicio nativo de Gmail de Google
+    MailApp.sendEmail({
+      to: to,
+      subject: subject,
+      htmlBody: html
+    });
+    
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true
+    })).setMimeType(ContentService.MimeType.JSON);
+    
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      success: false,
+      error: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}

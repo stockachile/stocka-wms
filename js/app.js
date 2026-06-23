@@ -2714,7 +2714,7 @@ function showShipmentDetailsModal(shipment) {
   modal.innerHTML = `
     <div class="slide-over-panel">
       <div class="slide-over-header">
-        <h3>Detalle de Despacho</h3>
+        <h3><i class="ri-truck-line" style="color: var(--color-primary);"></i> Detalle de Despacho</h3>
         <button class="slide-over-close" id="btn-close-shipment-modal">&times;</button>
       </div>
       
@@ -2728,12 +2728,11 @@ function showShipmentDetailsModal(shipment) {
           <!-- Left Column: Logistics Info and Destination Info -->
           <div style="display: flex; flex-direction: column; gap: 1.5rem;">
             
-            <!-- Logistics section -->
             <div class="shipment-detail-section">
-              <h4 class="shipment-detail-title">Información de Logística</h4>
+              <h4 class="shipment-detail-title"><i class="ri-route-line"></i> Información de Logística</h4>
               <div class="detail-info-row">
-                <span class="detail-info-label">Proveedor de Integración:</span>
-                <span class="detail-info-value" style="background-color:var(--color-border); padding:0.1rem 0.4rem; border-radius:4px; font-size:0.75rem; font-weight:600;">${platformBadge}</span>
+                <span class="detail-info-label">Proveedor:</span>
+                <span class="detail-info-value"><span style="background: var(--color-primary); color: white; padding: 0.15rem 0.6rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;">${platformBadge}</span></span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Courier de Envío:</span>
@@ -2758,8 +2757,8 @@ function showShipmentDetailsModal(shipment) {
                 <span class="detail-info-value">${shipment.servicio_tipo_envio || '-'}</span>
               </div>
               <div class="detail-info-row">
-                <span class="detail-info-label">Estado Logístico Original:</span>
-                <span class="detail-info-value" style="color: var(--color-accent); font-weight:600;">${getDisplayStatusName(shipment.status)}</span>
+                <span class="detail-info-label">Estado:</span>
+                <span class="detail-info-value"><span style="background: rgba(99,102,241,0.12); color: var(--color-accent); padding: 0.2rem 0.65rem; border-radius: 99px; font-size: 0.78rem; font-weight: 700;">${getDisplayStatusName(shipment.status)}</span></span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Ingresado al Sistema:</span>
@@ -2773,7 +2772,7 @@ function showShipmentDetailsModal(shipment) {
 
             <!-- Destination section -->
             <div class="shipment-detail-section">
-              <h4 class="shipment-detail-title">Información del Cliente / Entrega</h4>
+              <h4 class="shipment-detail-title"><i class="ri-map-pin-2-line"></i> Información del Cliente / Entrega</h4>
               <div class="detail-info-row">
                 <span class="detail-info-label">Destinatario:</span>
                 <span class="detail-info-value" style="font-weight:700;">${shipment.nombre_destinatario || '-'}</span>
@@ -2805,7 +2804,7 @@ function showShipmentDetailsModal(shipment) {
           <!-- Right Column: Associated WMS Order Items -->
           <div style="display: flex; flex-direction: column; gap: 1.5rem;">
             <div class="shipment-detail-section" style="height: 100%; display: flex; flex-direction: column;">
-              <h4 class="shipment-detail-title">Productos en la Orden de Venta</h4>
+              <h4 class="shipment-detail-title"><i class="ri-shopping-bag-3-line"></i> Productos en la Orden de Venta</h4>
               <div id="order-details-loading" style="text-align: center; padding: 3rem 1rem; color: var(--color-text-muted); font-size:0.875rem; flex:1; display:flex; align-items:center; justify-content:center; flex-direction:column;">
                 <div style="margin-bottom:0.5rem; font-size:1.5rem;"><i class="ri-loop-right-line"></i></div>
                 Buscando orden de venta en WMS...

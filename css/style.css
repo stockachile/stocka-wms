@@ -563,9 +563,60 @@ h1, h2, h3, h4, h5, h6 {
 
 .shipment-detail-section {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 1.25rem;
-  background-color: var(--color-bg);
+  border-radius: var(--radius-lg);
+  padding: 0;
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.shipment-detail-title {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 0.75rem 1.25rem;
+  background: var(--color-surface-hover);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.detail-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.7rem 1.25rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+  transition: background 0.15s;
+}
+
+.detail-info-row:last-child {
+  border-bottom: none;
+}
+
+.detail-info-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.detail-info-label {
+  color: var(--color-text-muted);
+  font-weight: 400;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.detail-info-value {
+  font-weight: 600;
+  color: var(--color-text-main);
+  text-align: right;
+  word-break: break-word;
+  font-size: 0.875rem;
 }
 
 .shipment-detail-title {
@@ -982,12 +1033,13 @@ html[data-theme="dark"] .floating-theme-toggle {
   visibility: visible;
 }
 
+/* Slide-over panel */
 .slide-over-panel {
   width: 100%;
-  max-width: 500px;
+  max-width: 520px;
   height: 100%;
-  background-color: var(--color-surface);
-  box-shadow: -10px 0 25px rgba(0, 0, 0, 0.1);
+  background-color: var(--color-bg);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
@@ -1000,49 +1052,68 @@ html[data-theme="dark"] .floating-theme-toggle {
 }
 
 .slide-over-header {
-  padding: 1.5rem 2rem;
+  padding: 1.25rem 1.5rem;
   border-bottom: 1px solid var(--color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   background-color: var(--color-surface);
+  flex-shrink: 0;
 }
 
 .slide-over-header h3 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.1rem;
   color: var(--color-text-main);
   font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .slide-over-close {
-  background: none;
-  border: none;
-  font-size: 2rem;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  font-size: 1.1rem;
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: color 0.2s ease;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .slide-over-close:hover {
-  color: var(--color-danger);
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: white;
+  transform: rotate(90deg);
 }
 
 .slide-over-body {
   flex: 1;
   overflow-y: auto;
-  padding: 2rem;
+  padding: 1.5rem;
   background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .slide-over-footer {
-  padding: 1.5rem 2rem;
+  padding: 1rem 1.5rem;
   border-top: 1px solid var(--color-border);
   background-color: var(--color-surface);
   display: flex;
   justify-content: flex-end;
   gap: 1rem;
+  flex-shrink: 0;
 }
 
 /* Complementary Brand Button */
