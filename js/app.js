@@ -77,6 +77,24 @@ function getDisplayStatusName(rawStatus) {
   }
 }
 
+function applyVisibilityRulesToQuery(query, rules) {
+  if (rules && rules.length > 0) {
+    rules.forEach(rule => {
+      const rCourier = rule.courier;
+      const rStatus = rule.status;
+
+      if (rCourier && rStatus) {
+        query = query.or(`courier.neq."${rCourier}",status.neq."${rStatus}"`);
+      } else if (rCourier) {
+        query = query.neq('courier', rCourier);
+      } else if (rStatus) {
+        query = query.neq('status', rStatus);
+      }
+    });
+  }
+  return query;
+}
+
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
@@ -2340,11 +2358,18 @@ async function renderShipments() {
       try {
         const companyList = getCompanyList();
 
+        // Obtener reglas de visibilidad aplicables al usuario actual
+        const { data: rules } = await supabase
+          .from('reglas_visibilidad')
+          .select('*');
+
         // 1. Query paginada y filtrada para la tabla
         let query = supabase
           .from('envios_unificados')
           .select('*', { count: 'exact' })
           .eq('visible_to_client', true);
+
+        query = applyVisibilityRulesToQuery(query, rules);
 
         if (companyList.length > 0) {
           query = query.in('empresa_comercio_proveedor', companyList);
@@ -2515,10 +2540,17 @@ async function renderShipments() {
       try {
         const companyList = getCompanyList();
 
+        // Obtener reglas de visibilidad
+        const { data: rules } = await supabase
+          .from('reglas_visibilidad')
+          .select('*');
+
         let query = supabase
           .from('envios_unificados')
           .select('*')
           .eq('visible_to_client', true);
+
+        query = applyVisibilityRulesToQuery(query, rules);
 
         if (companyList.length > 0) {
           query = query.in('empresa_comercio_proveedor', companyList);

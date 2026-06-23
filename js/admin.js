@@ -134,6 +134,9 @@ async function init() {
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
+          } else if (view === 'visibility_rules_admin') {
+            viewTitle.textContent = 'Reglas de Visibilidad';
+            renderVisibilityRulesAdmin();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -3098,6 +3101,282 @@ async function renderAdminDashboard() {
       loadAdminData();
     } catch(err) { console.error(err); alert('Error al enviar notificación'); }
   });
+}
+
+async function renderVisibilityRulesAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando reglas de visibilidad...</p>`;
+
+  try {
+    const { data: rules, error: rulesError } = await supabase
+      .from('reglas_visibilidad')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (rulesError) throw rulesError;
+
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, company_name')
+      .neq('role', 'admin')
+      .order('email');
+
+    if (profilesError) throw profilesError;
+
+    const { data: courierData } = await supabase
+      .from('envios_unificados')
+      .select('courier')
+      .not('courier', 'is', null);
+    const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
+
+    const { data: statusData } = await supabase
+      .from('envios_unificados')
+      .select('status')
+      .not('status', 'is', null);
+    const statuses = [...new Set((statusData || []).map(s => s.status).filter(Boolean))].sort();
+
+    let userOptionsHtml = '<option value="">-- Seleccionar Usuario --</option>';
+    (profiles || []).forEach(p => {
+      const displayName = `${p.email} (${p.full_name || p.company_name || 'Sin Nombre'})`;
+      userOptionsHtml += `<option value="${p.id}" data-email="${p.email}">${displayName}</option>`;
+    });
+
+    let courierOptionsHtml = '<option value="">-- Cualquier Courier --</option>';
+    couriers.forEach(c => {
+      courierOptionsHtml += `<option value="${c}">${c}</option>`;
+    });
+
+    let statusOptionsHtml = '<option value="">-- Cualquier Estado --</option>';
+    statuses.forEach(st => {
+      statusOptionsHtml += `<option value="${st}">${getDisplayStatusName(st)}</option>`;
+    });
+
+    let rowsHtml = '';
+    if (!rules || rules.length === 0) {
+      rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay reglas de visibilidad creadas.</td></tr>`;
+    } else {
+      rules.forEach(r => {
+        const dateStr = r.created_at ? new Date(r.created_at).toLocaleString() : '-';
+        const scopeBadge = r.scope === 'global' 
+          ? `<span style="background-color: #e0f2fe; color: #0369a1; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">Global</span>`
+          : `<span style="background-color: #fef3c7; color: #d97706; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">Por Usuario</span>`;
+        
+        const userDisplay = r.scope === 'global' ? 'Todos los usuarios' : (r.user_email || 'Desconocido');
+        const courierDisplay = r.courier ? `<span style="font-weight:600;">${r.courier}</span>` : '<em>Cualquiera</em>';
+        const statusDisplay = r.status ? `<span style="font-weight:600; color:var(--color-accent);">${getDisplayStatusName(r.status)}</span>` : '<em>Cualquiera</em>';
+
+        rowsHtml += `
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 1rem 0.75rem;">${scopeBadge}</td>
+            <td style="padding: 1rem 0.75rem;">${userDisplay}</td>
+            <td style="padding: 1rem 0.75rem;">${courierDisplay}</td>
+            <td style="padding: 1rem 0.75rem;">${statusDisplay}</td>
+            <td style="padding: 1rem 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">${dateStr}</td>
+            <td style="padding: 1rem 0.75rem;">
+              <button class="btn btn-outline btn-danger btn-delete-rule" data-id="${r.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                <i class="ri-delete-bin-line"></i> Eliminar
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    appContent.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 1.5rem; max-width: 1200px; margin: 0 auto; padding: 1rem;">
+        
+        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+          <h2 style="margin:0; font-size:1.5rem; font-weight:700; color:var(--color-text-main);">Reglas de Visibilidad de Datos</h2>
+          <p style="margin:0; font-size:0.875rem; color:var(--color-text-muted);">
+            Configura qué datos (despachos) ocultar en el panel de cliente en base a Courier y Estado.
+          </p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start;">
+          
+          <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+            <h3 style="margin: 0 0 1.25rem 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <i class="ri-add-line" style="color:var(--color-primary);"></i> Crear Nueva Regla
+            </h3>
+            
+            <form id="form-create-visibility-rule" style="display: flex; flex-direction: column; gap: 1rem;">
+              
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Ámbito (Scope)</label>
+                <select id="rule-scope" class="form-input" required style="width:100%;">
+                  <option value="global">Global (Todos los clientes)</option>
+                  <option value="user">Por Usuario Específico</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="user-selection-group" style="display: none; margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Seleccionar Usuario</label>
+                <select id="rule-user-id" class="form-input" style="width:100%;">
+                  ${userOptionsHtml}
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Courier a Ocultar</label>
+                <select id="rule-courier" class="form-input" style="width:100%;">
+                  ${courierOptionsHtml}
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Estado a Ocultar</label>
+                <select id="rule-status" class="form-input" style="width:100%;">
+                  ${statusOptionsHtml}
+                </select>
+              </div>
+
+              <p style="font-size:0.75rem; color:var(--color-text-muted); margin: 0; line-height: 1.4;">
+                * Dejar Courier o Estado en "Cualquiera" aplicará la regla a todas las opciones de esa columna.
+              </p>
+
+              <button type="submit" class="btn btn-primary" style="width:100%; margin-top: 0.5rem;">
+                <i class="ri-eye-off-line"></i> Guardar Regla
+              </button>
+            </form>
+          </div>
+
+          <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+            <h3 style="margin: 0 0 1.25rem 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <i class="ri-list-check" style="color:var(--color-primary);"></i> Reglas de Exclusión Activas
+            </h3>
+
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); font-weight: 600;">
+                    <th style="padding: 0.75rem 0.5rem;">Ámbito</th>
+                    <th style="padding: 0.75rem 0.5rem;">Usuario / Email</th>
+                    <th style="padding: 0.75rem 0.5rem;">Courier</th>
+                    <th style="padding: 0.75rem 0.5rem;">Estado</th>
+                    <th style="padding: 0.75rem 0.5rem;">Creado</th>
+                    <th style="padding: 0.75rem 0.5rem; width: 100px;">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="visibility-rules-table-body">
+                  ${rowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    `;
+
+    if (!document.getElementById('visibility-rules-responsive-style')) {
+      const styleTag = document.createElement('style');
+      styleTag.id = 'visibility-rules-responsive-style';
+      styleTag.textContent = `
+        @media (min-width: 900px) {
+          #app-content > div > div {
+            display: grid !important;
+            grid-template-columns: 360px 1fr !important;
+          }
+        }
+      `;
+      document.head.appendChild(styleTag);
+    }
+
+    const scopeSelect = document.getElementById('rule-scope');
+    const userSelectionGroup = document.getElementById('user-selection-group');
+    const ruleUserId = document.getElementById('rule-user-id');
+
+    scopeSelect.addEventListener('change', () => {
+      if (scopeSelect.value === 'user') {
+        userSelectionGroup.style.display = 'block';
+        ruleUserId.setAttribute('required', 'true');
+      } else {
+        userSelectionGroup.style.display = 'none';
+        ruleUserId.removeAttribute('required');
+        ruleUserId.value = '';
+      }
+    });
+
+    const form = document.getElementById('form-create-visibility-rule');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try {
+        const scope = document.getElementById('rule-scope').value;
+        const userId = scope === 'user' ? document.getElementById('rule-user-id').value : null;
+        let userEmail = null;
+        
+        if (scope === 'user') {
+          if (!userId) {
+            alert('Por favor selecciona un usuario.');
+            return;
+          }
+          const selectedOpt = document.getElementById('rule-user-id').selectedOptions[0];
+          userEmail = selectedOpt.getAttribute('data-email');
+        }
+
+        const courier = document.getElementById('rule-courier').value || null;
+        const status = document.getElementById('rule-status').value || null;
+
+        if (!courier && !status) {
+          alert('Por favor selecciona al menos un Courier o un Estado para ocultar.');
+          return;
+        }
+
+        const { error: insertError } = await supabase
+          .from('reglas_visibilidad')
+          .insert([{
+            scope,
+            user_id: userId,
+            user_email: userEmail,
+            courier,
+            status
+          }]);
+
+        if (insertError) throw insertError;
+
+        alert('Regla de visibilidad creada exitosamente.');
+        await renderVisibilityRulesAdmin();
+      } catch (err) {
+        console.error('Error al guardar la regla:', err);
+        alert(`Error al guardar la regla: ${err.message || err}`);
+      }
+    });
+
+    const tbody = document.getElementById('visibility-rules-table-body');
+    tbody.querySelectorAll('.btn-delete-rule').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ruleId = btn.getAttribute('data-id');
+        if (confirm('¿Estás seguro de que deseas eliminar esta regla de visibilidad?')) {
+          try {
+            const { error: deleteError } = await supabase
+              .from('reglas_visibilidad')
+              .delete()
+              .eq('id', ruleId);
+
+            if (deleteError) throw deleteError;
+
+            alert('Regla de visibilidad de datos eliminada.');
+            await renderVisibilityRulesAdmin();
+          } catch (err) {
+            console.error('Error al eliminar la regla:', err);
+            alert(`Error al eliminar la regla: ${err.message || err}`);
+          }
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('Error renderVisibilityRulesAdmin:', error);
+    appContent.innerHTML = `
+      <div style="padding: 2rem; text-align: center; color: var(--color-danger);">
+        <i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i>
+        <h4>Error al cargar las reglas de visibilidad</h4>
+        <p style="font-size: 0.9rem;">${error.message || error}</p>
+        <button class="btn btn-outline" onclick="renderVisibilityRulesAdmin()" style="margin-top: 1rem;">Reintentar</button>
+      </div>
+    `;
+  }
 }
 
 
