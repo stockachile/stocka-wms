@@ -338,14 +338,14 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado', comercio: integration.comercio })
+            .update({ payment_status: group.status, status: 'cancelado', comercio: integration.comercio, created_at: group.date_created })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${groupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, raw_meli_data: group.orders, comercio: integration.comercio })
+            .update({ payment_status: group.status, raw_meli_data: group.orders, comercio: integration.comercio, created_at: group.date_created })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${groupId}`);
         }
@@ -477,7 +477,8 @@ async function syncMerchantOrders(integration) {
           cantidad: flatQuantity,
           sku: flatSku,
           shipping_method: shippingMethod,
-          status: 'para procesar' // Insertar en para procesar temporalmente
+          status: 'para procesar', // Insertar en para procesar temporalmente
+          created_at: group.date_created
         };
 
         const { data: newOrder, error: insErr } = await supabase

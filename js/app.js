@@ -994,6 +994,7 @@ async function renderIntegrations() {
     const parisIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Paris') : null;
     const falabellaIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Falabella') : null;
     const meliIntegration = integrationsList ? integrationsList.find(i => i.platform === 'MercadoLibre') : null;
+    const wooIntegration = integrationsList ? integrationsList.find(i => i.platform === 'WooCommerce') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
@@ -1021,6 +1022,24 @@ async function renderIntegrations() {
       ? (meliIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
+    const hasWoo = !!wooIntegration;
+    const wooUrl = hasWoo ? wooIntegration.shop_url : '';
+    const wooStatusText = hasWoo 
+      ? (wooIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    let wooKey = '';
+    let wooSecret = '';
+    if (hasWoo) {
+      try {
+        const creds = JSON.parse(wooIntegration.access_token);
+        wooKey = creds.consumer_key || '';
+        wooSecret = creds.consumer_secret || '';
+      } catch(e) {
+        console.error("Error parsing WooCommerce credentials", e);
+      }
+    }
+
     const isObserver = userRole === 'observer';
     const disabledAttr = isObserver ? 'disabled' : '';
 
@@ -1047,6 +1066,12 @@ async function renderIntegrations() {
       : (!hasMeli 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-meli" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar MercadoLibre API</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>');
+
+    const wooButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasWoo 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-woo" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda WooCommerce</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-woo" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar WooCommerce</button>');
 
     let selectorHtml = '';
     if (assignedComercios.length > 1) {
@@ -1241,6 +1266,45 @@ async function renderIntegrations() {
             </div>
           </div>
 
+          <!-- WooCommerce Card -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-top: 1.5rem;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? 'rgba(150, 88, 138, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? 'rgba(150, 88, 138, 0.2)' : 'var(--color-border)'};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? '#96588a' : 'var(--color-text-main)'};">WooCommerce Store</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${wooStatusText}
+                 </div>
+              </div>
+              
+              <form id="form-woo-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de tu tienda WooCommerce</label>
+                  <input type="text" id="woo-url" class="form-input" placeholder="ej. https://mitienda.cl" value="${wooUrl}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Consumer Key</label>
+                  <input type="password" id="woo-key" class="form-input" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooKey}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
+                  <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
+                  <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${wooButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+
         </div>
 
         <!-- Right Column: Manual/Guide -->
@@ -1357,6 +1421,31 @@ async function renderIntegrations() {
                   <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
                     Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong>Refresh Token Existente</strong> extraído del Apps Script.
                   </p>
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <!-- WooCommerce Guide -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración WooCommerce
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                <li>
+                  <strong style="color: var(--color-text-main);">Habilitar SSL y Permalinks:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tu sitio tenga habilitado HTTPS y que los enlaces permanentes (Permalinks) no sean del tipo "Simple" en los ajustes de WordPress.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Generar Claves de la API:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce > Ajustes > Avanzado > API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
+                </li>
+                <li>
+                  <strong style="color: var(--color-text-main);">Asignar Permisos:</strong>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Configura el acceso con permisos de <strong style="color: var(--color-text-main);">Lectura y Escritura</strong>. Copia el <em>Consumer Key</em> y el <em>Consumer Secret</em> que se generarán y pégalos en el formulario.</p>
                 </li>
               </ol>
             </div>
@@ -1609,6 +1698,76 @@ async function renderIntegrations() {
                 .eq('platform', 'MercadoLibre');
               if(delErr) throw delErr;
               alert('Conexión con MercadoLibre eliminada.');
+              renderIntegrations();
+            } catch(err) {
+               console.error(err);
+               alert('Error al desconectar: ' + err.message);
+            }
+          }
+        });
+      }
+    }
+
+    // WooCommerce Submit Listener
+    if(!hasWoo) {
+      const formWoo = document.getElementById('form-woo-integration');
+      if (formWoo) {
+        formWoo.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const btn = document.getElementById('btn-save-woo');
+          btn.disabled = true;
+          btn.textContent = 'Conectando...';
+
+          const shop_url = document.getElementById('woo-url').value.trim();
+          const key = document.getElementById('woo-key').value.trim();
+          const secret = document.getElementById('woo-secret').value.trim();
+
+          const tokenJson = JSON.stringify({
+            consumer_key: key,
+            consumer_secret: secret
+          });
+
+          try {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'WooCommerce',
+              shop_url: shop_url,
+              access_token: tokenJson,
+              is_active: true,
+              comercio: window.activeIntegrationCommerce
+            }]);
+            if(insErr) throw insErr;
+            
+            alert('Integración con WooCommerce guardada correctamente.');
+            renderIntegrations(); // Recargar vista
+          } catch(err) {
+            console.error(err);
+            alert('Error al guardar la integración: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Conectar Tienda WooCommerce';
+          }
+        });
+      }
+    } else {
+      const btnDisconnectWoo = document.getElementById('btn-disconnect-woo');
+      if (btnDisconnectWoo) {
+        btnDisconnectWoo.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          if(confirm('¿Estás seguro que deseas desconectar tu tienda WooCommerce?')) {
+            try {
+              const { error: delErr } = await supabase.from('merchant_integrations')
+                .delete()
+                .eq('comercio', window.activeIntegrationCommerce)
+                .eq('platform', 'WooCommerce');
+              if(delErr) throw delErr;
+              alert('Tienda desconectada.');
               renderIntegrations();
             } catch(err) {
                console.error(err);
