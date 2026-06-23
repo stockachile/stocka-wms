@@ -61,6 +61,22 @@ function getCompanyList() {
   return companyList;
 }
 
+function getDisplayStatusName(rawStatus) {
+  if (!rawStatus) return 'Desconocido';
+  const statusLower = rawStatus.trim().toLowerCase();
+  switch (statusLower) {
+    case 'delivered':
+      return 'Entregado';
+    case 'reviewing':
+      return 'Creado';
+    case 'skipped':
+      return 'Reprogramado';
+    default:
+      const clean = rawStatus.replace(/_/g, ' ').trim();
+      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+}
+
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
@@ -2286,8 +2302,8 @@ async function renderShipments() {
             <td><span style="font-weight:600; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.courier || '-'}</span></td>
             <td>${trackingDisplay}</td>
             <td>
-              <span class="badge ${badgeClass}" style="text-transform: capitalize; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
-                ${s.status ? s.status.toLowerCase().replace(/_/g, ' ') : 'desconocido'}
+              <span class="badge ${badgeClass}" style="padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
+                ${getDisplayStatusName(s.status)}
               </span>
             </td>
             <td>
@@ -2388,8 +2404,7 @@ async function renderShipments() {
       if (filters.statuses.length === 0) {
         statusTriggerText.textContent = 'Todos los estados';
       } else if (filters.statuses.length === 1) {
-        const displayVal = filters.statuses[0].replace(/_/g, ' ');
-        statusTriggerText.textContent = displayVal.charAt(0).toUpperCase() + displayVal.slice(1).toLowerCase();
+        statusTriggerText.textContent = getDisplayStatusName(filters.statuses[0]);
       } else {
         statusTriggerText.textContent = `${filters.statuses.length} seleccionados`;
       }
@@ -2399,12 +2414,11 @@ async function renderShipments() {
       const optDiv = document.createElement('div');
       optDiv.className = 'multiselect-option';
       
-      const cleanLabel = st.replace(/_/g, ' ');
-      const capitalizeLabel = cleanLabel.charAt(0).toUpperCase() + cleanLabel.slice(1).toLowerCase();
+      const displayLabel = getDisplayStatusName(st);
 
       optDiv.innerHTML = `
         <input type="checkbox" id="chk-status-${st}" value="${st}">
-        <label for="chk-status-${st}">${capitalizeLabel}</label>
+        <label for="chk-status-${st}">${displayLabel}</label>
       `;
 
       // Click on row toggles checkbox
@@ -2745,7 +2759,7 @@ function showShipmentDetailsModal(shipment) {
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Estado Logístico Original:</span>
-                <span class="detail-info-value" style="text-transform: capitalize; color: var(--color-accent); font-weight:600;">${shipment.status || '-'}</span>
+                <span class="detail-info-value" style="color: var(--color-accent); font-weight:600;">${getDisplayStatusName(shipment.status)}</span>
               </div>
               <div class="detail-info-row">
                 <span class="detail-info-label">Ingresado al Sistema:</span>

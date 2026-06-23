@@ -35,6 +35,22 @@ window.onunhandledrejection = function (event) {
 
 console.log('DEBUG: Iniciando js/admin.js...');
 
+function getDisplayStatusName(rawStatus) {
+  if (!rawStatus) return 'Desconocido';
+  const statusLower = rawStatus.trim().toLowerCase();
+  switch (statusLower) {
+    case 'delivered':
+      return 'Entregado';
+    case 'reviewing':
+      return 'Creado';
+    case 'skipped':
+      return 'Reprogramado';
+    default:
+      const clean = rawStatus.replace(/_/g, ' ').trim();
+      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+}
+
 async function init() {
   console.log('DEBUG: Ejecutando función init()...');
   const userEmailSpan = document.getElementById('user-email');
@@ -795,7 +811,7 @@ async function renderConsolidatedShipments() {
 
       const optionsHtml = shipments.map(s => {
         const sourceName = s.source_table === 'lightdata_envios' ? 'LightData' : s.source_table === 'enviame_shipments' ? 'Enviame' : 'Optiroute';
-        return `<option value="${s.id}">${sourceName} - ${s.courier || 'N/A'} (Tracking: ${s.tracking || 'N/A'}) - Estado original: ${s.status}</option>`;
+        return `<option value="${s.id}">${sourceName} - ${s.courier || 'N/A'} (Tracking: ${s.tracking || 'N/A'}) - Estado original: ${getDisplayStatusName(s.status)}</option>`;
       }).join('');
 
       modal.innerHTML = `
@@ -970,7 +986,7 @@ async function renderConsolidatedShipments() {
               <div style="font-size:0.75rem; color:var(--color-text-muted); margin-top: 0.2rem;"><i class="ri-phone-line" style="margin-right: 0.25rem;"></i>${s.telefono_destino || '-'}</div>
             </td>
             <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${s.comuna_destino || '-'}</td>
-            <td><span style="font-size:0.875rem; text-transform:capitalize; color: var(--color-text-main);">${s.status || '-'}</span></td>
+            <td><span style="font-size:0.875rem; color: var(--color-text-main);">${getDisplayStatusName(s.status)}</span></td>
             <td>
               <span class="badge ${badgeClass}" style="text-transform: capitalize; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
                 ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
