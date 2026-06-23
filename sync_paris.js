@@ -229,7 +229,8 @@ async function syncMerchantOrders(integration) {
         origen: 'Paris',
         item: flatItemName,
         cantidad: flatQuantity,
-        sku: flatSku
+        sku: flatSku,
+        created_at: new Date(order.originOrderDate || order.createdAt || new Date()).toISOString()
       };
 
       let localOrderId = null;

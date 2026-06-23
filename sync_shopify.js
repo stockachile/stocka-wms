@@ -94,7 +94,8 @@ async function syncOrders(integration) {
         shipping_address: order.shipping_address?.address1,
         shipping_city: order.shipping_address?.city,
         shipping_complement: order.shipping_address?.address2,
-        raw_shopify_data: order // GUARDAMOS EL PAYLOAD COMPLETO AQUI
+        raw_shopify_data: order, // GUARDAMOS EL PAYLOAD COMPLETO AQUI
+        created_at: new Date(order.created_at).toISOString()
       };
 
       if (existingOrder) {

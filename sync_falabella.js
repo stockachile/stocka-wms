@@ -214,14 +214,14 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, status: 'cancelado', comercio: integration.comercio })
+            .update({ payment_status: statusName, status: 'cancelado', comercio: integration.comercio, created_at: new Date(order.CreatedAt).toISOString() })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${orderNumber} cancelado en Falabella. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, raw_falabella_data: order, comercio: integration.comercio })
+            .update({ payment_status: statusName, raw_falabella_data: order, comercio: integration.comercio, created_at: new Date(order.CreatedAt).toISOString() })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${orderNumber}`);
         }
@@ -303,7 +303,8 @@ async function syncMerchantOrders(integration) {
           origen: 'Falabella',
           item: flatItemName,
           cantidad: flatQuantity,
-          sku: flatSku
+          sku: flatSku,
+          created_at: new Date(order.CreatedAt).toISOString()
         };
 
         // Insertar nuevo pedido activo en WMS temporalmente como 'para procesar'

@@ -2085,37 +2085,7 @@ async function renderShipments() {
         </p>
       </div>
 
-      <!-- KPI Grid -->
-      <div class="shipments-kpi-grid">
-        <div class="shipments-kpi-card kpi-total">
-          <div class="kpi-icon"><i class="ri-box-3-line"></i></div>
-          <div class="kpi-info">
-            <span class="kpi-label">Total Envíos</span>
-            <span class="kpi-value" id="kpi-total-val">0</span>
-          </div>
-        </div>
-        <div class="shipments-kpi-card kpi-despachado">
-          <div class="kpi-icon"><i class="ri-truck-line"></i></div>
-          <div class="kpi-info">
-            <span class="kpi-label">Despachados</span>
-            <span class="kpi-value" id="kpi-despachado-val">0</span>
-          </div>
-        </div>
-        <div class="shipments-kpi-card kpi-sin-movimiento">
-          <div class="kpi-icon"><i class="ri-timer-line"></i></div>
-          <div class="kpi-info">
-            <span class="kpi-label">Sin Movimiento</span>
-            <span class="kpi-value" id="kpi-sin-movimiento-val">0</span>
-          </div>
-        </div>
-        <div class="shipments-kpi-card kpi-alerta">
-          <div class="kpi-icon"><i class="ri-error-warning-line"></i></div>
-          <div class="kpi-info">
-            <span class="kpi-label">Alertas</span>
-            <span class="kpi-value" id="kpi-alerta-val">0</span>
-          </div>
-        </div>
-      </div>
+
 
       <!-- Shipments Tabs -->
       <div class="shipments-tabs" id="ship-status-tabs">
@@ -2354,26 +2324,7 @@ async function renderShipments() {
           });
         }
 
-        // 1. Query para KPIs en paralelo (sin limit/range de paginación ni búsqueda por texto)
-        let kpiQuery = supabase
-          .from('envios_unificados')
-          .select('global_status')
-          .eq('visible_to_client', true);
-        
-        if (companyList.length > 0) {
-          kpiQuery = kpiQuery.in('empresa_comercio_proveedor', companyList);
-        }
-        if (filters.courier) {
-          kpiQuery = kpiQuery.eq('courier', filters.courier);
-        }
-        if (filters.dateFrom) {
-          kpiQuery = kpiQuery.gte('created_at', filters.dateFrom + 'T00:00:00Z');
-        }
-        if (filters.dateTo) {
-          kpiQuery = kpiQuery.lte('created_at', filters.dateTo + 'T23:59:59Z');
-        }
-
-        // 2. Query paginada y filtrada para la tabla
+        // 1. Query paginada y filtrada para la tabla
         let query = supabase
           .from('envios_unificados')
           .select('*', { count: 'exact' })
@@ -2405,23 +2356,8 @@ async function renderShipments() {
         query = query.order('created_at', { ascending: false });
         query = query.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
 
-        // Ejecutar consultas en paralelo
-        const [kpiRes, dataRes] = await Promise.all([kpiQuery, query]);
-
-        if (kpiRes.error) throw kpiRes.error;
+        const dataRes = await query;
         if (dataRes.error) throw dataRes.error;
-
-        // Actualizar KPIs
-        const kpis = kpiRes.data || [];
-        const totalCount = kpis.length;
-        const totalDespachado = kpis.filter(s => s.global_status === 'DESPACHADO').length;
-        const totalSinMov = kpis.filter(s => s.global_status === 'SIN MOVIMIENTO').length;
-        const totalAlerta = kpis.filter(s => s.global_status === 'ALERTA').length;
-
-        document.getElementById('kpi-total-val').textContent = totalCount;
-        document.getElementById('kpi-despachado-val').textContent = totalDespachado;
-        document.getElementById('kpi-sin-movimiento-val').textContent = totalSinMov;
-        document.getElementById('kpi-alerta-val').textContent = totalAlerta;
 
         allData = dataRes.data || [];
         totalFilteredRows = dataRes.count || 0;
