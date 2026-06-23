@@ -2132,7 +2132,7 @@ async function renderShipments() {
                 <th class="sortable-header" data-sort="comuna_destino">Comuna <span class="sort-indicator">⇅</span></th>
                 <th class="sortable-header" data-sort="courier">Courier <span class="sort-indicator">⇅</span></th>
                 <th>Tracking</th>
-                <th class="sortable-header" data-sort="global_status">Estado Global <span class="sort-indicator">⇅</span></th>
+                <th class="sortable-header" data-sort="status">Estado <span class="sort-indicator">⇅</span></th>
                 <th>Origen</th>
               </tr>
             </thead>
@@ -2277,7 +2277,7 @@ async function renderShipments() {
             <td>${trackingDisplay}</td>
             <td>
               <span class="badge ${badgeClass}" style="text-transform: capitalize; padding: 0.35rem 0.75rem; border-radius: 99px; font-weight: 600;">
-                ${s.global_status ? s.global_status.toLowerCase() : 'desconocido'}
+                ${s.status ? s.status.toLowerCase().replace(/_/g, ' ') : 'desconocido'}
               </span>
             </td>
             <td>
