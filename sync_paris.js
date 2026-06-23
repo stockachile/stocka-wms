@@ -148,7 +148,7 @@ async function syncMerchantOrders(integration) {
     console.log(`Se encontraron ${orders.length} pedidos.`);
 
     for (const order of orders) {
-      const orderId = order.originOrderNumber || order.id;
+      const orderId = order.subOrderNumber || order.originOrderNumber || order.id;
       const statusName = order.status?.name || 'created';
       
       console.log(`\nProcesando pedido París ID: ${orderId} (Estado actual: ${statusName})`);
