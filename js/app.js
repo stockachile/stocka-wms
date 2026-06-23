@@ -2053,6 +2053,17 @@ async function renderShipments() {
     const { data: courierData } = await courierQuery;
     const couriers = [...new Set((courierData || []).map(s => s.courier).filter(Boolean))].sort();
 
+    // Fetch unique status list from database
+    let statusQuery = supabase
+      .from('envios_unificados')
+      .select('status')
+      .eq('visible_to_client', true);
+    if (companyList.length > 0) {
+      statusQuery = statusQuery.in('empresa_comercio_proveedor', companyList);
+    }
+    const { data: statusData } = await statusQuery;
+    const originalStatuses = [...new Set((statusData || []).map(s => s.status).filter(Boolean))].sort();
+
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -2063,7 +2074,7 @@ async function renderShipments() {
     let allData = [];
     let filters = {
       search: '',
-      status: '',
+      statuses: [], // Array to store multiple selected original statuses
       courier: '',
       dateFrom: defaultDateFrom,
       dateTo: defaultDateTo
@@ -2087,19 +2098,29 @@ async function renderShipments() {
 
 
 
-      <!-- Shipments Tabs -->
-      <div class="shipments-tabs" id="ship-status-tabs">
-        <button class="shipment-tab active" data-status="">Todos los estados</button>
-        <button class="shipment-tab" data-status="DESPACHADO">Despachado</button>
-        <button class="shipment-tab" data-status="SIN MOVIMIENTO">Sin Movimiento</button>
-        <button class="shipment-tab" data-status="ALERTA">Alerta</button>
-      </div>
-
       <!-- Filters Panel -->
       <div class="shipments-filters-panel">
         <div class="filter-item filter-item-search">
           <label class="filter-label">Buscar</label>
           <input type="text" id="ship-search-input" class="filter-input" placeholder="Referencia, destinatario, tracking, comuna...">
+        </div>
+        <div class="filter-item" style="position: relative;">
+          <label class="filter-label">Estado</label>
+          <div class="custom-multiselect" id="status-multiselect">
+            <div class="multiselect-trigger" id="status-multiselect-trigger">
+              <span class="trigger-text" id="status-trigger-text">Todos los estados</span>
+              <i class="ri-arrow-down-s-line"></i>
+            </div>
+            <div class="multiselect-dropdown" id="status-multiselect-dropdown">
+              <div class="multiselect-actions">
+                <button type="button" id="status-select-all">Todos</button>
+                <button type="button" id="status-clear-all">Limpiar</button>
+              </div>
+              <div class="multiselect-options" id="status-options-list">
+                <!-- Options injected dynamically by JS -->
+              </div>
+            </div>
+          </div>
         </div>
         <div class="filter-item">
           <label class="filter-label">Courier</label>
@@ -2344,8 +2365,8 @@ async function renderShipments() {
         if (filters.dateTo) {
           query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
         }
-        if (filters.status) {
-          query = query.eq('global_status', filters.status);
+        if (filters.statuses && filters.statuses.length > 0) {
+          query = query.in('status', filters.statuses);
         }
         if (filters.search) {
           const term = `%${filters.search}%`;
@@ -2380,15 +2401,98 @@ async function renderShipments() {
       }, 300);
     });
 
-    const statusTabs = document.querySelectorAll('#ship-status-tabs .shipment-tab');
-    statusTabs.forEach(tab => {
-      tab.addEventListener('click', async (e) => {
-        statusTabs.forEach(t => t.classList.remove('active'));
-        e.target.classList.add('active');
-        filters.status = e.target.getAttribute('data-status');
-        currentPage = 1; // Resetear a página 1
+    // Populate Status Options dynamically
+    const statusOptionsList = document.getElementById('status-options-list');
+    const statusTriggerText = document.getElementById('status-trigger-text');
+    
+    const updateStatusTriggerText = () => {
+      if (filters.statuses.length === 0) {
+        statusTriggerText.textContent = 'Todos los estados';
+      } else if (filters.statuses.length === 1) {
+        const displayVal = filters.statuses[0].replace(/_/g, ' ');
+        statusTriggerText.textContent = displayVal.charAt(0).toUpperCase() + displayVal.slice(1).toLowerCase();
+      } else {
+        statusTriggerText.textContent = `${filters.statuses.length} seleccionados`;
+      }
+    };
+
+    originalStatuses.forEach(st => {
+      const optDiv = document.createElement('div');
+      optDiv.className = 'multiselect-option';
+      
+      const cleanLabel = st.replace(/_/g, ' ');
+      const capitalizeLabel = cleanLabel.charAt(0).toUpperCase() + cleanLabel.slice(1).toLowerCase();
+
+      optDiv.innerHTML = `
+        <input type="checkbox" id="chk-status-${st}" value="${st}">
+        <label for="chk-status-${st}">${capitalizeLabel}</label>
+      `;
+
+      // Click on row toggles checkbox
+      optDiv.addEventListener('click', async (e) => {
+        if (e.target.tagName !== 'INPUT') {
+          const chk = optDiv.querySelector('input');
+          chk.checked = !chk.checked;
+          chk.dispatchEvent(new Event('change'));
+        }
+      });
+
+      const checkbox = optDiv.querySelector('input');
+      checkbox.addEventListener('change', async (e) => {
+        const val = e.target.value;
+        if (e.target.checked) {
+          if (!filters.statuses.includes(val)) {
+            filters.statuses.push(val);
+          }
+        } else {
+          filters.statuses = filters.statuses.filter(v => v !== val);
+        }
+        updateStatusTriggerText();
+        currentPage = 1;
         await fetchAndRenderTable();
       });
+
+      statusOptionsList.appendChild(optDiv);
+    });
+
+    // Toggle Dropdown menu visibility
+    const multiselectTrigger = document.getElementById('status-multiselect-trigger');
+    const multiselectDropdown = document.getElementById('status-multiselect-dropdown');
+
+    multiselectTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      multiselectDropdown.classList.toggle('show');
+    });
+
+    // Select All
+    document.getElementById('status-select-all').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      filters.statuses = [...originalStatuses];
+      statusOptionsList.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+        chk.checked = true;
+      });
+      updateStatusTriggerText();
+      currentPage = 1;
+      await fetchAndRenderTable();
+    });
+
+    // Clear All
+    document.getElementById('status-clear-all').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      filters.statuses = [];
+      statusOptionsList.querySelectorAll('input[type="checkbox"]').forEach(chk => {
+        chk.checked = false;
+      });
+      updateStatusTriggerText();
+      currentPage = 1;
+      await fetchAndRenderTable();
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#status-multiselect')) {
+        multiselectDropdown.classList.remove('show');
+      }
     });
 
     document.getElementById('ship-courier-select').addEventListener('change', async (e) => {
@@ -2446,8 +2550,8 @@ async function renderShipments() {
         if (filters.dateTo) {
           query = query.lte('created_at', filters.dateTo + 'T23:59:59Z');
         }
-        if (filters.status) {
-          query = query.eq('global_status', filters.status);
+        if (filters.statuses && filters.statuses.length > 0) {
+          query = query.in('status', filters.statuses);
         }
         if (filters.search) {
           const term = `%${filters.search}%`;
