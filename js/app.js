@@ -2027,7 +2027,7 @@ async function renderShipments() {
   appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando despachos consolidados...</p>`;
 
   try {
-    console.log('DEBUG: Cargando lista de couriers únicos para la empresa:', currentCompany);
+    const companyList = getCompanyList();
     
     // Obtener la lista de couriers únicos para este comercio primero
     let courierQuery = supabase
@@ -2035,19 +2035,8 @@ async function renderShipments() {
       .select('courier')
       .eq('visible_to_client', true);
     
-    if (currentCompany) {
-      const companyList = [];
-      currentCompany.split(',').forEach(c => {
-        const trimmed = c.trim();
-        if (trimmed) {
-          companyList.push(trimmed);
-          companyList.push(trimmed.toLowerCase());
-          companyList.push(trimmed.toUpperCase());
-        }
-      });
-      if (companyList.length > 0) {
-        courierQuery = courierQuery.in('empresa_comercio_proveedor', companyList);
-      }
+    if (companyList.length > 0) {
+      courierQuery = courierQuery.in('empresa_comercio_proveedor', companyList);
     }
     
     const { data: courierData } = await courierQuery;
@@ -2333,17 +2322,7 @@ async function renderShipments() {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem;">Cargando despachos...</td></tr>`;
 
       try {
-        const companyList = [];
-        if (currentCompany) {
-          currentCompany.split(',').forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed) {
-              companyList.push(trimmed);
-              companyList.push(trimmed.toLowerCase());
-              companyList.push(trimmed.toUpperCase());
-            }
-          });
-        }
+        const companyList = getCompanyList();
 
         // 1. Query paginada y filtrada para la tabla
         let query = supabase
@@ -2520,17 +2499,7 @@ async function renderShipments() {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem;">Generando reporte de exportación...</td></tr>`;
 
       try {
-        const companyList = [];
-        if (currentCompany) {
-          currentCompany.split(',').forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed) {
-              companyList.push(trimmed);
-              companyList.push(trimmed.toLowerCase());
-              companyList.push(trimmed.toUpperCase());
-            }
-          });
-        }
+        const companyList = getCompanyList();
 
         let query = supabase
           .from('envios_unificados')
