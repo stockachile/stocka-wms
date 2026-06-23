@@ -75,9 +75,10 @@ async function syncOrders(integration) {
       // Intentar buscar si el pedido ya existe en nuestra BD
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id')
-        .eq('comercio', integration.comercio)
+        .select('id, comercio')
+        .eq('merchant_id', integration.merchant_id)
         .eq('external_order_number', order.name)
+        .eq('external_platform', 'Shopify')
         .maybeSingle();
 
       const orderDataToSave = {
@@ -146,11 +147,11 @@ async function syncProducts(integration) {
         // Iteramos por las variantes (ya que en Shopify las variantes son los SKUs reales)
         for (const variant of product.variants) {
             
-            // Verificamos si la variante (SKU) ya existe
+            // Verificamos si la variante (SKU) ya existe de forma global por merchant_id
             const { data: existingProduct } = await supabase
                 .from('products')
                 .select('id')
-                .eq('comercio', integration.comercio)
+                .eq('merchant_id', integration.merchant_id)
                 .eq('sku', variant.sku || variant.id.toString())
                 .maybeSingle();
 

@@ -164,9 +164,10 @@ async function syncMerchantOrders(integration) {
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status')
-        .eq('comercio', integration.comercio)
+        .select('id, status, comercio')
+        .eq('merchant_id', integration.merchant_id)
         .eq('external_order_number', orderId)
+        .eq('external_platform', 'Paris')
         .maybeSingle();
 
       // Obtener todos los ítems de todos los sub-pedidos y la primera dirección de despacho
@@ -289,10 +290,19 @@ async function syncMerchantOrders(integration) {
           // Buscar producto por SKU en la base de datos
           let { data: product } = await supabase
             .from('products')
-            .select('id')
-            .eq('comercio', integration.comercio)
+            .select('id, comercio')
+            .eq('merchant_id', integration.merchant_id)
             .eq('sku', sku)
             .maybeSingle();
+
+          if (product && product.comercio !== integration.comercio) {
+            // Actualizar el comercio para mantenerlo al día con la integración
+            await supabase
+              .from('products')
+              .update({ comercio: integration.comercio })
+              .eq('id', product.id);
+            product.comercio = integration.comercio;
+          }
 
           if (!product) {
             // Auto-crear producto faltante

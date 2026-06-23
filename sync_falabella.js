@@ -197,8 +197,8 @@ async function syncMerchantOrders(integration) {
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, label_base64')
-        .eq('comercio', integration.comercio)
+        .select('id, status, label_base64, comercio')
+        .eq('merchant_id', integration.merchant_id)
         .eq('external_order_number', orderNumber)
         .eq('external_platform', 'Falabella')
         .maybeSingle();
@@ -214,14 +214,14 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, status: 'cancelado' })
+            .update({ payment_status: statusName, status: 'cancelado', comercio: integration.comercio })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${orderNumber} cancelado en Falabella. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, raw_falabella_data: order })
+            .update({ payment_status: statusName, raw_falabella_data: order, comercio: integration.comercio })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${orderNumber}`);
         }
@@ -329,10 +329,19 @@ async function syncMerchantOrders(integration) {
             // Buscar producto por SKU en la base de datos
             let { data: product } = await supabase
               .from('products')
-              .select('id')
-              .eq('comercio', integration.comercio)
+              .select('id, comercio')
+              .eq('merchant_id', integration.merchant_id)
               .eq('sku', sku)
               .maybeSingle();
+
+            if (product && product.comercio !== integration.comercio) {
+              // Actualizar el comercio para mantenerlo al día con la integración
+              await supabase
+                .from('products')
+                .update({ comercio: integration.comercio })
+                .eq('id', product.id);
+              product.comercio = integration.comercio;
+            }
 
             if (!product) {
               // Buscar barcode final del catálogo de Falabella

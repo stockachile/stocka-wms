@@ -321,8 +321,8 @@ async function syncMerchantOrders(integration) {
       // B. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, label_base64')
-        .eq('comercio', integration.comercio)
+        .select('id, status, label_base64, comercio')
+        .eq('merchant_id', integration.merchant_id)
         .eq('external_order_number', groupId)
         .eq('external_platform', 'MercadoLibre')
         .maybeSingle();
@@ -338,14 +338,14 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado' })
+            .update({ payment_status: group.status, status: 'cancelado', comercio: integration.comercio })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${groupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, raw_meli_data: group.orders })
+            .update({ payment_status: group.status, raw_meli_data: group.orders, comercio: integration.comercio })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${groupId}`);
         }
@@ -501,10 +501,19 @@ async function syncMerchantOrders(integration) {
             // Buscar producto por SKU
             let { data: product } = await supabase
               .from('products')
-              .select('id')
-              .eq('comercio', integration.comercio)
+              .select('id, comercio')
+              .eq('merchant_id', integration.merchant_id)
               .eq('sku', sku)
               .maybeSingle();
+
+            if (product && product.comercio !== integration.comercio) {
+              // Actualizar el comercio para mantenerlo al día con la integración
+              await supabase
+                .from('products')
+                .update({ comercio: integration.comercio })
+                .eq('id', product.id);
+              product.comercio = integration.comercio;
+            }
 
             if (!product) {
               // Buscar información y barcode (GTIN) en la API de MercadoLibre
