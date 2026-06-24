@@ -199,6 +199,9 @@ async function init() {
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
+          } else if (view === 'declarations') {
+            viewTitle.textContent = 'Ingresos de Stock';
+            renderDeclarations();
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
@@ -4732,4 +4735,838 @@ window.dismissSystemPopup = async function(popupId, userId) {
   const modal = document.getElementById('system-popup-modal');
   if (modal) modal.remove();
   await supabase.from('user_notification_reads').insert([{ user_id: userId, entity_type: 'popup', entity_id: popupId }]);
+};
+
+// ==========================================
+// NUEVO MÓDULO: DECLARACIONES DE INGRESO DE STOCK (CLIENTE)
+// ==========================================
+
+window.downloadBase64File = function(base64, filename) {
+  try {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    let mimeType = 'application/octet-stream';
+    if (filename.endsWith('.xlsx')) mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (filename.endsWith('.xls')) mimeType = 'application/vnd.ms-excel';
+    else if (filename.endsWith('.csv')) mimeType = 'text/csv';
+
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error al descargar el archivo:', err);
+    alert('No se pudo descargar el archivo.');
+  }
+};
+
+window.downloadDeclarationsTemplate = function() {
+  try {
+    const wb = XLSX.utils.book_new();
+    const headers = [
+      'Nombre Producto',
+      'SKU',
+      'Código de barra',
+      'Cantidad declarada',
+      'Valor',
+      'Stock crítico (cantidad)',
+      'Fecha de vencimiento',
+      'Largo',
+      'Ancho',
+      'Alto',
+      'Peso'
+    ];
+    const sampleData = [
+      headers,
+      ['Zapatos Niño N3', 'SKU-ZAP-003', '7801234567890', '100', '15000', '10', '2027-12-31', '30', '20', '15', '0.5'],
+      ['Camiseta Deportiva M', 'SKU-CAM-002', '7801234567891', '250', '8990', '20', '', '25', '15', '2', '0.2']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(sampleData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Ingreso');
+    XLSX.writeFile(wb, 'plantilla_declaracion_ingreso.xlsx');
+  } catch (err) {
+    console.error('Error al generar la plantilla:', err);
+    alert('Error al descargar la plantilla.');
+  }
+};
+
+// Variables globales para el formulario
+let clientSelectedDateStr = '';
+let clientCalendarCurrentDate = new Date();
+let clientUploadedFileBase64 = '';
+let clientUploadedFileName = '';
+
+window.renderDeclarations = async function() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando módulo de declaraciones...</p>`;
+
+  try {
+    const isObserver = userRole === 'observer';
+    
+    // Resetear estados
+    clientSelectedDateStr = '';
+    clientCalendarCurrentDate = new Date();
+    clientUploadedFileBase64 = '';
+    clientUploadedFileName = '';
+
+    const formHtml = isObserver ? `
+      <div class="card" style="padding: 1.5rem; text-align: center;">
+        <p style="color: var(--color-text-muted);">Como Observador, no puedes crear declaraciones de ingreso.</p>
+      </div>
+    ` : `
+      <div class="card">
+        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem;">
+          <h3>Declarar Nuevo Ingreso</h3>
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+            Completa la información logística y adjunta la planilla detallada de stock.
+          </p>
+        </div>
+        <form id="form-new-declaration">
+          <div class="form-group">
+            <label class="form-label">Título / Descripción del Ingreso *</label>
+            <input type="text" id="dec-title" class="form-input" placeholder="Ej. Embarque de zapatos de niño N°3" required>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Cantidad Total Unidades *</label>
+              <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Cantidad de Bultos Totales *</label>
+              <input type="number" id="dec-package-count" class="form-input" min="1" placeholder="Ej. 10" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Tipo de Bulto *</label>
+              <select id="dec-package-type" class="form-input" required>
+                <option value="Cajas">Cajas</option>
+                <option value="Pallets">Pallets</option>
+                <option value="Contenedores">Contenedores</option>
+                <option value="Mixto">Mixto</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Método de Ingreso *</label>
+              <select id="dec-delivery-method" class="form-input" required>
+                <option value="Transporte vía courier">Transporte vía courier</option>
+                <option value="Desde proveedor">Desde proveedor</option>
+                <option value="Transporte particular">Transporte particular</option>
+                <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+              <span>Fecha Estimada de Llegada *</span>
+              <span id="date-mode-badge" class="badge" style="font-size: 0.75rem; text-transform: uppercase; background-color: var(--badge-info-bg); color: var(--badge-info-text);">Exacta</span>
+            </label>
+            
+            <div style="display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem 0;">
+              <button type="button" id="btn-date-exact" class="btn btn-primary" style="flex: 1; padding: 0.4rem; font-size: 0.85rem; border-radius: var(--radius-sm); margin: 0; box-shadow: none;">Fecha Exacta</button>
+              <button type="button" id="btn-date-estimate" class="btn btn-outline" style="flex: 1; padding: 0.4rem; font-size: 0.85rem; border-radius: var(--radius-sm); margin: 0;">Plazo Estimativo</button>
+            </div>
+            
+            <!-- Exact Date Picker Container -->
+            <div id="dec-date-exact-container">
+              <div id="mini-calendar-wrapper"></div>
+              <div id="dec-date-selected-label" style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--color-text-main); font-weight: 500;">
+                <span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>
+              </div>
+              <div id="dec-date-warning" class="alert alert-warning" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
+              <div id="dec-date-error" class="alert alert-error" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid var(--color-danger); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
+            </div>
+            
+            <!-- Estimate Picker Container -->
+            <div id="dec-date-estimate-container" style="display: none;">
+              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa el plazo estimado para el arribo de la mercadería:</p>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="number" id="dec-period-qty" class="form-input" min="1" value="1" style="width: 80px;">
+                <select id="dec-period-unit" class="form-input" style="flex: 1;">
+                  <option value="semanas">Semanas</option>
+                  <option value="meses">Meses</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" style="background: rgba(16, 185, 129, 0.05); padding: 1rem; border-radius: var(--radius-md); border: 1px dashed var(--color-success);">
+            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+              <span>Planilla Detallada de Ingreso *</span>
+              <button type="button" class="btn" style="background: none; border: none; padding: 0; color: var(--color-primary); font-size: 0.85rem; cursor: pointer; text-decoration: underline; font-weight: 600; font-family: var(--font-family);" onclick="downloadDeclarationsTemplate()">
+                <i class="ri-download-cloud-line"></i> Descargar Planilla Tipo
+              </button>
+            </label>
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">
+              Descarga la planilla tipo, llénala con los datos de tus productos y súbela aquí. Formato Excel o CSV.
+            </p>
+            <input type="file" id="dec-file-input" class="form-input" accept=".xlsx, .xls, .csv" required style="background: var(--color-surface);">
+            <div id="dec-file-selected-info" style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--color-text-muted); font-style: italic;"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Datos de Contacto del Comercio</label>
+            <input type="text" id="dec-contact-info" class="form-input" placeholder="Nombre, email o teléfono de contacto para este ingreso">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Datos del Transportista (Si aplica)</label>
+            <input type="text" id="dec-carrier-info" class="form-input" placeholder="Patente, nombre chofer o empresa de transporte">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Comentarios Adicionales</label>
+            <textarea id="dec-notes" class="form-input" rows="2" placeholder="Observaciones generales para el equipo de bodega..."></textarea>
+          </div>
+
+          <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="width: 100%; border-radius: var(--radius-md); margin-top: 1rem;">Crear Declaración de Ingreso</button>
+        </form>
+      </div>
+    `;
+
+    appContent.innerHTML = getObserverBanner() + `
+      <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start;" id="dec-view-container">
+        <!-- Columna 1: Formulario -->
+        <div id="dec-form-col">
+          ${formHtml}
+        </div>
+        
+        <!-- Columna 2: Tabla Resumen -->
+        <div id="dec-table-col" class="card">
+          <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3>Mis Declaraciones de Ingreso</h3>
+              <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial y estado de tus ingresos declarados.</p>
+            </div>
+            <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-declarations">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+          </div>
+          <div class="card-body" style="overflow-x: auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Título / Descripción</th>
+                  <th>Llegada Estimada</th>
+                  <th>Cant. Uds</th>
+                  <th>Bultos</th>
+                  <th>Método Envío</th>
+                  <th>Estado</th>
+                  <th>Recibido / Incidencias</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="declarations-table-body">
+                <tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Responsive layout
+    const updateLayout = () => {
+      const container = document.getElementById('dec-view-container');
+      if (container) {
+        if (window.innerWidth >= 1024) {
+          container.style.gridTemplateColumns = '380px 1fr';
+        } else {
+          container.style.gridTemplateColumns = '1fr';
+        }
+      }
+    };
+    updateLayout();
+    window.removeEventListener('resize', updateLayout);
+    window.addEventListener('resize', updateLayout);
+
+    // Initial table load
+    fetchAndRenderClientDeclarations();
+
+    // Refresh button
+    const refreshBtn = document.getElementById('btn-refresh-declarations');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        fetchAndRenderClientDeclarations();
+      });
+    }
+
+    if (!isObserver) {
+      // Date Mode Toggle Logic
+      const btnExact = document.getElementById('btn-date-exact');
+      const btnEstimate = document.getElementById('btn-date-estimate');
+      const containerExact = document.getElementById('dec-date-exact-container');
+      const containerEstimate = document.getElementById('dec-date-estimate-container');
+      const dateModeBadge = document.getElementById('date-mode-badge');
+      
+      let dateMode = 'exact'; // 'exact' or 'estimate'
+
+      btnExact.addEventListener('click', (e) => {
+        e.preventDefault();
+        dateMode = 'exact';
+        btnExact.className = 'btn btn-primary';
+        btnExact.style.boxShadow = 'none';
+        btnEstimate.className = 'btn btn-outline';
+        containerExact.style.display = 'block';
+        containerEstimate.style.display = 'none';
+        dateModeBadge.textContent = 'Exacta';
+        dateModeBadge.style.backgroundColor = 'var(--badge-info-bg)';
+        dateModeBadge.style.color = 'var(--badge-info-text)';
+      });
+
+      btnEstimate.addEventListener('click', (e) => {
+        e.preventDefault();
+        dateMode = 'estimate';
+        btnEstimate.className = 'btn btn-primary';
+        btnEstimate.style.boxShadow = 'none';
+        btnExact.className = 'btn btn-outline';
+        containerExact.style.display = 'none';
+        containerEstimate.style.display = 'block';
+        dateModeBadge.textContent = 'Estimativo';
+        dateModeBadge.style.backgroundColor = 'var(--badge-warning-bg)';
+        dateModeBadge.style.color = 'var(--badge-warning-text)';
+      });
+
+      // Render calendar picker
+      const miniCalWrapper = document.getElementById('mini-calendar-wrapper');
+      if (miniCalWrapper) {
+        drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+      }
+
+      // File Input Change
+      const fileInput = document.getElementById('dec-file-input');
+      const fileInfo = document.getElementById('dec-file-selected-info');
+      fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) {
+          clientUploadedFileBase64 = '';
+          clientUploadedFileName = '';
+          fileInfo.textContent = '';
+          return;
+        }
+
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['xlsx', 'xls', 'csv'].indexOf(ext) === -1) {
+          alert('Formato de archivo no válido. Debe subir una planilla .xlsx, .xls o .csv.');
+          fileInput.value = '';
+          clientUploadedFileBase64 = '';
+          clientUploadedFileName = '';
+          fileInfo.textContent = '';
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          clientUploadedFileBase64 = evt.target.result.split(',')[1];
+          clientUploadedFileName = file.name;
+          fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        };
+        reader.onerror = function() {
+          alert('Error al leer el archivo. Intente de nuevo.');
+          fileInput.value = '';
+          clientUploadedFileBase64 = '';
+          clientUploadedFileName = '';
+          fileInfo.textContent = '';
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // Submit Form
+      const form = document.getElementById('form-new-declaration');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const title = document.getElementById('dec-title').value.trim();
+        const qtyDeclared = parseInt(document.getElementById('dec-qty-declared').value);
+        const packageCount = parseInt(document.getElementById('dec-package-count').value);
+        const packageType = document.getElementById('dec-package-type').value;
+        const deliveryMethod = document.getElementById('dec-delivery-method').value;
+        const contactInfo = document.getElementById('dec-contact-info').value.trim();
+        const carrierInfo = document.getElementById('dec-carrier-info').value.trim();
+        const notes = document.getElementById('dec-notes').value.trim();
+
+        if (!title) {
+          alert('El título o descripción del ingreso es obligatorio.');
+          return;
+        }
+
+        if (dateMode === 'exact' && !clientSelectedDateStr) {
+          alert('Debes seleccionar una fecha exacta de llegada en el calendario.');
+          return;
+        }
+
+        if (!clientUploadedFileBase64 || !clientUploadedFileName) {
+          alert('Es obligatorio adjuntar la planilla detallada de ingreso.');
+          return;
+        }
+
+        const submitBtn = document.getElementById('btn-submit-declaration');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creando declaración...';
+
+        try {
+          let estimatedArrivalDate = null;
+          let estimatedArrivalPeriod = null;
+
+          if (dateMode === 'exact') {
+            estimatedArrivalDate = clientSelectedDateStr;
+          } else {
+            const pQty = document.getElementById('dec-period-qty').value;
+            const pUnit = document.getElementById('dec-period-unit').value;
+            estimatedArrivalPeriod = `${pQty} ${pUnit}`;
+          }
+
+          const insertData = {
+            merchant_id: currentMerchantId,
+            title: title,
+            estimated_arrival_type: dateMode,
+            estimated_arrival_date: estimatedArrivalDate,
+            estimated_arrival_period: estimatedArrivalPeriod,
+            quantity_declared: qtyDeclared,
+            quantity_received: 0,
+            quantity_incidents: 0,
+            package_count: packageCount,
+            package_type: packageType,
+            delivery_method: deliveryMethod,
+            contact_info: contactInfo,
+            carrier_info: carrierInfo,
+            notes: notes,
+            status: 'Creada',
+            file_name: clientUploadedFileName,
+            file_base64: clientUploadedFileBase64
+          };
+
+          const { error: insertError } = await supabase
+            .from('stock_declarations')
+            .insert([insertData]);
+
+          if (insertError) throw insertError;
+
+          alert('¡Declaración de ingreso de stock creada con éxito!');
+          form.reset();
+          
+          clientSelectedDateStr = '';
+          clientUploadedFileBase64 = '';
+          clientUploadedFileName = '';
+          if (fileInfo) fileInfo.textContent = '';
+          
+          const label = document.getElementById('dec-date-selected-label');
+          if (label) label.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
+          
+          document.getElementById('dec-date-warning').style.display = 'none';
+          document.getElementById('dec-date-error').style.display = 'none';
+
+          // Redraw calendar to clear selection styling
+          drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+
+          // Reload table
+          fetchAndRenderClientDeclarations();
+        } catch (err) {
+          console.error('Error al guardar declaración:', err);
+          alert('Error al guardar declaración: ' + err.message);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Crear Declaración de Ingreso';
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error('Error rendering declarations view:', err);
+    appContent.innerHTML = getObserverBanner() + `<p style="color: red; padding: 2rem;">Error al renderizar el módulo: ${err.message}</p>`;
+  }
+};
+
+function drawMiniCalendar(container, year, month) {
+  const firstDay = new Date(year, month, 1).getDay(); // 0 is Sunday
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDay = firstDay === 0 ? 6 : firstDay - 1; // Mon is 0
+
+  const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  
+  let html = `
+    <div class="mini-calendar" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; max-width: 100%; margin-top: 0.5rem; box-shadow: var(--shadow-sm);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--color-surface-hover); border-bottom: 1px solid var(--color-border);">
+        <button type="button" id="mini-cal-prev" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border: 1px solid var(--color-border); background: var(--color-surface); height: auto; line-height: 1;"><i class="ri-arrow-left-s-line"></i></button>
+        <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main);">${monthNames[month]} ${year}</span>
+        <button type="button" id="mini-cal-next" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border: 1px solid var(--color-border); background: var(--color-surface); height: auto; line-height: 1;"><i class="ri-arrow-right-s-line"></i></button>
+      </div>
+      <div style="padding: 0.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-weight: 700; color: var(--color-text-muted); font-size: 0.7rem; margin-bottom: 0.25rem; text-transform: uppercase;">
+          <div>Lu</div><div>Ma</div><div>Mi</div><div>Ju</div><div>Vi</div><div>Sá</div><div>Do</div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;">
+  `;
+
+  for (let i = 0; i < startDay; i++) {
+    html += `<div></div>`;
+  }
+
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dStr = `${year}-${String(month+1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const thisDayDate = new Date(year, month, day);
+    const isPast = thisDayDate < todayMidnight;
+    const isSelected = clientSelectedDateStr === dStr;
+    const isToday = dStr === todayStr;
+
+    let cellStyle = `padding: 0.4rem 0.1rem; text-align: center; border-radius: var(--radius-sm); font-size: 0.8rem; cursor: pointer; transition: all 0.2s; min-height: 32px; display: flex; align-items: center; justify-content: center;`;
+    
+    if (isPast) {
+      cellStyle += ` color: var(--color-text-muted); opacity: 0.35; cursor: not-allowed; text-decoration: line-through;`;
+    } else if (isSelected) {
+      cellStyle += ` background-color: var(--color-primary); color: white; font-weight: 700; box-shadow: 0 2px 4px rgba(37,99,235,0.3);`;
+    } else if (isToday) {
+      cellStyle += ` background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); font-weight: 700; border: 1px solid rgba(37, 99, 235, 0.3);`;
+    } else {
+      cellStyle += ` color: var(--color-text-main); font-weight: 500;`;
+    }
+
+    html += `
+      <div class="mini-cal-day" data-date="${dStr}" data-past="${isPast}" style="${cellStyle}" 
+           ${!isPast && !isSelected ? `onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'"` : ''}>
+        ${day}
+      </div>
+    `;
+  }
+
+  html += `</div></div></div>`;
+  container.innerHTML = html;
+
+  // Event Listeners for Mini Calendar
+  container.querySelector('#mini-cal-prev').addEventListener('click', (e) => {
+    e.preventDefault();
+    clientCalendarCurrentDate.setMonth(clientCalendarCurrentDate.getMonth() - 1);
+    drawMiniCalendar(container, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+  });
+
+  container.querySelector('#mini-cal-next').addEventListener('click', (e) => {
+    e.preventDefault();
+    clientCalendarCurrentDate.setMonth(clientCalendarCurrentDate.getMonth() + 1);
+    drawMiniCalendar(container, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+  });
+
+  container.querySelectorAll('.mini-cal-day').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (cell.getAttribute('data-past') === 'true') return;
+      clientSelectedDateStr = cell.getAttribute('data-date');
+      drawMiniCalendar(container, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+      updateDateCheck();
+    });
+  });
+}
+
+function updateDateCheck() {
+  const warningContainer = document.getElementById('dec-date-warning');
+  const errorContainer = document.getElementById('dec-date-error');
+  const selectedLabel = document.getElementById('dec-date-selected-label');
+  
+  if (!clientSelectedDateStr) {
+    selectedLabel.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
+    warningContainer.style.display = 'none';
+    errorContainer.style.display = 'none';
+    return;
+  }
+  
+  const [y, m, d] = clientSelectedDateStr.split('-');
+  selectedLabel.innerHTML = `<strong>Fecha seleccionada:</strong> ${d}/${m}/${y}`;
+  
+  const now = new Date();
+  const selectedDate = new Date(clientSelectedDateStr + 'T00:00:00'); // Midnight of selected day
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  if (selectedDate < todayMidnight) {
+    errorContainer.style.display = 'block';
+    errorContainer.textContent = '❌ No puedes declarar un ingreso en fechas pasadas.';
+    warningContainer.style.display = 'none';
+  } else if ((selectedDate.getTime() - now.getTime()) < 24 * 60 * 60 * 1000) {
+    // Less than 24 hours from current time
+    warningContainer.style.display = 'block';
+    warningContainer.innerHTML = `<i class="ri-error-warning-line"></i> <strong>Advertencia:</strong> La declaración se realiza con menos de 24 horas de anticipación. El costo de ingresar dicho stock será de <strong>0.75 UF x m³</strong>.`;
+    errorContainer.style.display = 'none';
+  } else {
+    warningContainer.style.display = 'none';
+    errorContainer.style.display = 'none';
+  }
+}
+
+async function fetchAndRenderClientDeclarations() {
+  const listTableBody = document.getElementById('declarations-table-body');
+  if (!listTableBody) return;
+  
+  listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>`;
+  
+  try {
+    const { data: declarations, error } = await supabase
+      .from('stock_declarations')
+      .select('*')
+      .eq('merchant_id', currentMerchantId)
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    
+    if (!declarations || declarations.length === 0) {
+      listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones creadas.</td></tr>`;
+      return;
+    }
+    
+    let html = '';
+    declarations.forEach(dec => {
+      let statusBadge = '';
+      switch (dec.status) {
+        case 'Creada':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+          break;
+        case 'En Recepción':
+          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">En Recepción</span>';
+          break;
+        case 'Conteo/Clasificación en curso':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+          break;
+        case 'Recibido':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido</span>';
+          break;
+        case 'Recepción con incidencias':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Incidencias</span>';
+          break;
+        default:
+          statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
+      }
+      
+      let etaText = '';
+      if (dec.estimated_arrival_type === 'exact') {
+        const [y, m, d] = dec.estimated_arrival_date.split('-');
+        etaText = `${d}/${m}/${y}`;
+      } else {
+        etaText = dec.estimated_arrival_period;
+      }
+        
+      let qtyReceivedText = '—';
+      if (['Recibido', 'Recepción con incidencias', 'Conteo/Clasificación en curso', 'En Recepción'].indexOf(dec.status) !== -1) {
+        const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+        qtyReceivedText = `
+          <div style="font-size: 0.85rem;">
+            <span>Recibido: <strong>${dec.quantity_received}</strong></span><br>
+            <span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>
+          </div>
+        `;
+      }
+      
+      html += `
+        <tr style="transition: background-color 0.2s;">
+          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">${dec.title}</td>
+          <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
+          <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
+          <td style="font-size: 0.85rem;">${dec.package_count} <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span></td>
+          <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
+          <td style="font-size: 0.85rem;">${statusBadge}</td>
+          <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
+          <td style="font-size: 0.85rem;">
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-border); height: auto; font-family: var(--font-family);" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')" title="Descargar Planilla Detalle">
+                <i class="ri-file-excel-2-line" style="color: var(--color-success); font-size: 0.9rem; margin-right: 2px;"></i> Planilla
+              </button>
+              <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="viewDeclarationDetail('${dec.id}')" title="Ver Detalles">
+                <i class="ri-eye-line" style="font-size: 0.9rem; margin-right: 2px;"></i> Detalle
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    
+    listTableBody.innerHTML = html;
+  } catch (err) {
+    console.error('Error fetching client declarations:', err);
+    listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</td></tr>`;
+  }
+}
+
+window.viewDeclarationDetail = async function(id) {
+  try {
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*')
+      .eq('id', id)
+      .single();
+      
+    if (error) throw error;
+    
+    const modalId = 'modal-client-dec-detail';
+    let modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+    
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.className = 'modal-overlay active';
+    
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact') {
+      const [y, m, d] = dec.estimated_arrival_date.split('-');
+      etaText = `${d}/${m}/${y}`;
+    } else {
+      etaText = dec.estimated_arrival_period;
+    }
+
+    const progressPercent = dec.quantity_declared > 0 
+      ? Math.min(100, Math.round((dec.quantity_received / dec.quantity_declared) * 100))
+      : 0;
+    
+    modal.innerHTML = `
+      <style>
+        @keyframes slideInUpDetail {
+          from { opacity: 0; transform: translateY(30px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .dec-detail-card {
+          animation: slideInUpDetail 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .copy-btn {
+          background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; width: 32px; height: 32px; 
+          color: var(--color-text-muted); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;
+        }
+        .copy-btn:hover { color: var(--color-primary); border-color: var(--color-primary); background: rgba(59, 130, 246, 0.05); }
+        .info-block { transition: transform 0.2s, box-shadow 0.2s; }
+        .info-block:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+      </style>
+      <div class="modal-content dec-detail-card" style="max-width: 650px; border-radius: 12px; overflow: hidden; padding: 0; box-shadow: 0 20px 40px rgba(0,0,0,0.4); border: 1px solid var(--color-border);">
+        <div class="modal-header" style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); background: linear-gradient(145deg, var(--color-surface) 0%, var(--color-bg) 100%); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.75rem; font-family: var(--font-family); font-size: 1.25rem;">
+            <div style="background: rgba(59, 130, 246, 0.15); padding: 0.5rem; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+              <i class="ri-inbox-archive-line" style="color: var(--color-primary); font-size: 1.2rem;"></i>
+            </div>
+            Detalle de Ingreso de Stock
+          </h3>
+          <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="background: var(--color-surface-hover); border: none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted); transition: all 0.2s;">
+            <i class="ri-close-line" style="font-size: 1.2rem;"></i>
+          </button>
+        </div>
+        
+        <div class="modal-body" style="font-size: 0.95rem; line-height: 1.6; padding: 1.5rem; max-height: 75vh; overflow-y: auto; font-family: var(--font-family); background: var(--color-bg);">
+          
+          <!-- Summary Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <div class="info-block" style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border: 1px solid var(--color-border); position: relative;">
+              <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Información General</span>
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="padding-right: 0.5rem;">
+                  <strong style="color: var(--color-text-main); font-size: 1.05rem; display: block; margin-bottom: 0.2rem;">${dec.title}</strong>
+                  <div style="color: var(--color-text-muted); font-size: 0.85rem;"><i class="ri-calendar-event-line" style="vertical-align: text-bottom; margin-right: 3px;"></i> ${etaText}</div>
+                </div>
+                <button class="copy-btn" onclick="navigator.clipboard.writeText('${dec.title}'); this.innerHTML='<i class=\\'ri-check-line\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'ri-clipboard-line\\'></i>', 2000);" title="Copiar Título"><i class="ri-clipboard-line"></i></button>
+              </div>
+            </div>
+
+            <div class="info-block" style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: center; align-items: flex-start;">
+              <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; letter-spacing: 0.5px; display: block; margin-bottom: 0.5rem;">Estado Actual</span>
+              <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-weight: 700; font-size: 0.85rem; padding: 0.4rem 0.8rem; text-transform: uppercase; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.1);">${dec.status}</span>
+            </div>
+          </div>
+
+          <!-- Grid Logistics -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border-left: 4px solid var(--color-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Bultos Totales</div>
+              <div style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${dec.package_count} <span style="font-size: 0.85rem; font-weight: normal; color: var(--color-text-muted); background: var(--color-bg); padding: 0.1rem 0.4rem; border-radius: 4px;">${dec.package_type}</span></div>
+            </div>
+            <div style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border-left: 4px solid var(--color-accent); box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Método de Envío</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;"><i class="ri-truck-line" style="color: var(--color-accent);"></i> ${dec.delivery_method}</div>
+            </div>
+          </div>
+          
+          <!-- Quantities Table -->
+          <div style="margin-bottom: 1.5rem; background: var(--color-surface); border-radius: 10px; border: 1px solid var(--color-border); overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">
+            <div style="background: rgba(0,0,0,0.1); padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+              <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;"><i class="ri-bar-chart-box-line" style="color: var(--color-primary);"></i> Progreso de Recepción</h4>
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-success); background: rgba(16, 185, 129, 0.1); padding: 0.2rem 0.5rem; border-radius: 4px;">${progressPercent}% Completado</span>
+            </div>
+            <table style="width: 100%; text-align: left; border-collapse: collapse;">
+              <thead>
+                <tr style="background: rgba(0,0,0,0.02);">
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Declaradas</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Recepcionadas</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Incidencias</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 600; color: var(--color-text-main); border-right: 1px dashed var(--color-border);">${dec.quantity_declared}</td>
+                  <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 700; color: var(--color-success); border-right: 1px dashed var(--color-border);">${dec.quantity_received}</td>
+                  <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 600; color: ${dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'};">${dec.quantity_incidents}</td>
+                </tr>
+              </tbody>
+            </table>
+            <!-- Progress Bar -->
+            <div style="height: 4px; width: 100%; background: rgba(0,0,0,0.1); position: relative;">
+              <div style="position: absolute; left: 0; top: 0; height: 100%; width: ${progressPercent}%; background: var(--color-success); border-radius: 0 2px 2px 0; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);"></div>
+            </div>
+          </div>
+          
+          <!-- Contact Accordions / Sections -->
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
+            <div class="info-block" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); display: flex; align-items: flex-start; gap: 1rem;">
+              <div style="background: var(--color-bg); padding: 0.6rem; border-radius: 50%; color: var(--color-primary); box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);"><i class="ri-user-line" style="font-size: 1.2rem;"></i></div>
+              <div style="flex: 1;">
+                <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.35rem;">Contacto Comercio</strong>
+                <div style="font-size: 0.95rem; color: var(--color-text-main); white-space: pre-wrap; font-weight: 500;">${dec.contact_info || '<span style="color:var(--color-text-muted); font-style:italic; font-weight: normal;">Sin registrar</span>'}</div>
+              </div>
+            </div>
+
+            <div class="info-block" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); display: flex; align-items: flex-start; gap: 1rem;">
+              <div style="background: var(--color-bg); padding: 0.6rem; border-radius: 50%; color: var(--color-accent); box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);"><i class="ri-truck-line" style="font-size: 1.2rem;"></i></div>
+              <div style="flex: 1;">
+                <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.35rem;">Datos del Transportista</strong>
+                <div style="font-size: 0.95rem; color: var(--color-text-main); white-space: pre-wrap; font-weight: 500;">${dec.carrier_info || '<span style="color:var(--color-text-muted); font-style:italic; font-weight: normal;">Sin registrar</span>'}</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Notes -->
+          <div style="background: rgba(245, 158, 11, 0.05); border-left: 4px solid var(--color-warning); padding: 1.25rem; border-radius: 0 10px 10px 0; margin-bottom: 1rem; border-top: 1px solid rgba(245,158,11,0.1); border-right: 1px solid rgba(245,158,11,0.1); border-bottom: 1px solid rgba(245,158,11,0.1);">
+            <strong style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-warning); margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px;">
+              <i class="ri-message-2-line" style="font-size: 1.1rem;"></i> Comentarios del Cliente (Tus Notas)
+            </strong>
+            <p style="margin: 0; font-size: 0.95rem; font-style: italic; color: var(--color-text-main); white-space: pre-wrap; line-height: 1.5;">"${dec.notes || 'Sin comentarios'}"</p>
+          </div>
+          
+          <div style="background: rgba(37, 99, 235, 0.05); border-left: 4px solid var(--color-primary); padding: 1.25rem; border-radius: 0 10px 10px 0; border-top: 1px solid rgba(37,99,235,0.1); border-right: 1px solid rgba(37,99,235,0.1); border-bottom: 1px solid rgba(37,99,235,0.1);">
+            <strong style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--color-primary); margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px;">
+              <i class="ri-shield-check-line" style="font-size: 1.1rem;"></i> Notas de Recepción del Administrador
+            </strong>
+            <p style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 500; white-space: pre-wrap; line-height: 1.5;">${dec.admin_notes || 'El ingreso aún no ha sido procesado por bodega o no registra notas de recepción.'}</p>
+          </div>
+
+        </div>
+        
+        <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end; gap: 1rem;">
+          <button class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.6rem 1.5rem; font-weight: 600; border-radius: 8px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+            Cerrar Detalle
+          </button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+  } catch (err) {
+    console.error('Error viewing declaration detail:', err);
+    alert('Error al obtener los detalles: ' + err.message);
+  }
 };
