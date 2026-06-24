@@ -4818,19 +4818,50 @@ window.renderDeclarations = async function() {
     clientUploadedFileBase64 = '';
     clientUploadedFileName = '';
 
+    const commerces = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+    let commerceSelectHtml = '';
+    if (commerces.length > 1) {
+      commerceSelectHtml = `
+        <div class="form-group">
+          <label class="form-label">Comercio Asociado *</label>
+          <select id="dec-comercio" class="form-input" required>
+            ${commerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    } else {
+      const defaultCommerce = commerces[0] || 'STOCKA';
+      commerceSelectHtml = `
+        <div class="form-group">
+          <label class="form-label">Comercio Asociado *</label>
+          <select id="dec-comercio" class="form-input" required disabled style="opacity: 0.85; cursor: not-allowed;">
+            <option value="${defaultCommerce}">${defaultCommerce}</option>
+          </select>
+        </div>
+      `;
+    }
+
     const formHtml = isObserver ? `
       <div class="card" style="padding: 1.5rem; text-align: center;">
         <p style="color: var(--color-text-muted);">Como Observador, no puedes crear declaraciones de ingreso.</p>
       </div>
     ` : `
       <div class="card">
-        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem;">
-          <h3>Declarar Nuevo Ingreso</h3>
-          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-            Completa la información logística y adjunta la planilla detallada de stock.
-          </p>
+        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+              Declarar Nuevo Ingreso
+              <button type="button" id="btn-info-declarations" style="background: none; border: none; padding: 2px; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" title="Recomendaciones y Condiciones">
+                <i class="ri-information-line" style="font-size: 1.2rem;"></i>
+              </button>
+            </h3>
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+              Completa la información logística y adjunta la planilla detallada de stock.
+            </p>
+          </div>
         </div>
         <form id="form-new-declaration">
+          ${commerceSelectHtml}
           <div class="form-group">
             <label class="form-label">Título / Descripción del Ingreso *</label>
             <input type="text" id="dec-title" class="form-input" placeholder="Ej. Embarque de zapatos de niño N°3" required>
@@ -4868,15 +4899,19 @@ window.renderDeclarations = async function() {
             </div>
           </div>
 
-          <div class="form-group" style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
-              <span>Fecha Estimada de Llegada *</span>
-              <span id="date-mode-badge" class="badge" style="font-size: 0.75rem; text-transform: uppercase; background-color: var(--badge-info-bg); color: var(--badge-info-text);">Exacta</span>
+          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <span style="font-size: 0.95rem;">Fecha Estimada de Llegada *</span>
+              <span id="date-mode-badge" class="badge" style="font-size: 0.7rem; text-transform: uppercase; background-color: var(--badge-info-bg); color: var(--badge-info-text); letter-spacing: 0.5px; font-weight: 700;">Exacta</span>
             </label>
             
-            <div style="display: flex; gap: 0.5rem; margin: 0.5rem 0 1rem 0;">
-              <button type="button" id="btn-date-exact" class="btn btn-primary" style="flex: 1; padding: 0.4rem; font-size: 0.85rem; border-radius: var(--radius-sm); margin: 0; box-shadow: none;">Fecha Exacta</button>
-              <button type="button" id="btn-date-estimate" class="btn btn-outline" style="flex: 1; padding: 0.4rem; font-size: 0.85rem; border-radius: var(--radius-sm); margin: 0;">Plazo Estimativo</button>
+            <div style="display: flex; background: rgba(255,255,255,0.03); padding: 0.35rem; border-radius: 8px; border: 1px solid var(--color-border); gap: 0.25rem; margin-bottom: 1.25rem;">
+              <button type="button" id="btn-date-exact" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: none; background: var(--color-primary); color: white; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                <i class="ri-calendar-check-line" style="font-size: 1.1rem;"></i> Fecha Exacta
+              </button>
+              <button type="button" id="btn-date-estimate" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; border: none; background: transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;" onmouseover="if(this.style.background==='transparent') this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(this.style.color==='var(--color-text-muted)') this.style.background='transparent'">
+                <i class="ri-timer-line" style="font-size: 1.1rem;"></i> Plazo Estimativo
+              </button>
             </div>
             
             <!-- Exact Date Picker Container -->
@@ -4885,6 +4920,9 @@ window.renderDeclarations = async function() {
               <div id="dec-date-selected-label" style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--color-text-main); font-weight: 500;">
                 <span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>
               </div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.35rem; display: flex; align-items: center; gap: 4px;">
+                <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
+              </div>
               <div id="dec-date-warning" class="alert alert-warning" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
               <div id="dec-date-error" class="alert alert-error" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid var(--color-danger); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
             </div>
@@ -4892,12 +4930,15 @@ window.renderDeclarations = async function() {
             <!-- Estimate Picker Container -->
             <div id="dec-date-estimate-container" style="display: none;">
               <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa el plazo estimado para el arribo de la mercadería:</p>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
                 <input type="number" id="dec-period-qty" class="form-input" min="1" value="1" style="width: 80px;">
                 <select id="dec-period-unit" class="form-input" style="flex: 1;">
                   <option value="semanas">Semanas</option>
                   <option value="meses">Meses</option>
                 </select>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 4px;">
+                <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
               </div>
             </div>
           </div>
@@ -5004,6 +5045,15 @@ window.renderDeclarations = async function() {
       });
     }
 
+    // Info button
+    const infoBtn = document.getElementById('btn-info-declarations');
+    if (infoBtn) {
+      infoBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        showDeclarationsInfoModal();
+      });
+    }
+
     if (!isObserver) {
       // Date Mode Toggle Logic
       const btnExact = document.getElementById('btn-date-exact');
@@ -5017,9 +5067,17 @@ window.renderDeclarations = async function() {
       btnExact.addEventListener('click', (e) => {
         e.preventDefault();
         dateMode = 'exact';
-        btnExact.className = 'btn btn-primary';
-        btnExact.style.boxShadow = 'none';
-        btnEstimate.className = 'btn btn-outline';
+        
+        btnExact.style.background = 'var(--color-primary)';
+        btnExact.style.color = 'white';
+        btnExact.style.fontWeight = '600';
+        btnExact.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        
+        btnEstimate.style.background = 'transparent';
+        btnEstimate.style.color = 'var(--color-text-muted)';
+        btnEstimate.style.fontWeight = '500';
+        btnEstimate.style.boxShadow = 'none';
+        
         containerExact.style.display = 'block';
         containerEstimate.style.display = 'none';
         dateModeBadge.textContent = 'Exacta';
@@ -5030,9 +5088,17 @@ window.renderDeclarations = async function() {
       btnEstimate.addEventListener('click', (e) => {
         e.preventDefault();
         dateMode = 'estimate';
-        btnEstimate.className = 'btn btn-primary';
-        btnEstimate.style.boxShadow = 'none';
-        btnExact.className = 'btn btn-outline';
+        
+        btnEstimate.style.background = 'var(--color-primary)';
+        btnEstimate.style.color = 'white';
+        btnEstimate.style.fontWeight = '600';
+        btnEstimate.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        
+        btnExact.style.background = 'transparent';
+        btnExact.style.color = 'var(--color-text-muted)';
+        btnExact.style.fontWeight = '500';
+        btnExact.style.boxShadow = 'none';
+        
         containerExact.style.display = 'none';
         containerEstimate.style.display = 'block';
         dateModeBadge.textContent = 'Estimativo';
@@ -5129,8 +5195,13 @@ window.renderDeclarations = async function() {
             estimatedArrivalPeriod = `${pQty} ${pUnit}`;
           }
 
+          const selectedCommerce = document.getElementById('dec-comercio')
+            ? document.getElementById('dec-comercio').value
+            : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
           const insertData = {
             merchant_id: currentMerchantId,
+            comercio: selectedCommerce,
             title: title,
             estimated_arrival_type: dateMode,
             estimated_arrival_date: estimatedArrivalDate,
@@ -5371,7 +5442,12 @@ async function fetchAndRenderClientDeclarations() {
       
       html += `
         <tr style="transition: background-color 0.2s;">
-          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">${dec.title}</td>
+          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
+            ${dec.title}
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
+              <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
+            </div>
+          </td>
           <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
           <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
           <td style="font-size: 0.85rem;">${dec.package_count} <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span></td>
@@ -5468,7 +5544,8 @@ window.viewDeclarationDetail = async function(id) {
               <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                 <div style="padding-right: 0.5rem;">
                   <strong style="color: var(--color-text-main); font-size: 1.05rem; display: block; margin-bottom: 0.2rem;">${dec.title}</strong>
-                  <div style="color: var(--color-text-muted); font-size: 0.85rem;"><i class="ri-calendar-event-line" style="vertical-align: text-bottom; margin-right: 3px;"></i> ${etaText}</div>
+                  <div style="color: var(--color-text-muted); font-size: 0.85rem; margin-bottom: 0.2rem;"><i class="ri-calendar-event-line" style="vertical-align: text-bottom; margin-right: 3px;"></i> ${etaText}</div>
+                  <div style="color: var(--color-text-muted); font-size: 0.85rem;"><i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 3px;"></i> Comercio: <strong>${dec.comercio || 'STOCKA'}</strong></div>
                 </div>
                 <button class="copy-btn" onclick="navigator.clipboard.writeText('${dec.title}'); this.innerHTML='<i class=\\'ri-check-line\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'ri-clipboard-line\\'></i>', 2000);" title="Copiar Título"><i class="ri-clipboard-line"></i></button>
               </div>
@@ -5569,4 +5646,108 @@ window.viewDeclarationDetail = async function(id) {
     console.error('Error viewing declaration detail:', err);
     alert('Error al obtener los detalles: ' + err.message);
   }
+};
+
+window.showDeclarationsInfoModal = function() {
+  const modalId = 'modal-declarations-info';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <style>
+      @keyframes slideInUpInfo {
+        from { opacity: 0; transform: translateY(20px) scale(0.98); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      .dec-info-card {
+        animation: slideInUpInfo 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+    </style>
+    <div class="modal-content dec-info-card" style="max-width: 550px; border-radius: 12px; overflow: hidden; padding: 0; box-shadow: 0 20px 40px rgba(0,0,0,0.4); border: 1px solid var(--color-border); background: var(--color-bg);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: linear-gradient(145deg, var(--color-surface) 0%, var(--color-bg) 100%); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem; font-family: var(--font-family); color: var(--color-text-main);">
+          <i class="ri-information-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
+          Información y Recomendaciones de Ingreso
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="background: var(--color-surface-hover); border: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--color-text-muted);">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; font-family: var(--font-family); max-height: 70vh; overflow-y: auto; font-size: 0.9rem; color: var(--color-text-main);">
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-time-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Aviso Anticipado</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Se sugiere realizar el aviso anticipado de ingreso de stock con al menos <strong>48 horas</strong> de anticipación.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-time-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Horarios de Ingreso</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">El horario establecido para la recepción física de stock en bodega es entre las <strong>11:00 y las 16:00 hrs</strong>.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-success); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-global-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Ingresos desde el Exterior</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Se recomienda crear la declaración en el momento en que la carga está saliendo del país de origen o cuando se informa su arribo al país.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-warning); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-scales-3-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Volumen y Cargos Adicionales</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Si el ingreso supera el volumen de <strong>1 m³</strong>, aplicará un cargo de ingreso de stock de <strong>0.1 UF x m³</strong>.</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-checkbox-circle-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Plazo de Disponibilidad</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Una vez recepcionado el stock, considere un plazo de al menos <strong>24 a 48 horas</strong> para disponibilizar los productos para pedidos (conteo, clasificación y ubicación en estanterías).</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-danger); font-size: 1.25rem; display: flex; align-items: flex-start; padding-top: 2px;"><i class="ri-error-warning-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Ampliación de Plazos</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">El plazo de disponibilidad puede ser mayor si la bodega lo sugiere. Factores que amplían los plazos:
+                <ul style="margin: 0.25rem 0 0 1.2rem; padding: 0; list-style-type: disc;">
+                  <li>Productos no identificados con código de barras.</li>
+                  <li>Ingreso con más de 20 SKU diferentes.</li>
+                  <li>El stock llega desordenado.</li>
+                </ul>
+              </span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.75rem; background: var(--color-surface); padding: 0.85rem; border-radius: 8px; border: 1px solid var(--color-border);">
+            <div style="color: var(--color-primary); font-size: 1.25rem; display: flex; align-items: center;"><i class="ri-notification-3-line"></i></div>
+            <div>
+              <strong style="display: block; margin-bottom: 0.15rem; color: var(--color-text-main);">Seguimiento y Sucursal</strong>
+              <span style="color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.4;">Una vez creada la declaración, podrá ver en el portal las actualizaciones de su ingreso de stock, como la sucursal asignada para el ingreso.</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('${modalId}').remove()" style="margin: 0;">Entendido</button>
+      </div>
+    </div>
+  </div>
+  `;
+  document.body.appendChild(modal);
 };
