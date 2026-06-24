@@ -1338,20 +1338,20 @@ async function renderIntegrations() {
 
       ${selectorHtml}
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
-        <!-- Left Column: Active/Available Integrations -->
-        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-          
-          <!-- Shopify Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+      <!-- Contenedor: una integracion por bloque -->
+      <div style="display: flex; flex-direction: column; gap: 2rem;">
+
+        <!-- SHOPIFY -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div class="card" style="border:none; box-shadow: var(--shadow-md); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-3-line"></i> Shopify Integration</h3>
             </div>
             <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? "rgba(16, 185, 129, 0.1)" : "var(--color-bg)"}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? "rgba(16, 185, 129, 0.2)" : "var(--color-border)"};">
                  <div style="display: flex; align-items: center; gap: 1rem;">
                     <div>
-                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#10b981' : 'var(--color-text-main)'};">Shopify Store</h4>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? "#10b981" : "var(--color-text-main)"};">Shopify Store</h4>
                        <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
                     </div>
                  </div>
@@ -1359,194 +1359,23 @@ async function renderIntegrations() {
                     ${shopifyStatusText}
                  </div>
               </div>
-              
               <form id="form-shopify-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
-                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                 </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? 'display:none;' : ''}">
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? "display:none;" : ""}">
                   <label class="form-label" style="font-weight: 600;">Access Token (Admin API)</label>
-                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? "" : "required"} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
                   <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Debe comenzar con <strong>shpat_</strong>.</p>
                 </div>
-                
                 <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
                   ${shopifyButtonHtml}
                 </div>
               </form>
             </div>
           </div>
-
-          <!-- Paris Marketplace Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> París Marketplace (Cencosud)</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasParis ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasParis ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasParis ? '#10b981' : 'var(--color-text-main)'};">París Store (Mirakl)</h4>
-                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${parisStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-paris-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">URL de la API (Cencosud)</label>
-                  <input type="text" id="paris-url" class="form-input" placeholder="ej. https://api-developers.ecomm.cencosud.com" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
-                  <input type="password" id="paris-token" class="form-input" placeholder="Ingresa tu API Key de Cencosud" ${hasParis ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${parisButtonHtml}
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <!-- Falabella Marketplace Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
-                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${falabellaStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-falabella-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
-                  <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
-                  <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
-                  <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${falabellaButtonHtml}
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <!-- MercadoLibre Marketplace Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-top: 1.5rem;">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
-                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${meliStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-meli-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
-                  <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
-                  <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">Redirect URI</label>
-                  <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
-                  <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
-                  <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
-                </div>
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${meliButtonHtml}
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <!-- WooCommerce Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-top: 1.5rem;">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? 'rgba(150, 88, 138, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? 'rgba(150, 88, 138, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? '#96588a' : 'var(--color-text-main)'};">WooCommerce Store</h4>
-                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${wooStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-woo-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">URL de tu tienda WooCommerce</label>
-                  <input type="text" id="woo-url" class="form-input" placeholder="ej. https://mitienda.cl" value="${wooUrl}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">Consumer Key</label>
-                  <input type="password" id="woo-key" class="form-input" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooKey}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
-                  <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
-                  <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${wooButtonHtml}
-                </div>
-              </form>
-            </div>
-          </div>
-
-        </div>
-
-        <!-- Right Column: Manual/Guide -->
-        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-          
-          <!-- Shopify Guide -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <span><i class="ri-shopping-bag-3-line" style="color: var(--color-primary);"></i></span> Guía de Integración Shopify
@@ -1579,9 +1408,42 @@ async function renderIntegrations() {
               </ol>
             </div>
           </div>
+        </div>
 
-          <!-- Paris Guide -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
+        <!-- PARIS -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> París Marketplace (Cencosud)</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasParis ? "rgba(16, 185, 129, 0.1)" : "var(--color-bg)"}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasParis ? "rgba(16, 185, 129, 0.2)" : "var(--color-border)"};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasParis ? "#10b981" : "var(--color-text-main)"};">París Store (Mirakl)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${parisStatusText}
+                 </div>
+              </div>
+              <form id="form-paris-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de la API (Cencosud)</label>
+                  <input type="text" id="paris-url" class="form-input" placeholder="ej. https://api-developers.ecomm.cencosud.com" value="${parisUrl}" ${hasParis ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasParis || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                  <input type="password" id="paris-token" class="form-input" placeholder="Ingresa tu API Key de Cencosud" ${hasParis ? "" : "required"} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${parisButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración París
@@ -1591,7 +1453,7 @@ async function renderIntegrations() {
               <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
                 <li>
                   <strong style="color: var(--color-text-main);">Entrar al Seller Center:</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de París (Cencosud) y navega a la sección <strong style="color: var(--color-text-main);">Mi Cuenta > Integraciones</strong>.</p>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de París (Cencosud) y navega a la sección <strong style="color: var(--color-text-main);">Mi Cuenta &gt; Integraciones</strong>.</p>
                 </li>
                 <li>
                   <strong style="color: var(--color-text-main);">Habilitar Modo Integrador:</strong>
@@ -1608,9 +1470,46 @@ async function renderIntegrations() {
               </ol>
             </div>
           </div>
+        </div>
 
-          <!-- Falabella Guide -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+        <!-- FALABELLA -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? "rgba(132, 204, 22, 0.1)" : "var(--color-bg)"}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? "rgba(132, 204, 22, 0.2)" : "var(--color-border)"};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? "#84cc16" : "var(--color-text-main)"};">Falabella Store (Mirakl)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${falabellaStatusText}
+                 </div>
+              </div>
+              <form id="form-falabella-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
+                  <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
+                  <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                  <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? "" : "required"} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${falabellaButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
@@ -1633,9 +1532,56 @@ async function renderIntegrations() {
               </ol>
             </div>
           </div>
+        </div>
 
-          <!-- MercadoLibre Guide -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+        <!-- MERCADOLIBRE -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? "rgba(245, 158, 11, 0.1)" : "var(--color-bg)"}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? "rgba(245, 158, 11, 0.2)" : "var(--color-border)"};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? "#f59e0b" : "var(--color-text-main)"};">MercadoLibre Store (Official API)</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${meliStatusText}
+                 </div>
+              </div>
+              <form id="form-meli-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
+                  <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || "34091030018433"}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
+                  <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">Redirect URI</label>
+                  <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || "https://www.google.com"}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
+                  <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? "" : ""} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
+                  <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? "" : ""} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
+                </div>
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${meliButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
@@ -1660,9 +1606,46 @@ async function renderIntegrations() {
               </ol>
             </div>
           </div>
+        </div>
 
-          <!-- WooCommerce Guide -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin-top: 1.5rem;">
+        <!-- WOOCOMMERCE -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? "rgba(150, 88, 138, 0.1)" : "var(--color-bg)"}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? "rgba(150, 88, 138, 0.2)" : "var(--color-border)"};">
+                 <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div>
+                       <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? "#96588a" : "var(--color-text-main)"};">WooCommerce Store</h4>
+                       <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
+                    </div>
+                 </div>
+                 <div>
+                    ${wooStatusText}
+                 </div>
+              </div>
+              <form id="form-woo-integration">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="form-label" style="font-weight: 600;">URL de tu tienda WooCommerce</label>
+                  <input type="text" id="woo-url" class="form-input" placeholder="ej. https://mitienda.cl" value="${wooUrl}" ${hasWoo ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">Consumer Key</label>
+                  <input type="password" id="woo-key" class="form-input" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooKey}" ${hasWoo ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? "display:none;" : ""}">
+                  <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
+                  <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                </div>
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                  ${wooButtonHtml}
+                </div>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
             <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
               <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
                 <span><i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración WooCommerce
@@ -1676,7 +1659,7 @@ async function renderIntegrations() {
                 </li>
                 <li>
                   <strong style="color: var(--color-text-main);">Generar Claves de la API:</strong>
-                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce > Ajustes > Avanzado > API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
+                  <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
                 </li>
                 <li>
                   <strong style="color: var(--color-text-main);">Asignar Permisos:</strong>
@@ -1685,10 +1668,10 @@ async function renderIntegrations() {
               </ol>
             </div>
           </div>
-
         </div>
+
       </div>
-    `;
+`;
 
     // Shopify Submit Listener
     if(!hasShopify) {
