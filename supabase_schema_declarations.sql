@@ -34,14 +34,16 @@ ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS comercio TEXT NOT
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS incidents_list JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+-- Actualizar restricción CHECK (primero eliminar la antigua para permitir la migración de datos)
+ALTER TABLE public.stock_declarations DROP CONSTRAINT IF EXISTS stock_declarations_status_check;
+
 -- Migración de estados antiguos
 UPDATE public.stock_declarations SET status = 'En Recepción - Pendiente Conteo' WHERE status = 'En Recepción';
 UPDATE public.stock_declarations SET status = 'En proceso de conteo/clasificación' WHERE status = 'Conteo/Clasificación en curso';
 UPDATE public.stock_declarations SET status = 'Recibido Conforme' WHERE status = 'Recibido';
 UPDATE public.stock_declarations SET status = 'Recibido con Incidencias' WHERE status = 'Recepción con incidencias';
 
--- Actualizar restricción CHECK
-ALTER TABLE public.stock_declarations DROP CONSTRAINT IF EXISTS stock_declarations_status_check;
+-- Aplicar la nueva restricción CHECK
 ALTER TABLE public.stock_declarations ADD CONSTRAINT stock_declarations_status_check 
   CHECK (status IN ('Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'));
 
