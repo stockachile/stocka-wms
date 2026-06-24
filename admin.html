@@ -26,6 +26,7 @@
           <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Envíos Consolidados</a></li>
           <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-loop-right-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reubicar Stock</a></li>
           <li><a href="#" class="nav-item" data-view="manual_in_admin"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingreso Manual</a></li>
+          <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingresos de Stock</a></li>
           <li><a href="#" class="nav-item" data-view="upload_products_admin"><i class="ri-upload-cloud-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Carga de Planillas</a></li>
           <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestionar Usuarios</a></li>
           <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reglas de Visibilidad</a></li>
@@ -279,6 +280,64 @@
         <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-modules').classList.remove('active')">Cancelar</button>
           <button type="submit" class="btn btn-primary" id="btn-save-modules">Guardar Permisos</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Gestionar Declaración (Admin) -->
+  <div class="modal-overlay" id="modal-manage-declaration">
+    <div class="modal-content" style="max-width: 600px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">Gestionar Recepción de Stock</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">&times;</button>
+      </div>
+      <form id="form-manage-declaration" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+        <input type="hidden" id="manage-dec-id">
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
+          <div id="modal-dec-alert-container"></div>
+          
+          <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
+            <div><strong>Comercio:</strong> <span id="manage-dec-merchant"></span></div>
+            <div><strong>Título/Descripción:</strong> <span id="manage-dec-title"></span></div>
+            <div><strong>Fecha Estimada:</strong> <span id="manage-dec-date"></span></div>
+            <div><strong>Cantidad Declarada:</strong> <span id="manage-dec-qty-declared"></span> uds</div>
+            <div><strong>Bultos Totales:</strong> <span id="manage-dec-packages"></span> (<span id="manage-dec-package-type"></span>)</div>
+            <div><strong>Método de Ingreso:</strong> <span id="manage-dec-method"></span></div>
+            <div id="manage-dec-contact-section"><strong>Contacto Comercio:</strong> <span id="manage-dec-contact"></span></div>
+            <div id="manage-dec-carrier-section"><strong>Transportista:</strong> <span id="manage-dec-carrier"></span></div>
+            <div><strong>Notas Cliente:</strong> <span id="manage-dec-notes" style="font-style: italic; color: var(--color-text-muted);"></span></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Estado del Proceso</label>
+            <select id="manage-dec-status" class="form-input" required>
+              <option value="Creada">Creada</option>
+              <option value="En Recepción">En Recepción</option>
+              <option value="Conteo/Clasificación en curso">Conteo/Clasificación en curso</option>
+              <option value="Recibido">Recibido</option>
+              <option value="Recepción con incidencias">Recepción con incidencias</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cantidad Total Recepcionada (Física)</label>
+            <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cantidad de Incidencias (Unidades dañadas/faltantes)</label>
+            <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Comentarios / Notas de Recepción</label>
+            <textarea id="manage-dec-admin-notes" class="form-input" rows="3" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Cambios</button>
         </div>
       </form>
     </div>

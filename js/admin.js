@@ -128,6 +128,9 @@ async function init() {
           } else if (view === 'manual_in_admin') {
             viewTitle.textContent = 'Ingreso Manual';
             renderManualIn();
+          } else if (view === 'declarations_admin') {
+            viewTitle.textContent = 'Ingresos de Stock';
+            renderDeclarationsAdmin();
           } else if (view === 'upload_products_admin') {
             viewTitle.textContent = 'Carga de Planillas';
             renderUploadProducts();
@@ -1469,6 +1472,7 @@ window.openUserComerciosModal = function(userId, assignedDataStr) {
 
 const CLIENT_MODULES = [
   { id: 'inventory', label: 'Inventario' },
+  { id: 'declarations', label: 'Ingresos de Stock' },
   { id: 'orders', label: 'Pedidos' },
   { id: 'shipments', label: 'Despachos' },
   { id: 'movements', label: 'Movimientos' },
@@ -1486,6 +1490,7 @@ const ADMIN_MODULES = [
   { id: 'consolidated_shipments', label: 'Envíos Consolidados' },
   { id: 'reassign_admin', label: 'Reubicar Stock' },
   { id: 'manual_in_admin', label: 'Ingreso Manual' },
+  { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
   { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
   { id: 'integrations', label: 'Integraciones' }
@@ -3379,5 +3384,279 @@ async function renderVisibilityRulesAdmin() {
   }
 }
 
+// ==========================================
+// NUEVO MÓDULO: DECLARACIONES DE INGRESO DE STOCK (ADMINISTRADOR)
+// ==========================================
 
+window.downloadBase64File = function(base64, filename) {
+  try {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    let mimeType = 'application/octet-stream';
+    if (filename.endsWith('.xlsx')) mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    else if (filename.endsWith('.xls')) mimeType = 'application/vnd.ms-excel';
+    else if (filename.endsWith('.csv')) mimeType = 'text/csv';
 
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error al descargar el archivo:', err);
+    alert('No se pudo descargar el archivo.');
+  }
+};
+
+window.renderDeclarationsAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando declaraciones de ingreso...</p>';
+
+  try {
+    // Consultar todas las declaraciones junto con el nombre de la empresa/comercio
+    const { data: declarations, error } = await supabase
+      .from('stock_declarations')
+      .select('*, profiles!inner (company_name)')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    let rowsHtml = '';
+    if (!declarations || declarations.length === 0) {
+      rowsHtml = '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos registradas.</td></tr>';
+    } else {
+      declarations.forEach(dec => {
+        let statusBadge = '';
+        switch (dec.status) {
+          case 'Creada':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+            break;
+          case 'En Recepción':
+            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">En Recepción</span>';
+            break;
+          case 'Conteo/Clasificación en curso':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+            break;
+          case 'Recibido':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido</span>';
+            break;
+          case 'Recepción con incidencias':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Incidencias</span>';
+            break;
+          default:
+            statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
+        }
+
+        let etaText = '';
+        if (dec.estimated_arrival_type === 'exact') {
+          const [y, m, d] = dec.estimated_arrival_date.split('-');
+          etaText = `${d}/${m}/${y}`;
+        } else {
+          etaText = dec.estimated_arrival_period;
+        }
+
+        let qtyReceivedText = '—';
+        if (['Recibido', 'Recepción con incidencias', 'Conteo/Clasificación en curso', 'En Recepción'].indexOf(dec.status) !== -1) {
+          const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
+          qtyReceivedText = `
+            <div style="font-size: 0.85rem;">
+              <span>Recibido: <strong>${dec.quantity_received}</strong></span><br>
+              <span style="font-size: 0.75rem; color: ${incColor};">Incidencias: <strong>${dec.quantity_incidents}</strong></span>
+            </div>
+          `;
+        }
+
+        rowsHtml += `
+          <tr style="transition: background-color 0.2s;">
+            <td style="font-weight: 600; color: var(--color-primary);">
+              ${dec.comercio || 'no asignado'}
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
+                ${dec.profiles?.company_name || 'Desconocido'}
+              </div>
+            </td>
+            <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">${dec.title}</td>
+            <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
+            <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
+            <td style="font-size: 0.85rem;">${dec.package_count} <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span></td>
+            <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
+            <td style="font-size: 0.85rem;">${statusBadge}</td>
+            <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
+            <td style="font-size: 0.85rem;">
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-border); height: auto; font-family: var(--font-family);" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')" title="Descargar Planilla Detalle">
+                  <i class="ri-file-excel-2-line" style="color: var(--color-success); font-size: 0.95rem; margin-right: 2px;"></i> Planilla
+                </button>
+                <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="manageDeclaration('${dec.id}')" title="Gestionar Recepción">
+                  <i class="ri-settings-4-line" style="font-size: 0.95rem; margin-right: 2px;"></i> Gestionar
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    appContent.innerHTML = `
+      <div class="card">
+        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3>Gestión de Ingresos de Stock</h3>
+            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica y recepciona los ingresos declarados por los clientes.</p>
+          </div>
+          <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-admin-declarations">
+            <i class="ri-refresh-line"></i> Actualizar
+          </button>
+        </div>
+        <div class="card-body" style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Comercio</th>
+                <th>Título / Descripción</th>
+                <th>Llegada Estimada</th>
+                <th>Declaradas</th>
+                <th>Bultos</th>
+                <th>Método Envío</th>
+                <th>Estado</th>
+                <th>Recibido / Incidencias</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // Refresh Handler
+    const refreshBtn = document.getElementById('btn-refresh-admin-declarations');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        renderDeclarationsAdmin();
+      });
+    }
+
+  } catch (err) {
+    console.error('Error fetching admin declarations:', err);
+    appContent.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--color-danger);"><i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i><h4>Error al cargar declaraciones</h4><p>${err.message}</p></div>`;
+  }
+};
+
+window.manageDeclaration = async function(id) {
+  try {
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*, profiles (company_name)')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+
+    // Llenar campos informativos del modal
+    document.getElementById('manage-dec-id').value = dec.id;
+    document.getElementById('manage-dec-merchant').innerHTML = `<strong>${dec.comercio || 'no asignado'}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${dec.profiles?.company_name || 'Desconocido'})</span>`;
+    document.getElementById('manage-dec-title').textContent = dec.title;
+    
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact') {
+      const [y, m, d] = dec.estimated_arrival_date.split('-');
+      etaText = `${d}/${m}/${y}`;
+    } else {
+      etaText = dec.estimated_arrival_period;
+    }
+    document.getElementById('manage-dec-date').textContent = etaText;
+    document.getElementById('manage-dec-qty-declared').textContent = dec.quantity_declared;
+    document.getElementById('manage-dec-packages').textContent = dec.package_count;
+    document.getElementById('manage-dec-package-type').textContent = dec.package_type;
+    document.getElementById('manage-dec-method').textContent = dec.delivery_method;
+
+    // Contacto y transportista
+    document.getElementById('manage-dec-contact').textContent = dec.contact_info || 'No registrado';
+    document.getElementById('manage-dec-carrier').textContent = dec.carrier_info || 'No registrado';
+    document.getElementById('manage-dec-notes').textContent = dec.notes || 'Sin notas del cliente';
+
+    // Rellenar campos del formulario
+    document.getElementById('manage-dec-status').value = dec.status;
+    
+    // Si la cantidad recibida es 0 y el estado es Creada, sugerimos la declarada para ahorrar trabajo
+    document.getElementById('manage-dec-qty-received').value = dec.status === 'Creada' ? dec.quantity_declared : dec.quantity_received;
+    document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
+    document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
+
+    // Limpiar alertas previas
+    document.getElementById('modal-dec-alert-container').innerHTML = '';
+
+    // Mostrar el modal
+    document.getElementById('modal-manage-declaration').classList.add('active');
+
+  } catch (err) {
+    console.error('Error fetching declaration details for manage:', err);
+    alert('Error al obtener los detalles de la declaración: ' + err.message);
+  }
+};
+
+// Event Delegation for managing declarations form submission
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'form-manage-declaration') {
+    e.preventDefault();
+
+    const id = document.getElementById('manage-dec-id').value;
+    const status = document.getElementById('manage-dec-status').value;
+    const qtyReceived = parseInt(document.getElementById('manage-dec-qty-received').value);
+    const qtyIncidents = parseInt(document.getElementById('manage-dec-qty-incidents').value);
+    const adminNotes = document.getElementById('manage-dec-admin-notes').value.trim();
+    const alertContainer = document.getElementById('modal-dec-alert-container');
+
+    if (isNaN(qtyReceived) || qtyReceived < 0) {
+      alertContainer.innerHTML = '<div class="alert alert-error">La cantidad recibida debe ser un número válido mayor o igual a 0.</div>';
+      return;
+    }
+
+    if (isNaN(qtyIncidents) || qtyIncidents < 0) {
+      alertContainer.innerHTML = '<div class="alert alert-error">La cantidad de incidencias debe ser un número válido mayor o igual a 0.</div>';
+      return;
+    }
+
+    const saveBtn = e.target.querySelector('button[type="submit"]');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Guardando cambios...';
+
+    try {
+      const { error } = await supabase
+        .from('stock_declarations')
+        .update({
+          status: status,
+          quantity_received: qtyReceived,
+          quantity_incidents: qtyIncidents,
+          admin_notes: adminNotes,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      alert('Recepción de ingreso actualizada correctamente.');
+      document.getElementById('modal-manage-declaration').classList.remove('active');
+      
+      // Refrescar tabla
+      renderDeclarationsAdmin();
+    } catch (err) {
+      console.error('Error updating stock reception:', err);
+      alertContainer.innerHTML = `<div class="alert alert-error">Error al guardar cambios: ${err.message}</div>`;
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Guardar Cambios';
+    }
+  }
+});
