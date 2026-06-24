@@ -313,10 +313,10 @@
             <label class="form-label">Estado del Proceso</label>
             <select id="manage-dec-status" class="form-input" required>
               <option value="Creada">Creada</option>
-              <option value="En Recepción">En Recepción</option>
-              <option value="Conteo/Clasificación en curso">Conteo/Clasificación en curso</option>
-              <option value="Recibido">Recibido</option>
-              <option value="Recepción con incidencias">Recepción con incidencias</option>
+              <option value="En Recepción - Pendiente Conteo">En Recepción - Pendiente Conteo</option>
+              <option value="En proceso de conteo/clasificación">En proceso de conteo/clasificación</option>
+              <option value="Recibido Conforme">Recibido Conforme</option>
+              <option value="Recibido con Incidencias">Recibido con Incidencias</option>
             </select>
           </div>
 
@@ -330,9 +330,26 @@
             <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required>
           </div>
 
+          <!-- Panel de Incidencias Detalladas -->
+          <div id="manage-dec-incidents-panel" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
+            <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span>Enumerar Incidencias Detalladas</span>
+              <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: rgba(239, 68, 68, 0.3); color: var(--color-danger); height: auto; margin: 0; line-height: 1;">+ Agregar</button>
+            </label>
+            <div id="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <!-- Inputs dinámicos -->
+            </div>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción.</p>
+          </div>
+
           <div class="form-group">
-            <label class="form-label">Comentarios / Notas de Recepción</label>
-            <textarea id="manage-dec-admin-notes" class="form-input" rows="3" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
+            <label class="form-label">Comentario de la Etapa / Notas de Avance *</label>
+            <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)" required></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Comentarios / Notas Finales de Recepción</label>
+            <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
           </div>
         </div>
         <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">

@@ -5216,6 +5216,12 @@ window.renderDeclarations = async function() {
             carrier_info: carrierInfo,
             notes: notes,
             status: 'Creada',
+            incidents_list: [],
+            history: [{
+              status: 'Creada',
+              timestamp: new Date().toISOString(),
+              comment: 'Declaración de ingreso de stock creada y registrada.'
+            }],
             file_name: clientUploadedFileName,
             file_base64: clientUploadedFileBase64
           };
@@ -5405,17 +5411,17 @@ async function fetchAndRenderClientDeclarations() {
         case 'Creada':
           statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
           break;
-        case 'En Recepción':
-          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">En Recepción</span>';
+        case 'En Recepción - Pendiente Conteo':
+          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
           break;
-        case 'Conteo/Clasificación en curso':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+        case 'En proceso de conteo/clasificación':
+          statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
           break;
-        case 'Recibido':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido</span>';
+        case 'Recibido Conforme':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
           break;
-        case 'Recepción con incidencias':
-          statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Incidencias</span>';
+        case 'Recibido con Incidencias':
+          statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
           break;
         default:
           statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
@@ -5430,7 +5436,7 @@ async function fetchAndRenderClientDeclarations() {
       }
         
       let qtyReceivedText = '—';
-      if (['Recibido', 'Recepción con incidencias', 'Conteo/Clasificación en curso', 'En Recepción'].indexOf(dec.status) !== -1) {
+      if (['Recibido Conforme', 'Recibido con Incidencias', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
         const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
         qtyReceivedText = `
           <div style="font-size: 0.85rem;">
@@ -5504,6 +5510,92 @@ window.viewDeclarationDetail = async function(id) {
     const progressPercent = dec.quantity_declared > 0 
       ? Math.min(100, Math.round((dec.quantity_received / dec.quantity_declared) * 100))
       : 0;
+
+    let incidentsHtml = '';
+    const incidents = dec.incidents_list || [];
+    if (incidents.length > 0) {
+      incidentsHtml = `
+        <div style="margin-bottom: 1.5rem; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 10px; padding: 1.25rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; color: var(--color-danger); display: flex; align-items: center; gap: 0.5rem; font-family: var(--font-family);">
+            <i class="ri-error-warning-line" style="font-size: 1.2rem;"></i> Detalle de Incidencias en Recepción
+          </h4>
+          <ol style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main); font-size: 0.9rem; font-family: var(--font-family);">
+            ${incidents.map(inc => `<li style="margin-bottom: 0.35rem;">${inc}</li>`).join('')}
+          </ol>
+        </div>
+      `;
+    }
+
+    let historyTimelineHtml = '';
+    const history = dec.history || [];
+    if (history.length > 0) {
+      let stepsHtml = '';
+      history.forEach((step, index) => {
+        const isLast = index === history.length - 1;
+        const dateObj = new Date(step.timestamp);
+        
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = dateObj.getFullYear();
+        const hours = String(dateObj.getHours()).padStart(2, '0');
+        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+        const formattedDate = `${day}/${month}/${year} ${hours}:${minutes}`;
+        
+        let statusBadgeColor = 'var(--badge-neutral-bg)';
+        let statusTextColor = 'var(--badge-neutral-text)';
+        switch (step.status) {
+          case 'Creada':
+            statusBadgeColor = 'var(--badge-neutral-bg)';
+            statusTextColor = 'var(--badge-neutral-text)';
+            break;
+          case 'En Recepción - Pendiente Conteo':
+            statusBadgeColor = 'var(--badge-info-bg)';
+            statusTextColor = 'var(--badge-info-text)';
+            break;
+          case 'En proceso de conteo/clasificación':
+            statusBadgeColor = 'var(--badge-warning-bg)';
+            statusTextColor = 'var(--badge-warning-text)';
+            break;
+          case 'Recibido Conforme':
+            statusBadgeColor = 'var(--badge-success-bg)';
+            statusTextColor = 'var(--badge-success-text)';
+            break;
+          case 'Recibido con Incidencias':
+            statusBadgeColor = 'var(--badge-danger-bg)';
+            statusTextColor = 'var(--badge-danger-text)';
+            break;
+        }
+
+        stepsHtml += `
+          <div style="display: flex; gap: 1rem; position: relative; margin-bottom: 1.25rem; font-family: var(--font-family);">
+            ${!isLast ? `<div style="position: absolute; left: 15px; top: 30px; bottom: -20px; width: 2px; background: var(--color-border); z-index: 1;"></div>` : ''}
+            
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-surface); border: 2px solid ${isLast ? 'var(--color-primary)' : 'var(--color-border)'}; display: flex; align-items: center; justify-content: center; z-index: 2; flex-shrink: 0; box-shadow: var(--shadow-sm);">
+              <div style="width: 10px; height: 10px; border-radius: 50%; background: ${isLast ? 'var(--color-primary)' : 'var(--color-text-muted)'};"></div>
+            </div>
+            
+            <div style="flex: 1; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; box-shadow: var(--shadow-sm);">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <span class="badge" style="background-color: ${statusBadgeColor}; color: ${statusTextColor}; font-size: 0.75rem; font-weight: 700;">${step.status}</span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="ri-time-line"></i> ${formattedDate}</span>
+              </div>
+              <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; line-height: 1.4;">${step.comment || ''}</p>
+            </div>
+          </div>
+        `;
+      });
+
+      historyTimelineHtml = `
+        <div style="margin-bottom: 1.5rem; font-family: var(--font-family);">
+          <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Avance
+          </h4>
+          <div style="display: flex; flex-direction: column;">
+            ${stepsHtml}
+          </div>
+        </div>
+      `;
+    }
     
     modal.innerHTML = `
       <style>
@@ -5596,6 +5688,10 @@ window.viewDeclarationDetail = async function(id) {
               <div style="position: absolute; left: 0; top: 0; height: 100%; width: ${progressPercent}%; background: var(--color-success); border-radius: 0 2px 2px 0; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);"></div>
             </div>
           </div>
+          
+          \${incidentsHtml}
+          
+          \${historyTimelineHtml}
           
           <!-- Contact Accordions / Sections -->
           <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">

@@ -20,15 +20,30 @@ CREATE TABLE IF NOT EXISTS public.stock_declarations (
   carrier_info TEXT,
   notes TEXT, -- Comentarios del cliente
   admin_notes TEXT, -- Comentarios del administrador al recepcionar
-  status TEXT NOT NULL CHECK (status IN ('Creada', 'En Recepción', 'Conteo/Clasificación en curso', 'Recibido', 'Recepción con incidencias')) DEFAULT 'Creada',
+  status TEXT NOT NULL CHECK (status IN ('Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias')) DEFAULT 'Creada',
+  incidents_list JSONB NOT NULL DEFAULT '[]'::jsonb,
+  history JSONB NOT NULL DEFAULT '[]'::jsonb,
   file_name TEXT NOT NULL,
   file_base64 TEXT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Asegurar que la columna comercio existe en instalaciones previas
+-- Asegurar que las columnas e integridades existen en instalaciones previas
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS comercio TEXT NOT NULL DEFAULT 'no asignado';
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS incidents_list JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Migración de estados antiguos
+UPDATE public.stock_declarations SET status = 'En Recepción - Pendiente Conteo' WHERE status = 'En Recepción';
+UPDATE public.stock_declarations SET status = 'En proceso de conteo/clasificación' WHERE status = 'Conteo/Clasificación en curso';
+UPDATE public.stock_declarations SET status = 'Recibido Conforme' WHERE status = 'Recibido';
+UPDATE public.stock_declarations SET status = 'Recibido con Incidencias' WHERE status = 'Recepción con incidencias';
+
+-- Actualizar restricción CHECK
+ALTER TABLE public.stock_declarations DROP CONSTRAINT IF EXISTS stock_declarations_status_check;
+ALTER TABLE public.stock_declarations ADD CONSTRAINT stock_declarations_status_check 
+  CHECK (status IN ('Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'));
 
 
 -- 2. Habilitar RLS (Row Level Security)

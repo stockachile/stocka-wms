@@ -3439,17 +3439,17 @@ window.renderDeclarationsAdmin = async function() {
           case 'Creada':
             statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
             break;
-          case 'En Recepción':
-            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">En Recepción</span>';
+          case 'En Recepción - Pendiente Conteo':
+            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
             break;
-          case 'Conteo/Clasificación en curso':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+          case 'En proceso de conteo/clasificación':
+            statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
             break;
-          case 'Recibido':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido</span>';
+          case 'Recibido Conforme':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
             break;
-          case 'Recepción con incidencias':
-            statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Incidencias</span>';
+          case 'Recibido con Incidencias':
+            statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
             break;
           default:
             statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
@@ -3464,7 +3464,7 @@ window.renderDeclarationsAdmin = async function() {
         }
 
         let qtyReceivedText = '—';
-        if (['Recibido', 'Recepción con incidencias', 'Conteo/Clasificación en curso', 'En Recepción'].indexOf(dec.status) !== -1) {
+        if (['Recibido Conforme', 'Recibido con Incidencias', 'En proceso de conteo/clasificación', 'En Recepción - Pendiente Conteo'].indexOf(dec.status) !== -1) {
           const incColor = dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)';
           qtyReceivedText = `
             <div style="font-size: 0.85rem;">
@@ -3553,6 +3553,86 @@ window.renderDeclarationsAdmin = async function() {
   }
 };
 
+let currentDeclarationIncidents = [];
+
+function handleManageStatusChange(status) {
+  const qtyDeclared = parseInt(document.getElementById('manage-dec-qty-declared').textContent) || 0;
+  const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
+  const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
+  const incidentsPanel = document.getElementById('manage-dec-incidents-panel');
+  
+  if (status === 'Recibido Conforme') {
+    qtyReceivedInput.value = qtyDeclared;
+    qtyReceivedInput.disabled = true;
+    qtyIncidentsInput.value = 0;
+    qtyIncidentsInput.disabled = true;
+    incidentsPanel.style.display = 'none';
+  } else if (status === 'Recibido con Incidencias') {
+    qtyReceivedInput.disabled = false;
+    qtyIncidentsInput.disabled = false;
+    incidentsPanel.style.display = 'block';
+    if (parseInt(qtyIncidentsInput.value) <= 0) {
+      qtyIncidentsInput.value = 1;
+    }
+    renderIncidentsInputsList();
+  } else {
+    qtyReceivedInput.disabled = false;
+    qtyIncidentsInput.disabled = false;
+    incidentsPanel.style.display = 'none';
+  }
+}
+
+function renderIncidentsInputsList() {
+  const container = document.getElementById('manage-dec-incidents-list-container');
+  if (!container) return;
+  container.innerHTML = '';
+  
+  if (currentDeclarationIncidents.length === 0) {
+    currentDeclarationIncidents.push('');
+  }
+  
+  currentDeclarationIncidents.forEach((inc, idx) => {
+    container.innerHTML += `
+      <div style="display: flex; gap: 0.5rem; align-items: center;" class="incident-item-row" data-index="${idx}">
+        <span style="font-size: 0.85rem; font-weight: 600; color: var(--color-danger); width: 20px;">${idx + 1}.</span>
+        <input type="text" class="form-input incident-desc-input" style="flex: 1; padding: 0.35rem; font-size: 0.85rem;" value="${inc.replace(/"/g, '&quot;')}" placeholder="Ej. Caja 3 mojada, daño menor">
+        <button type="button" class="btn btn-outline btn-remove-incident" style="padding: 0.25rem 0.4rem; color: var(--color-danger); border-color: rgba(239, 68, 68, 0.2); height: auto; margin: 0; line-height: 1;" data-index="${idx}" title="Eliminar">&times;</button>
+      </div>
+    `;
+  });
+}
+
+function saveCurrentIncidentsInputs() {
+  const inputs = document.querySelectorAll('.incident-desc-input');
+  currentDeclarationIncidents = Array.from(inputs).map(inp => inp.value.trim());
+}
+
+// Global change listener for status dropdown
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'manage-dec-status') {
+    handleManageStatusChange(e.target.value);
+  }
+});
+
+// Click listener for dynamic incidents list
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'btn-add-incident-item') {
+    e.preventDefault();
+    saveCurrentIncidentsInputs();
+    currentDeclarationIncidents.push('');
+    renderIncidentsInputsList();
+  }
+  
+  const removeBtn = e.target.closest('.btn-remove-incident');
+  if (removeBtn) {
+    e.preventDefault();
+    const idx = parseInt(removeBtn.getAttribute('data-index'));
+    saveCurrentIncidentsInputs();
+    currentDeclarationIncidents.splice(idx, 1);
+    renderIncidentsInputsList();
+  }
+});
+
 window.manageDeclaration = async function(id) {
   try {
     const { data: dec, error } = await supabase
@@ -3588,11 +3668,17 @@ window.manageDeclaration = async function(id) {
 
     // Rellenar campos del formulario
     document.getElementById('manage-dec-status').value = dec.status;
+    document.getElementById('manage-dec-stage-comment').value = '';
+    
+    currentDeclarationIncidents = dec.incidents_list || [];
     
     // Si la cantidad recibida es 0 y el estado es Creada, sugerimos la declarada para ahorrar trabajo
     document.getElementById('manage-dec-qty-received').value = dec.status === 'Creada' ? dec.quantity_declared : dec.quantity_received;
     document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
+
+    // Llamar al handler reactivo para deshabilitar campos/mostrar paneles según estado
+    handleManageStatusChange(dec.status);
 
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';
@@ -3613,19 +3699,45 @@ document.addEventListener('submit', async (e) => {
 
     const id = document.getElementById('manage-dec-id').value;
     const status = document.getElementById('manage-dec-status').value;
-    const qtyReceived = parseInt(document.getElementById('manage-dec-qty-received').value);
-    const qtyIncidents = parseInt(document.getElementById('manage-dec-qty-incidents').value);
+    let qtyReceived = parseInt(document.getElementById('manage-dec-qty-received').value);
+    let qtyIncidents = parseInt(document.getElementById('manage-dec-qty-incidents').value);
+    const stageComment = document.getElementById('manage-dec-stage-comment').value.trim();
     const adminNotes = document.getElementById('manage-dec-admin-notes').value.trim();
     const alertContainer = document.getElementById('modal-dec-alert-container');
 
+    // Validador de cantidades básicas
     if (isNaN(qtyReceived) || qtyReceived < 0) {
-      alertContainer.innerHTML = '<div class="alert alert-error">La cantidad recibida debe ser un número válido mayor o igual a 0.</div>';
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad recibida debe ser un número válido mayor o igual a 0.</div>';
       return;
     }
 
     if (isNaN(qtyIncidents) || qtyIncidents < 0) {
-      alertContainer.innerHTML = '<div class="alert alert-error">La cantidad de incidencias debe ser un número válido mayor o igual a 0.</div>';
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de incidencias debe ser un número válido mayor o igual a 0.</div>';
       return;
+    }
+
+    if (!stageComment) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El comentario de la etapa / notas de avance es obligatorio.</div>';
+      return;
+    }
+
+    // Reglas según estado específico
+    let incidentsList = [];
+    if (status === 'Recibido Conforme') {
+      const qtyDeclared = parseInt(document.getElementById('manage-dec-qty-declared').textContent) || 0;
+      qtyReceived = qtyDeclared;
+      qtyIncidents = 0;
+    } else if (status === 'Recibido con Incidencias') {
+      saveCurrentIncidentsInputs();
+      incidentsList = currentDeclarationIncidents.filter(Boolean);
+      if (incidentsList.length === 0) {
+        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes describir al menos 1 incidencia detallada cuando seleccionas "Recibido con Incidencias".</div>';
+        return;
+      }
+      if (qtyIncidents <= 0) {
+        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de incidencias debe ser mayor a 0 para el estado "Recibido con Incidencias".</div>';
+        return;
+      }
     }
 
     const saveBtn = e.target.querySelector('button[type="submit"]');
@@ -3633,12 +3745,32 @@ document.addEventListener('submit', async (e) => {
     saveBtn.textContent = 'Guardando cambios...';
 
     try {
+      // 1. Obtener historial previo de la base de datos
+      const { data: latestDec, error: fetchError } = await supabase
+        .from('stock_declarations')
+        .select('history')
+        .eq('id', id)
+        .single();
+        
+      if (fetchError) throw fetchError;
+      
+      const existingHistory = latestDec.history || [];
+      const newHistoryEntry = {
+        status: status,
+        timestamp: new Date().toISOString(),
+        comment: stageComment
+      };
+      const updatedHistory = [...existingHistory, newHistoryEntry];
+
+      // 2. Ejecutar actualización
       const { error } = await supabase
         .from('stock_declarations')
         .update({
           status: status,
           quantity_received: qtyReceived,
           quantity_incidents: qtyIncidents,
+          incidents_list: status === 'Recibido con Incidencias' ? incidentsList : [],
+          history: updatedHistory,
           admin_notes: adminNotes,
           updated_at: new Date().toISOString()
         })
@@ -3653,7 +3785,7 @@ document.addEventListener('submit', async (e) => {
       renderDeclarationsAdmin();
     } catch (err) {
       console.error('Error updating stock reception:', err);
-      alertContainer.innerHTML = `<div class="alert alert-error">Error al guardar cambios: ${err.message}</div>`;
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al guardar cambios: ${err.message}</div>`;
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Guardar Cambios';
