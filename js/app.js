@@ -920,55 +920,221 @@ async function renderOrders() {
         }
 
         rowsHtml += `
-          <tr style="transition: background-color 0.2s;">
-            <td>${orderDisplayId}</td>
+          <tr class="clickable-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
+            <td>
+              <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                <span style="font-family: monospace; font-size: 0.82rem; background: var(--color-bg); padding: 0.2rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
+                ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
+              </div>
+            </td>
             <td>${originHtml}</td>
-            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
-            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
-            <td>${nameStr}</td>
-            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
-            <td>${trackingHtml}</td>
+            <td style="white-space:nowrap; color: var(--color-text-muted); font-size:0.82rem;">
+              <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
+            </td>
+            <td>
+              <div style="max-width:260px;">
+                <span style="font-size:0.85rem; color:var(--color-text-main); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${nameStr}</span>
+                <span style="font-size:0.72rem; color:var(--color-text-muted); margin-top:0.1rem; display:block;">${order.order_items?.length || 1} ítem(s)</span>
+              </div>
+            </td>
             <td>${labelHtml}</td>
-            <td><span style="background-color: ${badgeColor}; color: ${badgeTextColor}; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; text-transform: capitalize; font-weight: 600;">${order.status}</span></td>
+            <td>
+              <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
+            </td>
+            <td>
+              <button class="btn-order-detail btn btn-outline" data-order-id="${order.id}" style="padding:0.2rem 0.65rem; font-size:0.75rem; display:inline-flex; align-items:center; gap:0.3rem; white-space:nowrap;">
+                <i class="ri-eye-line"></i> Ver detalle
+              </button>
+            </td>
           </tr>
         `;
       });
     }
     const isObserver = userRole === 'observer';
-    const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-order">Crear Pedido</button>';
+    const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-order"><i class="ri-add-line"></i> Crear Pedido</button>';
 
     appContent.innerHTML = getObserverBanner() + `
       <div class="card">
         <div class="card-header flex justify-between items-center">
-          <h3>Mis Pedidos</h3>
+          <div>
+            <h3 style="margin:0;">Mis Pedidos</h3>
+            <span style="font-size:0.8rem; color:var(--color-text-muted); margin-top:0.2rem; display:block;">${orders?.length || 0} pedidos encontrados</span>
+          </div>
           ${actionBtn}
         </div>
-        <div class="card-body">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>ID Pedido</th>
-                <th>Origen</th>
-                <th>Fecha</th>
-                <th>SKU</th>
-                <th>Nombre Producto</th>
-                <th>Cantidad</th>
-                <th>Seguimiento</th>
-                <th>Etiqueta</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
+        <div class="card-body" style="padding:0;">
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="min-width:600px;">
+              <thead>
+                <tr>
+                  <th style="min-width:140px;">ID Pedido</th>
+                  <th>Origen</th>
+                  <th>Fecha</th>
+                  <th>Producto(s)</th>
+                  <th>Etiqueta</th>
+                  <th>Estado</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Slide-over overlay para detalle de pedido -->
+      <div class="slide-over-overlay" id="order-detail-overlay">
+        <div class="slide-over-panel" id="order-detail-panel">
+          <div class="slide-over-header">
+            <h3><i class="ri-shopping-bag-3-line" style="color:var(--color-primary);"></i> Detalle del Pedido</h3>
+            <button class="slide-over-close" id="btn-close-order-detail">&times;</button>
+          </div>
+          <div class="slide-over-body" id="order-detail-body">
+            <div style="text-align:center; padding:3rem; color:var(--color-text-muted);">
+              <i class="ri-loader-4-line" style="font-size:2rem;"></i>
+              <p>Cargando...</p>
+            </div>
+          </div>
         </div>
       </div>
     `;
+
+    // Cerrar panel
+    document.getElementById('btn-close-order-detail')?.addEventListener('click', () => {
+      document.getElementById('order-detail-overlay').classList.remove('active');
+    });
+    document.getElementById('order-detail-overlay')?.addEventListener('click', (e) => {
+      if (e.target === document.getElementById('order-detail-overlay')) {
+        document.getElementById('order-detail-overlay').classList.remove('active');
+      }
+    });
+
+    // Botones Ver detalle
+    document.querySelectorAll('.btn-order-detail').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const orderId = btn.getAttribute('data-order-id');
+        const order = orders.find(o => o.id === orderId);
+        if (!order) return;
+        renderOrderDetailPanel(order, shipments);
+        document.getElementById('order-detail-overlay').classList.add('active');
+      });
+    });
+
   } catch (error) {
     console.error('Error fetching orders:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
   }
+}
+
+function renderOrderDetailPanel(order, allShipments) {
+  const body = document.getElementById('order-detail-body');
+  if (!body) return;
+
+  const orderShipments = allShipments.filter(s =>
+    s.pedido_referencia === order.id ||
+    (order.external_order_number && s.pedido_referencia === order.external_order_number)
+  );
+
+  const platform = order.origen || order.external_platform || 'Manual';
+  const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+  const dateStr = new Date(order.created_at).toLocaleString('es-CL');
+
+  // Items HTML
+  const itemsHtml = (order.order_items && order.order_items.length > 0)
+    ? order.order_items.map(oi => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:0.65rem 1.25rem; border-bottom:1px solid var(--color-border); gap:1rem;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:0.85rem; font-weight:600; color:var(--color-text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${oi.products?.name || oi.item_name || 'Producto'}</div>
+            <div style="font-size:0.72rem; color:var(--color-text-muted); margin-top:0.15rem; font-family:monospace;">${oi.products?.sku || oi.sku || '-'}</div>
+          </div>
+          <div style="flex-shrink:0; text-align:right;">
+            <span style="font-size:0.78rem; color:var(--color-text-muted);">Cant.</span>
+            <span style="font-size:0.95rem; font-weight:700; color:var(--color-text-main); margin-left:0.3rem;">${oi.quantity || 1}</span>
+          </div>
+        </div>
+      `).join('')
+    : `<div style="padding:1.25rem; color:var(--color-text-muted); font-size:0.85rem; text-align:center;">Sin ítems registrados.</div>`;
+
+  // Tracking HTML
+  const trackingSection = orderShipments.length > 0 ? orderShipments.map(s => `
+    <div class="detail-info-row">
+      <span class="detail-info-label">Courier</span>
+      <span class="detail-info-value">${s.courier || '-'}</span>
+    </div>
+    <div class="detail-info-row">
+      <span class="detail-info-label">Tracking</span>
+      <span class="detail-info-value">
+        ${s.tracking
+          ? (s.tracking_url && s.tracking_url !== 'N/A'
+              ? `<a href="${s.tracking_url}" target="_blank" style="color:var(--color-primary); font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;"><i class="ri-external-link-line"></i> ${s.tracking}</a>`
+              : `<span style="font-weight:600;">${s.tracking}</span>`)
+          : '-'}
+      </span>
+    </div>
+    <div class="detail-info-row">
+      <span class="detail-info-label">Estado despacho</span>
+      <span class="detail-info-value"><span style="background:rgba(99,102,241,0.12); color:var(--color-accent); padding:0.2rem 0.6rem; border-radius:99px; font-size:0.75rem; font-weight:700;">${s.status || '-'}</span></span>
+    </div>
+  `).join('<div style="height:0.5rem;"></div>') : `
+    <div style="padding:1rem 1.25rem; color:var(--color-text-muted); font-size:0.82rem;">Sin despachos asociados.</div>
+  `;
+
+  body.innerHTML = `
+    <!-- Header info del pedido -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 0; gap:1rem; flex-wrap:wrap;">
+      <div>
+        <div style="font-family:monospace; font-size:1rem; font-weight:700; color:var(--color-text-main);">${order.external_order_number || order.id.split('-')[0]}</div>
+        ${order.external_order_number ? `<div style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</div>` : ''}
+      </div>
+      <span style="background-color:${getBadgeColor(order.status).bg}; color:${getBadgeColor(order.status).text}; padding:0.25rem 0.75rem; border-radius:99px; font-size:0.75rem; font-weight:700;">${order.status}</span>
+    </div>
+
+    <!-- Sección: Info general -->
+    <div class="shipment-detail-section">
+      <h4 class="shipment-detail-title"><i class="ri-file-list-3-line"></i> Información General</h4>
+      <div class="detail-info-row">
+        <span class="detail-info-label">Origen</span>
+        <span class="detail-info-value"><span style="background-color:${platformColor}20; color:${platformColor}; padding:0.15rem 0.6rem; border-radius:4px; font-size:0.75rem; font-weight:700;">${platform}</span></span>
+      </div>
+      <div class="detail-info-row">
+        <span class="detail-info-label">Fecha creación</span>
+        <span class="detail-info-value">${dateStr}</span>
+      </div>
+      <div class="detail-info-row">
+        <span class="detail-info-label">Comercio</span>
+        <span class="detail-info-value">${order.comercio || '-'}</span>
+      </div>
+      ${order.notes ? `<div class="detail-info-row"><span class="detail-info-label">Notas</span><span class="detail-info-value" style="font-style:italic;">${order.notes}</span></div>` : ''}
+    </div>
+
+    <!-- Sección: Despacho -->
+    <div class="shipment-detail-section">
+      <h4 class="shipment-detail-title"><i class="ri-truck-line"></i> Despacho</h4>
+      ${trackingSection}
+    </div>
+
+    <!-- Sección: Ítems -->
+    <div class="shipment-detail-section">
+      <h4 class="shipment-detail-title"><i class="ri-shopping-cart-line"></i> Ítems del Pedido</h4>
+      ${itemsHtml}
+      <div style="padding:0.6rem 1.25rem; background:var(--color-surface-hover); border-top:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:0.78rem; color:var(--color-text-muted);">Total ítems</span>
+        <span style="font-weight:700; font-size:0.9rem;">${order.order_items?.reduce((s,i) => s + (i.quantity||1), 0) || '-'} unidades</span>
+      </div>
+    </div>
+  `;
+}
+
+function getBadgeColor(status) {
+  if (['despachado','entregado','retirado'].includes(status)) return { bg:'#d1fae5', text:'#065f46' };
+  if (['en preparación','preparado','listo para retiro'].includes(status)) return { bg:'#fef3c7', text:'#92400e' };
+  if (status === 'en tránsito') return { bg:'#e0f2fe', text:'#0369a1' };
+  if (['cancelado','incidencia'].includes(status)) return { bg:'#fee2e2', text:'#991b1b' };
+  if (status === 'para procesar') return { bg:'#e0e7ff', text:'#3730a3' };
+  return { bg:'#f3f4f6', text:'#374151' };
 }
 
 async function renderPending() {

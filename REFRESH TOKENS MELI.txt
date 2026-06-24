@@ -1,0 +1,15 @@
+[{"nombre":"StockaVentas","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcd951987300016adfb3-1871959921","userId":1871959921},
+
+{"nombre":"BIGBANG","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcdf9e790d0001df166d-804898532","userId":804898532},
+
+{"nombre":"B4LIFE","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bce52674090001f15ce9-2247758405","userId":2247758405},
+
+{"nombre":"MAESE","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcec9e790d0001df16f9-23209525","userId":23209525},
+
+{"nombre":"HIT GAMING","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcf32674090001f15d65-2955228287","userId":2955228287},
+
+{"nombre":"MAGIC MAKEUP","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcf9f7ea7800016b53f9-751215607","userId":751215607},
+
+{"nombre":"SERPA","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bcff3779c80001fbd7d4-1292409712","userId":1292409712},
+
+{"nombre":"SIMPLEMENTE CAFE","clientId":"34091030018433","clientSecret":"EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl","refreshToken":"TG-6a39bd053aed5800010fc999-3460657214","userId":3460657214}]
