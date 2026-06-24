@@ -919,24 +919,57 @@ async function renderOrders() {
           }
         }
 
+        // Datos de despacho para la fila
+        const firstShipment = orderShipments[0] || null;
+        const totalItems = order.order_items?.reduce((s, i) => s + (i.quantity || 1), 0) || order.cantidad || '-';
+
+        // Tipo de despacho legible
+        const rawTipo = firstShipment?.servicio_tipo_envio || order.shipping_type || '';
+        let tipoIcon = 'ri-truck-line';
+        let tipoLabel = rawTipo || '-';
+        if (/flex/i.test(rawTipo))          { tipoIcon = 'ri-flashlight-line';   tipoLabel = 'Flex'; }
+        else if (/centro.*env/i.test(rawTipo) || /fulfillment/i.test(rawTipo)) { tipoIcon = 'ri-building-2-line';  tipoLabel = 'Centro Envíos'; }
+        else if (/same.?day/i.test(rawTipo) || /24/i.test(rawTipo))            { tipoIcon = 'ri-time-line';         tipoLabel = 'Same Day'; }
+        else if (/retiro/i.test(rawTipo) || /pickup/i.test(rawTipo))           { tipoIcon = 'ri-store-line';        tipoLabel = 'Retiro'; }
+        else if (/normal/i.test(rawTipo))   { tipoIcon = 'ri-ship-line';         tipoLabel = 'Normal'; }
+        const tipoHtml = rawTipo
+          ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--color-text-main);"><i class="${tipoIcon}" style="color:var(--color-primary);"></i>${tipoLabel}</span>`
+          : `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
+
+        // SLA: días desde creación hasta ahora (o hasta entrega si existe)
+        const createdAt = new Date(order.created_at);
+        const slaRef = firstShipment?.promised_date || firstShipment?.date_closed || null;
+        let slaHtml = `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
+        if (slaRef) {
+          const slaDate = new Date(slaRef);
+          const diffDays = Math.round((slaDate - createdAt) / (1000 * 60 * 60 * 24));
+          const slaColor = diffDays <= 1 ? '#059669' : (diffDays <= 3 ? '#d97706' : '#dc2626');
+          slaHtml = `<span style="font-size:0.78rem; font-weight:600; color:${slaColor};">${diffDays}d</span>`;
+        } else if (firstShipment?.servicio_tipo_envio) {
+          // Mostrar SLA implícito según tipo
+          const slaMap = { flex:'<1d', 'same day':'<1d', '24':'1d', normal:'3-5d', fulfillment:'2d' };
+          const match = Object.keys(slaMap).find(k => rawTipo.toLowerCase().includes(k));
+          slaHtml = match ? `<span style="font-size:0.75rem; color:var(--color-text-muted);">${slaMap[match]}</span>` : slaHtml;
+        }
+
         rowsHtml += `
           <tr class="clickable-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
             <td>
               <div style="display:flex; flex-direction:column; gap:0.2rem;">
-                <span style="font-family: monospace; font-size: 0.82rem; background: var(--color-bg); padding: 0.2rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
+                <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
                 ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
               </div>
             </td>
             <td>${originHtml}</td>
-            <td style="white-space:nowrap; color: var(--color-text-muted); font-size:0.82rem;">
+            <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem;">
               <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
             </td>
-            <td>
-              <div style="max-width:260px;">
-                <span style="font-size:0.85rem; color:var(--color-text-main); line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">${nameStr}</span>
-                <span style="font-size:0.72rem; color:var(--color-text-muted); margin-top:0.1rem; display:block;">${order.order_items?.length || 1} ítem(s)</span>
-              </div>
+            <td style="text-align:center;">
+              <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
+              <span style="display:block; font-size:0.68rem; color:var(--color-text-muted);">artículo${totalItems !== 1 ? 's' : ''}</span>
             </td>
+            <td>${tipoHtml}</td>
+            <td>${slaHtml}</td>
             <td>${labelHtml}</td>
             <td>
               <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
@@ -970,7 +1003,9 @@ async function renderOrders() {
                   <th style="min-width:140px;">ID Pedido</th>
                   <th>Origen</th>
                   <th>Fecha</th>
-                  <th>Producto(s)</th>
+                  <th style="text-align:center;">Artículos</th>
+                  <th>Tipo Despacho</th>
+                  <th>SLA</th>
                   <th>Etiqueta</th>
                   <th>Estado</th>
                   <th></th>
