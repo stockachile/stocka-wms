@@ -4823,6 +4823,7 @@ let clientSelectedDateStr = '';
 let clientCalendarCurrentDate = new Date();
 let clientUploadedFileBase64 = '';
 let clientUploadedFileName = '';
+let editingDeclarationId = null;
 
 window.renderDeclarations = async function() {
   const appContent = document.getElementById('app-content');
@@ -5030,7 +5031,10 @@ window.renderDeclarations = async function() {
             <textarea id="dec-notes" class="form-input" rows="2" placeholder="Observaciones generales para el equipo de bodega..."></textarea>
           </div>
 
-          <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="width: 100%; border-radius: var(--radius-md); margin-top: 1rem;">Crear Declaración de Ingreso</button>
+          <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+            <button type="button" id="btn-cancel-edit-declaration" class="btn btn-outline" style="flex: 1; display: none; border-radius: var(--radius-md);" onclick="cancelEditDeclaration()">Cancelar</button>
+            <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="flex: 2; border-radius: var(--radius-md);">Crear Declaración de Ingreso</button>
+          </div>
         </form>
       </div>
     `;
@@ -5313,14 +5317,14 @@ window.renderDeclarations = async function() {
           }
         }
 
-        if (!clientUploadedFileBase64 || !clientUploadedFileName) {
+        if (!editingDeclarationId && (!clientUploadedFileBase64 || !clientUploadedFileName)) {
           alert('Es obligatorio adjuntar la planilla detallada de ingreso.');
           return;
         }
 
         const submitBtn = document.getElementById('btn-submit-declaration');
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Creando declaración...';
+        submitBtn.textContent = editingDeclarationId ? 'Guardando cambios...' : 'Creando declaración...';
 
         try {
           let estimatedArrivalDate = null;
@@ -5338,68 +5342,120 @@ window.renderDeclarations = async function() {
             ? document.getElementById('dec-comercio').value
             : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
 
-           const insertData = {
-            merchant_id: currentMerchantId,
-            comercio: selectedCommerce,
-            title: title,
-            estimated_arrival_type: dateMode,
-            estimated_arrival_date: estimatedArrivalDate,
-            estimated_arrival_period: estimatedArrivalPeriod,
-            quantity_declared: qtyDeclared,
-            quantity_received: 0,
-            quantity_incidents: 0,
-            package_count: totalPackages,
-            package_type: packageType,
-            container_count: containerCount,
-            pallet_count: palletCount,
-            box_count: boxCount,
-            requires_unloading: requiresUnloading,
-            delivery_method: deliveryMethod,
-            contact_info: contactInfo,
-            carrier_info: carrierInfo,
-            notes: notes,
-            status: 'Creada',
-            incidents_list: [],
-            history: [{
-              status: 'Creada',
+          if (editingDeclarationId) {
+            // Fetch current declaration data to get current status and history
+            const { data: currentDec, error: getError } = await supabase
+              .from('stock_declarations')
+              .select('status, history')
+              .eq('id', editingDeclarationId)
+              .single();
+              
+            if (getError) throw getError;
+            
+            const newHistory = (currentDec.history || []).concat({
+              status: currentDec.status,
               timestamp: new Date().toISOString(),
-              comment: 'Declaración de ingreso de stock creada y registrada.'
-            }],
-            file_name: clientUploadedFileName,
-            file_base64: clientUploadedFileBase64
-          };
+              comment: 'Declaración modificada por el cliente.'
+            });
 
-          const { error: insertError } = await supabase
-            .from('stock_declarations')
-            .insert([insertData]);
+            const updateData = {
+              comercio: selectedCommerce,
+              title: title,
+              estimated_arrival_type: dateMode,
+              estimated_arrival_date: estimatedArrivalDate,
+              estimated_arrival_period: estimatedArrivalPeriod,
+              quantity_declared: qtyDeclared,
+              package_count: totalPackages,
+              package_type: packageType,
+              container_count: containerCount,
+              pallet_count: palletCount,
+              box_count: boxCount,
+              requires_unloading: requiresUnloading,
+              delivery_method: deliveryMethod,
+              contact_info: contactInfo,
+              carrier_info: carrierInfo,
+              notes: notes,
+              history: newHistory
+            };
 
-          if (insertError) throw insertError;
-
-          alert('¡Declaración de ingreso de stock creada con éxito!');
-          form.reset();
-          
-          // Re-enable inputs and reset styles
-          const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
-          inputs.forEach(id => {
-            const el = document.getElementById(id);
-            if (el) {
-              el.disabled = false;
-              el.setAttribute('required', 'required');
+            if (clientUploadedFileName && clientUploadedFileBase64) {
+              updateData.file_name = clientUploadedFileName;
+              updateData.file_base64 = clientUploadedFileBase64;
             }
-          });
-          const unloadingWarning = document.getElementById('dec-unloading-warning');
-          if (unloadingWarning) unloadingWarning.style.display = 'none';
 
-          clientSelectedDateStr = '';
-          clientUploadedFileBase64 = '';
-          clientUploadedFileName = '';
-          if (fileInfo) fileInfo.textContent = '';
-          
-          const label = document.getElementById('dec-date-selected-label');
-          if (label) label.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
-          
-          document.getElementById('dec-date-warning').style.display = 'none';
-          document.getElementById('dec-date-error').style.display = 'none';
+            const { error: updateError } = await supabase
+              .from('stock_declarations')
+              .update(updateData)
+              .eq('id', editingDeclarationId);
+
+            if (updateError) throw updateError;
+            
+            alert('¡Declaración modificada con éxito!');
+            cancelEditDeclaration();
+          } else {
+            const insertData = {
+              merchant_id: currentMerchantId,
+              comercio: selectedCommerce,
+              title: title,
+              estimated_arrival_type: dateMode,
+              estimated_arrival_date: estimatedArrivalDate,
+              estimated_arrival_period: estimatedArrivalPeriod,
+              quantity_declared: qtyDeclared,
+              quantity_received: 0,
+              quantity_incidents: 0,
+              package_count: totalPackages,
+              package_type: packageType,
+              container_count: containerCount,
+              pallet_count: palletCount,
+              box_count: boxCount,
+              requires_unloading: requiresUnloading,
+              delivery_method: deliveryMethod,
+              contact_info: contactInfo,
+              carrier_info: carrierInfo,
+              notes: notes,
+              status: 'Creada',
+              incidents_list: [],
+              history: [{
+                status: 'Creada',
+                timestamp: new Date().toISOString(),
+                comment: 'Declaración de ingreso de stock creada y registrada.'
+              }],
+              file_name: clientUploadedFileName,
+              file_base64: clientUploadedFileBase64
+            };
+
+            const { error: insertError } = await supabase
+              .from('stock_declarations')
+              .insert([insertData]);
+
+            if (insertError) throw insertError;
+
+            alert('¡Declaración de ingreso de stock creada con éxito!');
+            form.reset();
+            
+            // Re-enable inputs and reset styles
+            const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
+            inputs.forEach(id => {
+              const el = document.getElementById(id);
+              if (el) {
+                el.disabled = false;
+                el.setAttribute('required', 'required');
+              }
+            });
+            const unloadingWarning = document.getElementById('dec-unloading-warning');
+            if (unloadingWarning) unloadingWarning.style.display = 'none';
+
+            clientSelectedDateStr = '';
+            clientUploadedFileBase64 = '';
+            clientUploadedFileName = '';
+            if (fileInfo) fileInfo.textContent = '';
+            
+            const label = document.getElementById('dec-date-selected-label');
+            if (label) label.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
+            
+            document.getElementById('dec-date-warning').style.display = 'none';
+            document.getElementById('dec-date-error').style.display = 'none';
+          }
 
           // Redraw calendar to clear selection styling
           drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
@@ -5411,7 +5467,7 @@ window.renderDeclarations = async function() {
           alert('Error al guardar declaración: ' + err.message);
         } finally {
           submitBtn.disabled = false;
-          submitBtn.textContent = 'Crear Declaración de Ingreso';
+          submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
         }
       });
     }
@@ -5631,6 +5687,13 @@ async function fetchAndRenderClientDeclarations() {
         `;
       }
       
+      const isEditable = ['Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].indexOf(dec.status) !== -1;
+      const editButtonHtml = isEditable ? `
+        <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-primary); color: var(--color-primary); height: auto; font-family: var(--font-family);" onclick="editDeclaration('${dec.id}')" title="Editar Declaración">
+          <i class="ri-edit-line" style="font-size: 0.9rem; margin-right: 2px;"></i> Editar
+        </button>
+      ` : '';
+
       html += `
         <tr style="transition: background-color 0.2s;">
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
@@ -5641,7 +5704,13 @@ async function fetchAndRenderClientDeclarations() {
           </td>
           <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
           <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
-          <td style="font-size: 0.85rem;">${dec.package_count} <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span></td>
+          <td style="font-size: 0.85rem;">
+            <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
+            <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
+              C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
+            </div>
+            ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
+          </td>
           <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
           <td style="font-size: 0.85rem;">${statusBadge}</td>
           <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -5650,6 +5719,7 @@ async function fetchAndRenderClientDeclarations() {
               <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-border); height: auto; font-family: var(--font-family);" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')" title="Descargar Planilla Detalle">
                 <i class="ri-file-excel-2-line" style="color: var(--color-success); font-size: 0.9rem; margin-right: 2px;"></i> Planilla
               </button>
+              ${editButtonHtml}
               <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="viewDeclarationDetail('${dec.id}')" title="Ver Detalles">
                 <i class="ri-eye-line" style="font-size: 0.9rem; margin-right: 2px;"></i> Detalle
               </button>
@@ -6037,4 +6107,203 @@ window.showDeclarationsInfoModal = function() {
   </div>
   `;
   document.body.appendChild(modal);
+};
+
+window.editDeclaration = async function(id) {
+  try {
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!dec) return;
+
+    editingDeclarationId = dec.id;
+
+    document.getElementById('dec-title').value = dec.title || '';
+    document.getElementById('dec-qty-declared').value = dec.quantity_declared || '';
+    document.getElementById('dec-delivery-method').value = dec.delivery_method || '';
+    document.getElementById('dec-contact-info').value = dec.contact_info || '';
+    document.getElementById('dec-carrier-info').value = dec.carrier_info || '';
+    document.getElementById('dec-notes').value = dec.notes || '';
+
+    if (document.getElementById('dec-comercio')) {
+      document.getElementById('dec-comercio').value = dec.comercio;
+    }
+
+    const containerCountInput = document.getElementById('dec-container-count');
+    const containerNoCb = document.getElementById('dec-no-container');
+    if (dec.container_count === 0) {
+      if (containerNoCb) containerNoCb.checked = true;
+      if (containerCountInput) {
+        containerCountInput.disabled = true;
+        containerCountInput.value = '';
+        containerCountInput.removeAttribute('required');
+      }
+    } else {
+      if (containerNoCb) containerNoCb.checked = false;
+      if (containerCountInput) {
+        containerCountInput.disabled = false;
+        containerCountInput.value = dec.container_count;
+        containerCountInput.setAttribute('required', 'required');
+      }
+    }
+
+    const palletCountInput = document.getElementById('dec-pallet-count');
+    const palletNoCb = document.getElementById('dec-no-pallet');
+    if (dec.pallet_count === 0) {
+      if (palletNoCb) palletNoCb.checked = true;
+      if (palletCountInput) {
+        palletCountInput.disabled = true;
+        palletCountInput.value = '';
+        palletCountInput.removeAttribute('required');
+      }
+    } else {
+      if (palletNoCb) palletNoCb.checked = false;
+      if (palletCountInput) {
+        palletCountInput.disabled = false;
+        palletCountInput.value = dec.pallet_count;
+        palletCountInput.setAttribute('required', 'required');
+      }
+    }
+
+    const boxCountInput = document.getElementById('dec-box-count');
+    const boxNoCb = document.getElementById('dec-no-box');
+    if (dec.box_count === 0) {
+      if (boxNoCb) boxNoCb.checked = true;
+      if (boxCountInput) {
+        boxCountInput.disabled = true;
+        boxCountInput.value = '';
+        boxCountInput.removeAttribute('required');
+      }
+    } else {
+      if (boxNoCb) boxNoCb.checked = false;
+      if (boxCountInput) {
+        boxCountInput.disabled = false;
+        boxCountInput.value = dec.box_count;
+        boxCountInput.setAttribute('required', 'required');
+      }
+    }
+
+    const requiresUnloadingCb = document.getElementById('dec-requires-unloading');
+    const unloadingWarning = document.getElementById('dec-unloading-warning');
+    if (requiresUnloadingCb) {
+      requiresUnloadingCb.checked = !!dec.requires_unloading;
+      if (unloadingWarning) {
+        unloadingWarning.style.display = dec.requires_unloading ? 'block' : 'none';
+      }
+    }
+
+    const btnExact = document.getElementById('btn-date-exact');
+    const btnEstimate = document.getElementById('btn-date-estimate');
+    const fileInput = document.getElementById('dec-file-input');
+    const fileInfo = document.getElementById('dec-file-selected-info');
+    
+    if (fileInput) {
+      fileInput.removeAttribute('required');
+    }
+    if (fileInfo) {
+      fileInfo.innerHTML = `<strong>Archivo actual:</strong> ${dec.file_name} <br><span style="font-size: 0.75rem; color: var(--color-text-muted);">(Selecciona uno nuevo solo si deseas reemplazar el archivo anterior)</span>`;
+    }
+
+    if (dec.estimated_arrival_type === 'exact') {
+      if (btnExact) btnExact.click();
+      clientSelectedDateStr = dec.estimated_arrival_date;
+      
+      const [y, m, d] = clientSelectedDateStr.split('-');
+      clientCalendarCurrentDate = new Date(parseInt(y), parseInt(m) - 1, 1);
+      const miniCalWrapper = document.getElementById('mini-calendar-wrapper');
+      if (miniCalWrapper) {
+        drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+      }
+      updateDateCheck();
+    } else {
+      if (btnEstimate) btnEstimate.click();
+      const parts = (dec.estimated_arrival_period || '').split(' ');
+      const qty = parseInt(parts[0]) || 1;
+      const unit = parts[1] || 'semanas';
+      
+      const qtyInput = document.getElementById('dec-period-qty');
+      const unitInput = document.getElementById('dec-period-unit');
+      if (qtyInput) qtyInput.value = qty;
+      if (unitInput) unitInput.value = unit;
+    }
+
+    const formTitle = document.getElementById('dec-form-title');
+    if (formTitle) {
+      formTitle.textContent = 'Editar Declaración de Ingreso';
+    }
+    const submitBtn = document.getElementById('btn-submit-declaration');
+    if (submitBtn) {
+      submitBtn.textContent = 'Guardar Cambios';
+    }
+    const cancelBtn = document.getElementById('btn-cancel-edit-declaration');
+    if (cancelBtn) {
+      cancelBtn.style.display = 'block';
+    }
+
+    const formCol = document.getElementById('dec-form-col');
+    if (formCol) {
+      formCol.scrollIntoView({ behavior: 'smooth' });
+    }
+
+  } catch (err) {
+    console.error('Error opening declaration for editing:', err);
+    alert('Error al abrir la declaración para editar: ' + err.message);
+  }
+};
+
+window.cancelEditDeclaration = function() {
+  editingDeclarationId = null;
+  const form = document.getElementById('form-new-declaration');
+  if (form) form.reset();
+
+  const fileInput = document.getElementById('dec-file-input');
+  if (fileInput) {
+    fileInput.setAttribute('required', 'required');
+  }
+  const fileInfo = document.getElementById('dec-file-selected-info');
+  if (fileInfo) fileInfo.innerHTML = '';
+
+  const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
+  inputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.disabled = false;
+      el.setAttribute('required', 'required');
+    }
+  });
+  const unloadingWarning = document.getElementById('dec-unloading-warning');
+  if (unloadingWarning) unloadingWarning.style.display = 'none';
+
+  clientSelectedDateStr = '';
+  clientCalendarCurrentDate = new Date();
+  const btnExact = document.getElementById('btn-date-exact');
+  if (btnExact) btnExact.click();
+  const miniCalWrapper = document.getElementById('mini-calendar-wrapper');
+  if (miniCalWrapper) {
+    drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+  }
+  const dateLabel = document.getElementById('dec-date-selected-label');
+  if (dateLabel) dateLabel.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
+  
+  const dateWarning = document.getElementById('dec-date-warning');
+  if (dateWarning) dateWarning.style.display = 'none';
+  const dateError = document.getElementById('dec-date-error');
+  if (dateError) dateError.style.display = 'none';
+
+  const formTitle = document.getElementById('dec-form-title');
+  if (formTitle) {
+    formTitle.textContent = 'Declarar Nuevo Ingreso';
+  }
+  const submitBtn = document.getElementById('btn-submit-declaration');
+  if (submitBtn) {
+    submitBtn.textContent = 'Crear Declaración de Ingreso';
+  }
+  const cancelBtn = document.getElementById('btn-cancel-edit-declaration');
+  if (cancelBtn) {
+    cancelBtn.style.display = 'none';
+  }
 };

@@ -3498,7 +3498,13 @@ window.renderDeclarationsAdmin = async function() {
             <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">${dec.title}</td>
             <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
             <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
-            <td style="font-size: 0.85rem;">${dec.package_count} <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span></td>
+            <td style="font-size: 0.85rem;">
+              <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
+                C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
+              </div>
+              ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
+            </td>
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
             <td style="font-size: 0.85rem;">${statusBadge}</td>
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -3568,29 +3574,134 @@ window.renderDeclarationsAdmin = async function() {
 
 let currentDeclarationIncidents = [];
 
+function renderStatusActionButtons(currentStatus) {
+  const container = document.getElementById('manage-dec-actions-buttons');
+  const statusInput = document.getElementById('manage-dec-status');
+  const submitBtn = document.querySelector('#form-manage-declaration button[type="submit"]');
+  if (!container || !statusInput) return;
+  
+  container.innerHTML = '';
+  statusInput.value = ''; // Reset target status
+
+  let actionsHtml = '';
+  
+  if (currentStatus === 'Creada') {
+    actionsHtml = `
+      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
+        Estado actual: <strong style="color: var(--color-primary);">${currentStatus}</strong>. Siguiente paso:
+      </div>
+      <button type="button" class="btn btn-primary btn-status-action" data-status="En Recepción - Pendiente Conteo" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 8px;">
+        <i class="ri-play-circle-line" style="font-size: 1.1rem;"></i> Marcar como: En Recepción - Pendiente Conteo
+      </button>
+    `;
+  } else if (currentStatus === 'En Recepción - Pendiente Conteo') {
+    actionsHtml = `
+      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
+        Estado actual: <strong style="color: var(--color-warning);">${currentStatus}</strong>. Siguiente paso:
+      </div>
+      <button type="button" class="btn btn-primary btn-status-action" data-status="En proceso de conteo/clasificación" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; background-color: var(--color-warning); border-color: var(--color-warning); border-radius: 8px; color: black;">
+        <i class="ri-swap-box-line" style="font-size: 1.1rem;"></i> Marcar como: En proceso de conteo/clasificación
+      </button>
+    `;
+  } else if (currentStatus === 'En proceso de conteo/clasificación') {
+    actionsHtml = `
+      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
+        Estado actual: <strong style="color: var(--color-accent);">${currentStatus}</strong>. Selecciona el resultado final:
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido Conforme" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); border-radius: 8px;">
+          <i class="ri-checkbox-circle-line" style="font-size: 1.5rem;"></i>
+          <span>Recibido Conforme</span>
+        </button>
+        <button type="button" class="btn btn-outline btn-status-action btn-status-choice" data-status="Recibido con Incidencias" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.75rem 0.5rem; gap: 0.35rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); border-radius: 8px;">
+          <i class="ri-error-warning-line" style="font-size: 1.5rem;"></i>
+          <span>Recibido con Incidencias</span>
+        </button>
+      </div>
+    `;
+  } else {
+    actionsHtml = `
+      <div style="text-align: center; padding: 0.5rem 0; color: var(--color-text-muted); font-size: 0.9rem;">
+        <i class="ri-checkbox-multiple-line" style="font-size: 2rem; color: var(--color-success); display: block; margin-bottom: 0.5rem;"></i>
+        Este ingreso ya se encuentra finalizado en estado:<br>
+        <strong style="color: var(--color-text-main); font-size: 1rem;">${currentStatus}</strong>.
+      </div>
+    `;
+  }
+  
+  container.innerHTML = actionsHtml;
+
+  if (submitBtn) {
+    if (currentStatus === 'Recibido Conforme' || currentStatus === 'Recibido con Incidencias') {
+      submitBtn.style.display = 'none';
+    } else {
+      submitBtn.style.display = 'inline-block';
+    }
+  }
+
+  container.querySelectorAll('.btn-status-action').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const targetStatus = btn.getAttribute('data-status');
+      
+      if (btn.classList.contains('btn-status-choice')) {
+        container.querySelectorAll('.btn-status-choice').forEach(b => {
+          b.style.backgroundColor = 'transparent';
+          b.style.color = b.getAttribute('data-status') === 'Recibido Conforme' ? 'var(--color-success)' : 'var(--color-danger)';
+        });
+        btn.style.backgroundColor = targetStatus === 'Recibido Conforme' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)';
+      }
+      
+      statusInput.value = targetStatus;
+      handleManageStatusChange(targetStatus);
+    });
+  });
+
+  const singleActionBtn = container.querySelector('.btn-status-action:not(.btn-status-choice)');
+  if (singleActionBtn) {
+    singleActionBtn.click();
+  } else {
+    handleManageStatusChange(currentStatus);
+  }
+}
+
 function handleManageStatusChange(status) {
   const qtyDeclared = parseInt(document.getElementById('manage-dec-qty-declared').textContent) || 0;
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
   const incidentsPanel = document.getElementById('manage-dec-incidents-panel');
+  const groupReceived = document.getElementById('manage-dec-group-received');
+  const groupIncidents = document.getElementById('manage-dec-group-incidents');
   
   if (status === 'Recibido Conforme') {
+    if (groupReceived) groupReceived.style.display = 'block';
+    if (groupIncidents) groupIncidents.style.display = 'block';
     qtyReceivedInput.value = qtyDeclared;
     qtyReceivedInput.disabled = true;
+    qtyReceivedInput.setAttribute('required', 'required');
     qtyIncidentsInput.value = 0;
     qtyIncidentsInput.disabled = true;
+    qtyIncidentsInput.setAttribute('required', 'required');
     incidentsPanel.style.display = 'none';
   } else if (status === 'Recibido con Incidencias') {
+    if (groupReceived) groupReceived.style.display = 'block';
+    if (groupIncidents) groupIncidents.style.display = 'block';
     qtyReceivedInput.disabled = false;
+    qtyReceivedInput.setAttribute('required', 'required');
     qtyIncidentsInput.disabled = false;
+    qtyIncidentsInput.setAttribute('required', 'required');
     incidentsPanel.style.display = 'block';
     if (parseInt(qtyIncidentsInput.value) <= 0) {
       qtyIncidentsInput.value = 1;
     }
     renderIncidentsInputsList();
   } else {
-    qtyReceivedInput.disabled = false;
-    qtyIncidentsInput.disabled = false;
+    if (groupReceived) groupReceived.style.display = 'none';
+    if (groupIncidents) groupIncidents.style.display = 'none';
+    qtyReceivedInput.value = 0;
+    qtyReceivedInput.removeAttribute('required');
+    qtyIncidentsInput.value = 0;
+    qtyIncidentsInput.removeAttribute('required');
     incidentsPanel.style.display = 'none';
   }
 }
@@ -3696,8 +3807,8 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
 
-    // Llamar al handler reactivo para deshabilitar campos/mostrar paneles según estado
-    handleManageStatusChange(dec.status);
+    // Renderizar botones de acción según el estado actual de la declaración
+    renderStatusActionButtons(dec.status);
 
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';

@@ -313,23 +313,23 @@
             <div><strong>Notas Cliente:</strong> <span id="manage-dec-notes" style="font-style: italic; color: var(--color-text-muted);"></span></div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Estado del Proceso</label>
-            <select id="manage-dec-status" class="form-input" required>
-              <option value="Creada">Creada</option>
-              <option value="En Recepción - Pendiente Conteo">En Recepción - Pendiente Conteo</option>
-              <option value="En proceso de conteo/clasificación">En proceso de conteo/clasificación</option>
-              <option value="Recibido Conforme">Recibido Conforme</option>
-              <option value="Recibido con Incidencias">Recibido con Incidencias</option>
-            </select>
+          <!-- Campo oculto de Estado -->
+          <input type="hidden" id="manage-dec-status" required>
+          
+          <!-- Selector Dinámico de Estado -->
+          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.75rem; display: block;">Avance del Proceso de Recepción *</label>
+            <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
+              <!-- Botones dinámicos generados por JS -->
+            </div>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" id="manage-dec-group-received">
             <label class="form-label">Cantidad Total Recepcionada (Física)</label>
             <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" id="manage-dec-group-incidents">
             <label class="form-label">Cantidad de Incidencias (Unidades dañadas/faltantes)</label>
             <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required>
           </div>

@@ -1,37 +1,41 @@
-# Walkthrough - Desglose de Bultos y Servicio de Descarga en Bodega
+# Walkthrough - Edición de Ingresos, Flujo Guiado Administrativo y Desglose de Bultos
 
-Hemos completado el desarrollo e integración de la funcionalidad de desglose detallado de bultos (contenedores, pallets y cajas) y la opción de solicitar descarga manual en bodega.
+Hemos completado el desarrollo e integración de los módulos de edición de declaraciones para el cliente, la restricción y secuenciación guiada de estados para el administrador, y la visualización de desglose en las tablas principales.
 
 ## Cambios Realizados
 
-### 1. Base de Datos (Supabase)
-- Actualizado el script [supabase_schema_declarations.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_declarations.sql) para incluir las siguientes nuevas columnas:
-  - `container_count` INTEGER DEFAULT 0 (con CHECK >= 0)
-  - `pallet_count` INTEGER DEFAULT 0 (con CHECK >= 0)
-  - `box_count` INTEGER DEFAULT 0 (con CHECK >= 0)
-  - `requires_unloading` BOOLEAN DEFAULT false
-- Estas columnas aseguran que guardemos de forma estructurada los componentes individuales declarados.
+### 1. Tablas Resumen Actualizadas (Cliente y Administrador)
+- En ambas tablas (Cliente y Administrador), la columna **Bultos** ahora muestra el desglose completo declarado en tiempo real:
+  - *Ej: 12 (Mixto)* seguido de `C: 1 | P: 1 | Cx: 10`
+  - Se añade un badge destacando la etiqueta **"Descarga"** si el cliente solicitó el servicio de descarga en bodega.
 
-### 2. Panel del Cliente (`js/app.js`)
-- **Formulario de Ingreso de Stock:**
-  - Reemplazados los campos genéricos de "Cantidad de Bultos Totales" y "Tipo de Bulto" por tres secciones de inputs con checkboxes:
-    1. **Contenedores:** Input numérico + checkbox "No enviaré" (al marcarlo, se deshabilita el campo y se fija en 0).
-    2. **Pallets:** Input numérico + checkbox "No enviaré" (al marcarlo, se deshabilita el campo y se fija en 0).
-    3. **Cajas:** Input numérico + checkbox "No enviaré" (al marcarlo, se deshabilita el campo y se fija en 0).
-  - **Servicio de Descarga:** Agregado un checkbox "¿El ingreso requiere servicio de descarga por parte de bodega?". Al marcarlo, se despliega una advertencia destacada sobre el costo adicional: *"Las descargas se realizan de forma manual en bodega y tienen un costo de 0,1 uf x m³"*.
-- **Validación y Envío de Formulario:**
-  - Se valida automáticamente que la suma de todos los bultos a enviar sea mayor o igual a 1.
-  - Para asegurar la compatibilidad con listados e interfaces previas, `package_count` se calcula como la suma total de los bultos, y `package_type` se infiere dinámicamente como `'Contenedores'`, `'Pallets'`, `'Cajas'` o `'Mixto'`.
-  - En la limpieza del formulario, los campos deshabilitados son reactivados y los warnings ocultados.
-  - **Restricción de Días Fin de Semana (Sábados/Domingos):**
-    - **Domingos:** Quedan completamente deshabilitados en el calendario visual (mostrados en rojo y opacos) y bloqueados en el envío. Si se intenta hacer click o enviar, se notifica que no se permiten ingresos los días domingo.
-    - **Sábados:** Se permite la selección pero se valida que cuente con al menos **48 horas de anticipación**. Si es menor a 48h, se muestra un mensaje de error y se bloquea el envío. Si es igual o mayor a 48h, se despliega una advertencia indicando que el ingreso queda sujeto a la **aprobación del equipo de Stocka**.
-- **Detalle de la Declaración (Modal):**
-  - Actualizado para mostrar el desglose de bultos declarados y si se solicitó o no el servicio de descarga con la tasa de cobro respectiva.
+### 2. Edición de Declaración para el Cliente (`js/app.js`)
+- **Acción "Editar" en la Tabla:**
+  - Se habilitó un botón **"Editar"** en la columna de acciones de la tabla.
+  - **Restricción de Estado:** Este botón solo es visible y funcional si la declaración está en etapas previas a ser finalizada (es decir, en estados `Creada`, `En Recepción - Pendiente Conteo`, o `En proceso de conteo/clasificación`). Si ya fue recibida, no permite edición.
+- **Flujo de Edición:**
+  - Al hacer click en **"Editar"**, el formulario lateral se adapta automáticamente:
+    1. Cambia el título a *"Editar Declaración de Ingreso"*.
+    2. Cambia el botón de envío a *"Guardar Cambios"*.
+    3. Habilita un botón *"Cancelar"* (que permite revertir la edición y limpiar el formulario).
+    4. Carga todos los valores previamente guardados (incluyendo checkboxes, deshabilitado dinámico de bultos, método de envío, etc.).
+    5. Carga y resalta la fecha seleccionada en el mini calendario.
+    6. **Planilla de Ingreso:** Se elimina el atributo `required` del input de archivo. Muestra un texto indicando el archivo actual guardado, permitiendo mantenerlo o subir uno nuevo para reemplazarlo.
+- **Guardado:**
+  - Al presionar *"Guardar Cambios"*, se actualiza el registro en Supabase, se guarda una entrada en la bitácora (`history`) indicando que fue modificada por el cliente, y se restablece el formulario a su estado original de creación.
 
-### 3. Panel de Administración (`admin.html` y `js/admin.js`)
-- **Modal de Gestión de Declaraciones:**
-  - Se agregaron campos informativos para que el administrador pueda ver los detalles individuales de contenedores, pallets, cajas y el requerimiento del servicio de descarga directamente en la ficha del ingreso.
+### 3. Flujo Guiado y Secuencial para el Administrador (`admin.html` y `js/admin.js`)
+- **Adiós al Selector Genérico:**
+  - Se eliminó el menú desplegable (`select`) que permitía cambiar a cualquier estado arbitrariamente.
+  - Se introdujo un panel dinámico de botones de acción secuenciales que restringe la ruta a los siguientes pasos lógicos:
+    1. Si está en **Creada** ➡️ Permite avanzar únicamente a **"En Recepción - Pendiente Conteo"**.
+    2. Si está en **En Recepción - Pendiente Conteo** ➡️ Permite avanzar únicamente a **"En proceso de conteo/clasificación"**.
+    3. Si está en **En proceso de conteo/clasificación** ➡️ Ofrece las dos opciones de cierre: **"Recibido Conforme"** y **"Recibido con Incidencias"**.
+    4. Si ya está en un estado final (terminal) ➡️ Muestra una notificación indicando que el proceso finalizó y oculta las acciones de cambio.
+- **Campos Condicionales y Validación:**
+  - Los campos de cantidades recepcionadas e incidencias se ocultan completamente en las etapas iniciales de avance de la recepción para evitar inconsistencias.
+  - Solo se muestran y validan cuando el administrador avanza el estado a uno de los cierres finales (`Recibido Conforme` o `Recibido con Incidencias`).
+  - Se mantiene la validación obligatoria del comentario de etapa en cada avance para mantener la trazabilidad de la línea de tiempo.
 
 ---
 
@@ -42,17 +46,15 @@ Hemos completado el desarrollo e integración de la funcionalidad de desglose de
 
 ## Instrucciones para Puesta en Marcha (Usuario)
 
-1. **Ejecutar Migración de Base de Datos:**
-   - Ve a la consola de **Supabase** ➡️ **SQL Editor**.
-   - Ejecuta las siguientes líneas de SQL para agregar las nuevas columnas a la tabla de declaraciones:
-     ```sql
-     ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS container_count INTEGER DEFAULT 0 CHECK (container_count >= 0);
-     ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS pallet_count INTEGER DEFAULT 0 CHECK (pallet_count >= 0);
-     ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS box_count INTEGER DEFAULT 0 CHECK (box_count >= 0);
-     ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS requires_unloading BOOLEAN DEFAULT false;
-     ```
+1. **Migración de Base de Datos:**
+   - La estructura de la base de datos se mantiene idéntica a la instalada en el paso anterior. No se requieren scripts SQL adicionales.
 
-2. **Probar el Flujo Completo:**
-   - **Formulario Cliente:** Intenta marcar "No enviaré" en contenedores y pallets. Verifica que se deshabilitan. Deja Cajas vacías e intenta enviar. Comprueba el aviso de que debe ingresar al menos 1 bulto.
-   - **Servicio de Descarga:** Marca el checkbox de descarga y comprueba que aparece la alerta de 0.1 UF x m³. Desmárcala y comprueba que se oculta.
-   - **Recepción en Administración:** Abre el panel de administración, selecciona "Gestionar" en el registro de stock ingresado y verifica que el desglose de bultos y el estado del servicio de descarga se muestran correctamente.
+2. **Probar el Flujo de Edición (Cliente):**
+   - Inicia sesión como cliente. En la tabla resumen, haz click en el botón **"Editar"** en una declaración en estado *"Creada"*.
+   - Comprueba que el formulario de la izquierda se despliega con la información del registro y que el botón *"Cancelar"* restablece el formulario.
+   - Modifica algún dato (por ejemplo, cambia la cantidad de unidades o desmarca un tipo de bulto) y presiona *"Guardar Cambios"*. Revisa que la tabla se actualice y que al abrir el modal *"Detalle"* figure la nota en el historial.
+
+3. **Probar el Flujo Guiado (Administrador):**
+   - Entra al panel de administración, abre el modal **"Gestionar"** en una declaración en estado *"Creada"*.
+   - Comprueba que solo aparece el botón *"Marcar como: En Recepción - Pendiente Conteo"* y que los inputs de cantidad física están ocultos.
+   - Avanza las etapas escribiendo un comentario de avance. En la etapa de *"En proceso de conteo/clasificación"*, comprueba que aparecen las dos opciones de cierre y que al seleccionar una se despliegan dinámicamente los campos correspondientes.
