@@ -22,6 +22,7 @@ window.downloadBase64Pdf = function(base64, filename) {
     console.error('Error al descargar el PDF en Base64:', err);
     alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
   }
+};
 
 // Formateador de moneda en pesos chilenos (CLP)
 window.formatCLP = function(value) {
