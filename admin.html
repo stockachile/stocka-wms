@@ -29,6 +29,7 @@
           <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingresos de Stock</a></li>
           <li><a href="#" class="nav-item" data-view="upload_products_admin"><i class="ri-upload-cloud-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Carga de Planillas</a></li>
           <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestionar Usuarios</a></li>
+          <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestionar Bodegas</a></li>
           <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reglas de Visibilidad</a></li>
           <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Integraciones</a></li>
         </ul>
@@ -308,6 +309,7 @@
             </div>
             <div><strong>Servicio Descarga Bodega:</strong> <span id="manage-dec-unloading"></span></div>
             <div><strong>Método de Ingreso:</strong> <span id="manage-dec-method"></span></div>
+            <div><strong>Bodega Asignada:</strong> <span id="manage-dec-warehouse-name">No asignada</span></div>
             <div id="manage-dec-contact-section"><strong>Contacto Comercio:</strong> <span id="manage-dec-contact"></span></div>
             <div id="manage-dec-carrier-section"><strong>Transportista:</strong> <span id="manage-dec-carrier"></span></div>
             <div><strong>Notas Cliente:</strong> <span id="manage-dec-notes" style="font-style: italic; color: var(--color-text-muted);"></span></div>
@@ -344,6 +346,14 @@
               <!-- Inputs dinámicos -->
             </div>
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; font-style: italic;">Indica la descripción de cada incidencia detectada en la recepción.</p>
+          </div>
+
+          <!-- Asignación de Bodega -->
+          <div class="form-group" id="manage-dec-group-warehouse" style="display: none;">
+            <label class="form-label">Asignar Bodega *</label>
+            <select id="manage-dec-warehouse-select" class="form-input">
+              <option value="">-- Selecciona una Bodega --</option>
+            </select>
           </div>
 
           <div class="form-group">

@@ -5634,7 +5634,7 @@ async function fetchAndRenderClientDeclarations() {
   try {
     const { data: declarations, error } = await supabase
       .from('stock_declarations')
-      .select('*')
+      .select('*, warehouses(name, address, comuna)')
       .eq('merchant_id', currentMerchantId)
       .order('created_at', { ascending: false });
       
@@ -5651,6 +5651,9 @@ async function fetchAndRenderClientDeclarations() {
       switch (dec.status) {
         case 'Creada':
           statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+          break;
+        case 'Bodega Asignada':
+          statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
           break;
         case 'En Recepción - Pendiente Conteo':
           statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
@@ -5687,7 +5690,7 @@ async function fetchAndRenderClientDeclarations() {
         `;
       }
       
-      const isEditable = ['Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].indexOf(dec.status) !== -1;
+      const isEditable = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].indexOf(dec.status) !== -1;
       const editButtonHtml = isEditable ? `
         <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-primary); color: var(--color-primary); height: auto; font-family: var(--font-family);" onclick="editDeclaration('${dec.id}')" title="Editar Declaración">
           <i class="ri-edit-line" style="font-size: 0.9rem; margin-right: 2px;"></i> Editar
@@ -5701,6 +5704,11 @@ async function fetchAndRenderClientDeclarations() {
             <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
               <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
             </div>
+            ${dec.warehouses ? `
+            <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
+              <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
+            </div>
+            ` : ''}
           </td>
           <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
           <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
@@ -5740,7 +5748,7 @@ window.viewDeclarationDetail = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('*')
+      .select('*, warehouses(name, address, comuna, operating_days)')
       .eq('id', id)
       .single();
       
@@ -5765,6 +5773,35 @@ window.viewDeclarationDetail = async function(id) {
     const progressPercent = dec.quantity_declared > 0 
       ? Math.min(100, Math.round((dec.quantity_received / dec.quantity_declared) * 100))
       : 0;
+
+    let detailStatusBadgeColor = 'var(--badge-neutral-bg)';
+    let detailStatusTextColor = 'var(--badge-neutral-text)';
+    switch (dec.status) {
+      case 'Creada':
+        detailStatusBadgeColor = 'var(--badge-neutral-bg)';
+        detailStatusTextColor = 'var(--badge-neutral-text)';
+        break;
+      case 'Bodega Asignada':
+        detailStatusBadgeColor = 'rgba(37, 99, 235, 0.1)';
+        detailStatusTextColor = 'var(--color-primary)';
+        break;
+      case 'En Recepción - Pendiente Conteo':
+        detailStatusBadgeColor = 'var(--badge-info-bg)';
+        detailStatusTextColor = 'var(--badge-info-text)';
+        break;
+      case 'En proceso de conteo/clasificación':
+        detailStatusBadgeColor = 'var(--badge-warning-bg)';
+        detailStatusTextColor = 'var(--badge-warning-text)';
+        break;
+      case 'Recibido Conforme':
+        detailStatusBadgeColor = 'var(--badge-success-bg)';
+        detailStatusTextColor = 'var(--badge-success-text)';
+        break;
+      case 'Recibido con Incidencias':
+        detailStatusBadgeColor = 'var(--badge-danger-bg)';
+        detailStatusTextColor = 'var(--badge-danger-text)';
+        break;
+    }
 
     let incidentsHtml = '';
     const incidents = dec.incidents_list || [];
@@ -5802,6 +5839,10 @@ window.viewDeclarationDetail = async function(id) {
           case 'Creada':
             statusBadgeColor = 'var(--badge-neutral-bg)';
             statusTextColor = 'var(--badge-neutral-text)';
+            break;
+          case 'Bodega Asignada':
+            statusBadgeColor = 'rgba(37, 99, 235, 0.1)';
+            statusTextColor = 'var(--color-primary)';
             break;
           case 'En Recepción - Pendiente Conteo':
             statusBadgeColor = 'var(--badge-info-bg)';
@@ -5900,7 +5941,7 @@ window.viewDeclarationDetail = async function(id) {
 
             <div class="info-block" style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border: 1px solid var(--color-border); display: flex; flex-direction: column; justify-content: center; align-items: flex-start;">
               <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 700; letter-spacing: 0.5px; display: block; margin-bottom: 0.5rem;">Estado Actual</span>
-              <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-weight: 700; font-size: 0.85rem; padding: 0.4rem 0.8rem; text-transform: uppercase; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.1);">${dec.status}</span>
+              <span class="badge" style="background-color: ${detailStatusBadgeColor}; color: ${detailStatusTextColor}; font-weight: 700; font-size: 0.85rem; padding: 0.4rem 0.8rem; text-transform: uppercase; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.1);">${dec.status}</span>
             </div>
           </div>
 
@@ -5921,6 +5962,25 @@ window.viewDeclarationDetail = async function(id) {
               </div>
             </div>
           </div>
+
+          <!-- Bodega Asignada Block -->
+          \${dec.warehouses ? `
+          <div class="info-block" style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border: 1px solid var(--color-border); border-left: 4px solid var(--color-primary); margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 1rem;">
+            <div style="background: rgba(37, 99, 235, 0.1); padding: 0.5rem; border-radius: 8px; color: var(--color-primary); display: flex; align-items: center; justify-content: center;">
+              <i class="ri-map-pin-line" style="font-size: 1.3rem;"></i>
+            </div>
+            <div style="flex: 1;">
+              <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.25rem;">Bodega de Ingreso Asignada</strong>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">\${dec.warehouses.name}</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+                Dirección: <strong>\${dec.warehouses.address}</strong>, Comuna: <strong>\${dec.warehouses.comuna}</strong>
+              </div>
+              <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+                Días de Operación: <strong>\${dec.warehouses.operating_days}</strong>
+              </div>
+            </div>
+          </div>
+          ` : ''}
           
           <!-- Quantities Table -->
           <div style="margin-bottom: 1.5rem; background: var(--color-surface); border-radius: 10px; border: 1px solid var(--color-border); overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08);">

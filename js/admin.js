@@ -145,6 +145,9 @@ async function init() {
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
+          } else if (view === 'warehouses_admin') {
+            viewTitle.textContent = 'Gestionar Bodegas';
+            renderWarehousesAdmin();
           } else if (view === 'visibility_rules_admin') {
             viewTitle.textContent = 'Reglas de Visibilidad';
             renderVisibilityRulesAdmin();
@@ -3437,7 +3440,7 @@ window.renderDeclarationsAdmin = async function() {
     // Consultar todas las declaraciones junto con el nombre de la empresa/comercio
     const { data: declarations, error } = await supabase
       .from('stock_declarations')
-      .select('*, profiles!inner (company_name)')
+      .select('*, profiles!inner (company_name), warehouses (name, address, comuna)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -3451,6 +3454,9 @@ window.renderDeclarationsAdmin = async function() {
         switch (dec.status) {
           case 'Creada':
             statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+            break;
+          case 'Bodega Asignada':
+            statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
             break;
           case 'En Recepción - Pendiente Conteo':
             statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
@@ -3495,7 +3501,14 @@ window.renderDeclarationsAdmin = async function() {
                 ${dec.profiles?.company_name || 'Desconocido'}
               </div>
             </td>
-            <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">${dec.title}</td>
+            <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
+              ${dec.title}
+              ${dec.warehouses ? `
+              <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
+                <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
+              </div>
+              ` : ''}
+            </td>
             <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
             <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
             <td style="font-size: 0.85rem;">
@@ -3590,6 +3603,15 @@ function renderStatusActionButtons(currentStatus) {
       <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
         Estado actual: <strong style="color: var(--color-primary);">${currentStatus}</strong>. Siguiente paso:
       </div>
+      <button type="button" class="btn btn-primary btn-status-action" data-status="Bodega Asignada" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 8px;">
+        <i class="ri-map-pin-line" style="font-size: 1.1rem;"></i> Marcar como: Bodega Asignada
+      </button>
+    `;
+  } else if (currentStatus === 'Bodega Asignada') {
+    actionsHtml = `
+      <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">
+        Estado actual: <strong style="color: var(--color-primary);">${currentStatus}</strong>. Siguiente paso:
+      </div>
       <button type="button" class="btn btn-primary btn-status-action" data-status="En Recepción - Pendiente Conteo" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 8px;">
         <i class="ri-play-circle-line" style="font-size: 1.1rem;"></i> Marcar como: En Recepción - Pendiente Conteo
       </button>
@@ -3672,6 +3694,21 @@ function handleManageStatusChange(status) {
   const incidentsPanel = document.getElementById('manage-dec-incidents-panel');
   const groupReceived = document.getElementById('manage-dec-group-received');
   const groupIncidents = document.getElementById('manage-dec-group-incidents');
+  const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+  
+  if (status === 'Bodega Asignada') {
+    if (groupWarehouse) {
+      groupWarehouse.style.display = 'block';
+      const selectEl = document.getElementById('manage-dec-warehouse-select');
+      if (selectEl) selectEl.setAttribute('required', 'required');
+    }
+  } else {
+    if (groupWarehouse) {
+      groupWarehouse.style.display = 'none';
+      const selectEl = document.getElementById('manage-dec-warehouse-select');
+      if (selectEl) selectEl.removeAttribute('required');
+    }
+  }
   
   if (status === 'Recibido Conforme') {
     if (groupReceived) groupReceived.style.display = 'block';
@@ -3761,7 +3798,7 @@ window.manageDeclaration = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('*, profiles (company_name)')
+      .select('*, profiles (company_name), warehouses (name, address, comuna)')
       .eq('id', id)
       .single();
 
@@ -3790,6 +3827,33 @@ window.manageDeclaration = async function(id) {
       ? '<span style="color: var(--color-warning); font-weight: bold;">Sí, solicitada (0.1 UF x m³)</span>' 
       : 'No requerida';
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
+
+    // Bodega asignada
+    const warehouseNameEl = document.getElementById('manage-dec-warehouse-name');
+    if (warehouseNameEl) {
+      if (dec.warehouses) {
+        warehouseNameEl.innerHTML = `<strong>${dec.warehouses.name}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${dec.warehouses.comuna}, ${dec.warehouses.address})</span>`;
+      } else {
+        warehouseNameEl.innerHTML = '<span style="color: var(--color-text-muted); font-style: italic;">No asignada</span>';
+      }
+    }
+
+    // Cargar bodegas para el selector
+    const { data: warehouses } = await supabase
+      .from('warehouses')
+      .select('id, name, address, comuna, operating_days')
+      .order('name');
+
+    const selectEl = document.getElementById('manage-dec-warehouse-select');
+    if (selectEl) {
+      selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+      if (warehouses) {
+        warehouses.forEach(w => {
+          selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+        });
+      }
+      selectEl.value = dec.warehouse_id || '';
+    }
 
     // Contacto y transportista
     document.getElementById('manage-dec-contact').textContent = dec.contact_info || 'No registrado';
@@ -3851,6 +3915,17 @@ document.addEventListener('submit', async (e) => {
       return;
     }
 
+    // Validar bodega si es Bodega Asignada
+    let warehouseId = null;
+    if (status === 'Bodega Asignada') {
+      const selectEl = document.getElementById('manage-dec-warehouse-select');
+      warehouseId = selectEl ? selectEl.value : null;
+      if (!warehouseId) {
+        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes seleccionar una bodega obligatoriamente.</div>';
+        return;
+      }
+    }
+
     // Reglas según estado específico
     let incidentsList = [];
     if (status === 'Recibido Conforme') {
@@ -3893,22 +3968,56 @@ document.addEventListener('submit', async (e) => {
       const updatedHistory = [...existingHistory, newHistoryEntry];
 
       // 2. Ejecutar actualización
+      const updateData = {
+        status: status,
+        quantity_received: qtyReceived,
+        quantity_incidents: qtyIncidents,
+        incidents_list: status === 'Recibido con Incidencias' ? incidentsList : [],
+        history: updatedHistory,
+        admin_notes: adminNotes,
+        updated_at: new Date().toISOString()
+      };
+
+      if (status === 'Bodega Asignada') {
+        updateData.warehouse_id = warehouseId;
+      }
+
       const { error } = await supabase
         .from('stock_declarations')
-        .update({
-          status: status,
-          quantity_received: qtyReceived,
-          quantity_incidents: qtyIncidents,
-          incidents_list: status === 'Recibido con Incidencias' ? incidentsList : [],
-          history: updatedHistory,
-          admin_notes: adminNotes,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id);
 
       if (error) throw error;
 
-      alert('Recepción de ingreso actualizada correctamente.');
+      // 3. Enviar notificaciones
+      try {
+        const { data: updatedDec } = await supabase
+          .from('stock_declarations')
+          .select('title, comercio, warehouse_id, warehouses(name, address, comuna, operating_days)')
+          .eq('id', id)
+          .single();
+
+        if (updatedDec) {
+          const title = updatedDec.title;
+          const comercio = updatedDec.comercio;
+          
+          if (status === 'Bodega Asignada' && updatedDec.warehouses) {
+            const wh = updatedDec.warehouses;
+            const notifTitle = 'Bodega Asignada a tu Ingreso de Stock';
+            const notifMsg = `Tu ingreso de stock "${title}" tiene asignada la bodega: "${wh.name}" (Dirección: ${wh.address}, Comuna: ${wh.comuna}). Días de operación: ${wh.operating_days || 'Lunes a Viernes'}.`;
+            await notifyCommerceUsers(comercio, notifTitle, notifMsg);
+          } else {
+            const notifTitle = 'Actualización de Estado de Ingreso';
+            let commentText = stageComment ? ` Comentario: "${stageComment}"` : '';
+            const notifMsg = `El estado de tu ingreso de stock "${title}" ha cambiado a: "${status}".${commentText}`;
+            await notifyCommerceUsers(comercio, notifTitle, notifMsg);
+          }
+        }
+      } catch (notifErr) {
+        console.error('Error al enviar notificaciones:', notifErr);
+      }
+
+      alert('Recepción de ingreso actualizada correctamente y se notificó al usuario.');
       document.getElementById('modal-manage-declaration').classList.remove('active');
       
       // Refrescar tabla
@@ -3922,3 +4031,202 @@ document.addEventListener('submit', async (e) => {
     }
   }
 });
+
+// --- GESTIÓN DE BODEGAS ---
+
+window.renderWarehousesAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando bodegas...</p>';
+
+  try {
+    const { data: warehouses, error } = await supabase
+      .from('warehouses')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    let rowsHtml = '';
+    if (!warehouses || warehouses.length === 0) {
+      rowsHtml = '<tr><td colspan="5" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay bodegas registradas.</td></tr>';
+    } else {
+      warehouses.forEach(w => {
+        rowsHtml += `
+          <tr>
+            <td style="font-weight: 600; color: var(--color-text-main);">${w.name}</td>
+            <td>${w.address}</td>
+            <td>${w.comuna}</td>
+            <td><span style="font-size: 0.85rem; font-family: var(--font-family); background: var(--color-surface-hover); padding: 0.2rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border);">${w.operating_days}</span></td>
+            <td>
+              <button class="btn btn-outline btn-sm" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-danger); color: var(--color-danger); background: var(--color-surface);" onclick="deleteWarehouse('${w.id}')">
+                <i class="ri-delete-bin-line"></i> Eliminar
+              </button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    appContent.innerHTML = `
+      <div style="display: grid; grid-template-columns: 350px 1fr; gap: 1.5rem; align-items: start;">
+        <!-- Formulario de creación (izquierda) -->
+        <div class="card" style="border: none; box-shadow: var(--shadow-md); padding: 1.5rem; background: var(--color-surface);">
+          <h3 style="margin-top: 0; margin-bottom: 1.25rem; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+            <i class="ri-add-circle-line" style="color: var(--color-primary);"></i> Nueva Bodega
+          </h3>
+          <form id="form-create-warehouse" style="display: flex; flex-direction: column; gap: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600;">Nombre de la Bodega *</label>
+              <input type="text" id="wh-name" class="form-input" placeholder="Ej: Bodega Central Pudahuel" required style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600;">Dirección *</label>
+              <input type="text" id="wh-address" class="form-input" placeholder="Ej: Av. Américo Vespucio 1234" required style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600;">Comuna *</label>
+              <input type="text" id="wh-comuna" class="form-input" placeholder="Ej: Pudahuel" required style="width: 100%;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600;">Días y Horarios de Operación *</label>
+              <input type="text" id="wh-operating-days" class="form-input" placeholder="Ej: Lunes a Viernes 08:30 - 17:30" required style="width: 100%;">
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top: 0.5rem; justify-content: center; width: 100%; font-weight: 600;">
+              <i class="ri-save-line"></i> Guardar Bodega
+            </button>
+          </form>
+        </div>
+
+        <!-- Tabla de listado (derecha) -->
+        <div class="card" style="border: none; box-shadow: var(--shadow-md); background: var(--color-surface);">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Bodegas Registradas
+            </h3>
+          </div>
+          <div class="card-body" style="padding: 0; overflow-x: auto;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Dirección</th>
+                  <th>Comuna</th>
+                  <th>Días de Operación</th>
+                  <th style="width: 120px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Escuchar el submit del formulario
+    document.getElementById('form-create-warehouse').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Guardando...';
+
+      try {
+        const name = document.getElementById('wh-name').value.trim();
+        const address = document.getElementById('wh-address').value.trim();
+        const comuna = document.getElementById('wh-comuna').value.trim();
+        const operatingDays = document.getElementById('wh-operating-days').value.trim();
+
+        const { error: insertError } = await supabase
+          .from('warehouses')
+          .insert([{
+            name: name,
+            address: address,
+            comuna: comuna,
+            operating_days: operatingDays
+          }]);
+
+        if (insertError) throw insertError;
+
+        alert('Bodega creada exitosamente.');
+        renderWarehousesAdmin();
+      } catch (err) {
+        console.error('Error creating warehouse:', err);
+        alert('Error al crear bodega: ' + err.message);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Bodega';
+      }
+    });
+
+  } catch (err) {
+    console.error('Error loading warehouses:', err);
+    appContent.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--color-danger);"><i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i><h4>Error al cargar bodegas</h4><p>${err.message}</p></div>`;
+  }
+};
+
+window.deleteWarehouse = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar esta bodega? Las declaraciones asociadas quedarán sin bodega asignada.')) return;
+  try {
+    const { error } = await supabase
+      .from('warehouses')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    alert('Bodega eliminada correctamente.');
+    renderWarehousesAdmin();
+  } catch (err) {
+    console.error('Error deleting warehouse:', err);
+    alert('Error al eliminar la bodega: ' + err.message);
+  }
+};
+
+// --- HELPER DE NOTIFICACIONES ---
+
+async function notifyCommerceUsers(comercio, title, message) {
+  try {
+    if (!comercio || comercio === 'no asignado') return;
+    
+    // 1. Obtener todos los perfiles con rol client
+    const { data: profiles, error } = await supabase
+      .from('profiles')
+      .select('id, comercio')
+      .eq('role', 'client');
+      
+    if (error) {
+      console.error('Error al obtener perfiles para notificar:', error);
+      return;
+    }
+    
+    if (!profiles || profiles.length === 0) return;
+    
+    // 2. Filtrar perfiles asociados al comercio (soporta listas separadas por coma)
+    const targetProfiles = profiles.filter(p => {
+      if (!p.comercio || p.comercio === 'no asignado') return false;
+      const userComercios = p.comercio.split(',').map(c => c.trim().toLowerCase());
+      return userComercios.includes(comercio.toLowerCase());
+    });
+    
+    if (targetProfiles.length === 0) return;
+    
+    // 3. Crear las inserciones para dashboard_notifications
+    const inserts = targetProfiles.map(p => ({
+      user_id: p.id,
+      target_role: 'client',
+      title: title,
+      message: message,
+      is_read: false
+    }));
+    
+    const { error: insertError } = await supabase
+      .from('dashboard_notifications')
+      .insert(inserts);
+      
+    if (insertError) {
+      console.error('Error al insertar notificaciones en la base de datos:', insertError);
+    }
+  } catch (err) {
+    console.error('Error en notifyCommerceUsers:', err);
+  }
+}
