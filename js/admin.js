@@ -3529,6 +3529,11 @@ window.renderDeclarationsAdmin = async function() {
                 <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="manageDeclaration('${dec.id}')" title="Gestionar Recepción">
                   <i class="ri-settings-4-line" style="font-size: 0.95rem; margin-right: 2px;"></i> Gestionar
                 </button>
+                ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
+                <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; font-family: var(--font-family);" onclick="deleteDeclarationAdmin('${dec.id}')" title="Eliminar Declaración">
+                  <i class="ri-delete-bin-line" style="font-size: 0.95rem; color: var(--color-danger); margin-right: 2px;"></i> Eliminar
+                </button>
+                ` : ''}
               </div>
             </td>
           </tr>
@@ -4230,3 +4235,35 @@ async function notifyCommerceUsers(comercio, title, message) {
     console.error('Error en notifyCommerceUsers:', err);
   }
 }
+
+window.deleteDeclarationAdmin = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este ingreso de stock? Esta acción no se puede deshacer.')) return;
+  
+  try {
+    const { data: dec, error: fetchErr } = await supabase
+      .from('stock_declarations')
+      .select('status')
+      .eq('id', id)
+      .single();
+      
+    if (fetchErr) throw fetchErr;
+    
+    if (dec.status === 'Recibido Conforme' || dec.status === 'Recibido con Incidencias') {
+      alert('No se permite eliminar un ingreso de stock que ya ha sido recibido o recibido con incidencias.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('stock_declarations')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    alert('Ingreso de stock eliminado exitosamente por el administrador.');
+    renderDeclarationsAdmin();
+  } catch (err) {
+    console.error('Error al eliminar ingreso de stock (admin):', err);
+    alert('Error al eliminar ingreso de stock: ' + err.message);
+  }
+};

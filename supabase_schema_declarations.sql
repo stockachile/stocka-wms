@@ -91,7 +91,8 @@ CREATE POLICY "Admins actualizan declaraciones" ON public.stock_declarations
     )
   );
 
--- E) Administradores pueden eliminar declaraciones si fuera necesario
+-- E) Administradores pueden eliminar declaraciones no finalizadas
+DROP POLICY IF EXISTS "Admins eliminan declaraciones" ON public.stock_declarations;
 CREATE POLICY "Admins eliminan declaraciones" ON public.stock_declarations
   FOR DELETE
   USING (
@@ -99,4 +100,15 @@ CREATE POLICY "Admins eliminan declaraciones" ON public.stock_declarations
       SELECT 1 FROM public.profiles
       WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
     )
+    AND status NOT IN ('Recibido Conforme', 'Recibido con Incidencias')
   );
+
+-- F) Clientes pueden eliminar sus propias declaraciones no finalizadas
+DROP POLICY IF EXISTS "Clientes eliminan sus propias declaraciones" ON public.stock_declarations;
+CREATE POLICY "Clientes eliminan sus propias declaraciones" ON public.stock_declarations
+  FOR DELETE
+  USING (
+    auth.uid() = merchant_id
+    AND status NOT IN ('Recibido Conforme', 'Recibido con Incidencias')
+  );
+

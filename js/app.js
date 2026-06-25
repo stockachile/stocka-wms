@@ -5697,6 +5697,13 @@ async function fetchAndRenderClientDeclarations() {
         </button>
       ` : '';
 
+      const canDelete = ['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1;
+      const deleteButtonHtml = canDelete ? `
+        <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; font-family: var(--font-family);" onclick="deleteDeclaration('${dec.id}')" title="Eliminar Declaración">
+          <i class="ri-delete-bin-line" style="font-size: 0.9rem; color: var(--color-danger); margin-right: 2px;"></i> Eliminar
+        </button>
+      ` : '';
+
       html += `
         <tr style="transition: background-color 0.2s;">
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
@@ -5731,6 +5738,7 @@ async function fetchAndRenderClientDeclarations() {
               <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="viewDeclarationDetail('${dec.id}')" title="Ver Detalles">
                 <i class="ri-eye-line" style="font-size: 0.9rem; margin-right: 2px;"></i> Detalle
               </button>
+              ${deleteButtonHtml}
             </div>
           </td>
         </tr>
@@ -6365,5 +6373,37 @@ window.cancelEditDeclaration = function() {
   const cancelBtn = document.getElementById('btn-cancel-edit-declaration');
   if (cancelBtn) {
     cancelBtn.style.display = 'none';
+  }
+};
+
+window.deleteDeclaration = async function(id) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este ingreso de stock? Esta acción no se puede deshacer.')) return;
+  
+  try {
+    const { data: dec, error: fetchErr } = await supabase
+      .from('stock_declarations')
+      .select('status')
+      .eq('id', id)
+      .single();
+      
+    if (fetchErr) throw fetchErr;
+    
+    if (dec.status === 'Recibido Conforme' || dec.status === 'Recibido con Incidencias') {
+      alert('No se permite eliminar un ingreso de stock que ya ha sido recibido o recibido con incidencias.');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('stock_declarations')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    alert('Ingreso de stock eliminado exitosamente.');
+    renderDeclarations();
+  } catch (err) {
+    console.error('Error al eliminar ingreso de stock:', err);
+    alert('Error al eliminar ingreso de stock: ' + err.message);
   }
 };
