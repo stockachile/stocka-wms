@@ -5964,19 +5964,19 @@ window.viewDeclarationDetail = async function(id) {
           </div>
 
           <!-- Bodega Asignada Block -->
-          \${dec.warehouses ? `
+          ${dec.warehouses ? `
           <div class="info-block" style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border: 1px solid var(--color-border); border-left: 4px solid var(--color-primary); margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 1rem;">
             <div style="background: rgba(37, 99, 235, 0.1); padding: 0.5rem; border-radius: 8px; color: var(--color-primary); display: flex; align-items: center; justify-content: center;">
               <i class="ri-map-pin-line" style="font-size: 1.3rem;"></i>
             </div>
             <div style="flex: 1;">
               <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.25rem;">Bodega de Ingreso Asignada</strong>
-              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">\${dec.warehouses.name}</div>
+              <div style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">${dec.warehouses.name}</div>
               <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.2rem;">
-                Dirección: <strong>\${dec.warehouses.address}</strong>, Comuna: <strong>\${dec.warehouses.comuna}</strong>
+                Dirección: <strong>${dec.warehouses.address}</strong>, Comuna: <strong>${dec.warehouses.comuna}</strong>
               </div>
               <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.2rem;">
-                Días de Operación: <strong>\${dec.warehouses.operating_days}</strong>
+                Días de Operación: <strong>${dec.warehouses.operating_days}</strong>
               </div>
             </div>
           </div>
@@ -6010,9 +6010,9 @@ window.viewDeclarationDetail = async function(id) {
             </div>
           </div>
           
-          \${incidentsHtml}
+          ${incidentsHtml}
           
-          \${historyTimelineHtml}
+          ${historyTimelineHtml}
           
           <!-- Contact Accordions / Sections -->
           <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
