@@ -210,6 +210,9 @@ async function init() {
           } else if (view === 'declarations') {
             viewTitle.textContent = 'Ingresos de Stock';
             renderDeclarations();
+          } else if (view === 'billing') {
+            viewTitle.textContent = 'Facturación';
+            renderBillingClient();
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
@@ -2367,7 +2370,7 @@ async function renderShipments() {
 
       <!-- Table Card -->
       <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-        <div class="card-body" style="padding: 0; overflow-x: auto;">
+        <div class="card-body table-responsive" style="padding: 0;">
           <table class="data-table">
             <thead>
               <tr>
@@ -3429,7 +3432,7 @@ window.renderReturns = async function() {
 
     <!-- Data Table -->
     <div class="card">
-      <div class="card-body" style="overflow-x: auto;">
+      <div class="card-body table-responsive">
         <table class="data-table">
           <thead>
             <tr>
@@ -3886,7 +3889,7 @@ window.renderPickups = async function() {
 
     <!-- Data Table -->
     <div class="card">
-      <div class="card-body" style="overflow-x: auto;">
+      <div class="card-body table-responsive">
         <table class="data-table">
           <thead>
             <tr>
@@ -4283,7 +4286,7 @@ window.renderSales = async function() {
 
     <!-- Data Table -->
     <div class="card">
-      <div class="card-body" style="overflow-x: auto;">
+      <div class="card-body table-responsive">
         <table class="data-table">
           <thead>
             <tr>
@@ -5057,7 +5060,7 @@ window.renderDeclarations = async function() {
               <i class="ri-refresh-line"></i> Actualizar
             </button>
           </div>
-          <div class="card-body" style="overflow-x: auto;">
+          <div class="card-body table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
@@ -6407,3 +6410,356 @@ window.deleteDeclaration = async function(id) {
     alert('Error al eliminar ingreso de stock: ' + err.message);
   }
 };
+
+// =========================================================================
+// MÓDULO DE FACTURACIÓN Y COBRANZA - CLIENTE
+// =========================================================================
+
+window.renderBillingClient = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+  
+  injectClientBillingStyles();
+  
+  appContent.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <div>
+        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Mis Facturas</h3>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Historial mensual y estado de facturación de tus comercios asociados</p>
+      </div>
+      <div>
+        <!-- Selector de periodo -->
+        <select id="client-period-select" class="form-input" style="padding: 0.5rem 1rem; min-width: 180px; margin: 0;" onchange="loadClientBillingData(this.value)">
+          <option value="">Cargando periodos...</option>
+        </select>
+      </div>
+    </div>
+    
+    <!-- Tarjetas de Resumen -->
+    <div class="billing-summary-grid">
+      <div class="billing-summary-card">
+        <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado</span>
+        <span class="billing-summary-value" id="summary-total-facturado">$0</span>
+      </div>
+      <div class="billing-summary-card">
+        <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado</span>
+        <span class="billing-summary-value" id="summary-total-pagado" style="color: var(--color-success);">$0</span>
+      </div>
+      <div class="billing-summary-card">
+        <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-alert-line"></i> Saldo Pendiente</span>
+        <span class="billing-summary-value" id="summary-saldo-pendiente" style="color: var(--color-warning);">$0</span>
+      </div>
+    </div>
+    
+    <!-- Tabla de Facturación -->
+    <div class="card">
+      <div class="card-header">
+        <h3 id="client-table-header-title">Detalle de Cobros</h3>
+      </div>
+      <div class="card-body table-responsive" id="client-billing-table-body" style="padding: 0;">
+        <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+          Cargando datos...
+        </div>
+      </div>
+    </div>
+  `;
+  
+  await initClientPeriodSelect();
+};
+
+async function initClientPeriodSelect() {
+  const select = document.getElementById('client-period-select');
+  if (!select) return;
+  
+  try {
+    const { data: periods, error } = await supabase
+      .from('billing_periods')
+      .select('*')
+      .order('name', { ascending: false });
+      
+    if (error) throw error;
+    
+    if (!periods || periods.length === 0) {
+      select.innerHTML = '<option value="">No hay periodos</option>';
+      document.getElementById('client-billing-table-body').innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          No se registran periodos de facturación creados en el sistema.
+        </div>
+      `;
+      return;
+    }
+    
+    // Seleccionar automáticamente el primer periodo activo, de lo contrario el más reciente
+    const activePeriod = periods.find(p => p.status === 'activo');
+    const defaultPeriodId = activePeriod ? activePeriod.id : periods[0].id;
+    
+    select.innerHTML = periods.map(p => `<option value="${p.id}" ${p.id === defaultPeriodId ? 'selected' : ''}>${p.name}</option>`).join('');
+    
+    loadClientBillingData(defaultPeriodId);
+  } catch (err) {
+    console.error('Error initializing client period select:', err);
+    select.innerHTML = '<option value="">Error al cargar</option>';
+  }
+}
+
+window.loadClientBillingData = async function(periodId) {
+  const tableContainer = document.getElementById('client-billing-table-body');
+  if (!tableContainer || !periodId) return;
+  
+  tableContainer.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Obteniendo registros...
+    </div>
+  `;
+  
+  try {
+    const companyList = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+    
+    if (companyList.length === 0) {
+      tableContainer.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-error-warning-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-warning);"></i>
+          No tienes comercios asociados en tu perfil de usuario. Contacta a soporte.
+        </div>
+      `;
+      return;
+    }
+    
+    // 2. Obtener mapeos de facturación agrupados para resolver nombres
+    let mappings = [];
+    try {
+      const { data: mappingsData } = await supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name');
+      if (mappingsData) mappings = mappingsData;
+    } catch (err) {
+      console.warn('Advertencia al cargar mappings en app.js:', err);
+    }
+
+    // Resolver nombres de facturación y filtrar duplicados usando un Set
+    const uniqueBillingNames = new Set();
+    companyList.forEach(c => {
+      const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+      uniqueBillingNames.add(nameToUse);
+    });
+    
+    const resolvedCompanyList = Array.from(uniqueBillingNames);
+
+    // 3. Consultar registros de facturación de estos comercios para el periodo
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('period_id', periodId)
+      .in('comercio', resolvedCompanyList)
+      .order('comercio', { ascending: true });
+      
+    if (error) throw error;
+    
+    if (!records || records.length === 0) {
+      updateSummaryCards(0, 0, 0);
+      tableContainer.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          No se registran datos de facturación para tus comercios en este mes.
+        </div>
+      `;
+      return;
+    }
+    
+    let totalFacturado = 0;
+    let totalPagado = 0;
+    let tableRows = '';
+    
+    records.forEach(r => {
+      const recordTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
+      const recordPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+      
+      totalFacturado += recordTotal;
+      totalPagado += recordPagado;
+      
+      tableRows += `
+        <tr>
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            ${r.comercio}
+          </td>
+          <td style="vertical-align: middle; color: var(--color-text-muted);">
+            ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}">${r.desglose_fulfillment || '-'}</span>
+          </td>
+          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
+            ${formatCLP(r.total_fulfillment)}
+          </td>
+          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+            ${formatCLP(r.abono_fulfillment)}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment || '-'}</span>
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
+          </td>
+          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+            ${r.num_factura || '-'}
+          </td>
+          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
+            ${formatCLP(r.enviame)}
+          </td>
+          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+            ${formatCLP(r.abono_enviame)}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <span class="client-badge ${getClientStatusClass(r.pago_enviame)}">${r.pago_enviame || '-'}</span>
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>
+          </td>
+          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+            ${r.num_factura_enviame || '-'}
+          </td>
+          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+            ${formatCLP(recordTotal)}
+          </td>
+        </tr>
+      `;
+    });
+    
+    const saldoPendiente = totalFacturado - totalPagado;
+    updateSummaryCards(totalFacturado, totalPagado, saldoPendiente);
+    
+    tableContainer.innerHTML = `
+      <div class="table-responsive">
+        <table class="data-table" style="min-width: 1400px; font-size: 0.85rem;">
+          <thead>
+            <tr>
+              <th style="min-width: 150px;">Comercio</th>
+              <th style="min-width: 120px;">Fecha Límite</th>
+              <th style="min-width: 120px; text-align: center;">Desglose Fulf.</th>
+              <th style="min-width: 110px; text-align: right;">Total Fulf.</th>
+              <th style="min-width: 110px; text-align: right;">Abono Fulf.</th>
+              <th style="min-width: 130px; text-align: center;">Estado Pago</th>
+              <th style="min-width: 130px; text-align: center;">Factura Fulf.</th>
+              <th style="min-width: 80px; text-align: center;">N° Fact.</th>
+              <th style="min-width: 110px; text-align: right;">Enviame</th>
+              <th style="min-width: 110px; text-align: right;">Abono Env.</th>
+              <th style="min-width: 130px; text-align: center;">Estado Pago Env.</th>
+              <th style="min-width: 130px; text-align: center;">Factura Env.</th>
+              <th style="min-width: 80px; text-align: center;">N° Fact. Env</th>
+              <th style="min-width: 120px; text-align: right;">Total Mes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+    
+  } catch (err) {
+    console.error('Error loading client billing records:', err);
+    tableContainer.innerHTML = `
+      <div style="padding: 2rem; color: var(--color-danger); text-align: center;">
+        <strong>Error al consultar facturas:</strong> ${err.message}
+      </div>
+    `;
+  }
+};
+
+function updateSummaryCards(facturado, pagado, pendiente) {
+  const fEl = document.getElementById('summary-total-facturado');
+  const pEl = document.getElementById('summary-total-pagado');
+  const peEl = document.getElementById('summary-saldo-pendiente');
+  
+  if (fEl) fEl.textContent = formatCLP(facturado);
+  if (pEl) pEl.textContent = formatCLP(pagado);
+  if (peEl) peEl.textContent = formatCLP(pendiente);
+}
+
+function getClientStatusClass(val) {
+  if (!val) return 'client-badge-gray';
+  const v = val.toLowerCase();
+  if (['enviado', 'emitida', 'aprobado'].includes(v)) return 'client-badge-green';
+  if (['creado'].includes(v)) return 'client-badge-cyan';
+  if (['por generar', 'por solicitar', 'esperando', 'no se factura', 'sin movimientos'].includes(v)) return 'client-badge-gray';
+  if (['recibido'].includes(v)) return 'client-badge-blue';
+  if (['en espera'].includes(v)) return 'client-badge-purple';
+  if (['facturar'].includes(v)) return 'client-badge-yellow';
+  if (['atrasado', 'incobrable'].includes(v)) return 'client-badge-red';
+  if (['abono'].includes(v)) return 'client-badge-teal';
+  return 'client-badge-gray';
+}
+
+function injectClientBillingStyles() {
+  if (document.getElementById('client-billing-styles')) return;
+  
+  const style = document.createElement('style');
+  style.id = 'client-billing-styles';
+  style.innerHTML = `
+    .billing-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .billing-summary-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .billing-summary-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .billing-summary-label {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .billing-summary-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+    }
+    
+    .client-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.25rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-weight: 600;
+      min-width: 100px;
+      text-align: center;
+      border: 1px solid transparent;
+    }
+    .client-badge-green { background-color: rgba(16, 185, 129, 0.12); color: #065f46; border-color: rgba(16, 185, 129, 0.25); }
+    .client-badge-gray { background-color: rgba(148, 163, 184, 0.12); color: #475569; border-color: rgba(148, 163, 184, 0.25); }
+    .client-badge-blue { background-color: rgba(59, 130, 246, 0.12); color: #1e40af; border-color: rgba(59, 130, 246, 0.25); }
+    .client-badge-purple { background-color: rgba(139, 92, 246, 0.12); color: #5b21b6; border-color: rgba(139, 92, 246, 0.25); }
+    .client-badge-yellow { background-color: rgba(245, 158, 11, 0.12); color: #854d0e; border-color: rgba(245, 158, 11, 0.25); }
+    .client-badge-red { background-color: rgba(239, 68, 68, 0.12); color: #991b1b; border-color: rgba(239, 68, 68, 0.25); }
+    .client-badge-teal { background-color: rgba(20, 184, 166, 0.12); color: #115e59; border-color: rgba(20, 184, 166, 0.25); }
+    .client-badge-cyan { background-color: rgba(6, 182, 212, 0.12); color: #075985; border-color: rgba(6, 182, 212, 0.25); }
+    
+    .text-right {
+      text-align: right;
+    }
+  `;
+  document.head.appendChild(style);
+}
+

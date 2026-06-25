@@ -154,6 +154,9 @@ async function init() {
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
+          } else if (view === 'billing_admin') {
+            viewTitle.textContent = 'Facturación';
+            renderBillingAdmin();
           }
         });
       });
@@ -646,7 +649,7 @@ async function renderIntegrations() {
           <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0; margin-bottom: 1.5rem;">
             Listado de los marketplaces y tiendas conectadas por tus clientes en el WMS.
           </p>
-          <div style="overflow-x: auto;">
+          <div class="table-responsive">
             <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
               <thead>
                 <tr>
@@ -1140,7 +1143,7 @@ async function renderConsolidatedShipments() {
             </div>
 
           </div>
-          <div class="card-body" style="padding: 0; overflow-x: auto;">
+          <div class="card-body table-responsive" style="padding: 0;">
             <table class="data-table" style="width: 100%; margin: 0; border-collapse: collapse;">
               <thead>
                 ${tableHeaders}
@@ -1326,7 +1329,7 @@ async function renderUsersAdmin() {
           </div>
           <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">Crear Usuario</button>
         </div>
-        <div class="card-body" style="padding: 0; overflow-x: auto;">
+        <div class="card-body table-responsive" style="padding: 0;">
           <table class="data-table">
             <thead>
               <tr>
@@ -1497,6 +1500,7 @@ const CLIENT_MODULES = [
   { id: 'returns', label: 'Logística Inversa' },
   { id: 'pickups', label: 'Punto de Retiro' },
   { id: 'sales', label: 'Punto de Ventas' },
+  { id: 'billing', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
   { id: 'profile', label: 'Mi Perfil' }
 ];
@@ -1509,6 +1513,7 @@ const ADMIN_MODULES = [
   { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
   { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
+  { id: 'billing_admin', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' }
 ];
 
@@ -3266,7 +3271,7 @@ async function renderVisibilityRulesAdmin() {
               <i class="ri-list-check" style="color:var(--color-primary);"></i> Reglas de Exclusión Activas
             </h3>
 
-            <div style="overflow-x: auto;">
+            <div class="table-responsive">
               <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); font-weight: 600;">
@@ -3552,7 +3557,7 @@ window.renderDeclarationsAdmin = async function() {
             <i class="ri-refresh-line"></i> Actualizar
           </button>
         </div>
-        <div class="card-body" style="overflow-x: auto;">
+        <div class="card-body table-responsive">
           <table class="data-table">
             <thead>
               <tr>
@@ -4109,7 +4114,7 @@ window.renderWarehousesAdmin = async function() {
               <i class="ri-building-2-line" style="color: var(--color-primary);"></i> Bodegas Registradas
             </h3>
           </div>
-          <div class="card-body" style="padding: 0; overflow-x: auto;">
+          <div class="card-body table-responsive" style="padding: 0;">
             <table class="data-table">
               <thead>
                 <tr>
@@ -4267,3 +4272,839 @@ window.deleteDeclarationAdmin = async function(id) {
     alert('Error al eliminar ingreso de stock: ' + err.message);
   }
 };
+
+// =========================================================================
+// MÓDULO DE FACTURACIÓN Y COBRANZA - ADMIN
+// =========================================================================
+
+function injectBillingStyles() {
+  if (document.getElementById('billing-styles')) return;
+  
+  const style = document.createElement('style');
+  style.id = 'billing-styles';
+  style.innerHTML = `
+    .billing-input {
+      background: transparent;
+      border: 1px solid transparent;
+      padding: 0.25rem;
+      border-radius: var(--radius-sm);
+      color: var(--color-text-main);
+      width: 100%;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    .billing-input:hover {
+      border-color: var(--color-border);
+      background: var(--color-bg);
+    }
+    .billing-input:focus {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+      outline: none;
+    }
+    .billing-select {
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 0.25rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      outline: none;
+      text-align-last: center;
+      transition: all 0.2s;
+      appearance: none;
+    }
+    .status-green { background-color: rgba(16, 185, 129, 0.15) !important; color: #065f46 !important; border: 1px solid rgba(16, 185, 129, 0.3) !important; }
+    .status-gray { background-color: rgba(148, 163, 184, 0.15) !important; color: #475569 !important; border: 1px solid rgba(148, 163, 184, 0.3) !important; }
+    .status-blue { background-color: rgba(59, 130, 246, 0.15) !important; color: #1e40af !important; border: 1px solid rgba(59, 130, 246, 0.3) !important; }
+    .status-purple { background-color: rgba(139, 92, 246, 0.15) !important; color: #5b21b6 !important; border: 1px solid rgba(139, 92, 246, 0.3) !important; }
+    .status-yellow { background-color: rgba(245, 158, 11, 0.15) !important; color: #854d0e !important; border: 1px solid rgba(245, 158, 11, 0.3) !important; }
+    .status-red { background-color: rgba(239, 68, 68, 0.15) !important; color: #991b1b !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; }
+    .status-teal { background-color: rgba(20, 184, 166, 0.15) !important; color: #115e59 !important; border: 1px solid rgba(20, 184, 166, 0.3) !important; }
+    .status-cyan { background-color: rgba(6, 182, 212, 0.15) !important; color: #075985 !important; border: 1px solid rgba(6, 182, 212, 0.3) !important; }
+    
+    .billing-period-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      margin-bottom: 1rem;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
+    .billing-period-header {
+      padding: 1rem 1.5rem;
+      background: var(--color-surface);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.2s;
+    }
+    .billing-period-header:hover {
+      background: var(--color-surface-hover);
+    }
+    .billing-period-body {
+      display: none;
+      border-top: 1px solid var(--color-border);
+      padding: 0;
+      overflow: auto;
+      max-height: calc(100vh - 250px);
+    }
+    .billing-period-body table {
+      margin: 0;
+    }
+    .billing-period-card.active .billing-period-body {
+      display: block;
+    }
+    .billing-period-card.active .billing-period-header i.collapse-icon {
+      transform: rotate(90deg);
+    }
+    .collapse-icon {
+      transition: transform 0.2s;
+    }
+    .billing-saving-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+      color: var(--color-success);
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .billing-saving-badge.show {
+      opacity: 1;
+    }
+    .text-right {
+      text-align: right;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function getStatusClass(val) {
+  if (!val) return 'status-gray';
+  const v = val.toLowerCase();
+  if (['enviado', 'emitida', 'aprobado'].includes(v)) return 'status-green';
+  if (['creado'].includes(v)) return 'status-cyan';
+  if (['por generar', 'por solicitar', 'esperando', 'no se factura', 'sin movimientos'].includes(v)) return 'status-gray';
+  if (['recibido'].includes(v)) return 'status-blue';
+  if (['en espera'].includes(v)) return 'status-purple';
+  if (['facturar'].includes(v)) return 'status-yellow';
+  if (['atrasado', 'incobrable'].includes(v)) return 'status-red';
+  if (['abono'].includes(v)) return 'status-teal';
+  return 'status-gray';
+}
+
+window.renderBillingAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+  
+  injectBillingStyles();
+  
+  appContent.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <div>
+        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Control de Facturación</h3>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Gestiona periodos y registros de facturación de comercios</p>
+      </div>
+      <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <span id="saving-badge" class="billing-saving-badge"><i class="ri-checkbox-circle-line"></i> Guardado</span>
+        <button class="btn btn-primary" onclick="openCreatePeriodModal()"><i class="ri-add-line"></i> Nuevo Periodo</button>
+      </div>
+    </div>
+    
+    <div id="periods-list-container">
+      <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando periodos de facturación...
+      </div>
+    </div>
+  `;
+  
+  await loadBillingPeriods();
+};
+
+async function loadBillingPeriods() {
+  const container = document.getElementById('periods-list-container');
+  if (!container) return;
+  
+  try {
+    const { data: periods, error } = await supabase
+      .from('billing_periods')
+      .select('*')
+      .order('name', { ascending: false }); // Ordenar descendentemente por nombre (ej: JUNIO 2026 antes que MAYO 2026)
+      
+    if (error) throw error;
+    
+    if (!periods || periods.length === 0) {
+      container.innerHTML = `
+        <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-bill-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
+          <p style="font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem;">No hay periodos de facturación</p>
+          <p style="font-size: 0.85rem; margin-bottom: 1.5rem;">Comienza creando tu primer periodo mensual para llevar el control.</p>
+          <button class="btn btn-primary btn-sm" onclick="openCreatePeriodModal()"><i class="ri-add-line"></i> Crear Periodo</button>
+        </div>
+      `;
+      return;
+    }
+    
+    // Agrupar periodos según el estado
+    const activePeriods = periods.filter(p => p.status === 'activo');
+    const inProcessPeriods = periods.filter(p => p.status === 'en_proceso');
+    const upcomingPeriods = periods.filter(p => p.status === 'proximo');
+    
+    let html = '';
+    
+    // 1. Periodo Activo
+    html += renderPeriodGroupSection('Periodo Activo', activePeriods, 'activo');
+    
+    // 2. En Proceso
+    html += renderPeriodGroupSection('En Proceso', inProcessPeriods, 'en_proceso');
+    
+    // 3. Próximos Periodos
+    html += renderPeriodGroupSection('Próximos Periodos', upcomingPeriods, 'proximo');
+    
+    container.innerHTML = html;
+    
+    // Expandir automáticamente el primer periodo activo si existe, de lo contrario el primero en proceso
+    const firstPeriodCard = container.querySelector('.billing-period-card');
+    if (firstPeriodCard) {
+      const periodId = firstPeriodCard.getAttribute('data-period-id');
+      togglePeriodCollapse(periodId, firstPeriodCard);
+    }
+    
+  } catch (err) {
+    console.error('Error loading billing periods:', err);
+    container.innerHTML = `
+      <div class="card" style="padding: 2rem; border-color: var(--color-danger); color: var(--color-danger);">
+        <p><strong>Error al cargar periodos:</strong> ${err.message}</p>
+      </div>
+    `;
+  }
+}
+
+function renderPeriodGroupSection(title, list, groupStatus) {
+  if (list.length === 0) return '';
+  
+  let listHtml = '';
+  list.forEach(p => {
+    listHtml += `
+      <div class="billing-period-card" id="period-card-${p.id}" data-period-id="${p.id}">
+        <div class="billing-period-header" onclick="handlePeriodHeaderClick('${p.id}')">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <i class="ri-arrow-right-s-line collapse-icon" style="font-size: 1.25rem; color: var(--color-text-muted);"></i>
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 1rem;">${p.name}</span>
+            <span class="badge ${p.status === 'activo' ? 'badge-success' : p.status === 'en_proceso' ? 'badge-warning' : 'badge-neutral'}" style="text-transform: uppercase; font-size: 0.7rem; padding: 0.15rem 0.4rem;">
+              ${p.status === 'activo' ? 'Activo' : p.status === 'en_proceso' ? 'En Proceso' : 'Próximo'}
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 1rem;" onclick="event.stopPropagation()">
+            <!-- Selector de estado del periodo -->
+            <select class="form-input" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; margin: 0; width: auto;" onchange="updatePeriodStatus('${p.id}', this.value)">
+              <option value="activo" ${p.status === 'activo' ? 'selected' : ''}>Activo</option>
+              <option value="en_proceso" ${p.status === 'en_proceso' ? 'selected' : ''}>En Proceso</option>
+              <option value="proximo" ${p.status === 'proximo' ? 'selected' : ''}>Próximo</option>
+            </select>
+            
+            <button class="btn btn-outline btn-sm" onclick="exportPeriodToExcel('${p.id}', '${p.name}')" title="Exportar a Excel" style="padding: 0.25rem 0.5rem;">
+              <i class="ri-file-excel-line" style="color: #16a34a; font-size: 1.1rem;"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="openAddCommerceModal('${p.id}')" title="Añadir Comercio" style="padding: 0.25rem 0.5rem;">
+              <i class="ri-add-line" style="font-size: 1.1rem;"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="deletePeriod('${p.id}', '${p.name}')" title="Eliminar Periodo" style="padding: 0.25rem 0.5rem; border-color: var(--color-danger); color: var(--color-danger);">
+              <i class="ri-delete-bin-line" style="font-size: 1.1rem;"></i>
+            </button>
+          </div>
+        </div>
+        <div class="billing-period-body" id="period-body-${p.id}">
+          <!-- Se carga dinámicamente -->
+        </div>
+      </div>
+    `;
+  });
+  
+  return `
+    <div style="margin-bottom: 1.5rem;">
+      <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.5rem;">
+        <span style="display:inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: ${groupStatus === 'activo' ? 'var(--color-success)' : groupStatus === 'en_proceso' ? 'var(--color-warning)' : 'var(--color-sidebar-text)'}"></span>
+        ${title}
+      </h4>
+      ${listHtml}
+    </div>
+  `;
+}
+
+window.handlePeriodHeaderClick = function(periodId) {
+  const card = document.getElementById(`period-card-${periodId}`);
+  if (card) {
+    togglePeriodCollapse(periodId, card);
+  }
+};
+
+window.togglePeriodCollapse = async function(periodId, cardElement) {
+  cardElement.classList.toggle('active');
+  const isExpanded = cardElement.classList.contains('active');
+  const body = document.getElementById(`period-body-${periodId}`);
+  
+  if (isExpanded && body) {
+    body.innerHTML = `
+      <div class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando registros de facturación...
+      </div>
+    `;
+    await loadBillingRecords(periodId, body);
+  }
+};
+
+async function loadBillingRecords(periodId, bodyElement) {
+  try {
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('period_id', periodId)
+      .order('comercio', { ascending: true });
+      
+    if (error) throw error;
+    
+    if (!records || records.length === 0) {
+      bodyElement.innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          No hay registros de facturación para este periodo.
+          <div style="margin-top: 1rem;">
+            <button class="btn btn-primary btn-sm" onclick="openAddCommerceModal('${periodId}')"><i class="ri-add-line"></i> Agregar Comercio</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    let tableRows = '';
+    records.forEach(r => {
+      const total = (r.total_fulfillment || 0) + (r.enviame || 0);
+      tableRows += `
+        <tr id="row-${r.id}">
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            ${r.comercio}
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="date" value="${r.fecha_limite || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite', this.value)" style="width: 125px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <select class="billing-select ${getStatusClass(r.desglose_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
+              <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
+              <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Enviado</option>
+              <option value="Aprobado" ${r.desglose_fulfillment === 'Aprobado' ? 'selected' : ''}>Aprobado</option>
+              <option value="Creado" ${r.desglose_fulfillment === 'Creado' ? 'selected' : ''}>Creado</option>
+              <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+            </select>
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.total_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'total_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.abono_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
+              <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+              <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
+              <option value="En espera" ${r.pago_fulfillment === 'En espera' ? 'selected' : ''}>En espera</option>
+              <option value="Atrasado" ${r.pago_fulfillment === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+              <option value="abono" ${r.pago_fulfillment === 'abono' ? 'selected' : ''}>Abono</option>
+              <option value="aprobado" ${r.pago_fulfillment === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+              <option value="incobrable" ${r.pago_fulfillment === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+              <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+            </select>
+          </td>
+          <td style="vertical-align: middle;">
+            <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')">
+              <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
+              <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
+              <option value="Emitida" ${r.factura_fulfillment === 'Emitida' ? 'selected' : ''}>Emitida</option>
+              <option value="Facturar" ${r.factura_fulfillment === 'Facturar' ? 'selected' : ''}>Facturar</option>
+              <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+            </select>
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.num_factura || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.abono_enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+          </td>
+          <td style="vertical-align: middle;">
+            <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
+              <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
+              <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
+              <option value="En espera" ${r.pago_enviame === 'En espera' ? 'selected' : ''}>En espera</option>
+              <option value="Atrasado" ${r.pago_enviame === 'Atrasado' ? 'selected' : ''}>Atrasado</option>
+              <option value="abono" ${r.pago_enviame === 'abono' ? 'selected' : ''}>Abono</option>
+              <option value="aprobado" ${r.pago_enviame === 'aprobado' ? 'selected' : ''}>Aprobado</option>
+              <option value="incobrable" ${r.pago_enviame === 'incobrable' ? 'selected' : ''}>Incobrable</option>
+              <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+            </select>
+          </td>
+          <td style="vertical-align: middle;">
+            <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')">
+              <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
+              <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
+              <option value="Emitida" ${r.factura_enviame === 'Emitida' ? 'selected' : ''}>Emitida</option>
+              <option value="Facturar" ${r.factura_enviame === 'Facturar' ? 'selected' : ''}>Facturar</option>
+              <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
+            </select>
+          </td>
+          <td style="vertical-align: middle;">
+            <input type="number" value="${r.num_factura_enviame || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
+          </td>
+          <td id="total-${r.id}" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+            ${formatCLP(total)}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
+              <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    });
+    
+    bodyElement.innerHTML = `
+        <table class="data-table" style="min-width: 1500px; font-size: 0.825rem;">
+          <thead>
+            <tr>
+              <th style="min-width: 150px;">Comercio</th>
+              <th style="min-width: 130px;">Fecha Límite</th>
+              <th style="min-width: 130px;">Desglose FULF</th>
+              <th style="min-width: 110px;">Total FULF</th>
+              <th style="min-width: 110px;">Abonos FULF</th>
+              <th style="min-width: 140px;">Pago FULF</th>
+              <th style="min-width: 140px;">Factura FULF</th>
+              <th style="min-width: 80px;">N°Fact</th>
+              <th style="min-width: 110px;">Enviame</th>
+              <th style="min-width: 110px;">Abono ENV.</th>
+              <th style="min-width: 140px;">Pago ENV.</th>
+              <th style="min-width: 140px;">Fact. ENV.</th>
+              <th style="min-width: 80px;">N°Fact ENV</th>
+              <th style="min-width: 120px; text-align: right;">Total</th>
+              <th style="width: 50px; text-align: center;">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+    `;
+    
+  } catch (err) {
+    console.error('Error rendering billing records:', err);
+    bodyElement.innerHTML = `
+      <div style="padding: 1rem; color: var(--color-danger);">
+        Error al cargar registros: ${err.message}
+      </div>
+    `;
+  }
+}
+
+window.updateSelectField = function(selectEl, recordId, fieldName) {
+  const val = selectEl.value;
+  selectEl.className = 'billing-select ' + getStatusClass(val);
+  saveField(recordId, fieldName, val);
+};
+
+window.saveNumberField = function(recordId, fieldName, valueStr, isNullable = false) {
+  if (valueStr === '' || valueStr === null || valueStr === undefined) {
+    if (isNullable) {
+      saveField(recordId, fieldName, null);
+    } else {
+      saveField(recordId, fieldName, 0);
+    }
+    return;
+  }
+  const val = parseInt(valueStr, 10);
+  saveField(recordId, fieldName, isNaN(val) ? 0 : val);
+};
+
+window.saveField = async function(recordId, fieldName, fieldValue) {
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .update({ [fieldName]: fieldValue })
+      .eq('id', recordId);
+      
+    if (error) throw error;
+    
+    // Si cambió total_fulfillment o enviame, recalcular el TOTAL local de la fila
+    if (fieldName === 'total_fulfillment' || fieldName === 'enviame') {
+      const row = document.getElementById(`row-${recordId}`);
+      if (row) {
+        const totalFulfInput = row.querySelector(`input[onblur*="total_fulfillment"]`);
+        const enviameInput = row.querySelector(`input[onblur*="enviame"]`);
+        const totalCell = document.getElementById(`total-${recordId}`);
+        
+        if (totalFulfInput && enviameInput && totalCell) {
+          const tf = parseInt(totalFulfInput.value, 10) || 0;
+          const env = parseInt(enviameInput.value, 10) || 0;
+          totalCell.textContent = formatCLP(tf + env);
+        }
+      }
+    }
+    
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error saving billing record field:', err);
+    alert('Error al guardar datos de facturación: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+function showSavingBadge(show) {
+  const badge = document.getElementById('saving-badge');
+  if (badge) {
+    if (show) {
+      badge.classList.add('show');
+      badge.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+      badge.style.color = 'var(--color-warning)';
+    } else {
+      badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Guardado';
+      badge.style.color = 'var(--color-success)';
+      setTimeout(() => {
+        if (badge.innerHTML.includes('Guardado')) {
+          badge.classList.remove('show');
+        }
+      }, 1500);
+    }
+  }
+}
+
+window.openCreatePeriodModal = function() {
+  let modal = document.getElementById('modal-create-billing-period');
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-create-billing-period';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i class="ri-bill-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Crear Nuevo Periodo</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-create-billing-period">
+        <div class="modal-body" style="padding: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label">Nombre del Periodo</label>
+            <input type="text" id="period-name-input" class="form-input" placeholder="Ej: MAYO 2026" required>
+            <small style="color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Utiliza formato MES AÑO (ej. JUNIO 2026).</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Estado Inicial</label>
+            <select id="period-status-input" class="form-input" required>
+              <option value="proximo" selected>Próximo</option>
+              <option value="activo">Activo</option>
+              <option value="en_proceso">En Proceso</option>
+            </select>
+          </div>
+          <div style="background-color: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-muted);">
+            <i class="ri-information-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>
+            Al crear el periodo, se auto-generarán registros vacíos para todos los comercios configurados en el WMS de forma automática.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-create-period"><i class="ri-save-line"></i> Crear Periodo</button>
+        </div>
+      </form>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+  
+  document.getElementById('form-create-billing-period').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-create-period');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Creando...';
+    
+    const name = document.getElementById('period-name-input').value.trim();
+    const status = document.getElementById('period-status-input').value;
+    
+    try {
+      // 1. Crear el periodo en billing_periods
+      const { data: period, error: periodErr } = await supabase
+        .from('billing_periods')
+        .insert({ name, status })
+        .select()
+        .single();
+        
+      if (periodErr) throw periodErr;
+      
+      // 2. Obtener todos los comercios desde v_comercios_config
+      const { data: comercios, error: comerciosErr } = await supabase
+        .from('v_comercios_config')
+        .select('nombre');
+        
+      if (comerciosErr) throw comerciosErr;
+      
+      // 3. Obtener mapeos de facturación agrupados
+      let mappings = [];
+      try {
+        const { data: mappingsData } = await supabase
+          .from('billing_mappings')
+          .select('comercio_nombre, billing_name');
+        if (mappingsData) mappings = mappingsData;
+      } catch (err) {
+        console.warn('Advertencia al cargar mappings en creación de periodo:', err);
+      }
+      
+      if (comercios && comercios.length > 0) {
+        // Resolver nombres de facturación y filtrar duplicados usando un Set
+        const uniqueBillingNames = new Set();
+        comercios.forEach(c => {
+          const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.nombre.toLowerCase());
+          const nameToUse = matchedMapping ? matchedMapping.billing_name : c.nombre;
+          uniqueBillingNames.add(nameToUse);
+        });
+        
+        // Crear registros de facturación por defecto para los nombres únicos
+        const defaultRecords = Array.from(uniqueBillingNames).map(name => ({
+          period_id: period.id,
+          comercio: name,
+          total_fulfillment: 0,
+          abono_fulfillment: 0,
+          enviame: 0,
+          abono_enviame: 0,
+          desglose_fulfillment: 'Por Generar',
+          pago_fulfillment: 'Por solicitar',
+          factura_fulfillment: 'Esperando',
+          pago_enviame: 'Por solicitar',
+          factura_enviame: 'Esperando'
+        }));
+        
+        const { error: recordsErr } = await supabase
+          .from('billing_records')
+          .insert(defaultRecords);
+          
+        if (recordsErr) throw recordsErr;
+      }
+      
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 300);
+      alert('Periodo mensual creado exitosamente con sus comercios.');
+      await loadBillingPeriods();
+      
+    } catch (err) {
+      console.error('Error creating billing period:', err);
+      alert('Error al crear periodo de facturación: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-line"></i> Crear Periodo';
+    }
+  });
+};
+
+window.openAddCommerceModal = async function(periodId) {
+  let modal = document.getElementById('modal-add-commerce-billing');
+  if (modal) modal.remove();
+  
+  let comercios = [];
+  try {
+    const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
+    if (error) throw error;
+    comercios = data || [];
+  } catch (err) {
+    console.error('Error fetching comercios:', err);
+    alert('Error al cargar comercios disponibles: ' + err.message);
+    return;
+  }
+  
+  const optionsHtml = comercios.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-add-commerce-billing';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Añadir Comercio</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-add-commerce-billing">
+        <div class="modal-body" style="padding: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label">Seleccionar Comercio</label>
+            <select id="add-commerce-select" class="form-input" required>
+              <option value="">-- Seleccionar --</option>
+              ${optionsHtml}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-add-commerce-row"><i class="ri-check-line"></i> Agregar</button>
+        </div>
+      </form>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+  
+  document.getElementById('form-add-commerce-billing').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-add-commerce-row');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Agregando...';
+    
+    const comercio = document.getElementById('add-commerce-select').value;
+    if (!comercio) return;
+    
+    try {
+      const { error } = await supabase
+        .from('billing_records')
+        .insert({
+          period_id: periodId,
+          comercio: comercio,
+          total_fulfillment: 0,
+          abono_fulfillment: 0,
+          enviame: 0,
+          abono_enviame: 0,
+          desglose_fulfillment: 'Por Generar',
+          pago_fulfillment: 'Por solicitar',
+          factura_fulfillment: 'Esperando',
+          pago_enviame: 'Por solicitar',
+          factura_enviame: 'Esperando'
+        });
+        
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error('Este comercio ya tiene un registro en este periodo.');
+        }
+        throw error;
+      }
+      
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 300);
+      
+      const body = document.getElementById(`period-body-${periodId}`);
+      if (body) {
+        await loadBillingRecords(periodId, body);
+      }
+    } catch (err) {
+      console.error('Error adding commerce to period:', err);
+      alert(err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-check-line"></i> Agregar';
+    }
+  });
+};
+
+window.updatePeriodStatus = async function(periodId, newStatus) {
+  try {
+    const { error } = await supabase
+      .from('billing_periods')
+      .update({ status: newStatus })
+      .eq('id', periodId);
+      
+    if (error) throw error;
+    
+    alert('Estado del periodo actualizado.');
+    await loadBillingPeriods();
+  } catch (err) {
+    console.error('Error updating period status:', err);
+    alert('Error al actualizar estado del periodo: ' + err.message);
+  }
+};
+
+window.deletePeriod = async function(periodId, periodName) {
+  if (!confirm(`¿Estás completamente seguro de eliminar el periodo "${periodName}"? Esto eliminará de forma permanente todos los registros de facturación de este mes.`)) return;
+  
+  try {
+    const { error } = await supabase
+      .from('billing_periods')
+      .delete()
+      .eq('id', periodId);
+      
+    if (error) throw error;
+    
+    alert('Periodo eliminado exitosamente.');
+    await loadBillingPeriods();
+  } catch (err) {
+    console.error('Error deleting period:', err);
+    alert('Error al eliminar periodo: ' + err.message);
+  }
+};
+
+window.deleteBillingRecord = async function(recordId, commerceName, periodId) {
+  if (!confirm(`¿Eliminar la fila de facturación del comercio "${commerceName}"?`)) return;
+  
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .delete()
+      .eq('id', recordId);
+      
+    if (error) throw error;
+    
+    const body = document.getElementById(`period-body-${periodId}`);
+    if (body) {
+      await loadBillingRecords(periodId, body);
+    }
+  } catch (err) {
+    console.error('Error deleting record:', err);
+    alert('Error al eliminar registro: ' + err.message);
+  }
+};
+
+window.exportPeriodToExcel = async function(periodId, periodName) {
+  try {
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('period_id', periodId)
+      .order('comercio', { ascending: true });
+      
+    if (error) throw error;
+    
+    if (!records || records.length === 0) {
+      alert('No hay registros para exportar en este periodo.');
+      return;
+    }
+    
+    const rows = records.map(r => ({
+      'Comercio': r.comercio,
+      'Fecha Límite': r.fecha_limite || '-',
+      'Desglose Fulf.': r.desglose_fulfillment || '-',
+      'Total Fulf.': r.total_fulfillment || 0,
+      'Abonos Fulf.': r.abono_fulfillment || 0,
+      'Pago Fulf.': r.pago_fulfillment || '-',
+      'Factura Fulf.': r.factura_fulfillment || '-',
+      'N° Factura Fulf.': r.num_factura || '-',
+      'Enviame': r.enviame || 0,
+      'Abono Env.': r.abono_enviame || 0,
+      'Pago Env.': r.pago_enviame || '-',
+      'Fact. Env.': r.factura_enviame || '-',
+      'N° Factura Env.': r.num_factura_enviame || '-',
+      'Total General': (r.total_fulfillment || 0) + (r.enviame || 0)
+    }));
+    
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturacion');
+    
+    const filename = `Facturacion_${periodName.replace(/\s+/g, '_')}.xlsx`;
+    XLSX.writeFile(wb, filename);
+    
+  } catch (err) {
+    console.error('Error exporting to Excel:', err);
+    alert('Error al exportar a Excel: ' + err.message);
+  }
+};
+
