@@ -4488,7 +4488,15 @@ function showSuspensionBanner(pausedComercios) {
   mainContent.insertBefore(banner, mainContent.firstChild);
 }
 
-window.toggleCommerceAlDia = async function(comercio, alDia) {
+window.toggleCommerceAlDia = async function(comercio, checkboxEl) {
+  const alDia = checkboxEl.checked;
+  const actionText = alDia ? 'marcar AL DÍA' : 'poner en SERVICIO PAUSADO';
+  if (!confirm(`¿Estás seguro de que deseas ${actionText} al comercio ${comercio}?`)) {
+    // Revertir el estado visual del checkbox
+    checkboxEl.checked = !alDia;
+    return;
+  }
+
   showSavingBadge(true);
   try {
     const { error } = await supabase
@@ -4499,6 +4507,7 @@ window.toggleCommerceAlDia = async function(comercio, alDia) {
   } catch (err) {
     console.error('Error updating commerce status:', err);
     alert('Error al actualizar estado del comercio: ' + err.message);
+    checkboxEl.checked = !alDia; // Revertir en caso de error
     showSavingBadge(false);
   }
 };
@@ -4568,6 +4577,7 @@ window.renderBillingAdmin = async function() {
     <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem;">
       <button class="billing-tab-btn active" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
       <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
+      <button class="billing-tab-btn" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
     </div>
     
     <div id="tab-control-content">
@@ -4589,6 +4599,12 @@ window.renderBillingAdmin = async function() {
         </div>
       </div>
     </div>
+
+    <div id="tab-metrics-content" style="display: none;">
+      <div id="metrics-dashboard-container">
+        <!-- Cargado dinámicamente -->
+      </div>
+    </div>
   `;
   
   await loadBillingPeriods();
@@ -4598,21 +4614,35 @@ window.renderBillingAdmin = async function() {
 window.switchBillingAdminTab = function(tabName) {
   const tabControlBtn = document.getElementById('tab-control-btn');
   const tabReportsBtn = document.getElementById('tab-reports-btn');
+  const tabMetricsBtn = document.getElementById('tab-metrics-btn');
   const contentControl = document.getElementById('tab-control-content');
   const contentReports = document.getElementById('tab-reports-content');
+  const contentMetrics = document.getElementById('tab-metrics-content');
   
   if (tabName === 'control') {
     tabControlBtn.classList.add('active');
     tabReportsBtn.classList.remove('active');
+    if (tabMetricsBtn) tabMetricsBtn.classList.remove('active');
     contentControl.style.display = 'block';
     contentReports.style.display = 'none';
+    if (contentMetrics) contentMetrics.style.display = 'none';
     loadBillingPeriods();
-  } else {
+  } else if (tabName === 'reports') {
     tabControlBtn.classList.remove('active');
     tabReportsBtn.classList.add('active');
+    if (tabMetricsBtn) tabMetricsBtn.classList.remove('active');
     contentControl.style.display = 'none';
     contentReports.style.display = 'block';
+    if (contentMetrics) contentMetrics.style.display = 'none';
     loadPendingPaymentReports();
+  } else if (tabName === 'metrics') {
+    tabControlBtn.classList.remove('active');
+    tabReportsBtn.classList.remove('active');
+    if (tabMetricsBtn) tabMetricsBtn.classList.add('active');
+    contentControl.style.display = 'none';
+    contentReports.style.display = 'none';
+    if (contentMetrics) contentMetrics.style.display = 'block';
+    loadBillingMetricsDashboard();
   }
 };
 
@@ -4722,6 +4752,9 @@ function renderPeriodGroupSection(title, list, groupStatus) {
             <button class="btn btn-outline btn-sm" onclick="exportPeriodToExcel('${p.id}', '${p.name}')" title="Exportar a Excel" style="padding: 0.25rem 0.5rem;">
               <i class="ri-file-excel-line" style="color: #16a34a; font-size: 1.1rem;"></i>
             </button>
+            <button class="btn btn-outline btn-sm" onclick="openEditPeriodModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.period_month || 'null'}, ${p.period_year || 'null'}, '${p.status}')" title="Editar Periodo" style="padding: 0.25rem 0.5rem;">
+              <i class="ri-edit-line" style="font-size: 1.1rem;"></i>
+            </button>
             <button class="btn btn-outline btn-sm" onclick="openAddCommerceModal('${p.id}')" title="Añadir Comercio" style="padding: 0.25rem 0.5rem;">
               <i class="ri-add-line" style="font-size: 1.1rem;"></i>
             </button>
@@ -4819,7 +4852,7 @@ async function loadBillingRecords(periodId, bodyElement) {
             ${r.comercio}
           </td>
           <td class="col-group-divider" style="vertical-align: middle; text-align: center;">
-            <input type="checkbox" ${alDia ? 'checked' : ''} onchange="toggleCommerceAlDia('${r.comercio}', this.checked)" title="Marcar Al Día">
+            <input type="checkbox" ${alDia ? 'checked' : ''} onchange="toggleCommerceAlDia('${r.comercio}', this)" title="Marcar Al Día">
           </td>
           
           <!-- Fulfillment -->
@@ -4973,7 +5006,7 @@ async function loadBillingRecords(periodId, bodyElement) {
           </div>
         </div>
 
-        <table class="data-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
+        <table class="data-table billing-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
           <thead>
             <tr>
               <th rowspan="2" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
@@ -5149,6 +5182,28 @@ window.openCreatePeriodModal = function() {
   modal = document.createElement('div');
   modal.id = 'modal-create-billing-period';
   modal.className = 'modal-overlay';
+  
+  const currentYear = new Date().getFullYear();
+  const currentMonthIndex = new Date().getMonth() + 1; // 1-12
+  
+  const months = [
+    { val: 1, text: 'ENERO' },
+    { val: 2, text: 'FEBRERO' },
+    { val: 3, text: 'MARZO' },
+    { val: 4, text: 'ABRIL' },
+    { val: 5, text: 'MAYO' },
+    { val: 6, text: 'JUNIO' },
+    { val: 7, text: 'JULIO' },
+    { val: 8, text: 'AGOSTO' },
+    { val: 9, text: 'SEPTIEMBRE' },
+    { val: 10, text: 'OCTUBRE' },
+    { val: 11, text: 'NOVIEMBRE' },
+    { val: 12, text: 'DICIEMBRE' }
+  ];
+  
+  let monthOptions = months.map(m => `<option value="${m.val}" ${m.val === currentMonthIndex ? 'selected' : ''}>${m.text}</option>`).join('');
+  const initialName = `${months[currentMonthIndex - 1].text} ${currentYear}`;
+  
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 450px;">
       <div class="modal-header">
@@ -5157,10 +5212,22 @@ window.openCreatePeriodModal = function() {
       </div>
       <form id="form-create-billing-period">
         <div class="modal-body" style="padding: 1.25rem;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label">Mes del Periodo</label>
+              <select id="period-month-input" class="form-input" required>
+                ${monthOptions}
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label">Año del Periodo</label>
+              <input type="number" id="period-year-input" class="form-input" value="${currentYear}" required>
+            </div>
+          </div>
           <div class="form-group">
             <label class="form-label">Nombre del Periodo</label>
-            <input type="text" id="period-name-input" class="form-input" placeholder="Ej: MAYO 2026" required>
-            <small style="color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Utiliza formato MES AÑO (ej. JUNIO 2026).</small>
+            <input type="text" id="period-name-input" class="form-input" value="${initialName}" required>
+            <small style="color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Se auto-genera al cambiar el mes/año, pero puedes editarlo libremente.</small>
           </div>
           <div class="form-group">
             <label class="form-label">Estado Inicial</label>
@@ -5186,20 +5253,37 @@ window.openCreatePeriodModal = function() {
   document.body.appendChild(modal);
   setTimeout(() => modal.classList.add('active'), 10);
   
+  const monthSelect = document.getElementById('period-month-input');
+  const yearInput = document.getElementById('period-year-input');
+  const nameInput = document.getElementById('period-name-input');
+  
+  const updateName = () => {
+    const monthText = monthSelect.options[monthSelect.selectedIndex].text;
+    const yearVal = yearInput.value.trim();
+    if (yearVal) {
+      nameInput.value = `${monthText} ${yearVal}`;
+    }
+  };
+  
+  monthSelect.addEventListener('change', updateName);
+  yearInput.addEventListener('input', updateName);
+  
   document.getElementById('form-create-billing-period').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('btn-submit-create-period');
     btn.disabled = true;
     btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Creando...';
     
-    const name = document.getElementById('period-name-input').value.trim();
+    const name = nameInput.value.trim();
+    const month = parseInt(monthSelect.value, 10);
+    const year = parseInt(yearInput.value, 10);
     const status = document.getElementById('period-status-input').value;
     
     try {
       // 1. Crear el periodo en billing_periods
       const { data: period, error: periodErr } = await supabase
         .from('billing_periods')
-        .insert({ name, status })
+        .insert({ name, status, period_month: month, period_year: year })
         .select()
         .single();
         
@@ -5686,3 +5770,349 @@ window.rejectPaymentReport = async function(reportId, commerce, monto, servicio)
     showSavingBadge(false);
   }
 };
+
+window.openEditPeriodModal = function(periodId, currentName, currentMonth, currentYear, currentStatus) {
+  let modal = document.getElementById('modal-edit-billing-period');
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-edit-billing-period';
+  modal.className = 'modal-overlay';
+  
+  const months = [
+    { val: 1, text: 'ENERO' },
+    { val: 2, text: 'FEBRERO' },
+    { val: 3, text: 'MARZO' },
+    { val: 4, text: 'ABRIL' },
+    { val: 5, text: 'MAYO' },
+    { val: 6, text: 'JUNIO' },
+    { val: 7, text: 'JULIO' },
+    { val: 8, text: 'AGOSTO' },
+    { val: 9, text: 'SEPTIEMBRE' },
+    { val: 10, text: 'OCTUBRE' },
+    { val: 11, text: 'NOVIEMBRE' },
+    { val: 12, text: 'DICIEMBRE' }
+  ];
+  
+  // Si currentMonth es nulo, intentar deducirlo
+  let selectedMonth = currentMonth;
+  let selectedYear = currentYear;
+  if (!selectedMonth || !selectedYear) {
+    const parts = currentName.split(' ');
+    selectedYear = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();
+    const mText = parts[0] ? parts[0].toUpperCase() : '';
+    const mMatch = months.find(m => m.text === mText);
+    selectedMonth = mMatch ? mMatch.val : 1;
+  }
+  
+  let monthOptions = months.map(m => `<option value="${m.val}" ${m.val === selectedMonth ? 'selected' : ''}>${m.text}</option>`).join('');
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i class="ri-edit-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Editar Periodo</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-edit-billing-period">
+        <div class="modal-body" style="padding: 1.25rem;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label">Mes del Periodo</label>
+              <select id="edit-period-month-input" class="form-input" required>
+                ${monthOptions}
+              </select>
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label">Año del Periodo</label>
+              <input type="number" id="edit-period-year-input" class="form-input" value="${selectedYear}" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del Periodo</label>
+            <input type="text" id="edit-period-name-input" class="form-input" value="${currentName}" required>
+            <small style="color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Se auto-genera al cambiar el mes/año, pero puedes editarlo libremente.</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Estado</label>
+            <select id="edit-period-status-input" class="form-input" required>
+              <option value="proximo" ${currentStatus === 'proximo' ? 'selected' : ''}>Próximo</option>
+              <option value="activo" ${currentStatus === 'activo' ? 'selected' : ''}>Activo</option>
+              <option value="en_proceso" ${currentStatus === 'en_proceso' ? 'selected' : ''}>En Proceso</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-edit-period"><i class="ri-save-line"></i> Guardar Cambios</button>
+        </div>
+      </form>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+  
+  const monthSelect = document.getElementById('edit-period-month-input');
+  const yearInput = document.getElementById('edit-period-year-input');
+  const nameInput = document.getElementById('edit-period-name-input');
+  
+  const updateName = () => {
+    const monthText = monthSelect.options[monthSelect.selectedIndex].text;
+    const yearVal = yearInput.value.trim();
+    if (yearVal) {
+      nameInput.value = `${monthText} ${yearVal}`;
+    }
+  };
+  
+  monthSelect.addEventListener('change', updateName);
+  yearInput.addEventListener('input', updateName);
+  
+  document.getElementById('form-edit-billing-period').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-submit-edit-period');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+    
+    const name = nameInput.value.trim();
+    const month = parseInt(monthSelect.value, 10);
+    const year = parseInt(yearInput.value, 10);
+    const status = document.getElementById('edit-period-status-input').value;
+    
+    try {
+      const { error } = await supabase
+        .from('billing_periods')
+        .update({ name, period_month: month, period_year: year, status })
+        .eq('id', periodId);
+        
+      if (error) throw error;
+      
+      alert('Periodo actualizado exitosamente.');
+      modal.remove();
+      await loadBillingPeriods();
+    } catch (err) {
+      console.error('Error updating period:', err);
+      alert('Error al actualizar periodo: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+    }
+  });
+};
+
+async function loadBillingMetricsDashboard() {
+  const container = document.getElementById('metrics-dashboard-container');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Calculando métricas y analizando datos de facturación...
+    </div>
+  `;
+  
+  try {
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*, billing_periods(name, status, period_month, period_year)');
+      
+    if (error) throw error;
+    
+    if (!records || records.length === 0) {
+      container.innerHTML = `
+        <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-bar-chart-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
+          <p style="font-weight: 500; font-size: 1rem; margin-bottom: 0.5rem;">No hay registros de facturación creados</p>
+          <p style="font-size: 0.85rem;">Para visualizar las métricas del dashboard, primero crea un periodo mensual y agrega cobros.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    let totalFacturado = 0;
+    let totalRecibido = 0;
+    let totalAtrasado = 0;
+    let totalProximo = 0;
+    
+    let totalFulf = 0;
+    let totalEnv = 0;
+    
+    const commerceMap = {};
+    const periodMap = {};
+    
+    records.forEach(r => {
+      const recTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
+      const recPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+      
+      const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      totalFacturado += recTotal;
+      totalRecibido += recPagado;
+      
+      totalFulf += (r.total_fulfillment || 0);
+      totalEnv += (r.enviame || 0);
+      
+      // Atrasado fulfillment
+      if (r.pago_fulfillment === 'Atrasado') {
+        totalAtrasado += pendingFulf;
+      } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
+        totalProximo += pendingFulf;
+      }
+      
+      // Atrasado enviame
+      if (r.pago_enviame === 'Atrasado') {
+        totalAtrasado += pendingEnv;
+      } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
+        totalProximo += pendingEnv;
+      }
+      
+      // Agrupar por comercio
+      if (!commerceMap[r.comercio]) {
+        commerceMap[r.comercio] = { name: r.comercio, total: 0, recibido: 0, pendiente: 0 };
+      }
+      commerceMap[r.comercio].total += recTotal;
+      commerceMap[r.comercio].recibido += recPagado;
+      commerceMap[r.comercio].pendiente += (recTotal - recPagado);
+      
+      // Agrupar por periodo
+      const periodId = r.period_id;
+      const periodName = r.billing_periods?.name || 'Desconocido';
+      let pMonth = r.billing_periods?.period_month;
+      let pYear = r.billing_periods?.period_year;
+      
+      // Fallback si son nulos en la base de datos
+      if (!pMonth || !pYear) {
+        const nameParts = periodName.split(' ');
+        pYear = nameParts[1] ? parseInt(nameParts[1], 10) : new Date().getFullYear();
+        
+        const mText = nameParts[0] ? nameParts[0].toUpperCase() : '';
+        const monthsMap = {
+          'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+          'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+          'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+        };
+        pMonth = monthsMap[mText] || 1;
+      }
+      
+      if (!periodMap[periodId]) {
+        periodMap[periodId] = { id: periodId, name: periodName, month: pMonth, year: pYear, total: 0, recibido: 0, pendiente: 0 };
+      }
+      periodMap[periodId].total += recTotal;
+      periodMap[periodId].recibido += recPagado;
+      periodMap[periodId].pendiente += (recTotal - recPagado);
+    });
+    
+    const recaudacionPercent = totalFacturado > 0 ? ((totalRecibido / totalFacturado) * 100).toFixed(1) : '0';
+    const fulfPercent = totalFacturado > 0 ? ((totalFulf / totalFacturado) * 100).toFixed(1) : '0';
+    const envPercent = totalFacturado > 0 ? ((totalEnv / totalFacturado) * 100).toFixed(1) : '0';
+    
+    // Ordenar comercios por total descendente (Top Facturadores)
+    const topCommerces = Object.values(commerceMap).sort((a, b) => b.total - a.total).slice(0, 5);
+    const maxCommerceTotal = topCommerces.length > 0 ? topCommerces[0].total : 1;
+    
+    // Ordenar periodos cronológicamente
+    const sortedPeriods = Object.values(periodMap).sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month));
+    
+    let periodsHtml = '';
+    sortedPeriods.forEach(p => {
+      const pRecPercent = p.total > 0 ? ((p.recibido / p.total) * 100).toFixed(0) : '0';
+      periodsHtml += `
+        <div style="margin-bottom: 1.25rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span style="font-weight: 600; color: var(--color-text-main);">${p.name}</span>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
+              ${window.formatCLP(p.recibido)} de ${window.formatCLP(p.total)} (${pRecPercent}%)
+            </span>
+          </div>
+          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
+            <div style="background: var(--color-success); height: 100%; width: ${pRecPercent}%;"></div>
+          </div>
+        </div>
+      `;
+    });
+    
+    let commercesHtml = '';
+    topCommerces.forEach(c => {
+      const cPercent = maxCommerceTotal > 0 ? ((c.total / maxCommerceTotal) * 100).toFixed(0) : '0';
+      commercesHtml += `
+        <div style="margin-bottom: 1.25rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.75rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span style="font-weight: 600; color: var(--color-text-main);">${c.name}</span>
+            <span style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">
+              ${window.formatCLP(c.total)}
+            </span>
+          </div>
+          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
+            <div style="background: var(--color-primary); height: 100%; width: ${cPercent}%;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+            <span>Recibido: ${window.formatCLP(c.recibido)}</span>
+            <span>Pendiente: ${window.formatCLP(c.pendiente)}</span>
+          </div>
+        </div>
+      `;
+    });
+    
+    container.innerHTML = `
+      <div class="billing-summary-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 1.5rem;">
+        <div class="billing-summary-card">
+          <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado</span>
+          <span class="billing-summary-value">${window.formatCLP(totalFacturado)}</span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+            Fulfillment: ${fulfPercent}% | Envíame: ${envPercent}%
+          </span>
+        </div>
+        <div class="billing-summary-card">
+          <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Recibido</span>
+          <span class="billing-summary-value" style="color: var(--color-success);">${window.formatCLP(totalRecibido)}</span>
+          <span style="font-size: 0.75rem; color: var(--color-success); margin-top: 0.25rem; font-weight: 600;">
+            ${recaudacionPercent}% recaudado
+          </span>
+        </div>
+        <div class="billing-summary-card">
+          <span class="billing-summary-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Total Atrasado</span>
+          <span class="billing-summary-value" style="color: var(--color-danger);">${window.formatCLP(totalAtrasado)}</span>
+          <span style="font-size: 0.75rem; color: var(--color-danger); margin-top: 0.25rem;">
+            Por cobrar vencidos
+          </span>
+        </div>
+        <div class="billing-summary-card">
+          <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Próximo a Recibir</span>
+          <span class="billing-summary-value" style="color: var(--color-warning);">${window.formatCLP(totalProximo)}</span>
+          <span style="font-size: 0.75rem; color: var(--color-warning); margin-top: 0.25rem;">
+            En espera y por solicitar
+          </span>
+        </div>
+      </div>
+      
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        <!-- Evolución Mensual -->
+        <div class="card" style="margin: 0;">
+          <div class="card-header">
+            <h3><i class="ri-history-line"></i> Evolución Mensual de Cobros</h3>
+          </div>
+          <div class="card-body" style="padding: 1.25rem;">
+            ${periodsHtml || '<p style="color: var(--color-text-muted); text-align: center;">No hay periodos suficientes</p>'}
+          </div>
+        </div>
+        
+        <!-- Top Facturadores -->
+        <div class="card" style="margin: 0;">
+          <div class="card-header">
+            <h3><i class="ri-trophy-line"></i> Top Facturadores (Comercios)</h3>
+          </div>
+          <div class="card-body" style="padding: 1.25rem;">
+            ${commercesHtml || '<p style="color: var(--color-text-muted); text-align: center;">No hay datos de comercios</p>'}
+          </div>
+        </div>
+      </div>
+    `;
+    
+  } catch (err) {
+    console.error('Error generating metrics dashboard:', err);
+    container.innerHTML = `
+      <div class="card" style="padding: 2rem; border-color: var(--color-danger); color: var(--color-danger);">
+        <p><strong>Error al generar métricas:</strong> ${err.message}</p>
+      </div>
+    `;
+  }
+}

@@ -6426,6 +6426,7 @@ window.renderBillingClient = async function() {
   
   // Ejecutar limpieza de comprobantes antiguos en segundo plano
   cleanOldReceiptsJS().catch(e => console.warn(e));
+  Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
   
   appContent.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
@@ -6758,7 +6759,7 @@ window.loadClientBillingData = async function(periodId) {
       </div>
 
       <div class="table-responsive">
-        <table class="data-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
+        <table class="data-table billing-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
           <thead>
             <tr>
               <th rowspan="2" class="col-group-divider" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>

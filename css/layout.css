@@ -298,8 +298,8 @@
   box-shadow: 0 1px 0 var(--color-border);
 }
 
-/* Fix for two-row sticky headers */
-.data-table thead tr:nth-child(2) th {
+/* Fix for two-row sticky headers in billing */
+.data-table.billing-table thead tr:nth-child(2) th {
   top: 38px; /* Approx height of first row */
   z-index: 9;
 }
