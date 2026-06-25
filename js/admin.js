@@ -86,7 +86,7 @@ async function init() {
     console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role, company_name, full_name, allowed_modules')
+      .select('role, company_name, full_name, allowed_modules, comercio')
       .eq('id', session.user.id)
       .single();
     
@@ -108,6 +108,11 @@ async function init() {
     if (userEmailSpan) {
       const displayName = profile?.full_name || user.user_metadata?.full_name || profile?.company_name || user.email;
       userEmailSpan.textContent = `${displayName} (ADMIN)`;
+    }
+
+    // Check billing suspension status for assigned commerce
+    if (profile && profile.comercio) {
+      checkBillingSuspension(profile.comercio);
     }
 
     // Navigation and Filtering
@@ -4316,6 +4321,7 @@ function injectBillingStyles() {
       appearance: none;
     }
     .status-green { background-color: rgba(16, 185, 129, 0.15) !important; color: #065f46 !important; border: 1px solid rgba(16, 185, 129, 0.3) !important; }
+    .status-green-light { background-color: rgba(52, 211, 153, 0.15) !important; color: #047857 !important; border: 1px solid rgba(52, 211, 153, 0.3) !important; }
     .status-gray { background-color: rgba(148, 163, 184, 0.15) !important; color: #475569 !important; border: 1px solid rgba(148, 163, 184, 0.3) !important; }
     .status-blue { background-color: rgba(59, 130, 246, 0.15) !important; color: #1e40af !important; border: 1px solid rgba(59, 130, 246, 0.3) !important; }
     .status-purple { background-color: rgba(139, 92, 246, 0.15) !important; color: #5b21b6 !important; border: 1px solid rgba(139, 92, 246, 0.3) !important; }
@@ -4379,6 +4385,29 @@ function injectBillingStyles() {
     .text-right {
       text-align: right;
     }
+    
+    .billing-tab-btn {
+      background: transparent;
+      border: none;
+      padding: 0.5rem 1rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+      border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s;
+    }
+    .billing-tab-btn.active {
+      color: var(--color-primary);
+      border-bottom-color: var(--color-primary);
+      font-weight: 600;
+    }
+    .billing-tab-btn:hover {
+      color: var(--color-text-main);
+    }
   `;
   document.head.appendChild(style);
 }
@@ -4386,9 +4415,10 @@ function injectBillingStyles() {
 function getStatusClass(val) {
   if (!val) return 'status-gray';
   const v = val.toLowerCase();
+  if (['sin movimientos'].includes(v)) return 'status-green-light';
   if (['enviado', 'emitida', 'aprobado'].includes(v)) return 'status-green';
   if (['creado'].includes(v)) return 'status-cyan';
-  if (['por generar', 'por solicitar', 'esperando', 'no se factura', 'sin movimientos'].includes(v)) return 'status-gray';
+  if (['por generar', 'por solicitar', 'esperando', 'no se factura'].includes(v)) return 'status-gray';
   if (['recibido'].includes(v)) return 'status-blue';
   if (['en espera'].includes(v)) return 'status-purple';
   if (['facturar'].includes(v)) return 'status-yellow';
@@ -4397,17 +4427,136 @@ function getStatusClass(val) {
   return 'status-gray';
 }
 
+async function checkBillingSuspension(companyStr) {
+  if (!companyStr) return;
+  try {
+    const list = companyStr.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.length === 0) return;
+    
+    const { data: mappings } = await supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name');
+    
+    const billingComercios = new Set();
+    list.forEach(c => {
+      const match = mappings?.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      billingComercios.add(match ? match.billing_name : c);
+    });
+    
+    const resolvedList = Array.from(billingComercios);
+    
+    const { data: statuses, error } = await supabase
+      .from('commerce_billing_status')
+      .select('comercio, al_dia')
+      .in('comercio', resolvedList);
+      
+    if (error) throw error;
+    
+    const pausedComercios = statuses?.filter(s => !s.al_dia).map(s => s.comercio) || [];
+    if (pausedComercios.length > 0) {
+      showSuspensionBanner(pausedComercios);
+    }
+  } catch (err) {
+    console.error('Error checking billing suspension:', err);
+  }
+}
+
+function showSuspensionBanner(pausedComercios) {
+  if (document.getElementById('billing-suspension-banner')) return;
+  const mainContent = document.querySelector('.main-content');
+  if (!mainContent) return;
+  
+  const banner = document.createElement('div');
+  banner.id = 'billing-suspension-banner';
+  banner.style.cssText = `
+    background-color: #ef4444; 
+    color: white; 
+    padding: 0.75rem 1.5rem; 
+    text-align: center; 
+    font-weight: 500; 
+    font-size: 0.9rem;
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    gap: 0.5rem;
+    border-bottom: 2px solid #b91c1c;
+  `;
+  banner.innerHTML = `
+    <i class="ri-error-warning-fill" style="font-size: 1.25rem;"></i>
+    <span><strong>Servicio Pausado:</strong> El comercio <strong>${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado. Por favor regularizar a la brevedad con nuestra área de finanzas a <a href="mailto:finanzas@stocka.cl" style="color: white; text-decoration: underline; font-weight: 700;">finanzas@stocka.cl</a>.</span>
+  `;
+  mainContent.insertBefore(banner, mainContent.firstChild);
+}
+
+window.toggleCommerceAlDia = async function(comercio, alDia) {
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('commerce_billing_status')
+      .upsert({ comercio, al_dia: alDia }, { onConflict: 'comercio' });
+    if (error) throw error;
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error updating commerce status:', err);
+    alert('Error al actualizar estado del comercio: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+async function cleanOldReceiptsJS() {
+  try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const { data: oldReports, error } = await supabase
+      .from('payment_reports')
+      .select('id, comprobante_url')
+      .neq('status', 'pendiente')
+      .not('comprobante_url', 'is', null)
+      .lt('created_at', sevenDaysAgo.toISOString());
+      
+    if (error) throw error;
+    
+    if (oldReports && oldReports.length > 0) {
+      console.log(`Eliminando ${oldReports.length} comprobantes antiguos...`);
+      
+      const filePaths = oldReports.map(rep => {
+        const parts = rep.comprobante_url.split('/payment_receipts/');
+        return parts.length > 1 ? parts[1] : null;
+      }).filter(Boolean);
+      
+      if (filePaths.length > 0) {
+        await supabase.storage
+          .from('payment_receipts')
+          .remove(filePaths);
+      }
+      
+      const ids = oldReports.map(rep => rep.id);
+      await supabase
+        .from('payment_reports')
+        .update({ comprobante_url: null })
+        .in('id', ids);
+    }
+  } catch (err) {
+    console.error('Error in cleanOldReceiptsJS:', err);
+  }
+}
+
 window.renderBillingAdmin = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
   
   injectBillingStyles();
   
+  // Ejecutar procesos automáticos de base de datos en segundo plano
+  cleanOldReceiptsJS().catch(e => console.warn(e));
+  Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
+  
   appContent.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
       <div>
         <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Control de Facturación</h3>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Gestiona periodos y registros de facturación de comercios</p>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Gestiona periodos, registros de facturación y avisos de pago de los comercios</p>
       </div>
       <div style="display: flex; gap: 0.75rem; align-items: center;">
         <span id="saving-badge" class="billing-saving-badge"><i class="ri-checkbox-circle-line"></i> Guardado</span>
@@ -4415,16 +4564,78 @@ window.renderBillingAdmin = async function() {
       </div>
     </div>
     
-    <div id="periods-list-container">
-      <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
-        Cargando periodos de facturación...
+    <!-- Tabs -->
+    <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem;">
+      <button class="billing-tab-btn active" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
+      <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
+    </div>
+    
+    <div id="tab-control-content">
+      <div id="periods-list-container">
+        <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+          Cargando periodos de facturación...
+        </div>
+      </div>
+    </div>
+    
+    <div id="tab-reports-content" style="display: none;">
+      <div class="card">
+        <div class="card-header">
+          <h3>Revisión de Avisos de Pago</h3>
+        </div>
+        <div class="card-body table-responsive" id="reports-list-container" style="padding: 0;">
+          <!-- Cargado dinámicamente -->
+        </div>
       </div>
     </div>
   `;
   
   await loadBillingPeriods();
+  await updatePendingReportsBadge();
 };
+
+window.switchBillingAdminTab = function(tabName) {
+  const tabControlBtn = document.getElementById('tab-control-btn');
+  const tabReportsBtn = document.getElementById('tab-reports-btn');
+  const contentControl = document.getElementById('tab-control-content');
+  const contentReports = document.getElementById('tab-reports-content');
+  
+  if (tabName === 'control') {
+    tabControlBtn.classList.add('active');
+    tabReportsBtn.classList.remove('active');
+    contentControl.style.display = 'block';
+    contentReports.style.display = 'none';
+    loadBillingPeriods();
+  } else {
+    tabControlBtn.classList.remove('active');
+    tabReportsBtn.classList.add('active');
+    contentControl.style.display = 'none';
+    contentReports.style.display = 'block';
+    loadPendingPaymentReports();
+  }
+};
+
+async function updatePendingReportsBadge() {
+  try {
+    const { count, error } = await supabase
+      .from('payment_reports')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pendiente');
+    if (error) throw error;
+    const badge = document.getElementById('pending-reports-badge');
+    if (badge) {
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Error updating pending reports badge:', err);
+  }
+}
 
 async function loadBillingPeriods() {
   const container = document.getElementById('periods-list-container');
@@ -4562,6 +4773,7 @@ window.togglePeriodCollapse = async function(periodId, cardElement) {
 
 async function loadBillingRecords(periodId, bodyElement) {
   try {
+    // 1. Obtener registros de facturación
     const { data: records, error } = await supabase
       .from('billing_records')
       .select('*')
@@ -4569,6 +4781,20 @@ async function loadBillingRecords(periodId, bodyElement) {
       .order('comercio', { ascending: true });
       
     if (error) throw error;
+    
+    // 2. Obtener estados de comercio ("Al día")
+    const { data: statuses, error: statusErr } = await supabase
+      .from('commerce_billing_status')
+      .select('*');
+      
+    if (statusErr) console.warn('Error fetching commerce status:', statusErr);
+    
+    const statusMap = {};
+    if (statuses) {
+      statuses.forEach(s => {
+        statusMap[s.comercio] = s.al_dia;
+      });
+    }
     
     if (!records || records.length === 0) {
       bodyElement.innerHTML = `
@@ -4585,15 +4811,22 @@ async function loadBillingRecords(periodId, bodyElement) {
     let tableRows = '';
     records.forEach(r => {
       const total = (r.total_fulfillment || 0) + (r.enviame || 0);
+      const alDia = statusMap[r.comercio] !== false; // Default true
+      
       tableRows += `
-        <tr id="row-${r.id}">
+        <tr id="row-${r.id}" class="billing-record-row" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-divider" style="vertical-align: middle; text-align: center;">
+            <input type="checkbox" ${alDia ? 'checked' : ''} onchange="toggleCommerceAlDia('${r.comercio}', this.checked)" title="Marcar Al Día">
+          </td>
+          
+          <!-- Fulfillment -->
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <input type="date" value="${r.fecha_limite || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite', this.value)" style="width: 125px;">
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.desglose_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
               <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
               <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Enviado</option>
@@ -4602,13 +4835,13 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <input type="number" value="${r.total_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'total_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <input type="number" value="${r.abono_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
               <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
               <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
@@ -4620,7 +4853,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')">
               <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
               <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
@@ -4629,16 +4862,21 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-fulf col-group-divider" style="vertical-align: middle;">
             <input type="number" value="${r.num_factura || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
           </td>
-          <td style="vertical-align: middle;">
+          
+          <!-- Envíame -->
+          <td class="col-group-env" style="vertical-align: middle;">
+            <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value)" style="width: 125px;">
+          </td>
+          <td class="col-group-env" style="vertical-align: middle;">
             <input type="number" value="${r.enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-env" style="vertical-align: middle;">
             <input type="number" value="${r.abono_enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-env" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
               <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
               <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
@@ -4650,7 +4888,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-env" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')">
               <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
               <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
@@ -4659,10 +4897,11 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td style="vertical-align: middle;">
+          <td class="col-group-env col-group-divider" style="vertical-align: middle;">
             <input type="number" value="${r.num_factura_enviame || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
           </td>
-          <td id="total-${r.id}" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+          
+          <td id="total-${r.id}" class="col-group-divider" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
             ${formatCLP(total)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
@@ -4675,24 +4914,92 @@ async function loadBillingRecords(periodId, bodyElement) {
     });
     
     bodyElement.innerHTML = `
-        <table class="data-table" style="min-width: 1500px; font-size: 0.825rem;">
+        <!-- Filtros rápidos -->
+        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Fulf:</label>
+            <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
+              <option value="">Todos</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Fulf:</label>
+            <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
+              <option value="">Todos</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Env:</label>
+            <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
+              <option value="">Todos</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Env:</label>
+            <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
+              <option value="">Todos</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+        </div>
+
+        <table class="data-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 150px;">Comercio</th>
-              <th style="min-width: 130px;">Fecha Límite</th>
-              <th style="min-width: 130px;">Desglose FULF</th>
-              <th style="min-width: 110px;">Total FULF</th>
-              <th style="min-width: 110px;">Abonos FULF</th>
-              <th style="min-width: 140px;">Pago FULF</th>
-              <th style="min-width: 140px;">Factura FULF</th>
-              <th style="min-width: 80px;">N°Fact</th>
-              <th style="min-width: 110px;">Enviame</th>
-              <th style="min-width: 110px;">Abono ENV.</th>
-              <th style="min-width: 140px;">Pago ENV.</th>
-              <th style="min-width: 140px;">Fact. ENV.</th>
-              <th style="min-width: 80px;">N°Fact ENV</th>
-              <th style="min-width: 120px; text-align: right;">Total</th>
-              <th style="width: 50px; text-align: center;">Acción</th>
+              <th rowspan="2" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
+              <th rowspan="2" class="col-group-divider" style="min-width: 70px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Al Día</th>
+              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
+              <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
+              <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
+              <th rowspan="2" style="width: 50px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
+            </tr>
+            <tr>
+              <!-- Fulfillment fields -->
+              <th class="col-group-fulf" style="min-width: 125px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Desglose</th>
+              <th class="col-group-fulf" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
+              <th class="col-group-fulf" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
+              <th class="col-group-fulf" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
+              <th class="col-group-fulf" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
+              <th class="col-group-fulf col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
+              
+              <!-- Envíame fields -->
+              <th class="col-group-env" style="min-width: 125px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th class="col-group-env" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
+              <th class="col-group-env" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
+              <th class="col-group-env" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
+              <th class="col-group-env" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
+              <th class="col-group-env col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
             </tr>
           </thead>
           <tbody>
@@ -4711,9 +5018,61 @@ async function loadBillingRecords(periodId, bodyElement) {
   }
 }
 
+window.filterBillingRows = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+  
+  const filterPagoFulf = container.querySelector('.filter-pago-fulf').value;
+  const filterFactFulf = container.querySelector('.filter-fact-fulf').value;
+  const filterPagoEnv = container.querySelector('.filter-pago-env').value;
+  const filterFactEnv = container.querySelector('.filter-fact-env').value;
+  
+  const rows = container.querySelectorAll('.billing-record-row');
+  rows.forEach(row => {
+    const pagoFulf = row.getAttribute('data-pago-fulf') || '';
+    const factFulf = row.getAttribute('data-fact-fulf') || '';
+    const pagoEnv = row.getAttribute('data-pago-env') || '';
+    const factEnv = row.getAttribute('data-fact-env') || '';
+    
+    const matchPagoFulf = !filterPagoFulf || pagoFulf === filterPagoFulf;
+    const matchFactFulf = !filterFactFulf || factFulf === filterFactFulf;
+    const matchPagoEnv = !filterPagoEnv || pagoEnv === filterPagoEnv;
+    const matchFactEnv = !filterFactEnv || factEnv === filterFactEnv;
+    
+    if (matchPagoFulf && matchFactFulf && matchPagoEnv && matchFactEnv) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+};
+
 window.updateSelectField = function(selectEl, recordId, fieldName) {
   const val = selectEl.value;
   selectEl.className = 'billing-select ' + getStatusClass(val);
+  
+  const row = document.getElementById(`row-${recordId}`);
+  if (row) {
+    row.setAttribute(`data-${fieldName.replace('_', '-')}`, val);
+    
+    // Auto-fill abono locally if status is marked Recibido
+    if (val === 'Recibido') {
+      if (fieldName === 'pago_fulfillment') {
+        const totalInput = row.querySelector('input[onblur*="total_fulfillment"]');
+        const abonoInput = row.querySelector('input[onblur*="abono_fulfillment"]');
+        if (totalInput && abonoInput) {
+          abonoInput.value = totalInput.value;
+        }
+      } else if (fieldName === 'pago_enviame') {
+        const totalInput = row.querySelector('input[onblur*="enviame"]');
+        const abonoInput = row.querySelector('input[onblur*="abono_enviame"]');
+        if (totalInput && abonoInput) {
+          abonoInput.value = totalInput.value;
+        }
+      }
+    }
+  }
+  
   saveField(recordId, fieldName, val);
 };
 
@@ -4966,11 +5325,24 @@ window.openAddCommerceModal = async function(periodId) {
     if (!comercio) return;
     
     try {
+      // Resolver mappings
+      let nameToUse = comercio;
+      try {
+        const { data: mapping } = await supabase
+          .from('billing_mappings')
+          .select('billing_name')
+          .eq('comercio_nombre', comercio)
+          .maybeSingle();
+        if (mapping) nameToUse = mapping.billing_name;
+      } catch (err) {
+        console.warn('Error resolving billing mapping:', err);
+      }
+      
       const { error } = await supabase
         .from('billing_records')
         .insert({
           period_id: periodId,
-          comercio: comercio,
+          comercio: nameToUse,
           total_fulfillment: 0,
           abono_fulfillment: 0,
           enviame: 0,
@@ -5079,13 +5451,14 @@ window.exportPeriodToExcel = async function(periodId, periodName) {
     
     const rows = records.map(r => ({
       'Comercio': r.comercio,
-      'Fecha Límite': r.fecha_limite || '-',
+      'Fecha Límite Fulf.': r.fecha_limite || '-',
       'Desglose Fulf.': r.desglose_fulfillment || '-',
       'Total Fulf.': r.total_fulfillment || 0,
       'Abonos Fulf.': r.abono_fulfillment || 0,
       'Pago Fulf.': r.pago_fulfillment || '-',
       'Factura Fulf.': r.factura_fulfillment || '-',
       'N° Factura Fulf.': r.num_factura || '-',
+      'Fecha Límite Env.': r.fecha_limite_enviame || '-',
       'Enviame': r.enviame || 0,
       'Abono Env.': r.abono_enviame || 0,
       'Pago Env.': r.pago_enviame || '-',
@@ -5108,3 +5481,208 @@ window.exportPeriodToExcel = async function(periodId, periodName) {
   }
 };
 
+async function loadPendingPaymentReports() {
+  const container = document.getElementById('reports-list-container');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Cargando avisos de pago pendientes...
+    </div>
+  `;
+  
+  try {
+    const { data: reports, error } = await supabase
+      .from('payment_reports')
+      .select('*, billing_periods(name)')
+      .eq('status', 'pendiente')
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    
+    // Update badge count
+    const badge = document.getElementById('pending-reports-badge');
+    if (badge) {
+      if (reports.length > 0) {
+        badge.textContent = reports.length;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    
+    if (!reports || reports.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-checkbox-circle-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-success);"></i>
+          No hay avisos de pago pendientes de revisión.
+        </div>
+      `;
+      return;
+    }
+    
+    let rows = '';
+    reports.forEach(rep => {
+      const periodName = rep.billing_periods?.name || 'Desconocido';
+      rows += `
+        <tr>
+          <td style="font-weight: 600; color: var(--color-text-main);">${rep.comercio}</td>
+          <td>${periodName}</td>
+          <td>${new Date(rep.fecha_pago + 'T00:00:00').toLocaleDateString()}</td>
+          <td style="font-weight: 600;">$${rep.monto.toLocaleString('es-CL')}</td>
+          <td style="text-transform: capitalize;">${rep.servicio}</td>
+          <td>
+            ${rep.comprobante_url ? `
+              <a href="${rep.comprobante_url}" target="_blank" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-file-text-line"></i> Ver Comprobante
+              </a>
+            ` : '-'}
+          </td>
+          <td>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="btn btn-primary btn-sm" onclick="approvePaymentReport('${rep.id}', '${rep.period_id}', '${rep.comercio}', '${rep.servicio}', ${rep.monto})" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-check-line"></i> Aprobar
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="rejectPaymentReport('${rep.id}', '${rep.comercio}', ${rep.monto}, '${rep.servicio}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-close-line"></i> Rechazar
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+    
+    container.innerHTML = `
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Comercio</th>
+            <th>Periodo</th>
+            <th>Fecha Pago</th>
+            <th>Monto</th>
+            <th>Servicio</th>
+            <th>Comprobante</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    console.error('Error loading pending payment reports:', err);
+    container.innerHTML = `
+      <div style="padding: 2rem; color: var(--color-danger); text-align: center;">
+        Error al cargar avisos de pago: ${err.message}
+      </div>
+    `;
+  }
+}
+
+window.approvePaymentReport = async function(reportId, periodId, commerce, servicio, monto) {
+  if (!confirm(`¿Aprobar el pago de $${monto.toLocaleString('es-CL')} de ${commerce} para ${servicio}?`)) return;
+  showSavingBadge(true);
+  try {
+    const { data: record, error: getErr } = await supabase
+      .from('billing_records')
+      .select('id, total_fulfillment, enviame')
+      .eq('period_id', periodId)
+      .eq('comercio', commerce)
+      .single();
+      
+    if (getErr) throw getErr;
+    
+    const updates = {};
+    if (servicio === 'fulfillment' || servicio === 'ambos') {
+      updates.pago_fulfillment = 'Recibido';
+      updates.abono_fulfillment = record.total_fulfillment;
+    }
+    if (servicio === 'enviame' || servicio === 'ambos') {
+      updates.pago_enviame = 'Recibido';
+      updates.abono_enviame = record.enviame;
+    }
+    
+    const { error: updErr } = await supabase
+      .from('billing_records')
+      .update(updates)
+      .eq('id', record.id);
+      
+    if (updErr) throw updErr;
+    
+    const { error: repErr } = await supabase
+      .from('payment_reports')
+      .update({ status: 'aprobado' })
+      .eq('id', reportId);
+      
+    if (repErr) throw repErr;
+    
+    const { data: users } = await supabase.from('profiles').select('id, comercio');
+    const targetUsers = users?.filter(u => {
+      const list = u.comercio ? u.comercio.split(',').map(x => x.trim()) : [];
+      return list.includes(commerce) || u.comercio === 'all';
+    }) || [];
+    
+    for (const u of targetUsers) {
+      await supabase.from('dashboard_notifications').insert({
+        user_id: u.id,
+        target_role: 'client',
+        title: `Reporte de pago aprobado - ${commerce}`,
+        message: `El reporte de pago por $${monto.toLocaleString('es-CL')} para el servicio ${servicio} ha sido aprobado exitosamente.`,
+        is_read: false
+      });
+    }
+    
+    alert('Reporte de pago aprobado y registro de facturación actualizado.');
+    await loadPendingPaymentReports();
+    showSavingBadge(false);
+  } catch (err) {
+    console.error('Error approving payment report:', err);
+    alert('Error al aprobar el pago: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.rejectPaymentReport = async function(reportId, commerce, monto, servicio) {
+  const reason = prompt(`Introduce el motivo de rechazo del pago de $${monto.toLocaleString('es-CL')} de ${commerce}:`);
+  if (reason === null) return;
+  if (!reason.trim()) {
+    alert('Debes indicar un motivo de rechazo.');
+    return;
+  }
+  
+  showSavingBadge(true);
+  try {
+    const { error: repErr } = await supabase
+      .from('payment_reports')
+      .update({ status: 'rechazado', motivo_rechazo: reason })
+      .eq('id', reportId);
+      
+    if (repErr) throw repErr;
+    
+    const { data: users } = await supabase.from('profiles').select('id, comercio');
+    const targetUsers = users?.filter(u => {
+      const list = u.comercio ? u.comercio.split(',').map(x => x.trim()) : [];
+      return list.includes(commerce) || u.comercio === 'all';
+    }) || [];
+    
+    for (const u of targetUsers) {
+      await supabase.from('dashboard_notifications').insert({
+        user_id: u.id,
+        target_role: 'client',
+        title: `Reporte de pago rechazado - ${commerce}`,
+        message: `El reporte de pago por $${monto.toLocaleString('es-CL')} para el servicio ${servicio} fue rechazado. Motivo: ${reason}`,
+        is_read: false
+      });
+    }
+    
+    alert('Reporte de pago rechazado y notificado al cliente.');
+    await loadPendingPaymentReports();
+    showSavingBadge(false);
+  } catch (err) {
+    console.error('Error rejecting payment report:', err);
+    alert('Error al rechazar el pago: ' + err.message);
+    showSavingBadge(false);
+  }
+};

@@ -248,7 +248,7 @@
   box-shadow: var(--shadow-sm);
   margin-bottom: 2rem;
   border: 1px solid var(--color-border);
-  overflow: hidden;
+  overflow: clip;
 }
 
 .card-header {
@@ -279,6 +279,12 @@
   font-size: 0.875rem;
 }
 
+.table-responsive {
+  width: 100%;
+  overflow: auto;
+  max-height: calc(100vh - 240px);
+}
+
 .data-table th {
   font-weight: 600;
   color: var(--color-text-muted);
@@ -290,6 +296,39 @@
   top: 0;
   z-index: 10;
   box-shadow: 0 1px 0 var(--color-border);
+}
+
+/* Fix for two-row sticky headers */
+.data-table thead tr:nth-child(2) th {
+  top: 38px; /* Approx height of first row */
+  z-index: 9;
+}
+
+/* Column Group Styling */
+.col-group-fulf {
+  background-color: rgba(59, 130, 246, 0.02) !important;
+}
+.col-group-env {
+  background-color: rgba(16, 185, 129, 0.02) !important;
+}
+.col-group-divider {
+  border-right: 1px solid var(--color-border) !important;
+}
+.data-table tbody tr:hover .col-group-fulf {
+  background-color: rgba(59, 130, 246, 0.05) !important;
+}
+.data-table tbody tr:hover .col-group-env {
+  background-color: rgba(16, 185, 129, 0.05) !important;
+}
+.th-group-fulf {
+  background-color: rgba(59, 130, 246, 0.06) !important;
+  color: #60a5fa !important;
+  border-bottom: 2px solid #3b82f6 !important;
+}
+.th-group-env {
+  background-color: rgba(16, 185, 129, 0.06) !important;
+  color: #34d399 !important;
+  border-bottom: 2px solid #10b981 !important;
 }
 
 .data-table tbody tr {

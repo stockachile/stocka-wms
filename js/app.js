@@ -142,6 +142,9 @@ async function init() {
       if (profile) {
         userRole = profile.role || 'observer';
         currentCompany = profile.comercio || null;
+        if (currentCompany) {
+          checkBillingSuspension(currentCompany);
+        }
       }
     }
 
@@ -6421,6 +6424,9 @@ window.renderBillingClient = async function() {
   
   injectClientBillingStyles();
   
+  // Ejecutar limpieza de comprobantes antiguos en segundo plano
+  cleanOldReceiptsJS().catch(e => console.warn(e));
+  
   appContent.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
       <div>
@@ -6463,6 +6469,18 @@ window.renderBillingClient = async function() {
         </div>
       </div>
     </div>
+
+    <!-- Historial de Avisos de Pago -->
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-header">
+        <h3>Historial de Avisos de Pago</h3>
+      </div>
+      <div class="card-body table-responsive" id="client-reports-table-body" style="padding: 0;">
+        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          Cargando avisos de pago...
+        </div>
+      </div>
+    </div>
   `;
   
   await initClientPeriodSelect();
@@ -6487,6 +6505,11 @@ async function initClientPeriodSelect() {
           No se registran periodos de facturación creados en el sistema.
         </div>
       `;
+      document.getElementById('client-reports-table-body').innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          No hay avisos de pago para mostrar.
+        </div>
+      `;
       return;
     }
     
@@ -6505,6 +6528,7 @@ async function initClientPeriodSelect() {
 
 window.loadClientBillingData = async function(periodId) {
   const tableContainer = document.getElementById('client-billing-table-body');
+  const reportsContainer = document.getElementById('client-reports-table-body');
   if (!tableContainer || !periodId) return;
   
   tableContainer.innerHTML = `
@@ -6524,6 +6548,13 @@ window.loadClientBillingData = async function(periodId) {
           No tienes comercios asociados en tu perfil de usuario. Contacta a soporte.
         </div>
       `;
+      if (reportsContainer) {
+        reportsContainer.innerHTML = `
+          <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+            Sin registros de comercios.
+          </div>
+        `;
+      }
       return;
     }
     
@@ -6565,6 +6596,13 @@ window.loadClientBillingData = async function(periodId) {
           No se registran datos de facturación para tus comercios en este mes.
         </div>
       `;
+      if (reportsContainer) {
+        reportsContainer.innerHTML = `
+          <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+            No hay avisos de pago para mostrar.
+          </div>
+        `;
+      }
       return;
     }
     
@@ -6575,53 +6613,82 @@ window.loadClientBillingData = async function(periodId) {
     records.forEach(r => {
       const recordTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
       const recordPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+      const pendingFulfillment = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const pendingEnviame = (r.enviame || 0) - (r.abono_enviame || 0);
+      const recordPending = recordTotal - recordPagado;
       
       totalFacturado += recordTotal;
       totalPagado += recordPagado;
       
+      let actionBtn = '';
+      if (recordPending > 0) {
+        actionBtn = `
+          <button class="btn btn-primary btn-sm" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', ${pendingFulfillment}, ${pendingEnviame})" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+            <i class="ri-wallet-3-line"></i> Informar Pago
+          </button>
+        `;
+      } else {
+        actionBtn = `
+          <span style="color: var(--color-success); font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Pagado
+          </span>
+        `;
+      }
+      
       tableRows += `
-        <tr>
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+        <tr class="billing-record-row" id="row-${r.id}" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
+          <td class="col-group-divider" style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
-          <td style="vertical-align: middle; color: var(--color-text-muted);">
+          <!-- Fulfillment fields -->
+          <td class="col-group-fulf" style="vertical-align: middle; color: var(--color-text-muted);">
             ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
           </td>
-          <td style="vertical-align: middle; text-align: center;">
+          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}">${r.desglose_fulfillment || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
-            ${formatCLP(r.total_fulfillment)}
+          <td class="col-group-fulf" style="vertical-align: middle; text-align: right; font-weight: 500;">
+            ${window.formatCLP(r.total_fulfillment)}
           </td>
-          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
-            ${formatCLP(r.abono_fulfillment)}
+          <td class="col-group-fulf" style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+            ${window.formatCLP(r.abono_fulfillment)}
           </td>
-          <td style="vertical-align: middle; text-align: center;">
+          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center;">
+          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+          <td class="col-group-fulf col-group-divider" style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
             ${r.num_factura || '-'}
           </td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
-            ${formatCLP(r.enviame)}
+          
+          <!-- Envíame fields -->
+          <td class="col-group-env" style="vertical-align: middle; color: var(--color-text-muted);">
+            ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
           </td>
-          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
-            ${formatCLP(r.abono_enviame)}
+          <td class="col-group-env" style="vertical-align: middle; text-align: right; font-weight: 500;">
+            ${window.formatCLP(r.enviame)}
           </td>
-          <td style="vertical-align: middle; text-align: center;">
+          <td class="col-group-env" style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+            ${window.formatCLP(r.abono_enviame)}
+          </td>
+          <td class="col-group-env" style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_enviame)}">${r.pago_enviame || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center;">
+          <td class="col-group-env" style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+          <td class="col-group-env col-group-divider" style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
             ${r.num_factura_enviame || '-'}
           </td>
-          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
-            ${formatCLP(recordTotal)}
+          
+          <!-- Total -->
+          <td class="col-group-divider" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+            ${window.formatCLP(recordTotal)}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            ${actionBtn}
           </td>
         </tr>
       `;
@@ -6631,24 +6698,92 @@ window.loadClientBillingData = async function(periodId) {
     updateSummaryCards(totalFacturado, totalPagado, saldoPendiente);
     
     tableContainer.innerHTML = `
+      <!-- Filtros rápidos -->
+      <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
+        
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Fulf:</label>
+          <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+            <option value="">Todos</option>
+            <option value="Por solicitar">Por solicitar</option>
+            <option value="Recibido">Recibido</option>
+            <option value="En espera">En espera</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="abono">Abono</option>
+            <option value="aprobado">Aprobado</option>
+            <option value="incobrable">Incobrable</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Fulf:</label>
+          <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+            <option value="">Todos</option>
+            <option value="Esperando">Esperando</option>
+            <option value="No se factura">No se factura</option>
+            <option value="Emitida">Emitida</option>
+            <option value="Facturar">Facturar</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Env:</label>
+          <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+            <option value="">Todos</option>
+            <option value="Por solicitar">Por solicitar</option>
+            <option value="Recibido">Recibido</option>
+            <option value="En espera">En espera</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="abono">Abono</option>
+            <option value="aprobado">Aprobado</option>
+            <option value="incobrable">Incobrable</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+        
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Env:</label>
+          <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+            <option value="">Todos</option>
+            <option value="Esperando">Esperando</option>
+            <option value="No se factura">No se factura</option>
+            <option value="Emitida">Emitida</option>
+            <option value="Facturar">Facturar</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+      </div>
+
       <div class="table-responsive">
-        <table class="data-table" style="min-width: 1400px; font-size: 0.85rem;">
+        <table class="data-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 150px;">Comercio</th>
-              <th style="min-width: 120px;">Fecha Límite</th>
-              <th style="min-width: 120px; text-align: center;">Desglose Fulf.</th>
-              <th style="min-width: 110px; text-align: right;">Total Fulf.</th>
-              <th style="min-width: 110px; text-align: right;">Abono Fulf.</th>
-              <th style="min-width: 130px; text-align: center;">Estado Pago</th>
-              <th style="min-width: 130px; text-align: center;">Factura Fulf.</th>
-              <th style="min-width: 80px; text-align: center;">N° Fact.</th>
-              <th style="min-width: 110px; text-align: right;">Enviame</th>
-              <th style="min-width: 110px; text-align: right;">Abono Env.</th>
-              <th style="min-width: 130px; text-align: center;">Estado Pago Env.</th>
-              <th style="min-width: 130px; text-align: center;">Factura Env.</th>
-              <th style="min-width: 80px; text-align: center;">N° Fact. Env</th>
-              <th style="min-width: 120px; text-align: right;">Total Mes</th>
+              <th rowspan="2" class="col-group-divider" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
+              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
+              <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
+              <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
+              <th rowspan="2" style="min-width: 130px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
+            </tr>
+            <tr>
+              <!-- Fulfillment fields -->
+              <th class="col-group-fulf" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th class="col-group-fulf" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Desglose</th>
+              <th class="col-group-fulf" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
+              <th class="col-group-fulf" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
+              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
+              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
+              <th class="col-group-fulf col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
+              
+              <!-- Envíame fields -->
+              <th class="col-group-env" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th class="col-group-env" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
+              <th class="col-group-env" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
+              <th class="col-group-env" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
+              <th class="col-group-env" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
+              <th class="col-group-env col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
             </tr>
           </thead>
           <tbody>
@@ -6657,6 +6792,9 @@ window.loadClientBillingData = async function(periodId) {
         </table>
       </div>
     `;
+    
+    // 4. Consultar y listar reportes de pago de estos comercios para el periodo
+    await loadClientPaymentReports(periodId, resolvedCompanyList);
     
   } catch (err) {
     console.error('Error loading client billing records:', err);
@@ -6668,22 +6806,304 @@ window.loadClientBillingData = async function(periodId) {
   }
 };
 
+async function loadClientPaymentReports(periodId, resolvedCompanyList) {
+  const reportsContainer = document.getElementById('client-reports-table-body');
+  if (!reportsContainer) return;
+  
+  try {
+    const { data: reports, error } = await supabase
+      .from('payment_reports')
+      .select('*')
+      .eq('period_id', periodId)
+      .in('comercio', resolvedCompanyList)
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    
+    if (!reports || reports.length === 0) {
+      reportsContainer.innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          No has registrado avisos de pago para este periodo.
+        </div>
+      `;
+      return;
+    }
+    
+    let rows = '';
+    reports.forEach(rep => {
+      let statusClass = 'client-badge-gray';
+      if (rep.status === 'aprobado') statusClass = 'client-badge-green';
+      if (rep.status === 'rechazado') statusClass = 'client-badge-red';
+      
+      let statusLabel = rep.status.toUpperCase();
+      if (rep.status === 'pendiente') statusLabel = 'PENDIENTE';
+      if (rep.status === 'aprobado') statusLabel = 'APROBADO';
+      if (rep.status === 'rechazado') statusLabel = 'RECHAZADO';
+      
+      const statusBadge = `<span class="client-badge ${statusClass}">${statusLabel}</span>`;
+      
+      let rejectionDetail = '';
+      if (rep.status === 'rechazado' && rep.motivo_rechazo) {
+        rejectionDetail = `<div style="font-size: 0.75rem; color: var(--color-danger); margin-top: 0.25rem;"><strong>Motivo:</strong> ${rep.motivo_rechazo}</div>`;
+      }
+      
+      rows += `
+        <tr>
+          <td style="font-weight: 600; color: var(--color-text-main);">${rep.comercio}</td>
+          <td>${new Date(rep.fecha_pago + 'T00:00:00').toLocaleDateString()}</td>
+          <td style="font-weight: 600;">${window.formatCLP(rep.monto)}</td>
+          <td style="text-transform: capitalize;">${rep.servicio}</td>
+          <td>
+            ${rep.comprobante_url ? `
+              <a href="${rep.comprobante_url}" target="_blank" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-file-text-line"></i> Ver Comprobante
+              </a>
+            ` : '-'}
+          </td>
+          <td>
+            ${statusBadge}
+            ${rejectionDetail}
+          </td>
+        </tr>
+      `;
+    });
+    
+    reportsContainer.innerHTML = `
+      <table class="data-table" style="font-size: 0.85rem;">
+        <thead>
+          <tr>
+            <th>Comercio</th>
+            <th>Fecha Pago</th>
+            <th>Monto</th>
+            <th>Servicio</th>
+            <th>Comprobante</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+      </table>
+    `;
+  } catch (err) {
+    console.error('Error loading client payment reports:', err);
+    reportsContainer.innerHTML = `
+      <div style="padding: 1rem; color: var(--color-danger); text-align: center;">
+        Error al cargar historial de avisos de pago: ${err.message}
+      </div>
+    `;
+  }
+}
+
+window.filterBillingRowsClient = function() {
+  const filterPagoFulf = document.querySelector('.filter-pago-fulf').value;
+  const filterFactFulf = document.querySelector('.filter-fact-fulf').value;
+  const filterPagoEnv = document.querySelector('.filter-pago-env').value;
+  const filterFactEnv = document.querySelector('.filter-fact-env').value;
+  
+  const rows = document.querySelectorAll('.billing-record-row');
+  rows.forEach(row => {
+    const pagoFulf = row.getAttribute('data-pago-fulf') || '';
+    const factFulf = row.getAttribute('data-fact-fulf') || '';
+    const pagoEnv = row.getAttribute('data-pago-env') || '';
+    const factEnv = row.getAttribute('data-fact-env') || '';
+    
+    const matchPagoFulf = !filterPagoFulf || pagoFulf === filterPagoFulf;
+    const matchFactFulf = !filterFactFulf || factFulf === filterFactFulf;
+    const matchPagoEnv = !filterPagoEnv || pagoEnv === filterPagoEnv;
+    const matchFactEnv = !filterFactEnv || factEnv === filterFactEnv;
+    
+    if (matchPagoFulf && matchFactFulf && matchPagoEnv && matchFactEnv) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+};
+
+window.abrirModalInformarPago = function(periodId, recordId, comercio, pendingFulfillment, pendingEnviame) {
+  let modal = document.getElementById('modal-informar-pago');
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-informar-pago';
+  modal.className = 'modal-overlay';
+  
+  const defaultMonto = Math.max(0, pendingFulfillment) + Math.max(0, pendingEnviame);
+  const todayStr = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD local format
+  
+  let serviceOptions = '';
+  if (pendingFulfillment > 0 && pendingEnviame > 0) {
+    serviceOptions = `
+      <option value="ambos">Ambos (Fulfillment y Envíame)</option>
+      <option value="fulfillment">Sólo Fulfillment</option>
+      <option value="enviame">Sólo Envíame</option>
+    `;
+  } else if (pendingFulfillment > 0) {
+    serviceOptions = `<option value="fulfillment" selected>Fulfillment</option>`;
+  } else if (pendingEnviame > 0) {
+    serviceOptions = `<option value="enviame" selected>Envíame</option>`;
+  } else {
+    serviceOptions = `<option value="ambos" selected>Ambos</option>`;
+  }
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">Informar Pago</h3>
+        <button class="modal-close" id="btn-close-informar-pago-x">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size: 0.95rem; color: var(--color-text-main); line-height: 1.6; overflow-y: auto; flex: 1; padding: 1.25rem;">
+        <div style="margin-bottom: 1rem;">
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Comercio:</label>
+          <input type="text" class="form-input" value="${comercio}" disabled style="background-color: var(--color-bg); opacity: 0.8;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600;">Monto del Pago (CLP):</label>
+          <input type="number" id="modal-monto-pago" class="form-input" value="${defaultMonto}" required placeholder="Monto abonado">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600;">Fecha de Pago:</label>
+          <input type="date" id="modal-fecha-pago" class="form-input" value="${todayStr}" required>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600;">Servicio Correspondiente:</label>
+          <select id="modal-servicio-pago" class="form-input" required>
+            ${serviceOptions}
+          </select>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" style="font-weight: 600;">Adjuntar Comprobante (PDF o Imagen):</label>
+          <input type="file" id="modal-comprobante-file" class="form-input" accept=".pdf,image/*" required style="padding: 0.35rem;">
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">*Archivo obligatorio. Formatos permitidos: PDF, JPG, PNG.</span>
+        </div>
+        
+        <div id="modal-error-message" style="display: none; padding: 0.75rem; margin-bottom: 1rem; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-sm); color: var(--color-danger); font-size: 0.85rem;"></div>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; gap: 0.75rem;">
+        <button class="btn btn-outline" id="btn-close-informar-pago" style="flex: 1;">Cancelar</button>
+        <button class="btn btn-primary" id="btn-submit-informar-pago" style="flex: 1;">Enviar Reporte</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
+  
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => {
+      modal.remove();
+    }, 300);
+  };
+  
+  document.getElementById('btn-close-informar-pago-x').addEventListener('click', closeModal);
+  document.getElementById('btn-close-informar-pago').addEventListener('click', closeModal);
+  
+  const btnSubmit = document.getElementById('btn-submit-informar-pago');
+  btnSubmit.addEventListener('click', async () => {
+    const montoInput = document.getElementById('modal-monto-pago');
+    const fechaInput = document.getElementById('modal-fecha-pago');
+    const servicioSelect = document.getElementById('modal-servicio-pago');
+    const fileInput = document.getElementById('modal-comprobante-file');
+    const errMsg = document.getElementById('modal-error-message');
+    
+    const monto = parseInt(montoInput.value, 10);
+    const fecha = fechaInput.value;
+    const servicio = servicioSelect.value;
+    const file = fileInput.files[0];
+    
+    if (!monto || monto <= 0) {
+      errMsg.textContent = 'El monto debe ser mayor a 0.';
+      errMsg.style.display = 'block';
+      return;
+    }
+    if (!fecha) {
+      errMsg.textContent = 'Por favor selecciona la fecha de pago.';
+      errMsg.style.display = 'block';
+      return;
+    }
+    if (!file) {
+      errMsg.textContent = 'Por favor adjunta un comprobante de pago (PDF o Imagen).';
+      errMsg.style.display = 'block';
+      return;
+    }
+    
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando...';
+    errMsg.style.display = 'none';
+    
+    try {
+      // 1. Subir comprobante al bucket payment_receipts
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${recordId}_${Date.now()}.${fileExt}`;
+      
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('payment_receipts')
+        .upload(fileName, file);
+        
+      if (uploadError) throw uploadError;
+      
+      // 2. Obtener URL pública
+      const { data: urlData } = supabase.storage
+        .from('payment_receipts')
+        .getPublicUrl(fileName);
+        
+      const comprobanteUrl = urlData.publicUrl;
+      
+      // 3. Registrar reporte en la base de datos
+      const { error: insertError } = await supabase
+        .from('payment_reports')
+        .insert({
+          period_id: periodId,
+          comercio: comercio,
+          monto: monto,
+          fecha_pago: fecha,
+          servicio: servicio,
+          comprobante_url: comprobanteUrl,
+          status: 'pendiente'
+        });
+        
+      if (insertError) throw insertError;
+      
+      alert('Reporte de pago enviado con éxito. El administrador revisará tu comprobante.');
+      closeModal();
+      // Recargar tabla y avisos
+      loadClientBillingData(periodId);
+    } catch (err) {
+      console.error('Error reporting payment:', err);
+      errMsg.textContent = 'Error al enviar reporte: ' + err.message;
+      errMsg.style.display = 'block';
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'Enviar Reporte';
+    }
+  });
+};
+
 function updateSummaryCards(facturado, pagado, pendiente) {
   const fEl = document.getElementById('summary-total-facturado');
   const pEl = document.getElementById('summary-total-pagado');
   const peEl = document.getElementById('summary-saldo-pendiente');
   
-  if (fEl) fEl.textContent = formatCLP(facturado);
-  if (pEl) pEl.textContent = formatCLP(pagado);
-  if (peEl) peEl.textContent = formatCLP(pendiente);
+  if (fEl) fEl.textContent = window.formatCLP(facturado);
+  if (pEl) pEl.textContent = window.formatCLP(pagado);
+  if (peEl) peEl.textContent = window.formatCLP(pendiente);
 }
 
 function getClientStatusClass(val) {
   if (!val) return 'client-badge-gray';
   const v = val.toLowerCase();
+  if (['sin movimientos'].includes(v)) return 'client-badge-light-green';
   if (['enviado', 'emitida', 'aprobado'].includes(v)) return 'client-badge-green';
   if (['creado'].includes(v)) return 'client-badge-cyan';
-  if (['por generar', 'por solicitar', 'esperando', 'no se factura', 'sin movimientos'].includes(v)) return 'client-badge-gray';
+  if (['por generar', 'por solicitar', 'esperando', 'no se factura'].includes(v)) return 'client-badge-gray';
   if (['recibido'].includes(v)) return 'client-badge-blue';
   if (['en espera'].includes(v)) return 'client-badge-purple';
   if (['facturar'].includes(v)) return 'client-badge-yellow';
@@ -6755,6 +7175,7 @@ function injectClientBillingStyles() {
     .client-badge-red { background-color: rgba(239, 68, 68, 0.12); color: #991b1b; border-color: rgba(239, 68, 68, 0.25); }
     .client-badge-teal { background-color: rgba(20, 184, 166, 0.12); color: #115e59; border-color: rgba(20, 184, 166, 0.25); }
     .client-badge-cyan { background-color: rgba(6, 182, 212, 0.12); color: #075985; border-color: rgba(6, 182, 212, 0.25); }
+    .client-badge-light-green { background-color: rgba(52, 211, 153, 0.15) !important; color: #047857 !important; border-color: rgba(52, 211, 153, 0.3) !important; }
     
     .text-right {
       text-align: right;
@@ -6762,4 +7183,108 @@ function injectClientBillingStyles() {
   `;
   document.head.appendChild(style);
 }
+
+async function cleanOldReceiptsJS() {
+  try {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const { data: oldReports, error } = await supabase
+      .from('payment_reports')
+      .select('id, comprobante_url')
+      .neq('status', 'pendiente')
+      .not('comprobante_url', 'is', null)
+      .lt('created_at', sevenDaysAgo.toISOString());
+      
+    if (error) throw error;
+    
+    if (oldReports && oldReports.length > 0) {
+      console.log(`Eliminando ${oldReports.length} comprobantes antiguos...`);
+      
+      const filePaths = oldReports.map(rep => {
+        const parts = rep.comprobante_url.split('/payment_receipts/');
+        return parts.length > 1 ? parts[1] : null;
+      }).filter(Boolean);
+      
+      if (filePaths.length > 0) {
+        await supabase.storage
+          .from('payment_receipts')
+          .remove(filePaths);
+      }
+      
+      const ids = oldReports.map(rep => rep.id);
+      await supabase
+        .from('payment_reports')
+        .update({ comprobante_url: null })
+        .in('id', ids);
+    }
+  } catch (err) {
+    console.error('Error in cleanOldReceiptsJS:', err);
+  }
+}
+
+async function checkBillingSuspension(companyStr) {
+  if (!companyStr) return;
+  try {
+    const list = companyStr.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.length === 0) return;
+    
+    const { data: mappings } = await supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name');
+    
+    const billingComercios = new Set();
+    list.forEach(c => {
+      const match = mappings?.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      billingComercios.add(match ? match.billing_name : c);
+    });
+    
+    const resolvedList = Array.from(billingComercios);
+    
+    const { data: statuses, error } = await supabase
+      .from('commerce_billing_status')
+      .select('comercio, al_dia')
+      .in('comercio', resolvedList);
+      
+    if (error) throw error;
+    
+    const pausedComercios = statuses?.filter(s => !s.al_dia).map(s => s.comercio) || [];
+    if (pausedComercios.length > 0) {
+      showSuspensionBanner(pausedComercios);
+    }
+  } catch (err) {
+    console.error('Error checking billing suspension:', err);
+  }
+}
+
+window.checkBillingSuspension = checkBillingSuspension;
+
+function showSuspensionBanner(pausedComercios) {
+  if (document.getElementById('billing-suspension-banner')) return;
+  const mainContent = document.querySelector('.main-content');
+  if (!mainContent) return;
+  
+  const banner = document.createElement('div');
+  banner.id = 'billing-suspension-banner';
+  banner.style.cssText = `
+    background-color: #ef4444; 
+    color: white; 
+    padding: 0.75rem 1.5rem; 
+    text-align: center; 
+    font-weight: 500; 
+    font-size: 0.9rem;
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    gap: 0.5rem;
+    border-bottom: 2px solid #b91c1c;
+  `;
+  banner.innerHTML = `
+    <i class="ri-error-warning-fill" style="font-size: 1.25rem;"></i>
+    <span><strong>Servicio Pausado:</strong> El comercio <strong>${pausedComercios.join(', ')}</strong> se encuentra con servicio pausado. Por favor regularizar a la brevedad con nuestra área de finanzas a <a href="mailto:finanzas@stocka.cl" style="color: white; text-decoration: underline; font-weight: 700;">finanzas@stocka.cl</a>.</span>
+  `;
+  mainContent.insertBefore(banner, mainContent.firstChild);
+}
+
+window.showSuspensionBanner = showSuspensionBanner;
 
