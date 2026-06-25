@@ -3671,6 +3671,12 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-qty-declared').textContent = dec.quantity_declared;
     document.getElementById('manage-dec-packages').textContent = dec.package_count;
     document.getElementById('manage-dec-package-type').textContent = dec.package_type;
+    document.getElementById('manage-dec-container-count').textContent = dec.container_count || 0;
+    document.getElementById('manage-dec-pallet-count').textContent = dec.pallet_count || 0;
+    document.getElementById('manage-dec-box-count').textContent = dec.box_count || 0;
+    document.getElementById('manage-dec-unloading').innerHTML = dec.requires_unloading 
+      ? '<span style="color: var(--color-warning); font-weight: bold;">Sí, solicitada (0.1 UF x m³)</span>' 
+      : 'No requerida';
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
 
     // Contacto y transportista

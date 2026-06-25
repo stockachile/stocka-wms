@@ -4888,35 +4888,74 @@ window.renderDeclarations = async function() {
             <input type="text" id="dec-title" class="form-input" placeholder="Ej. Embarque de zapatos de niño N°3" required>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div class="form-group">
-              <label class="form-label">Cantidad Total Unidades *</label>
-              <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
+          <div class="form-group">
+            <label class="form-label">Cantidad Total Unidades *</label>
+            <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
+          </div>
+
+          <!-- Desglose de Bultos -->
+          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Detalle de Bultos a Enviar *</label>
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+              Es obligatorio indicar al menos 1 bulto total. Indique las cantidades que enviará o marque "No enviaré" para cada tipo.
+            </p>
+            
+            <!-- Contenedores -->
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
+              <div style="display: flex; flex-direction: column;">
+                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Contenedores (Containers)</label>
+                <input type="number" id="dec-container-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                <input type="checkbox" id="dec-no-container" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="dec-no-container" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+              </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">Cantidad de Bultos Totales *</label>
-              <input type="number" id="dec-package-count" class="form-input" min="1" placeholder="Ej. 10" required>
+
+            <!-- Pallets -->
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
+              <div style="display: flex; flex-direction: column;">
+                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Pallets</label>
+                <input type="number" id="dec-pallet-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                <input type="checkbox" id="dec-no-pallet" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="dec-no-pallet" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+              </div>
+            </div>
+
+            <!-- Cajas -->
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+              <div style="display: flex; flex-direction: column;">
+                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Cajas (Boxes)</label>
+                <input type="number" id="dec-box-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                <input type="checkbox" id="dec-no-box" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                <label for="dec-no-box" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+              </div>
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div class="form-group">
-              <label class="form-label">Tipo de Bulto *</label>
-              <select id="dec-package-type" class="form-input" required>
-                <option value="Cajas">Cajas</option>
-                <option value="Pallets">Pallets</option>
-                <option value="Contenedores">Contenedores</option>
-                <option value="Mixto">Mixto</option>
-              </select>
+          <div class="form-group">
+            <label class="form-label">Método de Ingreso *</label>
+            <select id="dec-delivery-method" class="form-input" required>
+              <option value="Transporte vía courier">Transporte vía courier</option>
+              <option value="Desde proveedor">Desde proveedor</option>
+              <option value="Transporte particular">Transporte particular</option>
+              <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
+            </select>
+          </div>
+
+          <!-- Servicio de Descarga -->
+          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <input type="checkbox" id="dec-requires-unloading" style="width: 18px; height: 18px; cursor: pointer;">
+              <label for="dec-requires-unloading" style="font-weight: 600; cursor: pointer; color: var(--color-text-main); font-size: 0.9rem; user-select: none;">¿El ingreso requiere servicio de descarga por parte de bodega?</label>
             </div>
-            <div class="form-group">
-              <label class="form-label">Método de Ingreso *</label>
-              <select id="dec-delivery-method" class="form-input" required>
-                <option value="Transporte vía courier">Transporte vía courier</option>
-                <option value="Desde proveedor">Desde proveedor</option>
-                <option value="Transporte particular">Transporte particular</option>
-                <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
-              </select>
+            <div id="dec-unloading-warning" style="display: none; padding: 0.75rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.75rem; border-radius: var(--radius-sm); line-height: 1.45;">
+              <i class="ri-alert-line" style="vertical-align: middle; margin-right: 4px; font-size: 1rem;"></i>
+              <strong>Nota Importante:</strong> Las descargas se realizan de forma manual en bodega y tienen un costo de <strong>0,1 UF por m³</strong>.
             </div>
           </div>
 
@@ -5133,6 +5172,37 @@ window.renderDeclarations = async function() {
         drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
       }
 
+      // Bind checkbox toggles for container, pallet, and box counts
+      const bindNoEnvioToggle = (checkboxId, inputId) => {
+        const checkbox = document.getElementById(checkboxId);
+        const input = document.getElementById(inputId);
+        if (checkbox && input) {
+          checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+              input.disabled = true;
+              input.value = '';
+              input.removeAttribute('required');
+            } else {
+              input.disabled = false;
+              input.setAttribute('required', 'required');
+            }
+          });
+        }
+      };
+
+      bindNoEnvioToggle('dec-no-container', 'dec-container-count');
+      bindNoEnvioToggle('dec-no-pallet', 'dec-pallet-count');
+      bindNoEnvioToggle('dec-no-box', 'dec-box-count');
+
+      // Bind unloading service warning toggle
+      const requiresUnloadingCb = document.getElementById('dec-requires-unloading');
+      const unloadingWarning = document.getElementById('dec-unloading-warning');
+      if (requiresUnloadingCb && unloadingWarning) {
+        requiresUnloadingCb.addEventListener('change', () => {
+          unloadingWarning.style.display = requiresUnloadingCb.checked ? 'block' : 'none';
+        });
+      }
+
       // File Input Change
       const fileInput = document.getElementById('dec-file-input');
       const fileInfo = document.getElementById('dec-file-selected-info');
@@ -5178,8 +5248,34 @@ window.renderDeclarations = async function() {
 
         const title = document.getElementById('dec-title').value.trim();
         const qtyDeclared = parseInt(document.getElementById('dec-qty-declared').value);
-        const packageCount = parseInt(document.getElementById('dec-package-count').value);
-        const packageType = document.getElementById('dec-package-type').value;
+        
+        const noContainer = document.getElementById('dec-no-container').checked;
+        const noPallet = document.getElementById('dec-no-pallet').checked;
+        const noBox = document.getElementById('dec-no-box').checked;
+
+        const containerCount = noContainer ? 0 : (parseInt(document.getElementById('dec-container-count').value) || 0);
+        const palletCount = noPallet ? 0 : (parseInt(document.getElementById('dec-pallet-count').value) || 0);
+        const boxCount = noBox ? 0 : (parseInt(document.getElementById('dec-box-count').value) || 0);
+
+        const totalPackages = containerCount + palletCount + boxCount;
+        if (totalPackages < 1) {
+          alert('Debe declarar al menos 1 bulto total (contenedores, pallets o cajas).');
+          return;
+        }
+
+        // Determinar tipo de bulto
+        let packageType = 'Mixto';
+        const activeTypes = [];
+        if (containerCount > 0) activeTypes.push('Contenedores');
+        if (palletCount > 0) activeTypes.push('Pallets');
+        if (boxCount > 0) activeTypes.push('Cajas');
+
+        if (activeTypes.length === 1) {
+          packageType = activeTypes[0];
+        }
+
+        const requiresUnloading = document.getElementById('dec-requires-unloading').checked;
+        
         const deliveryMethod = document.getElementById('dec-delivery-method').value;
         const contactInfo = document.getElementById('dec-contact-info').value.trim();
         const carrierInfo = document.getElementById('dec-carrier-info').value.trim();
@@ -5220,7 +5316,7 @@ window.renderDeclarations = async function() {
             ? document.getElementById('dec-comercio').value
             : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
 
-          const insertData = {
+           const insertData = {
             merchant_id: currentMerchantId,
             comercio: selectedCommerce,
             title: title,
@@ -5230,8 +5326,12 @@ window.renderDeclarations = async function() {
             quantity_declared: qtyDeclared,
             quantity_received: 0,
             quantity_incidents: 0,
-            package_count: packageCount,
+            package_count: totalPackages,
             package_type: packageType,
+            container_count: containerCount,
+            pallet_count: palletCount,
+            box_count: boxCount,
+            requires_unloading: requiresUnloading,
             delivery_method: deliveryMethod,
             contact_info: contactInfo,
             carrier_info: carrierInfo,
@@ -5256,6 +5356,18 @@ window.renderDeclarations = async function() {
           alert('¡Declaración de ingreso de stock creada con éxito!');
           form.reset();
           
+          // Re-enable inputs and reset styles
+          const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
+          inputs.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+              el.disabled = false;
+              el.setAttribute('required', 'required');
+            }
+          });
+          const unloadingWarning = document.getElementById('dec-unloading-warning');
+          if (unloadingWarning) unloadingWarning.style.display = 'none';
+
           clientSelectedDateStr = '';
           clientUploadedFileBase64 = '';
           clientUploadedFileName = '';
@@ -5675,10 +5787,16 @@ window.viewDeclarationDetail = async function(id) {
             <div style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border-left: 4px solid var(--color-primary); box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
               <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Bultos Totales</div>
               <div style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${dec.package_count} <span style="font-size: 0.85rem; font-weight: normal; color: var(--color-text-muted); background: var(--color-bg); padding: 0.1rem 0.4rem; border-radius: 4px;">${dec.package_type}</span></div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.35rem;">
+                Detalle: <strong>${dec.container_count || 0}</strong> cont., <strong>${dec.pallet_count || 0}</strong> pall., <strong>${dec.box_count || 0}</strong> caj.
+              </div>
             </div>
             <div style="background: var(--color-surface); padding: 1rem; border-radius: 10px; border-left: 4px solid var(--color-accent); box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
               <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Método de Envío</div>
               <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;"><i class="ri-truck-line" style="color: var(--color-accent);"></i> ${dec.delivery_method}</div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.35rem;">
+                Descarga en bodega: <strong>${dec.requires_unloading ? 'Sí, solicitada (0.1 UF x m³)' : 'No requerida'}</strong>
+              </div>
             </div>
           </div>
           
