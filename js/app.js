@@ -4849,10 +4849,10 @@ window.renderDeclarations = async function() {
       <div class="card">
         <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="display: flex; align-items: center; gap: 0.75rem;">
               Declarar Nuevo Ingreso
-              <button type="button" id="btn-info-declarations" style="background: none; border: none; padding: 2px; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: transform 0.2s;" onmouseover="this.style.transform='scale(1.15)'" onmouseout="this.style.transform='scale(1)'" title="Recomendaciones y Condiciones">
-                <i class="ri-information-line" style="font-size: 1.2rem;"></i>
+              <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; font-family: var(--font-family); transition: all 0.2s; letter-spacing: 0.3px;" onmouseover="this.style.background='rgba(59, 130, 246, 0.22)'; this.style.borderColor='rgba(59, 130, 246, 0.5)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 3px 8px rgba(59, 130, 246, 0.2)';" onmouseout="this.style.background='rgba(59, 130, 246, 0.12)'; this.style.borderColor='rgba(59, 130, 246, 0.35)'; this.style.transform='translateY(0)'; this.style.boxShadow='none';" title="Recomendaciones y Condiciones">
+                <i class="ri-information-line" style="font-size: 1rem;"></i> Info
               </button>
             </h3>
             <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">
