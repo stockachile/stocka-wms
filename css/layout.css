@@ -305,28 +305,35 @@
 }
 
 /* Column Group Styling */
-.col-group-fulf {
+td.col-group-fulf {
   background-color: rgba(59, 130, 246, 0.02) !important;
 }
-.col-group-env {
+td.col-group-env {
   background-color: rgba(16, 185, 129, 0.02) !important;
 }
 .col-group-divider {
   border-right: 1px solid var(--color-border) !important;
 }
-.data-table tbody tr:hover .col-group-fulf {
+.data-table tbody tr:hover td.col-group-fulf {
   background-color: rgba(59, 130, 246, 0.05) !important;
 }
-.data-table tbody tr:hover .col-group-env {
+.data-table tbody tr:hover td.col-group-env {
   background-color: rgba(16, 185, 129, 0.05) !important;
 }
+
+/* Ensure ALL th elements have solid backgrounds so sticky works properly */
+.data-table th.col-group-fulf,
+.data-table th.col-group-env,
+.th-group-fulf,
+.th-group-env {
+  background-color: var(--color-bg) !important;
+}
+
 .th-group-fulf {
-  background-color: rgba(59, 130, 246, 0.06) !important;
   color: #60a5fa !important;
   border-bottom: 2px solid #3b82f6 !important;
 }
 .th-group-env {
-  background-color: rgba(16, 185, 129, 0.06) !important;
   color: #34d399 !important;
   border-bottom: 2px solid #10b981 !important;
 }
