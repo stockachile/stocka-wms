@@ -286,6 +286,10 @@
   font-size: 0.75rem;
   letter-spacing: 0.05em;
   background-color: var(--color-bg);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 1px 0 var(--color-border);
 }
 
 .data-table tbody tr {
