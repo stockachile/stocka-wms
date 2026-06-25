@@ -1156,14 +1156,14 @@ html[data-theme="dark"] .btn-complementary:hover {
 
 /* Hero Banner */
 .dashboard-hero {
-  background: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Gemini_Generated_Image_sjwo2hsjwo2hsjwo.png?v=1782356005') center center / cover no-repeat;
+  background: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Gemini_Generated_Image_sjwo2hsjwo2hsjwo.png?v=1782356005') left center / cover no-repeat;
   border-radius: var(--radius-lg);
   padding: 3.5rem 3rem;
   margin-bottom: 2rem;
   border: 1px solid rgba(255,255,255,0.08);
   position: relative;
   overflow: hidden;
-  min-height: 220px;
+  min-height: 280px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
