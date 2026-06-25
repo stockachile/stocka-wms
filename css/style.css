@@ -1156,34 +1156,47 @@ html[data-theme="dark"] .btn-complementary:hover {
 
 /* Hero Banner */
 .dashboard-hero {
-  background: linear-gradient(135deg, rgba(37,99,235,0.1) 0%, rgba(94,23,235,0.1) 100%);
+  background: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Gemini_Generated_Image_sjwo2hsjwo2hsjwo.png?v=1782356005') center center / cover no-repeat;
   border-radius: var(--radius-lg);
-  padding: 2.5rem;
+  padding: 3.5rem 3rem;
   margin-bottom: 2rem;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.08);
   position: relative;
   overflow: hidden;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 html[data-theme="dark"] .dashboard-hero {
-  background: linear-gradient(135deg, rgba(37,99,235,0.2) 0%, rgba(94,23,235,0.2) 100%);
+  border-color: rgba(255,255,255,0.06);
 }
 .dashboard-hero::before {
   content: '';
   position: absolute;
-  top: -50%; left: -50%;
-  width: 200%; height: 200%;
-  background: radial-gradient(circle, rgba(255,255,255,0.05) 0%, transparent 60%);
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.65) 100%);
   pointer-events: none;
+  z-index: 1;
 }
 .dashboard-hero h2 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  font-weight: 700;
+  font-size: 2.1rem;
+  margin-bottom: 0.6rem;
+  font-weight: 800;
+  color: #ffffff;
+  position: relative;
+  z-index: 2;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+  letter-spacing: -0.3px;
 }
 .dashboard-hero p {
-  color: var(--color-text-muted);
-  max-width: 600px;
-  font-size: 1.1rem;
+  color: rgba(255,255,255,0.88);
+  max-width: 640px;
+  font-size: 1rem;
+  position: relative;
+  z-index: 2;
+  line-height: 1.6;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.35);
 }
 
 /* Quick Stats Colors */

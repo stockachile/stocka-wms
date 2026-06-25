@@ -449,11 +449,8 @@ async function renderDashboard() {
 
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-hero">
-        <h2>Bienvenido a STOCKA OS</h2>
-        <p>Tu Centro de Comando Modular para la gestión integral de inventario, despachos y logística inversa.</p>
-        <button class="btn btn-primary" style="margin-top: 1.5rem; border-radius: 99px; padding: 0.5rem 1.5rem;" onclick="document.querySelector('[data-view=\\'inventory\\']').click()">
-          <i class="ri-play-circle-line" style="margin-right: 0.5rem;"></i> Comenzar
-        </button>
+        <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
+        <p>Un nuevo centro de operaciones para la gestión de tu comercio, con la información centralizada, integraciones y más! Nos encontramos en pleno desarrollo y pronto lanzaremos nuevas novedades.</p>
       </div>
 
       <div style="margin-bottom: 2rem;">
