@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.stock_declarations (
   carrier_info TEXT,
   notes TEXT, -- Comentarios del cliente
   admin_notes TEXT, -- Comentarios del administrador al recepcionar
-  status TEXT NOT NULL CHECK (status IN ('Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias')) DEFAULT 'Creada',
+  status TEXT NOT NULL CHECK (status IN ('Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias')) DEFAULT 'Creada',
   incidents_list JSONB NOT NULL DEFAULT '[]'::jsonb,
   history JSONB NOT NULL DEFAULT '[]'::jsonb,
   file_name TEXT NOT NULL,
@@ -53,7 +53,7 @@ UPDATE public.stock_declarations SET status = 'Recibido con Incidencias' WHERE s
 
 -- Aplicar la nueva restricción CHECK
 ALTER TABLE public.stock_declarations ADD CONSTRAINT stock_declarations_status_check 
-  CHECK (status IN ('Creada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'));
+  CHECK (status IN ('Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'));
 
 
 -- 2. Habilitar RLS (Row Level Security)
@@ -62,16 +62,22 @@ ALTER TABLE public.stock_declarations ENABLE ROW LEVEL SECURITY;
 -- 3. Crear Políticas de Seguridad RLS
 
 -- A) Clientes pueden ver sus propias declaraciones
+DROP POLICY IF EXISTS "Clientes ven sus declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Clientes ven sus declaraciones" ON stock_declarations;
 CREATE POLICY "Clientes ven sus declaraciones" ON public.stock_declarations
   FOR SELECT
   USING (auth.uid() = merchant_id);
 
 -- B) Clientes pueden crear sus propias declaraciones
+DROP POLICY IF EXISTS "Clientes crean sus declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Clientes crean sus declaraciones" ON stock_declarations;
 CREATE POLICY "Clientes crean sus declaraciones" ON public.stock_declarations
   FOR INSERT
   WITH CHECK (auth.uid() = merchant_id);
 
 -- C) Administradores pueden ver todas las declaraciones
+DROP POLICY IF EXISTS "Admins ven todas las declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Admins ven todas las declaraciones" ON stock_declarations;
 CREATE POLICY "Admins ven todas las declaraciones" ON public.stock_declarations
   FOR SELECT
   USING (
@@ -82,6 +88,8 @@ CREATE POLICY "Admins ven todas las declaraciones" ON public.stock_declarations
   );
 
 -- D) Administradores pueden actualizar todas las declaraciones (para cambiar estado, cantidades, etc.)
+DROP POLICY IF EXISTS "Admins actualizan declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Admins actualizan declaraciones" ON stock_declarations;
 CREATE POLICY "Admins actualizan declaraciones" ON public.stock_declarations
   FOR UPDATE
   USING (
@@ -93,6 +101,7 @@ CREATE POLICY "Admins actualizan declaraciones" ON public.stock_declarations
 
 -- E) Administradores pueden eliminar declaraciones no finalizadas
 DROP POLICY IF EXISTS "Admins eliminan declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Admins eliminan declaraciones" ON stock_declarations;
 CREATE POLICY "Admins eliminan declaraciones" ON public.stock_declarations
   FOR DELETE
   USING (
@@ -105,10 +114,23 @@ CREATE POLICY "Admins eliminan declaraciones" ON public.stock_declarations
 
 -- F) Clientes pueden eliminar sus propias declaraciones no finalizadas
 DROP POLICY IF EXISTS "Clientes eliminan sus propias declaraciones" ON public.stock_declarations;
+DROP POLICY IF EXISTS "Clientes eliminan sus propias declaraciones" ON stock_declarations;
 CREATE POLICY "Clientes eliminan sus propias declaraciones" ON public.stock_declarations
   FOR DELETE
   USING (
     auth.uid() = merchant_id
     AND status NOT IN ('Recibido Conforme', 'Recibido con Incidencias')
   );
+
+
+-- 4. Agregar Columna warehouse_id si la tabla warehouses existe (para mantener consistencia)
+DO $$ 
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'warehouses') THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'stock_declarations' AND column_name = 'warehouse_id') THEN
+      ALTER TABLE public.stock_declarations ADD COLUMN warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL;
+    END IF;
+  END IF;
+END $$;
+
 
