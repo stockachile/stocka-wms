@@ -5287,9 +5287,33 @@ window.renderDeclarations = async function() {
           return;
         }
 
-        if (dateMode === 'exact' && !clientSelectedDateStr) {
-          alert('Debes seleccionar una fecha exacta de llegada en el calendario.');
-          return;
+        if (dateMode === 'exact') {
+          if (!clientSelectedDateStr) {
+            alert('Debes seleccionar una fecha exacta de llegada en el calendario.');
+            return;
+          }
+          const selectedDate = new Date(clientSelectedDateStr + 'T00:00:00');
+          const isSunday = selectedDate.getDay() === 0;
+          const isSaturday = selectedDate.getDay() === 6;
+          const now = new Date();
+          const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+          if (selectedDate < todayMidnight) {
+            alert('No puedes declarar un ingreso en fechas pasadas.');
+            return;
+          }
+          if (isSunday) {
+            alert('No se permiten ingresos los días domingo.');
+            return;
+          }
+          if (isSaturday) {
+            const diffTime = selectedDate.getTime() - now.getTime();
+            const diffHours = diffTime / (60 * 60 * 1000);
+            if (diffHours < 48) {
+              alert('Los ingresos en día sábado requieren al menos 48 horas de aviso anticipado.');
+              return;
+            }
+          }
         }
 
         if (!clientUploadedFileBase64 || !clientUploadedFileName) {
@@ -5434,13 +5458,18 @@ function drawMiniCalendar(container, year, month) {
     const dStr = `${year}-${String(month+1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const thisDayDate = new Date(year, month, day);
     const isPast = thisDayDate < todayMidnight;
+    const isSunday = thisDayDate.getDay() === 0;
     const isSelected = clientSelectedDateStr === dStr;
     const isToday = dStr === todayStr;
 
     let cellStyle = `padding: 0.4rem 0.1rem; text-align: center; border-radius: var(--radius-sm); font-size: 0.8rem; cursor: pointer; transition: all 0.2s; min-height: 32px; display: flex; align-items: center; justify-content: center;`;
     
+    const isClickable = !isPast && !isSunday;
+
     if (isPast) {
       cellStyle += ` color: var(--color-text-muted); opacity: 0.35; cursor: not-allowed; text-decoration: line-through;`;
+    } else if (isSunday) {
+      cellStyle += ` color: var(--color-danger); opacity: 0.4; cursor: not-allowed; background-color: rgba(239, 68, 68, 0.05);`;
     } else if (isSelected) {
       cellStyle += ` background-color: var(--color-primary); color: white; font-weight: 700; box-shadow: 0 2px 4px rgba(37,99,235,0.3);`;
     } else if (isToday) {
@@ -5450,8 +5479,9 @@ function drawMiniCalendar(container, year, month) {
     }
 
     html += `
-      <div class="mini-cal-day" data-date="${dStr}" data-past="${isPast}" style="${cellStyle}" 
-           ${!isPast && !isSelected ? `onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'"` : ''}>
+      <div class="mini-cal-day" data-date="${dStr}" data-past="${isPast}" data-sunday="${isSunday}" style="${cellStyle}" 
+           ${isClickable && !isSelected ? `onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'"` : ''}
+           title="${isSunday ? 'Domingos no disponibles para ingresos' : ''}">
         ${day}
       </div>
     `;
@@ -5477,6 +5507,10 @@ function drawMiniCalendar(container, year, month) {
     cell.addEventListener('click', (e) => {
       e.preventDefault();
       if (cell.getAttribute('data-past') === 'true') return;
+      if (cell.getAttribute('data-sunday') === 'true') {
+        alert('No se permiten ingresos los días domingo.');
+        return;
+      }
       clientSelectedDateStr = cell.getAttribute('data-date');
       drawMiniCalendar(container, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
       updateDateCheck();
@@ -5503,10 +5537,30 @@ function updateDateCheck() {
   const selectedDate = new Date(clientSelectedDateStr + 'T00:00:00'); // Midnight of selected day
   const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   
+  const isSunday = selectedDate.getDay() === 0;
+  const isSaturday = selectedDate.getDay() === 6;
+
   if (selectedDate < todayMidnight) {
     errorContainer.style.display = 'block';
     errorContainer.textContent = '❌ No puedes declarar un ingreso en fechas pasadas.';
     warningContainer.style.display = 'none';
+  } else if (isSunday) {
+    errorContainer.style.display = 'block';
+    errorContainer.textContent = '❌ No se permiten ingresos los días domingo.';
+    warningContainer.style.display = 'none';
+  } else if (isSaturday) {
+    const diffTime = selectedDate.getTime() - now.getTime();
+    const diffHours = diffTime / (60 * 60 * 1000);
+    
+    if (diffHours < 48) {
+      errorContainer.style.display = 'block';
+      errorContainer.innerHTML = `❌ Los ingresos en día sábado requieren al menos <strong>48 horas de aviso anticipado</strong> y aprobación previa.`;
+      warningContainer.style.display = 'none';
+    } else {
+      warningContainer.style.display = 'block';
+      warningContainer.innerHTML = `<i class="ri-error-warning-line"></i> <strong>Aviso Sábado:</strong> Los ingresos en día sábado solo podrán realizarse con aviso anticipado de 48 hrs y están sujetos a la <strong>aprobación del equipo de Stocka</strong>.`;
+      errorContainer.style.display = 'none';
+    }
   } else if ((selectedDate.getTime() - now.getTime()) < 24 * 60 * 60 * 1000) {
     // Less than 24 hours from current time
     warningContainer.style.display = 'block';

@@ -23,6 +23,9 @@ Hemos completado el desarrollo e integración de la funcionalidad de desglose de
   - Se valida automáticamente que la suma de todos los bultos a enviar sea mayor o igual a 1.
   - Para asegurar la compatibilidad con listados e interfaces previas, `package_count` se calcula como la suma total de los bultos, y `package_type` se infiere dinámicamente como `'Contenedores'`, `'Pallets'`, `'Cajas'` o `'Mixto'`.
   - En la limpieza del formulario, los campos deshabilitados son reactivados y los warnings ocultados.
+  - **Restricción de Días Fin de Semana (Sábados/Domingos):**
+    - **Domingos:** Quedan completamente deshabilitados en el calendario visual (mostrados en rojo y opacos) y bloqueados en el envío. Si se intenta hacer click o enviar, se notifica que no se permiten ingresos los días domingo.
+    - **Sábados:** Se permite la selección pero se valida que cuente con al menos **48 horas de anticipación**. Si es menor a 48h, se muestra un mensaje de error y se bloquea el envío. Si es igual o mayor a 48h, se despliega una advertencia indicando que el ingreso queda sujeto a la **aprobación del equipo de Stocka**.
 - **Detalle de la Declaración (Modal):**
   - Actualizado para mostrar el desglose de bultos declarados y si se solicitó o no el servicio de descarga con la tasa de cobro respectiva.
 
