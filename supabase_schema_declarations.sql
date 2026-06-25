@@ -15,6 +15,10 @@ CREATE TABLE IF NOT EXISTS public.stock_declarations (
   quantity_incidents INTEGER DEFAULT 0 CHECK (quantity_incidents >= 0),
   package_count INTEGER NOT NULL CHECK (package_count >= 0),
   package_type TEXT NOT NULL CHECK (package_type IN ('Cajas', 'Pallets', 'Contenedores', 'Mixto')),
+  container_count INTEGER DEFAULT 0 CHECK (container_count >= 0),
+  pallet_count INTEGER DEFAULT 0 CHECK (pallet_count >= 0),
+  box_count INTEGER DEFAULT 0 CHECK (box_count >= 0),
+  requires_unloading BOOLEAN DEFAULT false,
   delivery_method TEXT NOT NULL CHECK (delivery_method IN ('Transporte vía courier', 'Desde proveedor', 'Transporte particular', 'Solicita retiro (solo dentro de Santiago)')),
   contact_info TEXT,
   carrier_info TEXT,
@@ -33,6 +37,10 @@ CREATE TABLE IF NOT EXISTS public.stock_declarations (
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS comercio TEXT NOT NULL DEFAULT 'no asignado';
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS incidents_list JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS container_count INTEGER DEFAULT 0 CHECK (container_count >= 0);
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS pallet_count INTEGER DEFAULT 0 CHECK (pallet_count >= 0);
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS box_count INTEGER DEFAULT 0 CHECK (box_count >= 0);
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS requires_unloading BOOLEAN DEFAULT false;
 
 -- Actualizar restricción CHECK (primero eliminar la antigua para permitir la migración de datos)
 ALTER TABLE public.stock_declarations DROP CONSTRAINT IF EXISTS stock_declarations_status_check;

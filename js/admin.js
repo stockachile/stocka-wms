@@ -22,6 +22,13 @@ window.downloadBase64Pdf = function(base64, filename) {
     console.error('Error al descargar el PDF en Base64:', err);
     alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
   }
+
+// Formateador de moneda en pesos chilenos (CLP)
+window.formatCLP = function(value) {
+  if (value === null || value === undefined || isNaN(value) || value === '') {
+    return '-';
+  }
+  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
 };
 
 // Capturador de errores global para depuración en tiempo real
@@ -272,6 +279,7 @@ async function renderAdminOrders() {
         cantidad,
         sku,
         label_base64,
+        total_value,
         profiles (company_name),
         order_items (quantity, products(sku, name))
       `)
@@ -299,7 +307,7 @@ async function renderAdminOrders() {
 
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos en el sistema.</td></tr>`;
+      rowsHtml = `<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos en el sistema.</td></tr>`;
     } else {
       orders.forEach(order => {
         // Buscar el envío en el listado cargado
@@ -356,6 +364,9 @@ async function renderAdminOrders() {
             <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
             <td>${nameStr}</td>
             <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
+            <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
+              ${window.formatCLP(order.total_value)}
+            </td>
             <td>${trackingHtml}</td>
             <td>${labelHtml}</td>
             <td>
@@ -384,6 +395,7 @@ async function renderAdminOrders() {
                 <th>SKU</th>
                 <th>Nombre Producto</th>
                 <th>Cantidad</th>
+                <th style="text-align:right;">Valor Total</th>
                 <th>Seguimiento</th>
                 <th>Etiqueta</th>
                 <th>Estado</th>

@@ -22,6 +22,13 @@ window.downloadBase64Pdf = function(base64, filename) {
     console.error('Error al descargar el PDF en Base64:', err);
     alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
   }
+
+// Formateador de moneda en pesos chilenos (CLP)
+window.formatCLP = function(value) {
+  if (value === null || value === undefined || isNaN(value) || value === '') {
+    return '-';
+  }
+  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
 };
 
 // Capturador de errores global para depuración en tiempo real
@@ -819,6 +826,7 @@ async function renderOrders() {
         sku,
         label_base64,
         comercio,
+        total_value,
         order_items (quantity, products(sku, name))
       `);
 
@@ -854,7 +862,7 @@ async function renderOrders() {
 
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
+      rowsHtml = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
     } else {
       orders.forEach(order => {
         // Buscar el envío en el listado cargado
@@ -971,6 +979,9 @@ async function renderOrders() {
               <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
               <span style="display:block; font-size:0.68rem; color:var(--color-text-muted);">artículo${totalItems !== 1 ? 's' : ''}</span>
             </td>
+            <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
+              ${window.formatCLP(order.total_value)}
+            </td>
             <td>${tipoHtml}</td>
             <td>${slaHtml}</td>
             <td>${labelHtml}</td>
@@ -1007,6 +1018,7 @@ async function renderOrders() {
                   <th>Origen</th>
                   <th>Fecha</th>
                   <th style="text-align:center;">Artículos</th>
+                  <th style="text-align:right;">Valor Total</th>
                   <th>Tipo Despacho</th>
                   <th>SLA</th>
                   <th>Etiqueta</th>
@@ -1144,6 +1156,10 @@ function renderOrderDetailPanel(order, allShipments) {
       <div class="detail-info-row">
         <span class="detail-info-label">Comercio</span>
         <span class="detail-info-value">${order.comercio || '-'}</span>
+      </div>
+      <div class="detail-info-row">
+        <span class="detail-info-label">Valor Total</span>
+        <span class="detail-info-value" style="font-weight: 700; color: var(--color-text-main);">${window.formatCLP(order.total_value)}</span>
       </div>
       ${order.notes ? `<div class="detail-info-row"><span class="detail-info-label">Notas</span><span class="detail-info-value" style="font-style:italic;">${order.notes}</span></div>` : ''}
     </div>
@@ -3088,6 +3104,7 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
         id,
         status,
         created_at,
+        total_value,
         order_items (
           quantity,
           products (sku, name)
@@ -3159,6 +3176,10 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
         <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
           <span style="color: var(--color-text-muted); font-weight:500;">Fecha de Creación:</span>
           <span style="font-weight:600;">${orderDateStr}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+          <span style="color: var(--color-text-muted); font-weight:500;">Valor Total:</span>
+          <span style="font-weight:700; color: var(--color-text-main);">${window.formatCLP(order.total_value)}</span>
         </div>
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <span style="color: var(--color-text-muted); font-weight:500;">Estado del WMS:</span>
