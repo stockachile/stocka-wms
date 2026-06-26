@@ -6273,6 +6273,117 @@ window.updateDashboardPeriodView = function() {
     }
   });
   
+  // Calcular variaciones con respecto al mes anterior
+  let cMonth = periodObj.period_month;
+  let cYear = periodObj.period_year;
+  if (!cMonth || !cYear) {
+    const parts = (periodObj.name || '').split(' ');
+    cYear = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();
+    const monthsMap = {
+      'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+      'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+      'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+    };
+    cMonth = monthsMap[parts[0]?.toUpperCase()] || 1;
+  }
+  
+  let prevMonth = cMonth - 1;
+  let prevYear = cYear;
+  if (prevMonth === 0) {
+    prevMonth = 12;
+    prevYear = cYear - 1;
+  }
+  
+  const prevPeriodObj = cachedDashboardPeriods.find(p => {
+    let pM = p.period_month;
+    let pY = p.period_year;
+    if (!pM || !pY) {
+      const parts = (p.name || '').split(' ');
+      pY = parts[1] ? parseInt(parts[1], 10) : 0;
+      const monthsMap = {
+        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+        'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+      };
+      pM = monthsMap[parts[0]?.toUpperCase()] || 0;
+    }
+    return pM === prevMonth && pY === prevYear;
+  });
+  
+  let prevFulfFact = 0;
+  let prevEnvFact = 0;
+  let prevFulfRec = 0;
+  let prevEnvRec = 0;
+  let prevAtrasado = 0;
+  let prevProximo = 0;
+  let hasPrevData = false;
+  
+  if (prevPeriodObj) {
+    hasPrevData = true;
+    const prevRecords = cachedDashboardRecords.filter(r => r.period_id === prevPeriodObj.id);
+    prevRecords.forEach(r => {
+      prevFulfFact += (r.total_fulfillment || 0);
+      prevEnvFact += (r.enviame || 0);
+      prevFulfRec += (r.abono_fulfillment || 0);
+      prevEnvRec += (r.abono_enviame || 0);
+      
+      const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      if (r.pago_fulfillment === 'Atrasado') {
+        prevAtrasado += pendingFulf;
+      } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
+        prevProximo += pendingFulf;
+      }
+      
+      if (r.pago_enviame === 'Atrasado') {
+        prevAtrasado += pendingEnv;
+      } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
+        prevProximo += pendingEnv;
+      }
+    });
+  }
+  
+  const getVariationHtml = (curr, prev, isOverdue = false) => {
+    if (!hasPrevData) {
+      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Sin datos del mes anterior</span>`;
+    }
+    if (prev === 0 && curr === 0) {
+      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">0% vs mes anterior</span>`;
+    }
+    
+    let pct = 0;
+    if (prev === 0) {
+      pct = 100;
+    } else {
+      pct = ((curr - prev) / prev) * 100;
+    }
+    
+    let colorClass = '';
+    let arrow = '';
+    let sign = pct > 0 ? '+' : '';
+    
+    if (pct > 0) {
+      arrow = '▲';
+      if (isOverdue) {
+        colorClass = 'color: var(--color-danger)';
+      } else {
+        colorClass = 'color: var(--color-success)';
+      }
+    } else if (pct < 0) {
+      arrow = '▼';
+      if (isOverdue) {
+        colorClass = 'color: var(--color-success)';
+      } else {
+        colorClass = 'color: var(--color-danger)';
+      }
+    } else {
+      return `<span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">0% vs mes anterior</span>`;
+    }
+    
+    return `<span style="font-size: 0.72rem; ${colorClass}; font-weight: 600; display: block; margin-top: 0.25rem;">${arrow} ${sign}${pct.toFixed(1)}% vs mes ant.</span>`;
+  };
+  
   const cardsContainer = document.getElementById('d-period-metrics-cards');
   if (cardsContainer) {
     cardsContainer.innerHTML = `
@@ -6280,31 +6391,37 @@ window.updateDashboardPeriodView = function() {
         <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Fulfillment</div>
         <div class="dashboard-card-value">${window.formatCLP(totalFulfFact)}</div>
         <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
+        ${getVariationHtml(totalFulfFact, prevFulfFact, false)}
       </div>
       <div class="dashboard-card primary" onclick="showDashboardMetricDetail('env_fact', '${periodId}')">
         <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Envíame</div>
         <div class="dashboard-card-value">${window.formatCLP(totalEnvFact)}</div>
         <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
+        ${getVariationHtml(totalEnvFact, prevEnvFact, false)}
       </div>
       <div class="dashboard-card success" onclick="showDashboardMetricDetail('fulf_rec', '${periodId}')">
         <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Fulfillment</div>
         <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalFulfRec)}</div>
         <div class="dashboard-card-sub">${totalFulfFact > 0 ? ((totalFulfRec / totalFulfFact) * 100).toFixed(0) : 0}% recaudado</div>
+        ${getVariationHtml(totalFulfRec, prevFulfRec, false)}
       </div>
       <div class="dashboard-card success" onclick="showDashboardMetricDetail('env_rec', '${periodId}')">
         <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Envíame</div>
         <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalEnvRec)}</div>
         <div class="dashboard-card-sub">${totalEnvFact > 0 ? ((totalEnvRec / totalEnvFact) * 100).toFixed(0) : 0}% recaudado</div>
+        ${getVariationHtml(totalEnvRec, prevEnvRec, false)}
       </div>
       <div class="dashboard-card danger" onclick="showDashboardMetricDetail('atrasado', '${periodId}')">
         <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Montos con Atraso</div>
         <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(totalAtrasado)}</div>
         <div class="dashboard-card-sub">Total vencido y no pagado</div>
+        ${getVariationHtml(totalAtrasado, prevAtrasado, true)}
       </div>
       <div class="dashboard-card warning" onclick="showDashboardMetricDetail('proximo', '${periodId}')">
         <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Montos Próximos a Vencer</div>
         <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(totalProximo)}</div>
         <div class="dashboard-card-sub">Pagos pendientes a tiempo</div>
+        ${getVariationHtml(totalProximo, prevProximo, true)}
       </div>
     `;
   }
