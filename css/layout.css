@@ -510,8 +510,9 @@ td.col-group-env {
   z-index: 50;
   padding: 0.25rem 0;
 }
-
-
+.table-action-menu-content.show {
+  display: block;
+}
 /* Open upwards for the last 2 rows to prevent clipping by overflow container */
 tr:last-child .table-action-menu-content,
 tr:nth-last-child(2) .table-action-menu-content,
