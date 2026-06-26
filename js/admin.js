@@ -4414,6 +4414,170 @@ function injectBillingStyles() {
     .billing-tab-btn:hover {
       color: var(--color-text-main);
     }
+    
+    /* Dashboard styles */
+    .dashboard-subtabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      background: var(--color-surface-hover);
+      padding: 0.35rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      width: fit-content;
+    }
+    .dashboard-subtab-btn {
+      background: transparent;
+      border: none;
+      padding: 0.4rem 1rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      transition: all 0.2s;
+    }
+    .dashboard-subtab-btn.active {
+      background: var(--color-surface);
+      color: var(--color-primary);
+      box-shadow: var(--shadow-sm);
+      font-weight: 600;
+    }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
+    .dashboard-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+    .dashboard-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 3px;
+      background: transparent;
+      transition: background-color 0.2s;
+    }
+    .dashboard-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--color-primary);
+    }
+    .dashboard-card.primary::after { background: var(--color-primary); }
+    .dashboard-card.success::after { background: var(--color-success); }
+    .dashboard-card.warning::after { background: var(--color-warning); }
+    .dashboard-card.danger::after { background: var(--color-danger); }
+    .dashboard-card.info::after { background: var(--color-cyan); }
+    
+    .dashboard-card-label {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .dashboard-card-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      margin-bottom: 0.25rem;
+    }
+    .dashboard-card-sub {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+    }
+    
+    /* Dashboard Modal */
+    .d-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .d-modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .d-modal-container {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      width: 90%;
+      max-width: 750px;
+      max-height: 85%;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-xl);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+      overflow: hidden;
+    }
+    .d-modal-overlay.active .d-modal-container {
+      transform: scale(1);
+    }
+    .d-modal-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--color-surface);
+    }
+    .d-modal-header h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+    }
+    .d-modal-close {
+      background: transparent;
+      border: none;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      font-size: 1.5rem;
+      line-height: 1;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.2s;
+    }
+    .d-modal-close:hover {
+      color: var(--color-text-main);
+    }
+    .d-modal-body {
+      padding: 1.5rem;
+      overflow-y: auto;
+      flex: 1;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -5904,6 +6068,10 @@ window.openEditPeriodModal = function(periodId, currentName, currentMonth, curre
   });
 };
 
+let cachedDashboardRecords = [];
+let cachedDashboardPeriods = [];
+let cachedDashboardCommerceStatus = [];
+
 async function loadBillingMetricsDashboard() {
   const container = document.getElementById('metrics-dashboard-container');
   if (!container) return;
@@ -5916,13 +6084,31 @@ async function loadBillingMetricsDashboard() {
   `;
   
   try {
-    const { data: records, error } = await supabase
+    const { data: records, error: recError } = await supabase
       .from('billing_records')
       .select('*, billing_periods(name, status, period_month, period_year)');
       
-    if (error) throw error;
+    if (recError) throw recError;
     
-    if (!records || records.length === 0) {
+    const { data: periods, error: perError } = await supabase
+      .from('billing_periods')
+      .select('*')
+      .order('period_year', { ascending: false })
+      .order('period_month', { ascending: false });
+      
+    if (perError) throw perError;
+
+    const { data: commerceStatus, error: csError } = await supabase
+      .from('commerce_billing_status')
+      .select('*');
+      
+    if (csError) throw csError;
+    
+    cachedDashboardRecords = records || [];
+    cachedDashboardPeriods = periods || [];
+    cachedDashboardCommerceStatus = commerceStatus || [];
+    
+    if (cachedDashboardRecords.length === 0) {
       container.innerHTML = `
         <div class="card" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
           <i class="ri-bar-chart-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
@@ -5933,193 +6119,815 @@ async function loadBillingMetricsDashboard() {
       return;
     }
     
-    let totalFacturado = 0;
-    let totalRecibido = 0;
-    let totalAtrasado = 0;
-    let totalProximo = 0;
-    
-    let totalFulf = 0;
-    let totalEnv = 0;
-    
-    const commerceMap = {};
-    const periodMap = {};
-    
-    records.forEach(r => {
-      const recTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
-      const recPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
-      
-      const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
-      const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
-      
-      totalFacturado += recTotal;
-      totalRecibido += recPagado;
-      
-      totalFulf += (r.total_fulfillment || 0);
-      totalEnv += (r.enviame || 0);
-      
-      // Atrasado fulfillment
-      if (r.pago_fulfillment === 'Atrasado') {
-        totalAtrasado += pendingFulf;
-      } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
-        totalProximo += pendingFulf;
-      }
-      
-      // Atrasado enviame
-      if (r.pago_enviame === 'Atrasado') {
-        totalAtrasado += pendingEnv;
-      } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
-        totalProximo += pendingEnv;
-      }
-      
-      // Agrupar por comercio
-      if (!commerceMap[r.comercio]) {
-        commerceMap[r.comercio] = { name: r.comercio, total: 0, recibido: 0, pendiente: 0 };
-      }
-      commerceMap[r.comercio].total += recTotal;
-      commerceMap[r.comercio].recibido += recPagado;
-      commerceMap[r.comercio].pendiente += (recTotal - recPagado);
-      
-      // Agrupar por periodo
-      const periodId = r.period_id;
-      const periodName = r.billing_periods?.name || 'Desconocido';
-      let pMonth = r.billing_periods?.period_month;
-      let pYear = r.billing_periods?.period_year;
-      
-      // Fallback si son nulos en la base de datos
-      if (!pMonth || !pYear) {
-        const nameParts = periodName.split(' ');
-        pYear = nameParts[1] ? parseInt(nameParts[1], 10) : new Date().getFullYear();
-        
-        const mText = nameParts[0] ? nameParts[0].toUpperCase() : '';
-        const monthsMap = {
-          'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
-          'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
-          'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
-        };
-        pMonth = monthsMap[mText] || 1;
-      }
-      
-      if (!periodMap[periodId]) {
-        periodMap[periodId] = { id: periodId, name: periodName, month: pMonth, year: pYear, total: 0, recibido: 0, pendiente: 0 };
-      }
-      periodMap[periodId].total += recTotal;
-      periodMap[periodId].recibido += recPagado;
-      periodMap[periodId].pendiente += (recTotal - recPagado);
-    });
-    
-    const recaudacionPercent = totalFacturado > 0 ? ((totalRecibido / totalFacturado) * 100).toFixed(1) : '0';
-    const fulfPercent = totalFacturado > 0 ? ((totalFulf / totalFacturado) * 100).toFixed(1) : '0';
-    const envPercent = totalFacturado > 0 ? ((totalEnv / totalFacturado) * 100).toFixed(1) : '0';
-    
-    // Ordenar comercios por total descendente (Top Facturadores)
-    const topCommerces = Object.values(commerceMap).sort((a, b) => b.total - a.total).slice(0, 5);
-    const maxCommerceTotal = topCommerces.length > 0 ? topCommerces[0].total : 1;
-    
-    // Ordenar periodos cronológicamente
-    const sortedPeriods = Object.values(periodMap).sort((a, b) => (a.year * 12 + a.month) - (b.year * 12 + b.month));
-    
-    let periodsHtml = '';
-    sortedPeriods.forEach(p => {
-      const pRecPercent = p.total > 0 ? ((p.recibido / p.total) * 100).toFixed(0) : '0';
-      periodsHtml += `
-        <div style="margin-bottom: 1.25rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.75rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-            <span style="font-weight: 600; color: var(--color-text-main);">${p.name}</span>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
-              ${window.formatCLP(p.recibido)} de ${window.formatCLP(p.total)} (${pRecPercent}%)
-            </span>
-          </div>
-          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
-            <div style="background: var(--color-success); height: 100%; width: ${pRecPercent}%;"></div>
-          </div>
-        </div>
-      `;
-    });
-    
-    let commercesHtml = '';
-    topCommerces.forEach(c => {
-      const cPercent = maxCommerceTotal > 0 ? ((c.total / maxCommerceTotal) * 100).toFixed(0) : '0';
-      commercesHtml += `
-        <div style="margin-bottom: 1.25rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.75rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-            <span style="font-weight: 600; color: var(--color-text-main);">${c.name}</span>
-            <span style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">
-              ${window.formatCLP(c.total)}
-            </span>
-          </div>
-          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
-            <div style="background: var(--color-primary); height: 100%; width: ${cPercent}%;"></div>
-          </div>
-          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-            <span>Recibido: ${window.formatCLP(c.recibido)}</span>
-            <span>Pendiente: ${window.formatCLP(c.pendiente)}</span>
-          </div>
-        </div>
-      `;
-    });
-    
     container.innerHTML = `
-      <div class="billing-summary-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.25rem; margin-bottom: 1.5rem;">
-        <div class="billing-summary-card">
-          <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado</span>
-          <span class="billing-summary-value">${window.formatCLP(totalFacturado)}</span>
-          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-            Fulfillment: ${fulfPercent}% | Envíame: ${envPercent}%
-          </span>
-        </div>
-        <div class="billing-summary-card">
-          <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Recibido</span>
-          <span class="billing-summary-value" style="color: var(--color-success);">${window.formatCLP(totalRecibido)}</span>
-          <span style="font-size: 0.75rem; color: var(--color-success); margin-top: 0.25rem; font-weight: 600;">
-            ${recaudacionPercent}% recaudado
-          </span>
-        </div>
-        <div class="billing-summary-card">
-          <span class="billing-summary-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Total Atrasado</span>
-          <span class="billing-summary-value" style="color: var(--color-danger);">${window.formatCLP(totalAtrasado)}</span>
-          <span style="font-size: 0.75rem; color: var(--color-danger); margin-top: 0.25rem;">
-            Por cobrar vencidos
-          </span>
-        </div>
-        <div class="billing-summary-card">
-          <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Próximo a Recibir</span>
-          <span class="billing-summary-value" style="color: var(--color-warning);">${window.formatCLP(totalProximo)}</span>
-          <span style="font-size: 0.75rem; color: var(--color-warning); margin-top: 0.25rem;">
-            En espera y por solicitar
-          </span>
-        </div>
+      <div class="dashboard-subtabs">
+        <button class="dashboard-subtab-btn active" id="d-subtab-period" onclick="switchDashboardSubTab('period')"><i class="ri-calendar-line"></i> Vista por Periodo</button>
+        <button class="dashboard-subtab-btn" id="d-subtab-commerce" onclick="switchDashboardSubTab('commerce')"><i class="ri-store-2-line"></i> Vista por Comercio</button>
+        <button class="dashboard-subtab-btn" id="d-subtab-pending" onclick="switchDashboardSubTab('pending')"><i class="ri-checkbox-circle-line"></i> Tareas y Pendientes</button>
       </div>
       
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-        <!-- Evolución Mensual -->
-        <div class="card" style="margin: 0;">
-          <div class="card-header">
-            <h3><i class="ri-history-line"></i> Evolución Mensual de Cobros</h3>
+      <div id="d-content-period"></div>
+      <div id="d-content-commerce" style="display: none;"></div>
+      <div id="d-content-pending" style="display: none;"></div>
+
+      <!-- Dashboard Detail Modal -->
+      <div id="dashboard-detail-modal" class="d-modal-overlay" onclick="closeDashboardModal()">
+        <div class="d-modal-container" onclick="event.stopPropagation()">
+          <div class="d-modal-header">
+            <h3 id="d-modal-title">Detalles de Métrica</h3>
+            <button class="d-modal-close" onclick="closeDashboardModal()">&times;</button>
           </div>
-          <div class="card-body" style="padding: 1.25rem;">
-            ${periodsHtml || '<p style="color: var(--color-text-muted); text-align: center;">No hay periodos suficientes</p>'}
-          </div>
-        </div>
-        
-        <!-- Top Facturadores -->
-        <div class="card" style="margin: 0;">
-          <div class="card-header">
-            <h3><i class="ri-trophy-line"></i> Top Facturadores (Comercios)</h3>
-          </div>
-          <div class="card-body" style="padding: 1.25rem;">
-            ${commercesHtml || '<p style="color: var(--color-text-muted); text-align: center;">No hay datos de comercios</p>'}
-          </div>
+          <div class="d-modal-body" id="d-modal-body-content"></div>
         </div>
       </div>
     `;
     
+    switchDashboardSubTab('period');
+    
   } catch (err) {
-    console.error('Error generating metrics dashboard:', err);
+    console.error('Error loading billing dashboard:', err);
     container.innerHTML = `
       <div class="card" style="padding: 2rem; border-color: var(--color-danger); color: var(--color-danger);">
         <p><strong>Error al generar métricas:</strong> ${err.message}</p>
       </div>
     `;
+  }
+}
+
+window.switchDashboardSubTab = function(tabName) {
+  const tabs = ['period', 'commerce', 'pending'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`d-subtab-${t}`);
+    const content = document.getElementById(`d-content-${t}`);
+    if (btn && content) {
+      if (t === tabName) {
+        btn.classList.add('active');
+        content.style.display = 'block';
+      } else {
+        btn.classList.remove('active');
+        content.style.display = 'none';
+      }
+    }
+  });
+  
+  if (tabName === 'period') {
+    renderDashboardPeriodView();
+  } else if (tabName === 'commerce') {
+    renderDashboardCommerceView();
+  } else if (tabName === 'pending') {
+    renderDashboardPendingView();
+  }
+};
+
+function renderDashboardPeriodView() {
+  const content = document.getElementById('d-content-period');
+  if (!content) return;
+  
+  let options = '';
+  let selectedPeriodId = '';
+  const activePeriod = cachedDashboardPeriods.find(p => p.status === 'activo');
+  if (activePeriod) {
+    selectedPeriodId = activePeriod.id;
+  } else if (cachedDashboardPeriods.length > 0) {
+    selectedPeriodId = cachedDashboardPeriods[0].id;
+  }
+  
+  cachedDashboardPeriods.forEach(p => {
+    options += `<option value="${p.id}" ${p.id === selectedPeriodId ? 'selected' : ''}>${p.name} (${p.status.toUpperCase()})</option>`;
+  });
+  
+  content.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Periodo:</label>
+        <select id="d-period-select" class="form-input" style="width: 250px; margin: 0; padding: 0.35rem 0.75rem;" onchange="updateDashboardPeriodView()">
+          ${options}
+        </select>
+      </div>
+      <div id="d-period-status-badge"></div>
+    </div>
+    
+    <div id="d-period-metrics-cards" class="dashboard-grid"></div>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+      <div class="card" style="margin: 0;">
+        <div class="card-header">
+          <h3><i class="ri-history-line"></i> Resumen de Recaudación del Periodo</h3>
+        </div>
+        <div class="card-body" id="d-period-recaudacion-summary" style="padding: 1.25rem;"></div>
+      </div>
+      <div class="card" style="margin: 0;">
+        <div class="card-header">
+          <h3><i class="ri-trophy-line"></i> Top Facturadores de este Periodo</h3>
+        </div>
+        <div class="card-body" id="d-period-top-commerces" style="padding: 1.25rem;"></div>
+      </div>
+    </div>
+  `;
+  
+  updateDashboardPeriodView();
+}
+
+window.updateDashboardPeriodView = function() {
+  const periodSelect = document.getElementById('d-period-select');
+  if (!periodSelect) return;
+  const periodId = periodSelect.value;
+  
+  const periodObj = cachedDashboardPeriods.find(p => p.id === periodId);
+  const statusBadge = document.getElementById('d-period-status-badge');
+  if (statusBadge && periodObj) {
+    let statusClass = 'badge-neutral';
+    if (periodObj.status === 'activo') statusClass = 'badge-success';
+    if (periodObj.status === 'en_proceso') statusClass = 'badge-warning';
+    statusBadge.innerHTML = `<span class="badge ${statusClass}" style="text-transform: uppercase;">Estado: ${periodObj.status}</span>`;
+  }
+  
+  const periodRecords = cachedDashboardRecords.filter(r => r.period_id === periodId);
+  
+  let totalFulfFact = 0;
+  let totalEnvFact = 0;
+  let totalFulfRec = 0;
+  let totalEnvRec = 0;
+  let totalAtrasado = 0;
+  let totalProximo = 0;
+  
+  periodRecords.forEach(r => {
+    totalFulfFact += (r.total_fulfillment || 0);
+    totalEnvFact += (r.enviame || 0);
+    totalFulfRec += (r.abono_fulfillment || 0);
+    totalEnvRec += (r.abono_enviame || 0);
+    
+    const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+    const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+    
+    if (r.pago_fulfillment === 'Atrasado') {
+      totalAtrasado += pendingFulf;
+    } else if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos') {
+      totalProximo += pendingFulf;
+    }
+    
+    if (r.pago_enviame === 'Atrasado') {
+      totalAtrasado += pendingEnv;
+    } else if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos') {
+      totalProximo += pendingEnv;
+    }
+  });
+  
+  const cardsContainer = document.getElementById('d-period-metrics-cards');
+  if (cardsContainer) {
+    cardsContainer.innerHTML = `
+      <div class="dashboard-card primary" onclick="showDashboardMetricDetail('fulf_fact', '${periodId}')">
+        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Fulfillment</div>
+        <div class="dashboard-card-value">${window.formatCLP(totalFulfFact)}</div>
+        <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
+      </div>
+      <div class="dashboard-card primary" onclick="showDashboardMetricDetail('env_fact', '${periodId}')">
+        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturación Envíame</div>
+        <div class="dashboard-card-value">${window.formatCLP(totalEnvFact)}</div>
+        <div class="dashboard-card-sub">Clic para ver detalle de comercios</div>
+      </div>
+      <div class="dashboard-card success" onclick="showDashboardMetricDetail('fulf_rec', '${periodId}')">
+        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Fulfillment</div>
+        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalFulfRec)}</div>
+        <div class="dashboard-card-sub">${totalFulfFact > 0 ? ((totalFulfRec / totalFulfFact) * 100).toFixed(0) : 0}% recaudado</div>
+      </div>
+      <div class="dashboard-card success" onclick="showDashboardMetricDetail('env_rec', '${periodId}')">
+        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos Envíame</div>
+        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalEnvRec)}</div>
+        <div class="dashboard-card-sub">${totalEnvFact > 0 ? ((totalEnvRec / totalEnvFact) * 100).toFixed(0) : 0}% recaudado</div>
+      </div>
+      <div class="dashboard-card danger" onclick="showDashboardMetricDetail('atrasado', '${periodId}')">
+        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Montos con Atraso</div>
+        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(totalAtrasado)}</div>
+        <div class="dashboard-card-sub">Total vencido y no pagado</div>
+      </div>
+      <div class="dashboard-card warning" onclick="showDashboardMetricDetail('proximo', '${periodId}')">
+        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Montos Próximos a Vencer</div>
+        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(totalProximo)}</div>
+        <div class="dashboard-card-sub">Pagos pendientes a tiempo</div>
+      </div>
+    `;
+  }
+  
+  const recSummary = document.getElementById('d-period-recaudacion-summary');
+  if (recSummary) {
+    const totalFact = totalFulfFact + totalEnvFact;
+    const totalRec = totalFulfRec + totalEnvRec;
+    const recPercent = totalFact > 0 ? ((totalRec / totalFact) * 100).toFixed(1) : '0';
+    
+    recSummary.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 500;">
+          <span>Total Facturado del Periodo:</span>
+          <strong>${window.formatCLP(totalFact)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-success); font-weight: 500;">
+          <span>Total Recaudado:</span>
+          <strong>${window.formatCLP(totalRec)} (${recPercent}%)</strong>
+        </div>
+        <div style="background: var(--color-bg); border-radius: 6px; height: 10px; width: 100%; overflow: hidden; margin: 0.5rem 0;">
+          <div style="background: var(--color-success); height: 100%; width: ${recPercent}%;"></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: 1rem; font-size: 0.85rem;">
+          <div>
+            <span style="color: var(--color-text-muted);">Pendiente Fulfillment:</span><br>
+            <strong>${window.formatCLP(totalFulfFact - totalFulfRec)}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted);">Pendiente Envíame:</span><br>
+            <strong>${window.formatCLP(totalEnvFact - totalEnvRec)}</strong>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  const topCommercesContainer = document.getElementById('d-period-top-commerces');
+  if (topCommercesContainer) {
+    const commList = periodRecords.map(r => {
+      const recTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
+      const recPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+      return {
+        name: r.comercio,
+        total: recTotal,
+        recibido: recPagado,
+        pendiente: recTotal - recPagado
+      };
+    }).sort((a, b) => b.total - a.total).slice(0, 5);
+    
+    if (commList.length === 0) {
+      topCommercesContainer.innerHTML = '<p style="color: var(--color-text-muted); text-align: center; padding: 2rem;">No hay registros en este periodo</p>';
+      return;
+    }
+    
+    const maxVal = commList[0].total || 1;
+    
+    topCommercesContainer.innerHTML = commList.map(c => {
+      const widthPct = ((c.total / maxVal) * 100).toFixed(0);
+      return `
+        <div style="margin-bottom: 1rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${c.name}</span>
+            <strong style="color: var(--color-text-main); font-size: 0.9rem;">${window.formatCLP(c.total)}</strong>
+          </div>
+          <div style="background: var(--color-bg); border-radius: 4px; height: 6px; width: 100%; overflow: hidden;">
+            <div style="background: var(--color-primary); height: 100%; width: ${widthPct}%;"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.2rem;">
+            <span>Recibido: ${window.formatCLP(c.recibido)}</span>
+            <span>Pendiente: ${window.formatCLP(c.pendiente)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+};
+
+window.showDashboardMetricDetail = function(metricType, periodId) {
+  const periodRecords = cachedDashboardRecords.filter(r => r.period_id === periodId);
+  const modal = document.getElementById('dashboard-detail-modal');
+  const modalTitle = document.getElementById('d-modal-title');
+  const modalBody = document.getElementById('d-modal-body-content');
+  
+  if (!modal || !modalTitle || !modalBody) return;
+  
+  let titleText = '';
+  let tableRows = '';
+  
+  if (metricType === 'fulf_fact') {
+    titleText = 'Detalle de Facturación Fulfillment';
+    tableRows = periodRecords.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong></td>
+        <td style="font-weight: 600;">${window.formatCLP(r.total_fulfillment)}</td>
+        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'env_fact') {
+    titleText = 'Detalle de Facturación Envíame';
+    tableRows = periodRecords.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong></td>
+        <td style="font-weight: 600;">${window.formatCLP(r.enviame)}</td>
+        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'fulf_rec') {
+    titleText = 'Detalle de Pagos Recibidos Fulfillment';
+    const filtered = periodRecords.filter(r => (r.abono_fulfillment || 0) > 0);
+    tableRows = filtered.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong></td>
+        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(r.abono_fulfillment)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(r.total_fulfillment)}</span></td>
+        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'env_rec') {
+    titleText = 'Detalle de Pagos Recibidos Envíame';
+    const filtered = periodRecords.filter(r => (r.abono_enviame || 0) > 0);
+    tableRows = filtered.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong></td>
+        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(r.abono_enviame)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(r.enviame)}</span></td>
+        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'atrasado') {
+    titleText = 'Detalle de Montos con Atraso';
+    const list = [];
+    periodRecords.forEach(r => {
+      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
+        list.push({ commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+      }
+      if (r.pago_enviame === 'Atrasado' && ePending > 0) {
+        list.push({ commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+      }
+    });
+    
+    tableRows = list.map(item => `
+      <tr>
+        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
+        <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
+        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'proximo') {
+    titleText = 'Detalle de Montos Próximos a Vencer';
+    const list = [];
+    periodRecords.forEach(r => {
+      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
+        list.push({ commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+      }
+      if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
+        list.push({ commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+      }
+    });
+    
+    tableRows = list.map(item => `
+      <tr>
+        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
+        <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
+        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+      </tr>
+    `).join('');
+  }
+  
+  modalTitle.textContent = titleText;
+  
+  if (!tableRows) {
+    modalBody.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        No hay registros para esta métrica en este periodo.
+      </div>
+    `;
+  } else {
+    modalBody.innerHTML = `
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Comercio</th>
+              <th>Monto</th>
+              <th>Fecha Vencimiento</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+  
+  modal.classList.add('active');
+};
+
+window.closeDashboardModal = function() {
+  const modal = document.getElementById('dashboard-detail-modal');
+  if (modal) modal.classList.remove('active');
+};
+
+function renderDashboardCommerceView() {
+  const content = document.getElementById('d-content-commerce');
+  if (!content) return;
+  
+  const commerces = [...new Set(cachedDashboardRecords.map(r => r.comercio))].sort();
+  
+  let options = '';
+  commerces.forEach(c => {
+    options += `<option value="${c}">${c}</option>`;
+  });
+  
+  content.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Comercio:</label>
+        <select id="d-commerce-select" class="form-input" style="width: 250px; margin: 0; padding: 0.35rem 0.75rem;" onchange="updateDashboardCommerceView()">
+          ${options}
+        </select>
+      </div>
+      <div id="d-commerce-status-indicator"></div>
+    </div>
+    
+    <div id="d-commerce-summary-cards" class="dashboard-grid"></div>
+    
+    <div class="card" style="margin-top: 1.5rem;">
+      <div class="card-header">
+        <h3><i class="ri-history-line"></i> Historial Completo y Registro Anual</h3>
+      </div>
+      <div class="card-body table-responsive" id="d-commerce-history-table" style="padding: 0;"></div>
+    </div>
+  `;
+  
+  updateDashboardCommerceView();
+}
+
+window.updateDashboardCommerceView = function() {
+  const commSelect = document.getElementById('d-commerce-select');
+  if (!commSelect) return;
+  const commerce = commSelect.value;
+  if (!commerce) return;
+  
+  const statusObj = cachedDashboardCommerceStatus.find(s => s.comercio.toLowerCase() === commerce.toLowerCase());
+  const isAlDia = statusObj ? statusObj.al_dia : true;
+  
+  const statusIndicator = document.getElementById('d-commerce-status-indicator');
+  if (statusIndicator) {
+    statusIndicator.innerHTML = `
+      <span class="badge ${isAlDia ? 'badge-success' : 'badge-danger'}" style="text-transform: uppercase; font-size: 0.75rem; padding: 0.25rem 0.5rem; font-weight: 600;">
+        Estado del Servicio: ${isAlDia ? 'Al Día (Activo)' : 'Pausado / Suspendido'}
+      </span>
+    `;
+  }
+  
+  const commRecords = cachedDashboardRecords.filter(r => r.comercio.toLowerCase() === commerce.toLowerCase());
+  
+  let totalFact = 0;
+  let totalRec = 0;
+  commRecords.forEach(r => {
+    totalFact += (r.total_fulfillment || 0) + (r.enviame || 0);
+    totalRec += (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+  });
+  
+  const cards = document.getElementById('d-commerce-summary-cards');
+  if (cards) {
+    cards.innerHTML = `
+      <div class="dashboard-card primary">
+        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Total Facturado Histórico</div>
+        <div class="dashboard-card-value">${window.formatCLP(totalFact)}</div>
+        <div class="dashboard-card-sub">Fulfillment + Envíame</div>
+      </div>
+      <div class="dashboard-card success">
+        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado Histórico</div>
+        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(totalRec)}</div>
+        <div class="dashboard-card-sub">${totalFact > 0 ? ((totalRec / totalFact) * 100).toFixed(0) : 0}% recaudado</div>
+      </div>
+      <div class="dashboard-card warning">
+        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-error-warning-line"></i> Saldo Pendiente Acumulado</div>
+        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(totalFact - totalRec)}</div>
+        <div class="dashboard-card-sub">Monto por cobrar restante</div>
+      </div>
+    `;
+  }
+  
+  const recordsByYear = {};
+  commRecords.forEach(r => {
+    let year = r.billing_periods?.period_year;
+    let month = r.billing_periods?.period_month;
+    
+    if (!year || !month) {
+      const parts = (r.billing_periods?.name || '').split(' ');
+      year = parts[1] ? parseInt(parts[1], 10) : new Date().getFullYear();
+    }
+    
+    if (!recordsByYear[year]) recordsByYear[year] = [];
+    recordsByYear[year].push(r);
+  });
+  
+  const sortedYears = Object.keys(recordsByYear).sort((a, b) => b - a);
+  
+  const tableContainer = document.getElementById('d-commerce-history-table');
+  if (tableContainer) {
+    if (sortedYears.length === 0) {
+      tableContainer.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">Sin historial registrado</div>';
+      return;
+    }
+    
+    let html = '';
+    sortedYears.forEach(year => {
+      const yearRecords = recordsByYear[year].sort((a, b) => {
+        const m1 = a.billing_periods?.period_month || 1;
+        const m2 = b.billing_periods?.period_month || 1;
+        return m2 - m1;
+      });
+      
+      const rows = yearRecords.map(r => `
+        <tr>
+          <td><strong>${r.billing_periods?.name}</strong></td>
+          <td>${window.formatCLP(r.total_fulfillment)}</td>
+          <td>${window.formatCLP(r.abono_fulfillment)}</td>
+          <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
+          <td>${r.num_factura ? '#' + r.num_factura : '-'}</td>
+          
+          <td>${window.formatCLP(r.enviame)}</td>
+          <td>${window.formatCLP(r.abono_enviame)}</td>
+          <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
+          <td>${r.num_factura_enviame ? '#' + r.num_factura_enviame : '-'}</td>
+          
+          <td style="font-weight: 600; color: var(--color-text-main);">${window.formatCLP((r.total_fulfillment || 0) + (r.enviame || 0))}</td>
+        </tr>
+      `).join('');
+      
+      html += `
+        <div style="padding: 0.85rem 1.25rem; background: var(--color-surface-hover); border-top: 1px solid var(--color-border); border-bottom: 1px solid var(--color-border); font-weight: 600; font-size: 0.95rem; color: var(--color-text-main);">
+          Año ${year}
+        </div>
+        <table class="data-table" style="margin-bottom: 1.5rem;">
+          <thead>
+            <tr>
+              <th>Periodo</th>
+              <th>Fulf. Total</th>
+              <th>Fulf. Abono</th>
+              <th>Fulf. Pago</th>
+              <th>Fulf. Factura</th>
+              <th>Env. Total</th>
+              <th>Env. Abono</th>
+              <th>Env. Pago</th>
+              <th>Env. Factura</th>
+              <th>Monto Mes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `;
+    });
+    
+    tableContainer.innerHTML = html;
+  }
+};
+
+function renderDashboardPendingView() {
+  const content = document.getElementById('d-content-pending');
+  if (!content) return;
+  
+  const invoicesToEmit = [];
+  cachedDashboardRecords.forEach(r => {
+    if (r.factura_fulfillment === 'Facturar') {
+      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Fulfillment', amount: r.total_fulfillment, type: 'fulfillment' });
+    }
+    if (r.factura_enviame === 'Facturar') {
+      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Envíame', amount: r.enviame, type: 'enviame' });
+    }
+  });
+  
+  const fulfDetailsToSend = cachedDashboardRecords.filter(r => 
+    (r.desglose_fulfillment === 'Por Generar' || r.desglose_fulfillment === 'Creado') && (r.total_fulfillment || 0) > 0
+  );
+  
+  const envDetailsToSend = cachedDashboardRecords.filter(r => 
+    r.pago_enviame === 'Por solicitar' && (r.enviame || 0) > 0
+  );
+  
+  let invoicesRows = invoicesToEmit.map(i => `
+    <tr>
+      <td><strong>${i.commerce}</strong></td>
+      <td>${i.periodName}</td>
+      <td><span class="client-badge status-blue">${i.service}</span></td>
+      <td style="font-weight: 600;">${window.formatCLP(i.amount)}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="markDashboardInvoiceAsIssued('${i.recordId}', '${i.type}')">
+          <i class="ri-file-add-line"></i> Registrar Factura
+        </button>
+      </td>
+    </tr>
+  `).join('');
+  
+  let fulfDetailsRows = fulfDetailsToSend.map(r => `
+    <tr>
+      <td><strong>${r.comercio}</strong></td>
+      <td>${r.billing_periods?.name || ''}</td>
+      <td><span class="client-badge status-gray">${r.desglose_fulfillment}</span></td>
+      <td style="font-weight: 500;">${window.formatCLP(r.total_fulfillment)}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="markDashboardFulfDetailSent('${r.id}')">
+          <i class="ri-mail-send-line"></i> Marcar Enviado
+        </button>
+      </td>
+    </tr>
+  `).join('');
+  
+  let envDetailsRows = envDetailsToSend.map(r => `
+    <tr>
+      <td><strong>${r.comercio}</strong></td>
+      <td>${r.billing_periods?.name || ''}</td>
+      <td><span class="client-badge status-gray">${r.pago_enviame}</span></td>
+      <td style="font-weight: 500;">${window.formatCLP(r.enviame)}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick="markDashboardEnvDetailSent('${r.id}')">
+          <i class="ri-mail-send-line"></i> Marcar Enviado
+        </button>
+      </td>
+    </tr>
+  `).join('');
+  
+  content.innerHTML = `
+    <!-- Section 1: Facturas por Emitir -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-header">
+        <h3><i class="ri-file-warning-line"></i> Facturas por Emitir (${invoicesToEmit.length})</h3>
+      </div>
+      <div class="card-body table-responsive" style="padding: 0;">
+        ${invoicesRows ? `
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Comercio</th>
+                <th>Periodo</th>
+                <th>Servicio</th>
+                <th>Monto</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${invoicesRows}
+            </tbody>
+          </table>
+        ` : `
+          <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+            No hay facturas pendientes de emisión.
+          </div>
+        `}
+      </div>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+      <!-- Section 2: Enviar Detalle Fulfillment -->
+      <div class="card" style="margin: 0;">
+        <div class="card-header">
+          <h3><i class="ri-mail-line"></i> Enviar Detalle Fulfillment (${fulfDetailsToSend.length})</h3>
+        </div>
+        <div class="card-body table-responsive" style="padding: 0;">
+          ${fulfDetailsRows ? `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Comercio</th>
+                  <th>Periodo</th>
+                  <th>Estado</th>
+                  <th>Monto</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${fulfDetailsRows}
+              </tbody>
+            </table>
+          ` : `
+            <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+              No hay detalles de Fulfillment pendientes de enviar.
+            </div>
+          `}
+        </div>
+      </div>
+      
+      <!-- Section 3: Enviar Detalle Envíame -->
+      <div class="card" style="margin: 0;">
+        <div class="card-header">
+          <h3><i class="ri-mail-line"></i> Enviar Detalle Envíame (${envDetailsToSend.length})</h3>
+        </div>
+        <div class="card-body table-responsive" style="padding: 0;">
+          ${envDetailsRows ? `
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Comercio</th>
+                  <th>Periodo</th>
+                  <th>Estado</th>
+                  <th>Monto</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${envDetailsRows}
+              </tbody>
+            </table>
+          ` : `
+            <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+              No hay detalles de Envíame pendientes de enviar.
+            </div>
+          `}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
+  const invoiceNumStr = prompt('Introduce el Número de Factura emitida:');
+  if (invoiceNumStr === null) return;
+  const num = parseInt(invoiceNumStr.trim(), 10);
+  if (isNaN(num) || num <= 0) {
+    alert('Número de factura no válido.');
+    return;
+  }
+  
+  showSavingBadge(true);
+  try {
+    const updateObj = {};
+    if (serviceType === 'fulfillment') {
+      updateObj.factura_fulfillment = 'Emitida';
+      updateObj.num_factura = num;
+    } else {
+      updateObj.factura_enviame = 'Emitida';
+      updateObj.num_factura_enviame = num;
+    }
+    
+    const { error } = await supabase
+      .from('billing_records')
+      .update(updateObj)
+      .eq('id', recordId);
+      
+    if (error) throw error;
+    
+    alert('Factura registrada con éxito.');
+    await refreshDashboardData();
+  } catch (err) {
+    console.error(err);
+    alert('Error al registrar factura: ' + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.markDashboardFulfDetailSent = async function(recordId) {
+  if (!confirm('¿Marcar el desglose de Fulfillment como enviado al cliente?')) return;
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .update({ desglose_fulfillment: 'Enviado' })
+      .eq('id', recordId);
+      
+    if (error) throw error;
+    
+    alert('Desglose marcado como Enviado.');
+    await refreshDashboardData();
+  } catch (err) {
+    console.error(err);
+    alert('Error: ' + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.markDashboardEnvDetailSent = async function(recordId) {
+  if (!confirm('¿Marcar el detalle de Envíame como enviado y solicitar el pago? (Esto cambiará el estado del pago a "En espera")')) return;
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_records')
+      .update({ pago_enviame: 'En espera' })
+      .eq('id', recordId);
+      
+    if (error) throw error;
+    
+    alert('Detalle marcado como enviado y pago solicitado.');
+    await refreshDashboardData();
+  } catch (err) {
+    console.error(err);
+    alert('Error: ' + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+async function refreshDashboardData() {
+  try {
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*, billing_periods(name, status, period_month, period_year)');
+    if (error) throw error;
+    cachedDashboardRecords = records || [];
+    renderDashboardPendingView();
+  } catch(err) {
+    console.error('Error refreshing dashboard records:', err);
   }
 }
 
