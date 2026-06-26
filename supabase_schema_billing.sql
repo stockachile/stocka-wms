@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS public.billing_records (
 
 -- Asegurar la existencia de la nueva columna en caso de que la tabla ya exista
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_limite_enviame DATE;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_pago_recibido_fulfillment DATE;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_pago_recibido_enviame DATE;
 
 
 -- 5. Crear la Tabla de Reportes de Pagos (Enviados por Clientes)

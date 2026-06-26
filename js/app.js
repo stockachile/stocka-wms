@@ -6660,6 +6660,11 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment || '-'}</span>
+            ${r.pago_fulfillment === 'Recibido' && r.fecha_pago_recibido_fulfillment ? `
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Recibido: ${new Date(r.fecha_pago_recibido_fulfillment + 'T00:00:00').toLocaleDateString()}
+              </div>
+            ` : ''}
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
@@ -6693,6 +6698,11 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_enviame)}">${r.pago_enviame || '-'}</span>
+            ${r.pago_enviame === 'Recibido' && r.fecha_pago_recibido_enviame ? `
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Recibido: ${new Date(r.fecha_pago_recibido_enviame + 'T00:00:00').toLocaleDateString()}
+              </div>
+            ` : ''}
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>

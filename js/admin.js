@@ -4578,6 +4578,50 @@ function injectBillingStyles() {
       overflow-y: auto;
       flex: 1;
     }
+    
+    /* Switch toggle styles */
+    .billing-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 22px;
+    }
+    .billing-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .billing-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--color-border);
+      transition: .3s;
+      border-radius: 22px;
+    }
+    .billing-switch input:checked + .billing-slider {
+      background-color: var(--color-success);
+    }
+    .billing-switch input:focus + .billing-slider {
+      box-shadow: 0 0 1px var(--color-success);
+    }
+    .billing-switch input:checked + .billing-slider:before {
+      transform: translateX(22px);
+    }
+    .billing-slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -4671,13 +4715,171 @@ window.toggleCommerceAlDia = async function(comercio, checkboxEl) {
   try {
     const { error } = await supabase
       .from('commerce_billing_status')
-      .upsert({ comercio, al_dia: alDia }, { onConflict: 'comercio' });
+      .upsert({ comercio, al_dia: alDia, updated_at: new Date().toISOString() }, { onConflict: 'comercio' });
     if (error) throw error;
     setTimeout(() => showSavingBadge(false), 500);
   } catch (err) {
     console.error('Error updating commerce status:', err);
     alert('Error al actualizar estado del comercio: ' + err.message);
     checkboxEl.checked = !alDia; // Revertir en caso de error
+    showSavingBadge(false);
+  }
+};
+
+window.loadCommerceStatusTab = async function() {
+  const container = document.getElementById('status-list-container');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Cargando estados de comercio...
+    </div>
+  `;
+  
+  try {
+    // 1. Obtener registros de facturación para sacar comercios únicos
+    const { data: records, error: recError } = await supabase
+      .from('billing_records')
+      .select('comercio');
+      
+    if (recError) throw recError;
+    
+    // 2. Obtener los estados guardados
+    const { data: statuses, error: statError } = await supabase
+      .from('commerce_billing_status')
+      .select('*');
+      
+    if (statError) throw statError;
+    
+    // Unificar todos los comercios únicos
+    const commerceNames = new Set();
+    if (records) records.forEach(r => { if (r.comercio) commerceNames.add(r.comercio.trim()); });
+    if (statuses) statuses.forEach(s => { if (s.comercio) commerceNames.add(s.comercio.trim()); });
+    
+    const uniqueCommerces = [...commerceNames].sort();
+    
+    const statusMap = {};
+    const updatedMap = {};
+    if (statuses) {
+      statuses.forEach(s => {
+        statusMap[s.comercio.trim()] = s.al_dia;
+        updatedMap[s.comercio.trim()] = s.updated_at;
+      });
+    }
+    
+    if (uniqueCommerces.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          No se encontraron comercios registrados en el sistema.
+        </div>
+      `;
+      return;
+    }
+    
+    let tableRows = '';
+    uniqueCommerces.forEach(c => {
+      const alDia = statusMap[c] !== false; // Default true
+      const updatedAt = updatedMap[c] ? new Date(updatedMap[c]).toLocaleString('es-CL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }) : 'No registrado';
+      
+      const badge = alDia 
+        ? `<span class="badge status-green" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;"><i class="ri-checkbox-circle-line"></i> Activo / Al Día</span>`
+        : `<span class="badge status-red" style="font-size: 0.8rem; padding: 0.3rem 0.6rem;"><i class="ri-alert-line"></i> Pausado por Facturación</span>`;
+      
+      tableRows += `
+        <tr class="commerce-status-row" data-commerce-name="${c.toLowerCase()}">
+          <td style="font-weight: 600; color: var(--color-text-main); font-size: 0.95rem; padding: 1rem 1.25rem; vertical-align: middle;">
+            ${c}
+          </td>
+          <td style="vertical-align: middle; padding: 1rem 1.25rem;">
+            ${badge}
+          </td>
+          <td style="vertical-align: middle; padding: 1rem 1.25rem; text-align: center;">
+            <label class="billing-switch" style="vertical-align: middle;">
+              <input type="checkbox" ${alDia ? 'checked' : ''} onchange="toggleCommerceAlDiaTab('${c}', this)">
+              <span class="billing-slider"></span>
+            </label>
+          </td>
+          <td style="color: var(--color-text-muted); font-size: 0.8rem; vertical-align: middle; padding: 1rem 1.25rem;">
+            ${updatedAt}
+          </td>
+        </tr>
+      `;
+    });
+    
+    container.innerHTML = `
+      <table class="data-table" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr>
+            <th style="text-align: left; padding: 1rem 1.25rem;">Comercio</th>
+            <th style="text-align: left; padding: 1rem 1.25rem; width: 250px;">Estado de Servicio</th>
+            <th style="text-align: center; padding: 1rem 1.25rem; width: 120px;">Acción (Activar/Pausar)</th>
+            <th style="text-align: left; padding: 1rem 1.25rem; width: 220px;">Última Modificación</th>
+          </tr>
+        </thead>
+        <tbody id="status-table-body">
+          ${tableRows}
+        </tbody>
+      </table>
+    `;
+    
+  } catch (err) {
+    console.error("Error loading commerce status tab:", err);
+    container.innerHTML = `
+      <div style="padding: 2rem; color: var(--color-danger); text-align: center;">
+        Error al cargar los estados de comercio: ${err.message}
+      </div>
+    `;
+  }
+};
+
+window.filterStatusComercios = function() {
+  const query = (document.getElementById('status-search-input')?.value || '').toLowerCase().trim();
+  const rows = document.querySelectorAll('.commerce-status-row');
+  rows.forEach(row => {
+    const name = row.getAttribute('data-commerce-name') || '';
+    if (name.includes(query)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+};
+
+window.toggleCommerceAlDiaTab = async function(comercio, switchEl) {
+  const alDia = switchEl.checked;
+  const actionText = alDia ? 'marcar AL DÍA y ACTIVAR el servicio' : 'poner en SERVICIO PAUSADO';
+  if (!confirm(`¿Estás seguro de que deseas ${actionText} para el comercio ${comercio}?`)) {
+    switchEl.checked = !alDia;
+    return;
+  }
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('commerce_billing_status')
+      .upsert({ comercio, al_dia: alDia, updated_at: new Date().toISOString() }, { onConflict: 'comercio' });
+      
+    if (error) throw error;
+    
+    // Refrescar la pestaña completa para actualizar badge y timestamp
+    await loadCommerceStatusTab();
+    
+    // Ejecutar verificación en segundo plano para actualizar banners globales
+    Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
+    
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error updating commerce status from tab:', err);
+    alert('Error al actualizar estado del comercio: ' + err.message);
+    switchEl.checked = !alDia;
     showSavingBadge(false);
   }
 };
@@ -4748,6 +4950,7 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn active" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
       <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
       <button class="billing-tab-btn" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
+      <button class="billing-tab-btn" id="tab-status-btn" onclick="switchBillingAdminTab('status')"><i class="ri-toggle-line"></i> Estados de Comercio</button>
     </div>
     
     <div id="tab-control-content">
@@ -4775,6 +4978,24 @@ window.renderBillingAdmin = async function() {
         <!-- Cargado dinámicamente -->
       </div>
     </div>
+
+    <div id="tab-status-content" style="display: none;">
+      <div class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-toggle-line"></i> Estados de Servicio de Comercios</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Controla el estado del servicio activo o pausado por facturación para cada comercio</p>
+          </div>
+          <div style="position: relative;">
+            <input type="text" id="status-search-input" class="form-input" placeholder="Buscar comercio..." style="padding-left: 2rem; margin: 0; width: 220px;" oninput="filterStatusComercios()">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+          </div>
+        </div>
+        <div class="card-body table-responsive" id="status-list-container" style="padding: 0;">
+          <!-- Cargado dinámicamente -->
+        </div>
+      </div>
+    </div>
   `;
   
   await loadBillingPeriods();
@@ -4782,37 +5003,29 @@ window.renderBillingAdmin = async function() {
 };
 
 window.switchBillingAdminTab = function(tabName) {
-  const tabControlBtn = document.getElementById('tab-control-btn');
-  const tabReportsBtn = document.getElementById('tab-reports-btn');
-  const tabMetricsBtn = document.getElementById('tab-metrics-btn');
-  const contentControl = document.getElementById('tab-control-content');
-  const contentReports = document.getElementById('tab-reports-content');
-  const contentMetrics = document.getElementById('tab-metrics-content');
-  
+  const tabs = ['control', 'reports', 'metrics', 'status'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`tab-${t}-btn`);
+    const content = document.getElementById(`tab-${t}-content`);
+    if (btn && content) {
+      if (t === tabName) {
+        btn.classList.add('active');
+        content.style.display = 'block';
+      } else {
+        btn.classList.remove('active');
+        content.style.display = 'none';
+      }
+    }
+  });
+
   if (tabName === 'control') {
-    tabControlBtn.classList.add('active');
-    tabReportsBtn.classList.remove('active');
-    if (tabMetricsBtn) tabMetricsBtn.classList.remove('active');
-    contentControl.style.display = 'block';
-    contentReports.style.display = 'none';
-    if (contentMetrics) contentMetrics.style.display = 'none';
     loadBillingPeriods();
   } else if (tabName === 'reports') {
-    tabControlBtn.classList.remove('active');
-    tabReportsBtn.classList.add('active');
-    if (tabMetricsBtn) tabMetricsBtn.classList.remove('active');
-    contentControl.style.display = 'none';
-    contentReports.style.display = 'block';
-    if (contentMetrics) contentMetrics.style.display = 'none';
     loadPendingPaymentReports();
   } else if (tabName === 'metrics') {
-    tabControlBtn.classList.remove('active');
-    tabReportsBtn.classList.remove('active');
-    if (tabMetricsBtn) tabMetricsBtn.classList.add('active');
-    contentControl.style.display = 'none';
-    contentReports.style.display = 'none';
-    if (contentMetrics) contentMetrics.style.display = 'block';
     loadBillingMetricsDashboard();
+  } else if (tabName === 'status') {
+    loadCommerceStatusTab();
   }
 };
 
@@ -5021,9 +5234,6 @@ async function loadBillingRecords(periodId, bodyElement) {
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
-          <td class="col-group-divider" style="vertical-align: middle; text-align: center;">
-            <input type="checkbox" ${alDia ? 'checked' : ''} onchange="toggleCommerceAlDia('${r.comercio}', this)" title="Marcar Al Día">
-          </td>
           
           <!-- Fulfillment -->
           <td class="col-group-fulf" style="vertical-align: middle;">
@@ -5055,6 +5265,11 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="incobrable" ${r.pago_fulfillment === 'incobrable' ? 'selected' : ''}>Incobrable</option>
               <option value="Sin movimientos" ${r.pago_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
+            ${r.pago_fulfillment === 'Recibido' ? `
+              <div style="margin-top: 0.25rem;">
+                <input type="date" value="${r.fecha_pago_recibido_fulfillment || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_pago_recibido_fulfillment', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">
+              </div>
+            ` : ''}
           </td>
           <td class="col-group-fulf" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')">
@@ -5090,6 +5305,11 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="incobrable" ${r.pago_enviame === 'incobrable' ? 'selected' : ''}>Incobrable</option>
               <option value="Sin movimientos" ${r.pago_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
+            ${r.pago_enviame === 'Recibido' ? `
+              <div style="margin-top: 0.25rem;">
+                <input type="date" value="${r.fecha_pago_recibido_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_pago_recibido_enviame', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">
+              </div>
+            ` : ''}
           </td>
           <td class="col-group-env" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')">
@@ -5180,8 +5400,7 @@ async function loadBillingRecords(periodId, bodyElement) {
           <thead>
             <tr>
               <th rowspan="2" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
-              <th rowspan="2" class="col-group-divider" style="min-width: 70px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Al Día</th>
-              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
+              <th colspan="6" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
               <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
               <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
               <th rowspan="2" style="width: 50px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
@@ -5260,11 +5479,22 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
     
     // Auto-fill abono locally if status is marked Recibido
     if (val === 'Recibido') {
+      const today = new Date().toLocaleDateString('sv-SE');
       if (fieldName === 'pago_fulfillment') {
         const totalInput = row.querySelector('input[onblur*="total_fulfillment"]');
         const abonoInput = row.querySelector('input[onblur*="abono_fulfillment"]');
         if (totalInput && abonoInput) {
           abonoInput.value = totalInput.value;
+        }
+        saveField(recordId, 'fecha_pago_recibido_fulfillment', today);
+        
+        // Dynamic DOM injection of the datepicker
+        let dateContainer = selectEl.parentNode.querySelector('div');
+        if (!dateContainer) {
+          const div = document.createElement('div');
+          div.style.marginTop = '0.25rem';
+          div.innerHTML = `<input type="date" value="${today}" class="billing-input" onchange="saveField('${recordId}', 'fecha_pago_recibido_fulfillment', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">`;
+          selectEl.parentNode.appendChild(div);
         }
       } else if (fieldName === 'pago_enviame') {
         const totalInput = row.querySelector('input[onblur*="enviame"]');
@@ -5272,6 +5502,27 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
         if (totalInput && abonoInput) {
           abonoInput.value = totalInput.value;
         }
+        saveField(recordId, 'fecha_pago_recibido_enviame', today);
+        
+        // Dynamic DOM injection of the datepicker
+        let dateContainer = selectEl.parentNode.querySelector('div');
+        if (!dateContainer) {
+          const div = document.createElement('div');
+          div.style.marginTop = '0.25rem';
+          div.innerHTML = `<input type="date" value="${today}" class="billing-input" onchange="saveField('${recordId}', 'fecha_pago_recibido_enviame', this.value)" style="font-size: 0.75rem; padding: 0.15rem 0.25rem; text-align: center; border: 1px solid var(--color-border); width: 100%; box-sizing: border-box;" title="Fecha de Pago Recibido">`;
+          selectEl.parentNode.appendChild(div);
+        }
+      }
+    } else {
+      // Remove dynamic datepicker if status changed from Recibido
+      let dateContainer = selectEl.parentNode.querySelector('div');
+      if (dateContainer) {
+        dateContainer.remove();
+      }
+      if (fieldName === 'pago_fulfillment') {
+        saveField(recordId, 'fecha_pago_recibido_fulfillment', null);
+      } else if (fieldName === 'pago_enviame') {
+        saveField(recordId, 'fecha_pago_recibido_enviame', null);
       }
     }
   }
@@ -5839,6 +6090,16 @@ window.approvePaymentReport = async function(reportId, periodId, commerce, servi
   if (!confirm(`¿Aprobar el pago de $${monto.toLocaleString('es-CL')} de ${commerce} para ${servicio}?`)) return;
   showSavingBadge(true);
   try {
+    // Obtener la fecha de pago informada por el cliente
+    const { data: report, error: repGetErr } = await supabase
+      .from('payment_reports')
+      .select('fecha_pago')
+      .eq('id', reportId)
+      .single();
+      
+    if (repGetErr) throw repGetErr;
+    const paymentDate = report ? report.fecha_pago : new Date().toLocaleDateString('sv-SE');
+
     const { data: record, error: getErr } = await supabase
       .from('billing_records')
       .select('id, total_fulfillment, enviame')
@@ -5852,10 +6113,12 @@ window.approvePaymentReport = async function(reportId, periodId, commerce, servi
     if (servicio === 'fulfillment' || servicio === 'ambos') {
       updates.pago_fulfillment = 'Recibido';
       updates.abono_fulfillment = record.total_fulfillment;
+      updates.fecha_pago_recibido_fulfillment = paymentDate;
     }
     if (servicio === 'enviame' || servicio === 'ambos') {
       updates.pago_enviame = 'Recibido';
       updates.abono_enviame = record.enviame;
+      updates.fecha_pago_recibido_enviame = paymentDate;
     }
     
     const { error: updErr } = await supabase
@@ -6756,12 +7019,26 @@ window.updateDashboardCommerceView = function() {
           <td><strong>${r.billing_periods?.name}</strong></td>
           <td>${window.formatCLP(r.total_fulfillment)}</td>
           <td>${window.formatCLP(r.abono_fulfillment)}</td>
-          <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
+          <td>
+            <span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span>
+            ${r.pago_fulfillment === 'Recibido' && r.fecha_pago_recibido_fulfillment ? `
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Recibido: ${new Date(r.fecha_pago_recibido_fulfillment + 'T00:00:00').toLocaleDateString()}
+              </div>
+            ` : ''}
+          </td>
           <td>${r.num_factura ? '#' + r.num_factura : '-'}</td>
           
           <td>${window.formatCLP(r.enviame)}</td>
           <td>${window.formatCLP(r.abono_enviame)}</td>
-          <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
+          <td>
+            <span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span>
+            ${r.pago_enviame === 'Recibido' && r.fecha_pago_recibido_enviame ? `
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
+                Recibido: ${new Date(r.fecha_pago_recibido_enviame + 'T00:00:00').toLocaleDateString()}
+              </div>
+            ` : ''}
+          </td>
           <td>${r.num_factura_enviame ? '#' + r.num_factura_enviame : '-'}</td>
           
           <td style="font-weight: 600; color: var(--color-text-main);">${window.formatCLP((r.total_fulfillment || 0) + (r.enviame || 0))}</td>
