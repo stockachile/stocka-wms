@@ -2506,6 +2506,7 @@ async function initNotifications(userId) {
       const { data, error } = await supabase
         .from('dashboard_notifications')
         .select('*')
+        .lte('created_at', new Date().toISOString())
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -2554,7 +2555,11 @@ async function initNotifications(userId) {
     markReadBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        const { data } = await supabase.from('dashboard_notifications').select('id').eq('is_read', false);
+        const { data } = await supabase
+          .from('dashboard_notifications')
+          .select('id')
+          .eq('is_read', false)
+          .lte('created_at', new Date().toISOString());
         if(data && data.length > 0) {
           const ids = data.map(n => n.id);
           await supabase.from('dashboard_notifications').update({ is_read: true }).in('id', ids);
@@ -2800,7 +2805,12 @@ async function renderAdminDashboard() {
     }
 
     // Load Notifications (Inbox)
-    const { data: notifs } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false }).limit(20);
+    const { data: notifs } = await supabase
+      .from('dashboard_notifications')
+      .select('*')
+      .lte('created_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(20);
     const notifList = document.getElementById('admin-notif-list');
     if(notifs && notifs.length > 0) {
       notifList.innerHTML = notifs.map(n => `

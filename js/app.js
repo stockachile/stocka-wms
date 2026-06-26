@@ -345,7 +345,12 @@ async function initNotifications(userId) {
       const readIds = readRecords ? readRecords.map(r => r.entity_id) : [];
 
       const rolesToMatch = ['all', userRole];
-      const { data, error } = await supabase.from('dashboard_notifications').select('*').order('created_at', { ascending: false }).limit(30);
+      const { data, error } = await supabase
+        .from('dashboard_notifications')
+        .select('*')
+        .lte('created_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(30);
       if (error) throw error;
 
       const filteredData = data ? data.filter(n => {
