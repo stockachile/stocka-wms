@@ -219,6 +219,9 @@ async function init() {
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
+          } else if (view === 'inbox') {
+            viewTitle.textContent = 'Mi Inbox';
+            renderInboxPage();
           }
         });
       });
@@ -235,7 +238,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -7289,3 +7292,141 @@ function showSuspensionBanner(pausedComercios) {
 
 window.showSuspensionBanner = showSuspensionBanner;
 
+async function renderInboxPage() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+  
+  appContent.innerHTML = `
+    <div style="max-width: 900px; margin: 0 auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h2 style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 600;">Mi Inbox de Notificaciones</h2>
+        <button id="inbox-mark-all-read-btn" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); display: none;">
+          <i class="ri-check-double-line" style="margin-right: 0.25rem;"></i> Marcar todas leídas
+        </button>
+      </div>
+      <div class="card">
+        <div class="card-body" style="padding: 0;">
+          <div id="inbox-list" style="min-height: 200px; position: relative;">
+            <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+              <i class="ri-loader-4-line spin" style="font-size: 2rem;"></i><br>Cargando...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await loadInboxData();
+}
+
+async function loadInboxData() {
+  const list = document.getElementById('inbox-list');
+  const markAllBtn = document.getElementById('inbox-mark-all-read-btn');
+  if (!list) return;
+
+  try {
+    if (!currentMerchantId) return;
+    
+    // Fetch user's read records
+    const { data: readRecords } = await supabase
+      .from('user_notification_reads')
+      .select('entity_id')
+      .eq('user_id', currentMerchantId)
+      .eq('entity_type', 'notification');
+      
+    const readIds = readRecords ? readRecords.map(r => r.entity_id) : [];
+
+    const rolesToMatch = ['all', userRole];
+    // Traer un historial más largo (100)
+    const { data, error } = await supabase
+      .from('dashboard_notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+      
+    if (error) throw error;
+
+    const filteredData = data ? data.filter(n => {
+      return (rolesToMatch.includes(n.target_role) && !n.user_id) || n.user_id === currentMerchantId;
+    }) : [];
+
+    if (!filteredData || filteredData.length === 0) {
+      list.innerHTML = \`
+        <div style="padding: 4rem 2rem; text-align: center; color: var(--color-text-muted);">
+          <div style="background: var(--color-surface-hover); width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
+            <i class="ri-inbox-archive-line" style="font-size: 2rem; color: var(--color-border);"></i>
+          </div>
+          <h3 style="font-size: 1.1rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Bandeja vacía</h3>
+          <p style="font-size: 0.9rem;">No tienes notificaciones en tu historial.</p>
+        </div>\`;
+      if (markAllBtn) markAllBtn.style.display = 'none';
+      return;
+    }
+
+    const unreadCount = filteredData.filter(n => !readIds.includes(n.id)).length;
+    if (markAllBtn) {
+      markAllBtn.style.display = unreadCount > 0 ? 'inline-flex' : 'none';
+      
+      // Remove old listener by replacing button
+      const newBtn = markAllBtn.cloneNode(true);
+      markAllBtn.parentNode.replaceChild(newBtn, markAllBtn);
+      
+      newBtn.addEventListener('click', async () => {
+        try {
+          const unreadItems = filteredData.filter(n => !readIds.includes(n.id));
+          const inserts = unreadItems.map(item => ({
+            user_id: currentMerchantId,
+            entity_type: 'notification',
+            entity_id: item.id
+          }));
+          
+          if (inserts.length > 0) {
+            newBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Marcando...';
+            await supabase.from('user_notification_reads').insert(inserts);
+            await loadInboxData();
+          }
+        } catch(err) {
+          console.error(err);
+        }
+      });
+    }
+
+    list.innerHTML = filteredData.map(n => {
+      const isReadLocally = readIds.includes(n.id);
+      return \`
+      <div class="inbox-item \${isReadLocally ? 'read' : 'unread'}" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; gap: 1rem; align-items: flex-start; transition: background-color 0.2s; background: \${isReadLocally ? 'transparent' : 'rgba(59, 130, 246, 0.05)'};">
+        <div style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: \${isReadLocally ? 'var(--color-surface-hover)' : 'rgba(59, 130, 246, 0.15)'}; color: \${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-primary)'}; display: flex; align-items: center; justify-content: center;">
+          <i class="\${isReadLocally ? 'ri-notification-badge-line' : 'ri-notification-3-fill'}" style="font-size: 1.25rem;"></i>
+        </div>
+        <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.25rem;">
+            <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: \${isReadLocally ? '500' : '600'};">\${n.title}</h4>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; margin-left: 1rem;">\${new Date(n.created_at).toLocaleString()}</span>
+          </div>
+          <p style="margin: 0; font-size: 0.9rem; color: \${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-text-main)'}; line-height: 1.5;">\${n.message}</p>
+        </div>
+        \${!isReadLocally ? \`
+          <button class="btn btn-outline mark-inbox-read-btn" data-id="\${n.id}" title="Marcar como leída" style="padding: 0.25rem 0.5rem; font-size: 1.1rem; border: none; color: var(--color-primary); background: transparent;">
+            <i class="ri-check-line"></i>
+          </button>
+        \` : \`
+          <div style="padding: 0.25rem 0.5rem; color: var(--color-text-muted); font-size: 1.1rem;"><i class="ri-check-double-line"></i></div>
+        \`}
+      </div>
+    \`}).join('');
+
+    document.querySelectorAll('.mark-inbox-read-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.getAttribute('data-id');
+        btn.innerHTML = '<i class="ri-loader-4-line spin"></i>';
+        await supabase.from('user_notification_reads').insert([{ user_id: currentMerchantId, entity_type: 'notification', entity_id: id }]);
+        await loadInboxData();
+      });
+    });
+
+  } catch (err) {
+    console.error('Error fetching inbox:', err);
+    list.innerHTML = \`<div style="padding: 2rem; color: var(--color-danger); text-align: center;">Error al cargar: \${err.message}</div>\`;
+  }
+}

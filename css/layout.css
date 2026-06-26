@@ -70,6 +70,21 @@
   background: linear-gradient(90deg, rgba(5,250,147,0.1) 0%, transparent 100%);
 }
 
+.sidebar-submenu {
+  display: none;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem 0;
+}
+
+.sidebar-submenu.active {
+  display: block;
+}
+
+.sidebar-submenu .nav-item {
+  padding: 0.65rem 1.5rem 0.65rem 3rem;
+  font-size: 0.85rem;
+}
+
 .sidebar-footer {
   padding: 1.5rem;
   border-top: 1px solid rgba(255,255,255,0.1);

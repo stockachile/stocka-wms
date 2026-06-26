@@ -33,6 +33,15 @@
           <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reglas de Visibilidad</a></li>
           <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Facturación</a></li>
           <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Integraciones</a></li>
+          <li style="margin-top: 1rem;">
+            <a href="#" class="nav-item nav-item-has-submenu" onclick="this.nextElementSibling.classList.toggle('active'); return false;">
+              <i class="ri-user-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Mi Perfil <i class="ri-arrow-down-s-line" style="margin-left: auto;"></i>
+            </a>
+            <ul class="sidebar-submenu">
+              <li><a href="#" class="nav-item" data-view="profile"><i class="ri-profile-line" style="margin-right: 0.5rem;"></i> Ver Perfil</a></li>
+              <li><a href="#" class="nav-item" data-view="inbox"><i class="ri-inbox-line" style="margin-right: 0.5rem;"></i> Mi Inbox</a></li>
+            </ul>
+          </li>
         </ul>
       </nav>
       <div class="sidebar-footer">
@@ -78,6 +87,11 @@
               </div>
               <div id="notification-list" style="max-height: 300px; overflow-y: auto;">
                 <div style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">No tienes notificaciones.</div>
+              </div>
+              <div style="border-top: 1px solid var(--color-border); text-align: center; background: var(--color-bg); border-radius: 0 0 var(--radius-md) var(--radius-md);">
+                <a href="#" class="nav-item" data-view="inbox" style="display: block; padding: 0.75rem; font-size: 0.8rem; color: var(--color-primary); text-decoration: none; font-weight: 500;">
+                  Ver todas las notificaciones <i class="ri-arrow-right-line" style="vertical-align: middle;"></i>
+                </a>
               </div>
             </div>
           </div>
