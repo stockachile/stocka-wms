@@ -7351,14 +7351,14 @@ async function loadInboxData() {
     }) : [];
 
     if (!filteredData || filteredData.length === 0) {
-      list.innerHTML = \`
+      list.innerHTML = `
         <div style="padding: 4rem 2rem; text-align: center; color: var(--color-text-muted);">
           <div style="background: var(--color-surface-hover); width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1rem;">
             <i class="ri-inbox-archive-line" style="font-size: 2rem; color: var(--color-border);"></i>
           </div>
           <h3 style="font-size: 1.1rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Bandeja vacía</h3>
           <p style="font-size: 0.9rem;">No tienes notificaciones en tu historial.</p>
-        </div>\`;
+        </div>`;
       if (markAllBtn) markAllBtn.style.display = 'none';
       return;
     }
@@ -7393,27 +7393,27 @@ async function loadInboxData() {
 
     list.innerHTML = filteredData.map(n => {
       const isReadLocally = readIds.includes(n.id);
-      return \`
-      <div class="inbox-item \${isReadLocally ? 'read' : 'unread'}" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; gap: 1rem; align-items: flex-start; transition: background-color 0.2s; background: \${isReadLocally ? 'transparent' : 'rgba(59, 130, 246, 0.05)'};">
-        <div style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: \${isReadLocally ? 'var(--color-surface-hover)' : 'rgba(59, 130, 246, 0.15)'}; color: \${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-primary)'}; display: flex; align-items: center; justify-content: center;">
-          <i class="\${isReadLocally ? 'ri-notification-badge-line' : 'ri-notification-3-fill'}" style="font-size: 1.25rem;"></i>
+      return `
+      <div class="inbox-item ${isReadLocally ? 'read' : 'unread'}" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; gap: 1rem; align-items: flex-start; transition: background-color 0.2s; background: ${isReadLocally ? 'transparent' : 'rgba(59, 130, 246, 0.05)'};">
+        <div style="flex-shrink: 0; width: 40px; height: 40px; border-radius: 50%; background: ${isReadLocally ? 'var(--color-surface-hover)' : 'rgba(59, 130, 246, 0.15)'}; color: ${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-primary)'}; display: flex; align-items: center; justify-content: center;">
+          <i class="${isReadLocally ? 'ri-notification-badge-line' : 'ri-notification-3-fill'}" style="font-size: 1.25rem;"></i>
         </div>
         <div style="flex: 1;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.25rem;">
-            <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: \${isReadLocally ? '500' : '600'};">\${n.title}</h4>
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; margin-left: 1rem;">\${new Date(n.created_at).toLocaleString()}</span>
+            <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: ${isReadLocally ? '500' : '600'};">${n.title}</h4>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap; margin-left: 1rem;">${new Date(n.created_at).toLocaleString()}</span>
           </div>
-          <p style="margin: 0; font-size: 0.9rem; color: \${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-text-main)'}; line-height: 1.5;">\${n.message}</p>
+          <p style="margin: 0; font-size: 0.9rem; color: ${isReadLocally ? 'var(--color-text-muted)' : 'var(--color-text-main)'}; line-height: 1.5;">${n.message}</p>
         </div>
-        \${!isReadLocally ? \`
-          <button class="btn btn-outline mark-inbox-read-btn" data-id="\${n.id}" title="Marcar como leída" style="padding: 0.25rem 0.5rem; font-size: 1.1rem; border: none; color: var(--color-primary); background: transparent;">
+        ${!isReadLocally ? `
+          <button class="btn btn-outline mark-inbox-read-btn" data-id="${n.id}" title="Marcar como leída" style="padding: 0.25rem 0.5rem; font-size: 1.1rem; border: none; color: var(--color-primary); background: transparent;">
             <i class="ri-check-line"></i>
           </button>
-        \` : \`
+        ` : `
           <div style="padding: 0.25rem 0.5rem; color: var(--color-text-muted); font-size: 1.1rem;"><i class="ri-check-double-line"></i></div>
-        \`}
+        `}
       </div>
-    \`}).join('');
+    `}).join('');
 
     document.querySelectorAll('.mark-inbox-read-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
@@ -7427,6 +7427,6 @@ async function loadInboxData() {
 
   } catch (err) {
     console.error('Error fetching inbox:', err);
-    list.innerHTML = \`<div style="padding: 2rem; color: var(--color-danger); text-align: center;">Error al cargar: \${err.message}</div>\`;
+    list.innerHTML = `<div style="padding: 2rem; color: var(--color-danger); text-align: center;">Error al cargar: ${err.message}</div>`;
   }
 }
