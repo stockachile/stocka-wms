@@ -533,3 +533,31 @@ GRANT ALL ON public.billing_records TO anon, authenticated;
 
 GRANT ALL ON public.payment_reports TO postgres, service_role;
 GRANT ALL ON public.payment_reports TO anon, authenticated;
+
+-- 9. Políticas de Almacenamiento (Supabase Storage) para la carpeta de comprobantes de pago
+-- Asegurar que el bucket existe y es público para lectura
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment_receipts', 'payment_receipts', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- Permitir a usuarios autenticados subir archivos al bucket 'payment_receipts'
+DROP POLICY IF EXISTS "Permitir subir comprobantes a usuarios autenticados" ON storage.objects;
+CREATE POLICY "Permitir subir comprobantes a usuarios autenticados" ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'payment_receipts');
+
+-- Permitir a cualquier usuario ver/descargar los comprobantes del bucket 'payment_receipts'
+DROP POLICY IF EXISTS "Permitir ver comprobantes a cualquiera" ON storage.objects;
+CREATE POLICY "Permitir ver comprobantes a cualquiera" ON storage.objects
+    FOR SELECT TO public
+    USING (bucket_id = 'payment_receipts');
+
+-- Permitir a administradores borrar o modificar objetos en el bucket 'payment_receipts'
+DROP POLICY IF EXISTS "Admins gestionan todos los objetos de almacenamiento" ON storage.objects;
+CREATE POLICY "Admins gestionan todos los objetos de almacenamiento" ON storage.objects
+    FOR ALL TO authenticated
+    USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        )
+    );
