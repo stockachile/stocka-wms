@@ -24,6 +24,26 @@ window.downloadBase64Pdf = function(base64, filename) {
   }
 };
 
+// Global function to toggle table action menus
+window.toggleTableActionMenu = function(event, btn) {
+  event.stopPropagation();
+  // Close any other open menus first
+  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
+    if (menu !== btn.nextElementSibling) {
+      menu.classList.remove('show');
+    }
+  });
+  // Toggle the clicked menu
+  btn.nextElementSibling.classList.toggle('show');
+};
+
+// Close all table action menus when clicking anywhere else
+document.addEventListener('click', function() {
+  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
+    menu.classList.remove('show');
+  });
+});
+
 // Formateador de moneda en pesos chilenos (CLP)
 window.formatCLP = function(value) {
   if (value === null || value === undefined || isNaN(value) || value === '') {
@@ -3539,7 +3559,7 @@ window.renderDeclarationsAdmin = async function() {
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
             <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
               <div class="table-action-menu">
-                <button class="table-action-menu-btn">
+                <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
                   <i class="ri-more-2-fill"></i> Acciones
                 </button>
                 <div class="table-action-menu-content">

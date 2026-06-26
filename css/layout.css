@@ -511,9 +511,6 @@ td.col-group-env {
   padding: 0.25rem 0;
 }
 
-.table-action-menu:hover .table-action-menu-content {
-  display: block;
-}
 
 /* Open upwards for the last 2 rows to prevent clipping by overflow container */
 tr:last-child .table-action-menu-content,
