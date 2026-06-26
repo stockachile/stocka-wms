@@ -6653,13 +6653,13 @@ window.loadClientBillingData = async function(periodId) {
       let actionBtn = '';
       if (recordPending > 0) {
         actionBtn = `
-          <button class="btn btn-primary btn-sm" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', ${pendingFulfillment}, ${pendingEnviame})" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
-            <i class="ri-wallet-3-line"></i> Informar Pago
+          <button class="action-btn-modern" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', ${pendingFulfillment}, ${pendingEnviame})">
+            <i class="ri-upload-cloud-2-line"></i> Informar Pago
           </button>
         `;
       } else {
         actionBtn = `
-          <span style="color: var(--color-success); font-weight: 600; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
             <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Pagado
           </span>
         `;
@@ -6750,11 +6750,9 @@ window.loadClientBillingData = async function(periodId) {
     
     window.switchBillingTabClient = function(tabName, btn) {
       document.querySelectorAll('.billing-tab-btn').forEach(b => {
-        b.style.borderBottom = '2px solid transparent';
-        b.style.color = 'var(--color-text-muted)';
+        b.classList.remove('active');
       });
-      btn.style.borderBottom = '2px solid var(--color-primary)';
-      btn.style.color = 'var(--color-primary)';
+      btn.classList.add('active');
       
       if (tabName === 'fulf') {
         document.getElementById('billing-tab-fulf').style.display = 'block';
@@ -6771,9 +6769,9 @@ window.loadClientBillingData = async function(periodId) {
 
     tableContainer.innerHTML = `
       <!-- Pestañas -->
-      <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding: 0 1.25rem;">
-        <button class="billing-tab-btn" style="padding: 0.75rem 1.5rem; background: none; border: none; border-bottom: 2px solid var(--color-primary); color: var(--color-primary); font-weight: 600; cursor: pointer; transition: all 0.2s;" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
-        <button class="billing-tab-btn" style="padding: 0.75rem 1.5rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 600; cursor: pointer; transition: all 0.2s;" onclick="switchBillingTabClient('env', this)">Envíame</button>
+      <div class="billing-tabs-container">
+        <button class="billing-tab-btn active" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
+        <button class="billing-tab-btn" onclick="switchBillingTabClient('env', this)">Envíame</button>
       </div>
 
       <!-- Filtros Fulf -->
@@ -7224,64 +7222,153 @@ function injectClientBillingStyles() {
     .billing-summary-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1.25rem;
-      margin-bottom: 1.5rem;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
     }
     .billing-summary-card {
-      background: var(--color-surface);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-md);
-      padding: 1.25rem 1.5rem;
+      background: linear-gradient(145deg, var(--color-surface) 0%, rgba(30, 41, 59, 0.3) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.75rem;
       display: flex;
       flex-direction: column;
-      box-shadow: var(--shadow-sm);
-      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+      backdrop-filter: blur(10px);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .billing-summary-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 4px;
+      background: var(--color-primary);
+    }
+    .billing-summary-card:nth-child(2)::before {
+      background: var(--color-success);
+    }
+    .billing-summary-card:nth-child(3)::before {
+      background: var(--color-warning);
     }
     .billing-summary-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
+      transform: translateY(-4px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
     }
     .billing-summary-label {
       font-size: 0.8rem;
       color: var(--color-text-muted);
       text-transform: uppercase;
-      font-weight: 600;
+      font-weight: 700;
       letter-spacing: 0.05em;
       margin-bottom: 0.5rem;
       display: flex;
       align-items: center;
-      gap: 0.25rem;
+      gap: 0.35rem;
+    }
+    .billing-summary-label i {
+      font-size: 1.1rem;
+      opacity: 0.8;
     }
     .billing-summary-value {
-      font-size: 1.5rem;
-      font-weight: 700;
+      font-size: 1.75rem;
+      font-weight: 800;
       color: var(--color-text-main);
+      letter-spacing: -0.02em;
     }
     
+    /* Modern Pill Tabs */
+    .billing-tabs-container {
+      display: inline-flex;
+      background: var(--color-bg);
+      border-radius: 50px;
+      padding: 0.25rem;
+      margin: 1rem 1.25rem;
+      border: 1px solid var(--color-border);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .billing-tab-btn {
+      padding: 0.5rem 1.5rem;
+      border-radius: 50px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      transition: all 0.3s ease;
+    }
+    .billing-tab-btn.active {
+      background: var(--color-surface);
+      color: var(--color-text-main);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    /* Filters Bar */
+    .billing-filters-bar {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      padding: 1rem 1.25rem;
+      background: linear-gradient(90deg, rgba(30,41,59,0.2) 0%, transparent 100%);
+      border-bottom: 1px solid var(--color-border);
+      flex-wrap: wrap;
+    }
+
+    /* Modern Pill Badges */
     .client-badge {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.25rem 0.5rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.75rem;
-      font-weight: 600;
-      min-width: 100px;
+      padding: 0.3rem 0.75rem;
+      border-radius: 50px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      min-width: 90px;
       text-align: center;
       border: 1px solid transparent;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .client-badge-green { background-color: rgba(16, 185, 129, 0.12); color: #065f46; border-color: rgba(16, 185, 129, 0.25); }
-    .client-badge-gray { background-color: rgba(148, 163, 184, 0.12); color: #475569; border-color: rgba(148, 163, 184, 0.25); }
-    .client-badge-blue { background-color: rgba(59, 130, 246, 0.12); color: #1e40af; border-color: rgba(59, 130, 246, 0.25); }
-    .client-badge-purple { background-color: rgba(139, 92, 246, 0.12); color: #5b21b6; border-color: rgba(139, 92, 246, 0.25); }
-    .client-badge-yellow { background-color: rgba(245, 158, 11, 0.12); color: #854d0e; border-color: rgba(245, 158, 11, 0.25); }
-    .client-badge-red { background-color: rgba(239, 68, 68, 0.12); color: #991b1b; border-color: rgba(239, 68, 68, 0.25); }
-    .client-badge-teal { background-color: rgba(20, 184, 166, 0.12); color: #115e59; border-color: rgba(20, 184, 166, 0.25); }
-    .client-badge-cyan { background-color: rgba(6, 182, 212, 0.12); color: #075985; border-color: rgba(6, 182, 212, 0.25); }
-    .client-badge-light-green { background-color: rgba(52, 211, 153, 0.15) !important; color: #047857 !important; border-color: rgba(52, 211, 153, 0.3) !important; }
+    .client-badge-green { background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); color: #10b981; border-color: rgba(16, 185, 129, 0.2); }
+    .client-badge-gray { background: linear-gradient(135deg, rgba(148, 163, 184, 0.15), rgba(148, 163, 184, 0.05)); color: #94a3b8; border-color: rgba(148, 163, 184, 0.2); }
+    .client-badge-blue { background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05)); color: #3b82f6; border-color: rgba(59, 130, 246, 0.2); }
+    .client-badge-purple { background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.05)); color: #8b5cf6; border-color: rgba(139, 92, 246, 0.2); }
+    .client-badge-yellow { background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); color: #f59e0b; border-color: rgba(245, 158, 11, 0.2); }
+    .client-badge-red { background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); color: #ef4444; border-color: rgba(239, 68, 68, 0.2); }
+    .client-badge-teal { background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(20, 184, 166, 0.05)); color: #14b8a6; border-color: rgba(20, 184, 166, 0.2); }
+    .client-badge-cyan { background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(6, 182, 212, 0.05)); color: #06b6d4; border-color: rgba(6, 182, 212, 0.2); }
+    .client-badge-light-green { background: linear-gradient(135deg, rgba(52, 211, 153, 0.2), rgba(52, 211, 153, 0.05)) !important; color: #10b981 !important; border-color: rgba(52, 211, 153, 0.3) !important; }
+    
+    .billing-record-row-fulf, .billing-record-row-env {
+      transition: background-color 0.2s ease;
+    }
+    .billing-record-row-fulf:hover, .billing-record-row-env:hover {
+      background-color: rgba(255, 255, 255, 0.03);
+    }
     
     .text-right {
       text-align: right;
+    }
+    
+    .action-btn-modern {
+      background: linear-gradient(135deg, var(--color-primary), #4f46e5);
+      color: white;
+      border: none;
+      padding: 0.35rem 0.85rem;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+    }
+    .action-btn-modern:hover {
+      transform: scale(1.03);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.5);
     }
   `;
   document.head.appendChild(style);
