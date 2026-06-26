@@ -515,6 +515,16 @@ td.col-group-env {
   display: block;
 }
 
+/* Open upwards for the last 2 rows to prevent clipping by overflow container */
+tr:last-child .table-action-menu-content,
+tr:nth-last-child(2) .table-action-menu-content,
+tr:nth-last-child(3) .table-action-menu-content {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 0.25rem;
+}
+
 .table-action-menu-item {
   display: flex;
   align-items: center;
