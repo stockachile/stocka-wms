@@ -6612,7 +6612,8 @@ window.loadClientBillingData = async function(periodId) {
     
     let totalFacturado = 0;
     let totalPagado = 0;
-    let tableRows = '';
+    let tableRowsFulf = '';
+    let tableRowsEnv = '';
     
     records.forEach(r => {
       const recordTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
@@ -6639,56 +6640,67 @@ window.loadClientBillingData = async function(periodId) {
         `;
       }
       
-      tableRows += `
-        <tr class="billing-record-row" id="row-${r.id}" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
-          <td class="col-group-divider" style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+      // Fila para tab Fulfillment
+      tableRowsFulf += `
+        <tr class="billing-record-row-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
-          <!-- Fulfillment fields -->
-          <td class="col-group-fulf" style="vertical-align: middle; color: var(--color-text-muted);">
+          <td style="vertical-align: middle; color: var(--color-text-muted);">
             ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
+          <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}">${r.desglose_fulfillment || '-'}</span>
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle; text-align: right; font-weight: 500;">
+          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
             ${window.formatCLP(r.total_fulfillment)}
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
             ${window.formatCLP(r.abono_fulfillment)}
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
+          <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment || '-'}</span>
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle; text-align: center;">
+          <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
           </td>
-          <td class="col-group-fulf col-group-divider" style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
             ${r.num_factura || '-'}
           </td>
-          
-          <!-- Envíame fields -->
-          <td class="col-group-env" style="vertical-align: middle; color: var(--color-text-muted);">
+          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+            ${window.formatCLP(recordTotal)}
+          </td>
+          <td style="vertical-align: middle; text-align: center;">
+            ${actionBtn}
+          </td>
+        </tr>
+      `;
+
+      // Fila para tab Envíame
+      tableRowsEnv += `
+        <tr class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            ${r.comercio}
+          </td>
+          <td style="vertical-align: middle; color: var(--color-text-muted);">
             ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
           </td>
-          <td class="col-group-env" style="vertical-align: middle; text-align: right; font-weight: 500;">
+          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
             ${window.formatCLP(r.enviame)}
           </td>
-          <td class="col-group-env" style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
+          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
             ${window.formatCLP(r.abono_enviame)}
           </td>
-          <td class="col-group-env" style="vertical-align: middle; text-align: center;">
+          <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.pago_enviame)}">${r.pago_enviame || '-'}</span>
           </td>
-          <td class="col-group-env" style="vertical-align: middle; text-align: center;">
+          <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>
           </td>
-          <td class="col-group-env col-group-divider" style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
+          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
             ${r.num_factura_enviame || '-'}
           </td>
-          
-          <!-- Total -->
-          <td class="col-group-divider" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
+          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
             ${window.formatCLP(recordTotal)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
@@ -6701,14 +6713,40 @@ window.loadClientBillingData = async function(periodId) {
     const saldoPendiente = totalFacturado - totalPagado;
     updateSummaryCards(totalFacturado, totalPagado, saldoPendiente);
     
+    window.switchBillingTabClient = function(tabName, btn) {
+      document.querySelectorAll('.billing-tab-btn').forEach(b => {
+        b.style.borderBottom = '2px solid transparent';
+        b.style.color = 'var(--color-text-muted)';
+      });
+      btn.style.borderBottom = '2px solid var(--color-primary)';
+      btn.style.color = 'var(--color-primary)';
+      
+      if (tabName === 'fulf') {
+        document.getElementById('billing-tab-fulf').style.display = 'block';
+        document.getElementById('billing-tab-env').style.display = 'none';
+        document.getElementById('filters-fulf').style.display = 'flex';
+        document.getElementById('filters-env').style.display = 'none';
+      } else {
+        document.getElementById('billing-tab-fulf').style.display = 'none';
+        document.getElementById('billing-tab-env').style.display = 'block';
+        document.getElementById('filters-fulf').style.display = 'none';
+        document.getElementById('filters-env').style.display = 'flex';
+      }
+    };
+
     tableContainer.innerHTML = `
-      <!-- Filtros rápidos -->
-      <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
-        
+      <!-- Pestañas -->
+      <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding: 0 1.25rem;">
+        <button class="billing-tab-btn" style="padding: 0.75rem 1.5rem; background: none; border: none; border-bottom: 2px solid var(--color-primary); color: var(--color-primary); font-weight: 600; cursor: pointer; transition: all 0.2s;" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
+        <button class="billing-tab-btn" style="padding: 0.75rem 1.5rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 600; cursor: pointer; transition: all 0.2s;" onclick="switchBillingTabClient('env', this)">Envíame</button>
+      </div>
+
+      <!-- Filtros Fulf -->
+      <div id="filters-fulf" class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros Fulfillment:</span>
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Fulf:</label>
-          <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago:</label>
+          <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientFulf()">
             <option value="">Todos</option>
             <option value="Por solicitar">Por solicitar</option>
             <option value="Recibido">Recibido</option>
@@ -6720,37 +6758,9 @@ window.loadClientBillingData = async function(periodId) {
             <option value="Sin movimientos">Sin movimientos</option>
           </select>
         </div>
-        
         <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Fulf:</label>
-          <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
-            <option value="">Todos</option>
-            <option value="Esperando">Esperando</option>
-            <option value="No se factura">No se factura</option>
-            <option value="Emitida">Emitida</option>
-            <option value="Facturar">Facturar</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Env:</label>
-          <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
-            <option value="">Todos</option>
-            <option value="Por solicitar">Por solicitar</option>
-            <option value="Recibido">Recibido</option>
-            <option value="En espera">En espera</option>
-            <option value="Atrasado">Atrasado</option>
-            <option value="abono">Abono</option>
-            <option value="aprobado">Aprobado</option>
-            <option value="incobrable">Incobrable</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
-        </div>
-        
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Env:</label>
-          <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClient()">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura:</label>
+          <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientFulf()">
             <option value="">Todos</option>
             <option value="Esperando">Esperando</option>
             <option value="No se factura">No se factura</option>
@@ -6761,37 +6771,77 @@ window.loadClientBillingData = async function(periodId) {
         </div>
       </div>
 
-      <div class="table-responsive">
-        <table class="data-table billing-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
+      <!-- Filtros Env -->
+      <div id="filters-env" class="billing-filters-bar" style="display: none; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros Envíame:</span>
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago:</label>
+          <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientEnv()">
+            <option value="">Todos</option>
+            <option value="Por solicitar">Por solicitar</option>
+            <option value="Recibido">Recibido</option>
+            <option value="En espera">En espera</option>
+            <option value="Atrasado">Atrasado</option>
+            <option value="abono">Abono</option>
+            <option value="aprobado">Aprobado</option>
+            <option value="incobrable">Incobrable</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura:</label>
+          <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientEnv()">
+            <option value="">Todos</option>
+            <option value="Esperando">Esperando</option>
+            <option value="No se factura">No se factura</option>
+            <option value="Emitida">Emitida</option>
+            <option value="Facturar">Facturar</option>
+            <option value="Sin movimientos">Sin movimientos</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Tabla Fulfillment -->
+      <div id="billing-tab-fulf" class="table-responsive">
+        <table class="data-table" style="min-width: 1000px; font-size: 0.85rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th rowspan="2" class="col-group-divider" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
-              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
-              <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
-              <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
-              <th rowspan="2" style="min-width: 130px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
-            </tr>
-            <tr>
-              <!-- Fulfillment fields -->
-              <th class="col-group-fulf" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th class="col-group-fulf" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Desglose</th>
-              <th class="col-group-fulf" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
-              <th class="col-group-fulf" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
-              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
-              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
-              <th class="col-group-fulf col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
-              
-              <!-- Envíame fields -->
-              <th class="col-group-env" style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th class="col-group-env" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
-              <th class="col-group-env" style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
-              <th class="col-group-env" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
-              <th class="col-group-env" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
-              <th class="col-group-env col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Desglose</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
+              <th style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
+              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
+              <th style="min-width: 130px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
             </tr>
           </thead>
           <tbody>
-            ${tableRows}
+            ${tableRowsFulf}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tabla Envíame -->
+      <div id="billing-tab-env" class="table-responsive" style="display: none;">
+        <table class="data-table" style="min-width: 1000px; font-size: 0.85rem; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
+              <th style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
+              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
+              <th style="min-width: 130px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsEnv}
           </tbody>
         </table>
       </div>
@@ -6899,25 +6949,39 @@ async function loadClientPaymentReports(periodId, resolvedCompanyList) {
   }
 }
 
-window.filterBillingRowsClient = function() {
+window.filterBillingRowsClientFulf = function() {
   const filterPagoFulf = document.querySelector('.filter-pago-fulf').value;
   const filterFactFulf = document.querySelector('.filter-fact-fulf').value;
-  const filterPagoEnv = document.querySelector('.filter-pago-env').value;
-  const filterFactEnv = document.querySelector('.filter-fact-env').value;
   
-  const rows = document.querySelectorAll('.billing-record-row');
+  const rows = document.querySelectorAll('.billing-record-row-fulf');
   rows.forEach(row => {
     const pagoFulf = row.getAttribute('data-pago-fulf') || '';
     const factFulf = row.getAttribute('data-fact-fulf') || '';
-    const pagoEnv = row.getAttribute('data-pago-env') || '';
-    const factEnv = row.getAttribute('data-fact-env') || '';
     
     const matchPagoFulf = !filterPagoFulf || pagoFulf === filterPagoFulf;
     const matchFactFulf = !filterFactFulf || factFulf === filterFactFulf;
+    
+    if (matchPagoFulf && matchFactFulf) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+};
+
+window.filterBillingRowsClientEnv = function() {
+  const filterPagoEnv = document.querySelector('.filter-pago-env').value;
+  const filterFactEnv = document.querySelector('.filter-fact-env').value;
+  
+  const rows = document.querySelectorAll('.billing-record-row-env');
+  rows.forEach(row => {
+    const pagoEnv = row.getAttribute('data-pago-env') || '';
+    const factEnv = row.getAttribute('data-fact-env') || '';
+    
     const matchPagoEnv = !filterPagoEnv || pagoEnv === filterPagoEnv;
     const matchFactEnv = !filterFactEnv || factEnv === filterFactEnv;
     
-    if (matchPagoFulf && matchFactFulf && matchPagoEnv && matchFactEnv) {
+    if (matchPagoEnv && matchFactEnv) {
       row.style.display = '';
     } else {
       row.style.display = 'none';
