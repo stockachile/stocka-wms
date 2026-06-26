@@ -180,6 +180,13 @@ CREATE POLICY "Clientes crean reportes de pago" ON public.payment_reports FOR IN
             OR payment_reports.comercio = ANY (
                  ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
             )
+            OR EXISTS (
+                 SELECT 1 FROM public.billing_mappings bg
+                 WHERE bg.billing_name = payment_reports.comercio
+                   AND bg.comercio_nombre = ANY (
+                        ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
+                   )
+            )
           )
     )
 );
@@ -193,6 +200,13 @@ CREATE POLICY "Clientes ven sus propios reportes de pago" ON public.payment_repo
             OR p.comercio = 'all'
             OR payment_reports.comercio = ANY (
                  ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
+            )
+            OR EXISTS (
+                 SELECT 1 FROM public.billing_mappings bg
+                 WHERE bg.billing_name = payment_reports.comercio
+                   AND bg.comercio_nombre = ANY (
+                        ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
+                   )
             )
           )
     )
