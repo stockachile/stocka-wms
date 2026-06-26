@@ -230,13 +230,13 @@ BEGIN
         -- Construir el mensaje según el servicio atrasado
         IF r_record.pago_fulfillment = 'Atrasado' AND r_record.pago_enviame = 'Atrasado' THEN
             v_title := 'Servicios Fulfillment y Envíame Atrasados - ' || r_record.comercio;
-            v_msg := 'Recordatorio amable: Tus pagos de Fulfillment y Envíame se encuentran atrasados. Por favor regularizar a la brevedad para evitar la pausa de los servicios. Contáctanos a finanzas@stocka.cl.';
+            v_msg := 'Tus pagos de Fulfillment y Envíame se encuentran atrasados. Por favor regularizar a la brevedad para evitar la pausa de los servicios. Contáctanos a finanzas@stocka.cl.';
         ELSIF r_record.pago_fulfillment = 'Atrasado' THEN
             v_title := 'Servicio Fulfillment Atrasado - ' || r_record.comercio;
-            v_msg := 'Recordatorio amable: Tu pago de Fulfillment se encuentra atrasado. Por favor regularizar a la brevedad para evitar la pausa del servicio. Contáctanos a finanzas@stocka.cl.';
+            v_msg := 'Tu pago de Fulfillment se encuentra atrasado. Por favor regularizar a la brevedad para evitar la pausa del servicio. Contáctanos a finanzas@stocka.cl.';
         ELSE
             v_title := 'Servicio Envíame Atrasado - ' || r_record.comercio;
-            v_msg := 'Recordatorio amable: Tu pago de Envíame se encuentra atrasado. Por favor regularizar a la brevedad para evitar la pausa del servicio. Contáctanos a finanzas@stocka.cl.';
+            v_msg := 'Tu pago de Envíame se encuentra atrasado. Por favor regularizar a la brevedad para evitar la pausa del servicio. Contáctanos a finanzas@stocka.cl.';
         END IF;
 
         -- Buscar los usuarios asociados a este comercio
@@ -335,27 +335,30 @@ RETURNS TRIGGER AS $$
 DECLARE
     r_user RECORD;
 BEGIN
-    FOR r_user IN 
-        SELECT id FROM public.profiles 
-        WHERE role = 'client' 
-          AND (
-            comercio = 'all'
-            OR NEW.comercio = ANY (ARRAY(SELECT trim(name) FROM unnest(string_to_array(comercio, ',')) AS name))
-            OR EXISTS (
-                SELECT 1 FROM public.billing_mappings bg
-                WHERE bg.billing_name = NEW.comercio
-                  AND bg.comercio_nombre = ANY (ARRAY(SELECT trim(name) FROM unnest(string_to_array(comercio, ',')) AS name))
-            )
-          )
-    LOOP
-        INSERT INTO public.dashboard_notifications (
-            user_id, target_role, title, message, is_read, created_at
-        ) VALUES (
-            r_user.id, 'client', 'Desglose de servicios listo - ' || NEW.comercio,
-            'Se ha emitido un nuevo desglose de servicios para el periodo actual. Estará disponible para su revisión completa en breve.',
-            false, timezone('utc'::text, now() + interval '1 hour')
-        );
-    END LOOP;
+    -- Enviar solo si el desglose está en estado 'Enviado' y el pago en estado 'En espera'
+    IF (NEW.desglose_fulfillment = 'Enviado' AND NEW.pago_fulfillment = 'En espera') THEN
+        FOR r_user IN 
+            SELECT id FROM public.profiles 
+            WHERE role = 'client' 
+              AND (
+                comercio = 'all'
+                OR NEW.comercio = ANY (ARRAY(SELECT trim(name) FROM unnest(string_to_array(comercio, ',')) AS name))
+                OR EXISTS (
+                    SELECT 1 FROM public.billing_mappings bg
+                    WHERE bg.billing_name = NEW.comercio
+                      AND bg.comercio_nombre = ANY (ARRAY(SELECT trim(name) FROM unnest(string_to_array(comercio, ',')) AS name))
+                )
+              )
+        LOOP
+            INSERT INTO public.dashboard_notifications (
+                user_id, target_role, title, message, is_read, created_at
+            ) VALUES (
+                r_user.id, 'client', 'Desglose de servicios listo - ' || NEW.comercio,
+                'Se ha emitido un nuevo desglose de servicios para el periodo actual. Estará disponible para su revisión completa en breve.',
+                false, timezone('utc'::text, now() + interval '1 hour')
+            );
+        END LOOP;
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -396,7 +399,7 @@ BEGIN
                 user_id, target_role, title, message, is_read, created_at
             ) VALUES (
                 r_user.id, 'client', 'Pago de Fulfillment Atrasado - ' || NEW.comercio,
-                'Te informamos de manera amable que tu pago de Fulfillment se encuentra atrasado. Por favor, regulariza el pago lo antes posible para evitar interrupciones en el servicio.',
+                'Te informamos que tu pago de Fulfillment se encuentra atrasado. Por favor, regulariza el pago lo antes posible para evitar interrupciones en el servicio.',
                 false, timezone('utc'::text, now())
             );
         END LOOP;
@@ -421,7 +424,7 @@ BEGIN
                 user_id, target_role, title, message, is_read, created_at
             ) VALUES (
                 r_user.id, 'client', 'Pago de Envíame Atrasado - ' || NEW.comercio,
-                'Te informamos de manera amable que tu pago de Envíame se encuentra atrasado. Por favor, regulariza el pago lo antes posible para evitar interrupciones en el servicio.',
+                'Te informamos que tu pago de Envíame se encuentra atrasado. Por favor, regulariza el pago lo antes posible para evitar interrupciones en el servicio.',
                 false, timezone('utc'::text, now())
             );
         END LOOP;
@@ -452,7 +455,7 @@ BEGIN
                     user_id, target_role, title, message, is_read, created_at
                 ) VALUES (
                     r_user.id, 'client', v_notif_title_fulf,
-                    'Recordatorio amable: Hoy vence el plazo de pago para el servicio de Fulfillment. Exceder los límites de pago puede significar la pausa del servicio.',
+                    'Hoy vence el plazo de pago para el servicio de Fulfillment. Recuerda que exceder los límites de pago puede significar la pausa del servicio.',
                     false, timezone('utc', NEW.fecha_limite + time '08:00:00')
                 );
             END LOOP;
@@ -484,7 +487,7 @@ BEGIN
                     user_id, target_role, title, message, is_read, created_at
                 ) VALUES (
                     r_user.id, 'client', v_notif_title_env,
-                    'Recordatorio amable: Hoy vence el plazo de pago para el servicio de Envíame. Exceder los límites de pago puede significar la pausa del servicio.',
+                    'Hoy vence el plazo de pago para el servicio de Envíame. Recuerda que exceder los límites de pago puede significar la pausa del servicio.',
                     false, timezone('utc', NEW.fecha_limite_enviame + time '08:00:00')
                 );
             END LOOP;
