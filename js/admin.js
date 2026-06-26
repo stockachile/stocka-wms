@@ -3537,19 +3537,24 @@ window.renderDeclarationsAdmin = async function() {
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
             <td style="font-size: 0.85rem;">${statusBadge}</td>
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
-            <td style="font-size: 0.85rem;">
-              <div style="display: flex; gap: 0.35rem; align-items: center;">
-                <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-border); height: auto; font-family: var(--font-family);" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')" title="Descargar Planilla Detalle">
-                  <i class="ri-file-excel-2-line" style="color: var(--color-success); font-size: 0.95rem; margin-right: 2px;"></i> Planilla
+            <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
+              <div class="table-action-menu">
+                <button class="table-action-menu-btn">
+                  <i class="ri-more-2-fill"></i> Acciones
                 </button>
-                <button class="btn btn-primary" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; background-color: var(--color-accent); height: auto; font-family: var(--font-family);" onclick="manageDeclaration('${dec.id}')" title="Gestionar Recepción">
-                  <i class="ri-settings-4-line" style="font-size: 0.95rem; margin-right: 2px;"></i> Gestionar
-                </button>
-                ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
-                <button class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; font-family: var(--font-family);" onclick="deleteDeclarationAdmin('${dec.id}')" title="Eliminar Declaración">
-                  <i class="ri-delete-bin-line" style="font-size: 0.95rem; color: var(--color-danger); margin-right: 2px;"></i> Eliminar
-                </button>
-                ` : ''}
+                <div class="table-action-menu-content">
+                  <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
+                    <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
+                  </button>
+                  <button class="table-action-menu-item" onclick="manageDeclaration('${dec.id}')">
+                    <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar
+                  </button>
+                  ${['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1 ? `
+                  <button class="table-action-menu-item danger" onclick="deleteDeclarationAdmin('${dec.id}')">
+                    <i class="ri-delete-bin-line"></i> Eliminar
+                  </button>
+                  ` : ''}
+                </div>
               </div>
             </td>
           </tr>

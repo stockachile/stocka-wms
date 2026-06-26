@@ -468,3 +468,81 @@ td.col-group-env {
   justify-content: flex-end;
   gap: 1rem;
 }
+
+/* Table Action Menu (Hover Dropdown) */
+.table-action-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.table-action-menu-btn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.5rem;
+  color: var(--color-text-main);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+  font-family: var(--font-family);
+}
+
+.table-action-menu-btn:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.table-action-menu-content {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 0.25rem;
+  background-color: var(--color-surface);
+  min-width: 130px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  z-index: 50;
+  padding: 0.25rem 0;
+}
+
+.table-action-menu:hover .table-action-menu-content {
+  display: block;
+}
+
+.table-action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--color-text-main);
+  cursor: pointer;
+  transition: background-color 0.2s;
+  font-family: var(--font-family);
+}
+
+.table-action-menu-item:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.table-action-menu-item i {
+  font-size: 0.9rem;
+}
+
+.table-action-menu-item.danger {
+  color: var(--color-danger);
+}
+
+.table-action-menu-item.danger:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+}
