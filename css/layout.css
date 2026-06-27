@@ -555,3 +555,54 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
 .table-action-menu-item.danger:hover {
   background-color: rgba(239, 68, 68, 0.1);
 }
+
+/* ==========================================================================
+   Slide-over Panel Component
+   ========================================================================== */
+.slide-over-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  z-index: 9998;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+.slide-over-overlay.show {
+  opacity: 1;
+  visibility: visible;
+}
+.slide-over-panel {
+  position: fixed;
+  top: 0;
+  right: -450px; /* Initially hidden off-screen to the right */
+  width: 100%;
+  max-width: 450px;
+  height: 100vh;
+  background-color: var(--color-bg);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  transition: right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.slide-over-panel.show {
+  right: 0; /* Slide in */
+}
+.slide-over-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--color-surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.slide-over-body {
+  padding: 1.5rem;
+  flex: 1;
+}
