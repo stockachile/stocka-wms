@@ -1155,48 +1155,55 @@ html[data-theme="dark"] .btn-complementary:hover {
    ========================================================================== */
 
 /* Hero Banner */
+/* Hero Banner */
 .dashboard-hero {
-  background: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Gemini_Generated_Image_sjwo2hsjwo2hsjwo.png?v=1782356005') left center / cover no-repeat;
   border-radius: var(--radius-lg);
-  padding: 3.5rem 3rem;
   margin-bottom: 2rem;
-  border: 1px solid rgba(255,255,255,0.08);
-  position: relative;
+  border: 1px solid var(--color-border);
   overflow: hidden;
   min-height: 380px;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  background-color: var(--color-surface);
 }
 html[data-theme="dark"] .dashboard-hero {
   border-color: rgba(255,255,255,0.06);
 }
-.dashboard-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.65) 100%);
-  pointer-events: none;
-  z-index: 1;
-}
-.dashboard-hero h2 {
-  font-size: 2.1rem;
-  margin-bottom: 0.6rem;
-  font-weight: 800;
-  color: #ffffff;
+
+.dashboard-hero-content {
+  flex: 1;
+  padding: 3.5rem 3rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   position: relative;
   z-index: 2;
-  text-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+
+.dashboard-hero-image {
+  flex: 1;
+  background: url('https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Gemini_Generated_Image_sjwo2hsjwo2hsjwo.png?v=1782356005') center center / cover no-repeat;
+  position: relative;
+  min-height: 250px;
+}
+
+.dashboard-hero h2 {
+  font-size: 2.1rem;
+  margin-bottom: 0.8rem;
+  font-weight: 800;
+  color: var(--color-text-main);
   letter-spacing: -0.3px;
 }
 .dashboard-hero p {
-  color: rgba(255,255,255,0.88);
+  color: var(--color-text-muted);
   max-width: 640px;
-  font-size: 1rem;
-  position: relative;
-  z-index: 2;
+  font-size: 1.05rem;
   line-height: 1.6;
-  text-shadow: 0 1px 6px rgba(0,0,0,0.35);
+}
+
+@media (max-width: 768px) {
+  .dashboard-hero {
+    flex-direction: column-reverse;
+  }
 }
 
 /* Quick Stats Colors */

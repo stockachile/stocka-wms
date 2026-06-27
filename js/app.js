@@ -149,6 +149,21 @@ async function init() {
 
     console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
 
+    // Verificación de retorno exitoso de OAuth con Shopify
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('integration') === 'success') {
+      alert('¡Tienda Shopify conectada exitosamente!');
+      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+      window.history.pushState({ path: newUrl }, '', newUrl);
+      setTimeout(() => {
+        const integrationsTab = Array.from(document.querySelectorAll('.nav-item'))
+          .find(n => n.getAttribute('data-view') === 'integrations');
+        if (integrationsTab) {
+          integrationsTab.click();
+        }
+      }, 500);
+    }
+
     // Verificar rol y datos de perfil
     console.log('DEBUG: Consultando perfil en la base de datos para ID:', session.user.id);
     const { data: profile, error: profileError } = await supabase
@@ -205,6 +220,9 @@ async function init() {
           } else if (view === 'inventory') {
             viewTitle.textContent = 'Inventario';
             renderInventory();
+          } else if (view === 'catalog') {
+            viewTitle.textContent = 'Catálogo de Productos';
+            renderCatalog();
           } else if (view === 'orders') {
             viewTitle.textContent = 'Pedidos';
             renderOrders();
@@ -489,8 +507,11 @@ async function renderDashboard() {
 
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-hero">
-        <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
-        <p>Un nuevo centro de operaciones para la gestión de tu comercio, con la información centralizada, integraciones y más! Nos encontramos en pleno desarrollo y pronto lanzaremos nuevas novedades.</p>
+        <div class="dashboard-hero-content">
+          <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
+          <p>Un nuevo centro de operaciones para la gestión de tu comercio, con la información centralizada, integraciones y más! Nos encontramos en pleno desarrollo y pronto lanzaremos nuevas novedades.</p>
+        </div>
+        <div class="dashboard-hero-image"></div>
       </div>
 
       <div style="margin-bottom: 2rem;">
@@ -623,6 +644,175 @@ window.setupCalendarListeners_app = function() {
     });
   });
 };
+
+// Render general catalog of products
+async function renderCatalog() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando catálogo de productos...</p>`;
+
+  try {
+    const companyList = getCompanyList();
+    let query = supabase.from('products').select('*');
+
+    if (companyList.length > 0) {
+      query = query.in('comercio', companyList);
+    } else {
+      query = query.eq('comercio', 'no asignado');
+    }
+
+    const { data: products, error } = await query;
+    if (error) throw error;
+
+    let rowsHtml = '';
+    if (!products || products.length === 0) {
+      rowsHtml = `
+        <tr>
+          <td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+            No hay productos registrados en el catálogo.
+          </td>
+        </tr>
+      `;
+    } else {
+      products.forEach(item => {
+        // Thumbnail image
+        const imgHtml = item.image_url 
+          ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+          : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
+
+        // Dimensions
+        const dimensions = (item.length || item.width || item.height)
+          ? `${item.length || 0} x ${item.width || 0} x ${item.height || 0} cm`
+          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+        // Weight
+        const weight = item.weight 
+          ? `${item.weight} kg` 
+          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+        // Origin Badge
+        let originBadge = '<span class="badge" style="background-color: #64748b; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Manual</span>';
+        if (item.shopify_product_id) {
+          originBadge = '<span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Shopify</span>';
+        } else if (item.raw_meli_data) {
+          originBadge = '<span class="badge" style="background-color: #ffe600; color: #2d3277; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 800;">MercadoLibre</span>';
+        } else if (item.raw_falabella_data) {
+          originBadge = '<span class="badge" style="background-color: #ff6000; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Falabella</span>';
+        } else if (item.raw_paris_data) {
+          originBadge = '<span class="badge" style="background-color: #00a8e8; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">París</span>';
+        }
+
+        // Shopify Stock
+        const shopifyStockHtml = item.shopify_product_id 
+          ? `<strong style="color: var(--color-primary);">${item.shopify_stock ?? 0}</strong>` 
+          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">N/A</span>';
+
+        // Expiration and Lot
+        const expAndLot = (item.expiration_date || item.lot_number)
+          ? `<div style="font-size: 0.8rem; line-height: 1.2;">
+               ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
+               ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
+             </div>`
+          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
+
+        // Action button to Edit
+        const isObserver = userRole === 'observer';
+        const actionBtn = isObserver 
+          ? '' 
+          : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>`;
+
+        rowsHtml += `
+          <tr data-product-row-id="${item.id}">
+            <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
+            <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
+            <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
+            <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+            <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
+            <td style="padding: 0.75rem 1.5rem;">${originBadge}</td>
+            <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
+            <td style="padding: 0.75rem 1.5rem;">${weight}</td>
+            <td style="padding: 0.75rem 1.5rem;" class="text-center">${shopifyStockHtml}</td>
+            <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
+            <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
+          </tr>
+        `;
+      });
+    }
+
+    const isObserver = userRole === 'observer';
+    const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
+
+    appContent.innerHTML = getObserverBanner() + `
+      <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+          <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Catálogo General de Productos</h3>
+          ${createBtn}
+        </div>
+        <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+          <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                <th style="padding: 1rem 1.5rem;">Imagen</th>
+                <th style="padding: 1rem 1.5rem;">SKU</th>
+                <th style="padding: 1rem 1.5rem;">Nombre</th>
+                <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
+                <th style="padding: 1rem 1.5rem;">Precio</th>
+                <th style="padding: 1rem 1.5rem;">Origen</th>
+                <th style="padding: 1rem 1.5rem;">Medidas</th>
+                <th style="padding: 1rem 1.5rem;">Peso</th>
+                <th style="padding: 1rem 1.5rem;" class="text-center">Stock Shopify</th>
+                <th style="padding: 1rem 1.5rem;">Venc. / Lote</th>
+                <th style="padding: 1rem 1.5rem;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody style="font-size: 0.9rem; color: var(--color-text);">
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // Hook up Edit button listeners
+    document.querySelectorAll('.btn-edit-product').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const prodId = e.currentTarget.getAttribute('data-id');
+        openEditProductModal(prodId);
+      });
+    });
+
+  } catch (err) {
+    console.error(err);
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: #ef4444;">Error al cargar el catálogo: ${err.message}</p>`;
+  }
+}
+
+async function openEditProductModal(prodId) {
+  try {
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', prodId)
+      .single();
+
+    if (error) throw error;
+
+    document.getElementById('edit-prod-id').value = product.id;
+    document.getElementById('edit-prod-sku').value = product.sku;
+    document.getElementById('edit-prod-name').value = product.name;
+    document.getElementById('edit-prod-barcode').value = product.barcode || '';
+    document.getElementById('edit-prod-length').value = product.length || '';
+    document.getElementById('edit-prod-width').value = product.width || '';
+    document.getElementById('edit-prod-height').value = product.height || '';
+    document.getElementById('edit-prod-weight').value = product.weight || '';
+    document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
+    document.getElementById('edit-prod-lot').value = product.lot_number || '';
+
+    document.getElementById('modal-edit-product').classList.add('active');
+  } catch (err) {
+    console.error(err);
+    alert('Error al cargar datos del producto: ' + err.message);
+  }
+}
 
 async function renderInventory() {
   const appContent = document.getElementById('app-content');
@@ -1339,7 +1529,8 @@ async function renderIntegrations() {
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasShopify 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>');
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-shopify" style="background-color: #10b981; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s;">Sincronizar Productos</button>');
 
     const parisButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -1420,11 +1611,6 @@ async function renderIntegrations() {
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
                   <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? "readonly" : "required"} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? "var(--color-bg)" : "var(--color-surface)"}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
-                <div class="form-group" style="margin-bottom: 1.25rem; ${hasShopify ? "display:none;" : ""}">
-                  <label class="form-label" style="font-weight: 600;">Access Token (Admin API)</label>
-                  <input type="password" id="shopify-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxx" ${hasShopify ? "" : "required"} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Debe comenzar con <strong>shpat_</strong>.</p>
                 </div>
                 <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
                   ${shopifyButtonHtml}
@@ -1740,30 +1926,33 @@ async function renderIntegrations() {
         }
         const btn = document.getElementById('btn-save-shopify');
         btn.disabled = true;
-        btn.textContent = 'Conectando...';
+        btn.textContent = 'Redirigiendo a Shopify...';
 
-        const shop_url = document.getElementById('shopify-url').value;
-        const token = document.getElementById('shopify-token').value;
-
-        try {
-          const { error: insErr } = await supabase.from('merchant_integrations').insert([{
-            merchant_id: merchantId,
-            platform: 'Shopify',
-            shop_url: shop_url,
-            access_token: token,
-            is_active: true,
-            comercio: window.activeIntegrationCommerce
-          }]);
-          if(insErr) throw insErr;
-          
-          alert('Integración con Shopify guardada correctamente.');
-          renderIntegrations(); // Recargar vista
-        } catch(err) {
-          console.error(err);
-          alert('Error al guardar la integración: ' + err.message);
+        const shop_url = document.getElementById('shopify-url').value.trim();
+        const cleanShopUrl = shop_url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+        
+        if (!cleanShopUrl.endsWith('.myshopify.com')) {
+          alert('Por favor, ingresa una URL válida de Shopify (ej: mitienda.myshopify.com)');
           btn.disabled = false;
           btn.textContent = 'Conectar Tienda Shopify';
+          return;
         }
+
+        // Configuración de la App en Shopify Partners
+        const clientId = '67efac0695de4fde9f6c8d90ed2319b4'; // Client ID de Shopify Partners de STOCKA WMS
+        const scopes = 'read_products,read_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        
+        const stateObj = {
+          merchant_id: merchantId,
+          comercio: window.activeIntegrationCommerce,
+          redirect_back_url: window.location.origin + window.location.pathname
+        };
+        // Codificar el state en base64 para transportarlo de forma segura
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+
+        // Redirigir a la pantalla de instalación oficial de Shopify
+        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
       });
     } else {
       document.getElementById('btn-disconnect-shopify').addEventListener('click', async () => {
@@ -1784,6 +1973,47 @@ async function renderIntegrations() {
              console.error(err);
              alert('Error al desconectar: ' + err.message);
           }
+        }
+      });
+
+      document.getElementById('btn-sync-shopify').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        
+        const btnSync = document.getElementById('btn-sync-shopify');
+        btnSync.disabled = true;
+        btnSync.textContent = 'Sincronizando...';
+
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No hay sesión activa");
+
+          const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          });
+
+          const result = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(result.error || 'Error al sincronizar');
+          }
+
+          alert(`¡Catálogo sincronizado exitosamente! Se importaron/actualizaron ${result.count} variantes de productos.`);
+          if (typeof renderInventory === 'function') {
+            renderInventory(); // Recargar inventario si corresponde
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Error en la sincronización: ' + err.message);
+        } finally {
+          btnSync.disabled = false;
+          btnSync.textContent = 'Sincronizar Productos';
         }
       });
     }
@@ -2194,6 +2424,60 @@ async function renderIntegrations() {
     } finally {
       btnSubmit.disabled = false;
       btnSubmit.textContent = 'Guardar Producto';
+    }
+  });
+
+  // Guardar Cambios Editar Producto
+  document.getElementById('form-edit-product').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (userRole === 'observer') {
+      alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+      return;
+    }
+    const btnSubmit = e.target.querySelector('button[type="submit"]');
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = 'Guardando...';
+
+    const prodId = document.getElementById('edit-prod-id').value;
+    const barcode = document.getElementById('edit-prod-barcode').value || null;
+    const length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
+    const width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
+    const height = document.getElementById('edit-prod-height').value ? parseFloat(document.getElementById('edit-prod-height').value) : null;
+    const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
+    const expiration = document.getElementById('edit-prod-expiration').value || null;
+    const lot = document.getElementById('edit-prod-lot').value || null;
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          barcode,
+          length,
+          width,
+          height,
+          weight,
+          expiration_date: expiration,
+          lot_number: lot
+        })
+        .eq('id', prodId);
+
+      if (error) throw error;
+
+      alert('Parámetros del producto actualizados exitosamente!');
+      document.getElementById('modal-edit-product').classList.remove('active');
+      e.target.reset();
+      
+      // Recargar catálogo si es la vista activa
+      const activeNav = document.querySelector('.sidebar-nav .nav-item.active');
+      if (activeNav && activeNav.getAttribute('data-view') === 'catalog') {
+        renderCatalog();
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Error al guardar cambios: ' + error.message);
+    } finally {
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = 'Guardar Cambios';
     }
   });
 
