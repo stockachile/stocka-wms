@@ -5190,23 +5190,24 @@ window.renderDeclarations = async function() {
         <p style="color: var(--color-text-muted);">Como Observador, no puedes crear declaraciones de ingreso.</p>
       </div>
     ` : `
-      <div class="slide-over-overlay" id="dec-slide-over-overlay" onclick="closeNewDeclarationSlideOver()"></div>
-      <div class="slide-over-panel" id="dec-slide-over-panel">
-        <div class="slide-over-header">
-          <div>
-            <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;" id="dec-slide-over-title">Declarar Nuevo Ingreso</h3>
-            <p style="margin: 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">Completa la información logística</p>
-          </div>
-          <button class="btn btn-outline" style="border: none; background: transparent; padding: 0.5rem;" onclick="closeNewDeclarationSlideOver()">
-            <i class="ri-close-line" style="font-size: 1.25rem;"></i>
-          </button>
-        </div>
-        <div class="slide-over-body">
-          <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
-            <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; transition: all 0.2s;" title="Recomendaciones y Condiciones">
-              <i class="ri-information-line" style="font-size: 1rem;"></i> Recomendaciones
+      <div class="slide-over-overlay" id="dec-slide-over-overlay" onclick="if(event.target === this) closeNewDeclarationSlideOver()">
+        <div class="slide-over-panel" id="dec-slide-over-panel">
+          <div class="slide-over-header">
+            <div>
+              <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;" id="dec-slide-over-title">Declarar Nuevo Ingreso</h3>
+              <p style="margin: 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">Completa la información logística</p>
+            </div>
+            <button class="btn btn-outline" style="border: none; background: transparent; padding: 0.5rem;" onclick="closeNewDeclarationSlideOver()">
+              <i class="ri-close-line" style="font-size: 1.25rem;"></i>
             </button>
           </div>
+          <div class="slide-over-body" style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+              <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; transition: all 0.2s;" title="Recomendaciones y Condiciones">
+                <i class="ri-information-line" style="font-size: 1rem;"></i> Recomendaciones
+              </button>
+            </div>
+
           <form id="form-new-declaration">
             ${commerceSelectHtml}
             <div class="form-group">
@@ -5362,6 +5363,7 @@ window.renderDeclarations = async function() {
               <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="flex: 1; border-radius: var(--radius-md); padding: 0.75rem;">Crear Declaración de Ingreso</button>
             </div>
           </form>
+          </div>
         </div>
       </div>
     `;
@@ -6647,16 +6649,12 @@ window.editDeclaration = async function(id) {
 
 window.openNewDeclarationSlideOver = function() {
   const overlay = document.getElementById('dec-slide-over-overlay');
-  const panel = document.getElementById('dec-slide-over-panel');
-  if (overlay) overlay.classList.add('show');
-  if (panel) panel.classList.add('show');
+  if (overlay) overlay.classList.add('active');
 };
 
 window.closeNewDeclarationSlideOver = function() {
   const overlay = document.getElementById('dec-slide-over-overlay');
-  const panel = document.getElementById('dec-slide-over-panel');
-  if (overlay) overlay.classList.remove('show');
-  if (panel) panel.classList.remove('show');
+  if (overlay) overlay.classList.remove('active');
 };
 
 window.cancelEditDeclaration = function() {

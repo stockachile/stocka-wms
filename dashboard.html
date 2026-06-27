@@ -21,6 +21,7 @@
         <ul>
           <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Dashboard</a></li>
           <li><a href="#" class="nav-item" data-view="inventory"><i class="ri-box-3-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Inventario</a></li>
+          <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Catálogo</a></li>
           <li><a href="#" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingresos de Stock</a></li>
           <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Pedidos</a></li>
           <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Despachos</a></li>
@@ -173,6 +174,63 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" data-close="modal-product">Cancelar</button>
           <button type="submit" class="btn btn-primary">Guardar Producto</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Editar Producto -->
+  <div class="modal-overlay" id="modal-edit-product">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Editar Parámetros de Producto</h3>
+        <button class="modal-close" data-close="modal-edit-product">&times;</button>
+      </div>
+      <form id="form-edit-product">
+        <input type="hidden" id="edit-prod-id">
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">SKU</label>
+            <input type="text" id="edit-prod-sku" class="form-input" disabled style="background-color: var(--color-gray-dark); color: var(--color-text-muted);">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del Producto</label>
+            <input type="text" id="edit-prod-name" class="form-input" disabled style="background-color: var(--color-gray-dark); color: var(--color-text-muted);">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Código de Barras</label>
+            <input type="text" id="edit-prod-barcode" class="form-input" placeholder="Ej. 779123456789">
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+            <div class="form-group">
+              <label class="form-label">Largo (cm)</label>
+              <input type="number" id="edit-prod-length" class="form-input" step="0.1" placeholder="cm">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Ancho (cm)</label>
+              <input type="number" id="edit-prod-width" class="form-input" step="0.1" placeholder="cm">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Alto (cm)</label>
+              <input type="number" id="edit-prod-height" class="form-input" step="0.1" placeholder="cm">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Peso (kg)</label>
+            <input type="number" id="edit-prod-weight" class="form-input" step="0.01" placeholder="kg">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Fecha de Vencimiento</label>
+            <input type="date" id="edit-prod-expiration" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Lote</label>
+            <input type="text" id="edit-prod-lot" class="form-input" placeholder="Número de lote">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" data-close="modal-edit-product">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Cambios</button>
         </div>
       </form>
     </div>
