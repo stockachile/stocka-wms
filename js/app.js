@@ -1,4 +1,6 @@
 import supabase from './supabase.js';
+import { renderTicketsClient } from './tickets.js';
+
 
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
@@ -242,6 +244,10 @@ async function init() {
           } else if (view === 'inbox') {
             viewTitle.textContent = 'Mi Inbox';
             renderInboxPage();
+          } else if (view === 'tickets') {
+            viewTitle.textContent = 'Soporte y Tickets';
+            const appContent = document.getElementById('app-content');
+            renderTicketsClient(appContent);
           }
         });
       });
