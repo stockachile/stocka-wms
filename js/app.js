@@ -5190,196 +5190,204 @@ window.renderDeclarations = async function() {
         <p style="color: var(--color-text-muted);">Como Observador, no puedes crear declaraciones de ingreso.</p>
       </div>
     ` : `
-      <div class="card">
-        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+      <div class="slide-over-overlay" id="dec-slide-over-overlay" onclick="closeNewDeclarationSlideOver()"></div>
+      <div class="slide-over-panel" id="dec-slide-over-panel">
+        <div class="slide-over-header">
           <div>
-            <h3 style="display: flex; align-items: center; gap: 0.75rem;">
-              Declarar Nuevo Ingreso
-              <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; font-family: var(--font-family); transition: all 0.2s; letter-spacing: 0.3px;" onmouseover="this.style.background='rgba(59, 130, 246, 0.22)'; this.style.borderColor='rgba(59, 130, 246, 0.5)'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 3px 8px rgba(59, 130, 246, 0.2)';" onmouseout="this.style.background='rgba(59, 130, 246, 0.12)'; this.style.borderColor='rgba(59, 130, 246, 0.35)'; this.style.transform='translateY(0)'; this.style.boxShadow='none';" title="Recomendaciones y Condiciones">
-                <i class="ri-information-line" style="font-size: 1rem;"></i> Info
-              </button>
-            </h3>
-            <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-              Completa la información logística y adjunta la planilla detallada de stock.
-            </p>
+            <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;" id="dec-slide-over-title">Declarar Nuevo Ingreso</h3>
+            <p style="margin: 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">Completa la información logística</p>
           </div>
+          <button class="btn btn-outline" style="border: none; background: transparent; padding: 0.5rem;" onclick="closeNewDeclarationSlideOver()">
+            <i class="ri-close-line" style="font-size: 1.25rem;"></i>
+          </button>
         </div>
-        <form id="form-new-declaration">
-          ${commerceSelectHtml}
-          <div class="form-group">
-            <label class="form-label">Título / Descripción del Ingreso *</label>
-            <input type="text" id="dec-title" class="form-input" placeholder="Ej. Embarque de zapatos de niño N°3" required>
+        <div class="slide-over-body">
+          <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem;">
+            <button type="button" id="btn-info-declarations" style="background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); padding: 0.3rem 0.7rem; color: var(--color-primary); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; transition: all 0.2s;" title="Recomendaciones y Condiciones">
+              <i class="ri-information-line" style="font-size: 1rem;"></i> Recomendaciones
+            </button>
           </div>
+          <form id="form-new-declaration">
+            ${commerceSelectHtml}
+            <div class="form-group">
+              <label class="form-label">Título / Descripción del Ingreso *</label>
+              <input type="text" id="dec-title" class="form-input" placeholder="Ej. Embarque de zapatos de niño N°3" required>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">Cantidad Total Unidades *</label>
-            <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
-          </div>
+            <div class="form-group">
+              <label class="form-label">Cantidad Total Unidades *</label>
+              <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
+            </div>
 
-          <!-- Desglose de Bultos -->
-          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Detalle de Bultos a Enviar *</label>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
-              Es obligatorio indicar al menos 1 bulto total. Indique las cantidades que enviará o marque "No enviaré" para cada tipo.
-            </p>
-            
-            <!-- Contenedores -->
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
-              <div style="display: flex; flex-direction: column;">
-                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Contenedores (Containers)</label>
-                <input type="number" id="dec-container-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+            <!-- Desglose de Bultos -->
+            <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Detalle de Bultos a Enviar *</label>
+              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                Es obligatorio indicar al menos 1 bulto total. Indique las cantidades que enviará o marque "No enviaré".
+              </p>
+              
+              <!-- Contenedores -->
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
+                <div style="display: flex; flex-direction: column;">
+                  <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Contenedores (Containers)</label>
+                  <input type="number" id="dec-container-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                  <input type="checkbox" id="dec-no-container" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                  <label for="dec-no-container" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                </div>
               </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                <input type="checkbox" id="dec-no-container" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                <label for="dec-no-container" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+
+              <!-- Pallets -->
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
+                <div style="display: flex; flex-direction: column;">
+                  <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Pallets</label>
+                  <input type="number" id="dec-pallet-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                  <input type="checkbox" id="dec-no-pallet" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                  <label for="dec-no-pallet" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                </div>
+              </div>
+
+              <!-- Cajas -->
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
+                <div style="display: flex; flex-direction: column;">
+                  <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Cajas (Boxes)</label>
+                  <input type="number" id="dec-box-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
+                  <input type="checkbox" id="dec-no-box" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
+                  <label for="dec-no-box" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                </div>
               </div>
             </div>
 
-            <!-- Pallets -->
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
-              <div style="display: flex; flex-direction: column;">
-                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Pallets</label>
-                <input type="number" id="dec-pallet-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+            <div class="form-group">
+              <label class="form-label">Método de Ingreso *</label>
+              <select id="dec-delivery-method" class="form-input" required>
+                <option value="Transporte vía courier">Transporte vía courier</option>
+                <option value="Desde proveedor">Desde proveedor</option>
+                <option value="Transporte particular">Transporte particular</option>
+                <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
+              </select>
+            </div>
+
+            <!-- Servicio de Descarga -->
+            <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <input type="checkbox" id="dec-requires-unloading" style="width: 18px; height: 18px; cursor: pointer;">
+                <label for="dec-requires-unloading" style="font-weight: 600; cursor: pointer; color: var(--color-text-main); font-size: 0.9rem; user-select: none;">¿El ingreso requiere servicio de descarga por parte de bodega?</label>
               </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                <input type="checkbox" id="dec-no-pallet" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                <label for="dec-no-pallet" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+              <div id="dec-unloading-warning" style="display: none; padding: 0.75rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.75rem; border-radius: var(--radius-sm); line-height: 1.45;">
+                <i class="ri-alert-line" style="vertical-align: middle; margin-right: 4px; font-size: 1rem;"></i>
+                <strong>Nota Importante:</strong> Las descargas se realizan de forma manual en bodega y tienen un costo de <strong>0,1 UF por m³</strong>.
               </div>
             </div>
 
-            <!-- Cajas -->
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
-              <div style="display: flex; flex-direction: column;">
-                <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Cajas (Boxes)</label>
-                <input type="number" id="dec-box-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+            <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+              <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <span style="font-size: 0.95rem;">Fecha Estimada de Llegada *</span>
+                <span id="date-mode-badge" class="badge" style="font-size: 0.7rem; text-transform: uppercase; background-color: var(--badge-info-bg); color: var(--badge-info-text); letter-spacing: 0.5px; font-weight: 700;">Exacta</span>
+              </label>
+              
+              <div style="display: flex; background: rgba(255,255,255,0.03); padding: 0.35rem; border-radius: 8px; border: 1px solid var(--color-border); gap: 0.25rem; margin-bottom: 1.25rem;">
+                <button type="button" id="btn-date-exact" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: none; background: var(--color-primary); color: white; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                  <i class="ri-calendar-check-line" style="font-size: 1.1rem;"></i> Fecha Exacta
+                </button>
+                <button type="button" id="btn-date-estimate" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; border: none; background: transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;" onmouseover="if(this.style.background==='transparent') this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(this.style.color==='var(--color-text-muted)') this.style.background='transparent'">
+                  <i class="ri-timer-line" style="font-size: 1.1rem;"></i> Plazo Estimativo
+                </button>
               </div>
-              <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                <input type="checkbox" id="dec-no-box" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                <label for="dec-no-box" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+              
+              <!-- Exact Date Picker Container -->
+              <div id="dec-date-exact-container">
+                <div id="mini-calendar-wrapper"></div>
+                <div id="dec-date-selected-label" style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--color-text-main); font-weight: 500;">
+                  <span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.35rem; display: flex; align-items: center; gap: 4px;">
+                  <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
+                </div>
+                <div id="dec-date-warning" class="alert alert-warning" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
+                <div id="dec-date-error" class="alert alert-error" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid var(--color-danger); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
               </div>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Método de Ingreso *</label>
-            <select id="dec-delivery-method" class="form-input" required>
-              <option value="Transporte vía courier">Transporte vía courier</option>
-              <option value="Desde proveedor">Desde proveedor</option>
-              <option value="Transporte particular">Transporte particular</option>
-              <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
-            </select>
-          </div>
-
-          <!-- Servicio de Descarga -->
-          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
-              <input type="checkbox" id="dec-requires-unloading" style="width: 18px; height: 18px; cursor: pointer;">
-              <label for="dec-requires-unloading" style="font-weight: 600; cursor: pointer; color: var(--color-text-main); font-size: 0.9rem; user-select: none;">¿El ingreso requiere servicio de descarga por parte de bodega?</label>
-            </div>
-            <div id="dec-unloading-warning" style="display: none; padding: 0.75rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.75rem; border-radius: var(--radius-sm); line-height: 1.45;">
-              <i class="ri-alert-line" style="vertical-align: middle; margin-right: 4px; font-size: 1rem;"></i>
-              <strong>Nota Importante:</strong> Las descargas se realizan de forma manual en bodega y tienen un costo de <strong>0,1 UF por m³</strong>.
-            </div>
-          </div>
-
-          <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-              <span style="font-size: 0.95rem;">Fecha Estimada de Llegada *</span>
-              <span id="date-mode-badge" class="badge" style="font-size: 0.7rem; text-transform: uppercase; background-color: var(--badge-info-bg); color: var(--badge-info-text); letter-spacing: 0.5px; font-weight: 700;">Exacta</span>
-            </label>
-            
-            <div style="display: flex; background: rgba(255,255,255,0.03); padding: 0.35rem; border-radius: 8px; border: 1px solid var(--color-border); gap: 0.25rem; margin-bottom: 1.25rem;">
-              <button type="button" id="btn-date-exact" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: none; background: var(--color-primary); color: white; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;">
-                <i class="ri-calendar-check-line" style="font-size: 1.1rem;"></i> Fecha Exacta
-              </button>
-              <button type="button" id="btn-date-estimate" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; border-radius: 6px; margin: 0; border: none; background: transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.4rem;" onmouseover="if(this.style.background==='transparent') this.style.background='rgba(255,255,255,0.05)'" onmouseout="if(this.style.color==='var(--color-text-muted)') this.style.background='transparent'">
-                <i class="ri-timer-line" style="font-size: 1.1rem;"></i> Plazo Estimativo
-              </button>
-            </div>
-            
-            <!-- Exact Date Picker Container -->
-            <div id="dec-date-exact-container">
-              <div id="mini-calendar-wrapper"></div>
-              <div id="dec-date-selected-label" style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--color-text-main); font-weight: 500;">
-                <span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>
-              </div>
-              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.35rem; display: flex; align-items: center; gap: 4px;">
-                <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
-              </div>
-              <div id="dec-date-warning" class="alert alert-warning" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
-              <div id="dec-date-error" class="alert alert-error" style="display: none; padding: 0.5rem; font-size: 0.8rem; background: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid var(--color-danger); margin-top: 0.5rem; border-radius: var(--radius-sm); line-height: 1.4;"></div>
-            </div>
-            
-            <!-- Estimate Picker Container -->
-            <div id="dec-date-estimate-container" style="display: none;">
-              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa el plazo estimado para el arribo de la mercadería:</p>
-              <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
-                <input type="number" id="dec-period-qty" class="form-input" min="1" value="1" style="width: 80px;">
-                <select id="dec-period-unit" class="form-input" style="flex: 1;">
-                  <option value="semanas">Semanas</option>
-                  <option value="meses">Meses</option>
-                </select>
-              </div>
-              <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 4px;">
-                <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
+              
+              <!-- Estimate Picker Container -->
+              <div id="dec-date-estimate-container" style="display: none;">
+                <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa el plazo estimado para el arribo de la mercadería:</p>
+                <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+                  <input type="number" id="dec-period-qty" class="form-input" min="1" value="1" style="width: 80px;">
+                  <select id="dec-period-unit" class="form-input" style="flex: 1;">
+                    <option value="semanas">Semanas</option>
+                    <option value="meses">Meses</option>
+                  </select>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 4px;">
+                  <i class="ri-time-line" style="color: var(--color-primary);"></i> Horario de recepción: <strong>11:00 a 16:00 hrs.</strong>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="form-group" style="background: rgba(16, 185, 129, 0.05); padding: 1rem; border-radius: var(--radius-md); border: 1px dashed var(--color-success);">
-            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
-              <span>Planilla Detallada de Ingreso *</span>
-              <button type="button" class="btn" style="background: none; border: none; padding: 0; color: var(--color-primary); font-size: 0.85rem; cursor: pointer; text-decoration: underline; font-weight: 600; font-family: var(--font-family);" onclick="downloadDeclarationsTemplate()">
-                <i class="ri-download-cloud-line"></i> Descargar Planilla Tipo
-              </button>
-            </label>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">
-              Descarga la planilla tipo, llénala con los datos de tus productos y súbela aquí. Formato Excel o CSV.
-            </p>
-            <input type="file" id="dec-file-input" class="form-input" accept=".xlsx, .xls, .csv" required style="background: var(--color-surface);">
-            <div id="dec-file-selected-info" style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--color-text-muted); font-style: italic;"></div>
-          </div>
+            <div class="form-group" style="background: rgba(16, 185, 129, 0.05); padding: 1rem; border-radius: var(--radius-md); border: 1px dashed var(--color-success);">
+              <label class="form-label" style="font-weight: 600; display: flex; flex-direction: column; gap: 0.25rem;">
+                <span>Planilla Detallada de Ingreso *</span>
+                <button type="button" class="btn" style="background: none; border: none; padding: 0; color: var(--color-primary); font-size: 0.85rem; cursor: pointer; text-decoration: underline; font-weight: 600; font-family: var(--font-family); align-self: flex-start;" onclick="downloadDeclarationsTemplate()">
+                  <i class="ri-download-cloud-line"></i> Descargar Planilla Tipo
+                </button>
+              </label>
+              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">
+                Descarga la planilla tipo, llénala con los datos de tus productos y súbela aquí. Formato Excel o CSV.
+              </p>
+              <input type="file" id="dec-file-input" class="form-input" accept=".xlsx, .xls, .csv" required style="background: var(--color-surface);">
+              <div id="dec-file-selected-info" style="font-size: 0.8rem; margin-top: 0.4rem; color: var(--color-text-muted); font-style: italic;"></div>
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">Datos de Contacto del Comercio</label>
-            <input type="text" id="dec-contact-info" class="form-input" placeholder="Nombre, email o teléfono de contacto para este ingreso">
-          </div>
+            <div class="form-group">
+              <label class="form-label">Datos de Contacto del Comercio</label>
+              <input type="text" id="dec-contact-info" class="form-input" placeholder="Nombre, email o teléfono de contacto para este ingreso">
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">Datos del Transportista (Si aplica)</label>
-            <input type="text" id="dec-carrier-info" class="form-input" placeholder="Patente, nombre chofer o empresa de transporte">
-          </div>
+            <div class="form-group">
+              <label class="form-label">Datos del Transportista (Si aplica)</label>
+              <input type="text" id="dec-carrier-info" class="form-input" placeholder="Patente, nombre chofer o empresa de transporte">
+            </div>
 
-          <div class="form-group">
-            <label class="form-label">Comentarios Adicionales</label>
-            <textarea id="dec-notes" class="form-input" rows="2" placeholder="Observaciones generales para el equipo de bodega..."></textarea>
-          </div>
+            <div class="form-group">
+              <label class="form-label">Comentarios Adicionales</label>
+              <textarea id="dec-notes" class="form-input" rows="2" placeholder="Observaciones generales para el equipo de bodega..."></textarea>
+            </div>
 
-          <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-            <button type="button" id="btn-cancel-edit-declaration" class="btn btn-outline" style="flex: 1; display: none; border-radius: var(--radius-md);" onclick="cancelEditDeclaration()">Cancelar</button>
-            <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="flex: 2; border-radius: var(--radius-md);">Crear Declaración de Ingreso</button>
-          </div>
-        </form>
+            <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem;">
+              <button type="submit" id="btn-submit-declaration" class="btn btn-primary" style="flex: 1; border-radius: var(--radius-md); padding: 0.75rem;">Crear Declaración de Ingreso</button>
+            </div>
+          </form>
+        </div>
       </div>
     `;
 
     appContent.innerHTML = getObserverBanner() + `
-      <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start;" id="dec-view-container">
-        <!-- Columna 1: Formulario -->
-        <div id="dec-form-col">
-          ${formHtml}
-        </div>
+      <div id="dec-view-container">
+        <!-- Render Slide Over Panel -->
+        ${formHtml}
         
-        <!-- Columna 2: Tabla Resumen -->
-        <div id="dec-table-col" class="card">
-          <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+        <!-- Tabla Resumen Full Width -->
+        <div id="dec-table-col" class="card" style="width: 100%;">
+          <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
               <h3>Mis Declaraciones de Ingreso</h3>
               <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial y estado de tus ingresos declarados.</p>
             </div>
-            <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-declarations">
-              <i class="ri-refresh-line"></i> Actualizar
-            </button>
+            <div style="display: flex; gap: 0.75rem; align-items: center;">
+              <button class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border);" id="btn-refresh-declarations">
+                <i class="ri-refresh-line"></i> Actualizar
+              </button>
+              ${!isObserver ? `
+                <button class="btn btn-primary" style="padding: 0.4rem 0.85rem; font-size: 0.85rem;" onclick="openNewDeclarationSlideOver()">
+                  <i class="ri-add-line"></i> Hacer un ingreso
+                </button>
+              ` : ''}
+            </div>
           </div>
           <div class="card-body table-responsive">
             <table class="data-table">
@@ -5403,21 +5411,6 @@ window.renderDeclarations = async function() {
         </div>
       </div>
     `;
-
-    // Responsive layout
-    const updateLayout = () => {
-      const container = document.getElementById('dec-view-container');
-      if (container) {
-        if (window.innerWidth >= 1024) {
-          container.style.gridTemplateColumns = '380px 1fr';
-        } else {
-          container.style.gridTemplateColumns = '1fr';
-        }
-      }
-    };
-    updateLayout();
-    window.removeEventListener('resize', updateLayout);
-    window.addEventListener('resize', updateLayout);
 
     // Initial table load
     fetchAndRenderClientDeclarations();
@@ -5779,6 +5772,8 @@ window.renderDeclarations = async function() {
             
             document.getElementById('dec-date-warning').style.display = 'none';
             document.getElementById('dec-date-error').style.display = 'none';
+            
+            closeNewDeclarationSlideOver();
           }
 
           // Redraw calendar to clear selection styling
@@ -6628,9 +6623,9 @@ window.editDeclaration = async function(id) {
       if (unitInput) unitInput.value = unit;
     }
 
-    const formTitle = document.getElementById('dec-form-title');
+    const formTitle = document.getElementById('dec-slide-over-title');
     if (formTitle) {
-      formTitle.textContent = 'Editar Declaración de Ingreso';
+      formTitle.innerHTML = 'Editar Declaración de Ingreso';
     }
     const submitBtn = document.getElementById('btn-submit-declaration');
     if (submitBtn) {
@@ -6641,15 +6636,27 @@ window.editDeclaration = async function(id) {
       cancelBtn.style.display = 'block';
     }
 
-    const formCol = document.getElementById('dec-form-col');
-    if (formCol) {
-      formCol.scrollIntoView({ behavior: 'smooth' });
-    }
+    openNewDeclarationSlideOver();
+
 
   } catch (err) {
     console.error('Error opening declaration for editing:', err);
     alert('Error al abrir la declaración para editar: ' + err.message);
   }
+};
+
+window.openNewDeclarationSlideOver = function() {
+  const overlay = document.getElementById('dec-slide-over-overlay');
+  const panel = document.getElementById('dec-slide-over-panel');
+  if (overlay) overlay.classList.add('show');
+  if (panel) panel.classList.add('show');
+};
+
+window.closeNewDeclarationSlideOver = function() {
+  const overlay = document.getElementById('dec-slide-over-overlay');
+  const panel = document.getElementById('dec-slide-over-panel');
+  if (overlay) overlay.classList.remove('show');
+  if (panel) panel.classList.remove('show');
 };
 
 window.cancelEditDeclaration = function() {
@@ -6691,9 +6698,9 @@ window.cancelEditDeclaration = function() {
   const dateError = document.getElementById('dec-date-error');
   if (dateError) dateError.style.display = 'none';
 
-  const formTitle = document.getElementById('dec-form-title');
+  const formTitle = document.getElementById('dec-slide-over-title');
   if (formTitle) {
-    formTitle.textContent = 'Declarar Nuevo Ingreso';
+    formTitle.innerHTML = 'Declarar Nuevo Ingreso';
   }
   const submitBtn = document.getElementById('btn-submit-declaration');
   if (submitBtn) {
@@ -6703,6 +6710,8 @@ window.cancelEditDeclaration = function() {
   if (cancelBtn) {
     cancelBtn.style.display = 'none';
   }
+  
+  closeNewDeclarationSlideOver();
 };
 
 window.deleteDeclaration = async function(id) {
