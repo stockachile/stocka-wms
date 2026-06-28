@@ -410,7 +410,7 @@ async function renderAdminOrders() {
     if (!orders || orders.length === 0) {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
-      const { data: profile } = await supabase.from('profiles').eq('id', user?.id).single();
+      const { data: profile } = await supabase.from('profiles').select('role, comercio').eq('id', user?.id).single();
       rowsHtml = `
         <tr>
           <td colspan="12" class="text-center" style="padding: 3rem 2rem; color: var(--color-text-muted);">
@@ -5800,7 +5800,7 @@ window.generateBillingMultiSelect = function(label, filterClass, periodId, optio
           <thead>
             <tr>
               <th rowspan="2" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
-              <th colspan="6" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
+              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
               <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
               <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
               <th rowspan="2" style="width: 50px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
@@ -5827,8 +5827,14 @@ window.generateBillingMultiSelect = function(label, filterClass, periodId, optio
           <tbody>
             ${tableRows}
           </tbody>
+          <tfoot id="tfoot-${periodId}" style="background: var(--color-surface); font-weight: 700; position: sticky; bottom: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 10;">
+            <!-- Generated dynamically -->
+          </tfoot>
         </table>
     `;
+    
+    // Update the tfoot dynamically
+    window.updateBillingFooterTotals(periodId);
     
   } catch (err) {
     console.error('Error rendering billing records:', err);
@@ -5884,6 +5890,55 @@ window.updateBillingMultiSelectLabel = function(filterClass, container) {
   }
 };
 
+window.updateBillingFooterTotals = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+  
+  const rows = container.querySelectorAll('.billing-record-row');
+  let sumTotalFulf = 0;
+  let sumAbonoFulf = 0;
+  let sumTotalEnv = 0;
+  let sumAbonoEnv = 0;
+  let sumTotalMes = 0;
+  
+  rows.forEach(row => {
+    if (row.style.display === 'none') return;
+    
+    const getVal = (nameContains) => {
+      const input = row.querySelector(`input[onblur*="${nameContains}"]`);
+      return input ? parseFloat(input.value) || 0 : 0;
+    };
+    
+    const tFulf = getVal('total_fulfillment');
+    const aFulf = getVal('abono_fulfillment');
+    const tEnv = getVal('enviame');
+    const aEnv = getVal('abono_enviame');
+    
+    sumTotalFulf += tFulf;
+    sumAbonoFulf += aFulf;
+    sumTotalEnv += tEnv;
+    sumAbonoEnv += aEnv;
+    sumTotalMes += (tFulf + tEnv);
+  });
+  
+  const tfoot = document.getElementById(`tfoot-${periodId}`);
+  if (tfoot) {
+    tfoot.innerHTML = `
+      <tr>
+        <td colspan="3" style="text-align: right; padding: 1rem;">TOTALES (filtrados):</td>
+        <td class="col-group-fulf" style="text-align: right; padding: 1rem;">${formatCLP(sumTotalFulf)}</td>
+        <td class="col-group-fulf" style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoFulf)}</td>
+        <td colspan="4" class="col-group-divider"></td>
+        <td class="col-group-env" style="text-align: right; padding: 1rem;">${formatCLP(sumTotalEnv)}</td>
+        <td class="col-group-env" style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoEnv)}</td>
+        <td colspan="3" class="col-group-divider"></td>
+        <td class="col-group-divider" style="text-align: right; padding: 1rem; color: var(--color-primary); font-size: 0.95rem;">${formatCLP(sumTotalMes)}</td>
+        <td></td>
+      </tr>
+    `;
+  }
+};
+
 window.filterBillingRows = function(periodId) {
   const container = document.getElementById(`period-body-${periodId}`);
   if (!container) return;
@@ -5892,7 +5947,7 @@ window.filterBillingRows = function(periodId) {
     const checkboxes = container.querySelectorAll('.' + filterClass + ':checked');
     if (checkboxes.length === 0) return null;
     const allCb = container.querySelector('.' + filterClass + '-all');
-    if (allCb && allCb.checked) return null; // "Todos" is selected, so no filter
+    if (allCb && allCb.checked) return null;
     return Array.from(checkboxes).map(cb => cb.value);
   };
   
@@ -5919,6 +5974,8 @@ window.filterBillingRows = function(periodId) {
       row.style.display = 'none';
     }
   });
+  
+  window.updateBillingFooterTotals(periodId);
 };
 
 window.updateSelectField = function(selectEl, recordId, fieldName) {
@@ -6017,6 +6074,19 @@ window.saveField = async function(recordId, fieldName, fieldValue) {
           const tf = parseInt(totalFulfInput.value, 10) || 0;
           const env = parseInt(enviameInput.value, 10) || 0;
           totalCell.textContent = formatCLP(tf + env);
+        }
+      }
+    }
+    
+    if (['total_fulfillment', 'enviame', 'abono_fulfillment', 'abono_enviame'].includes(fieldName)) {
+      const row = document.getElementById(`row-${recordId}`);
+      if (row) {
+        const container = row.closest('div[id^="period-body-"]');
+        if (container) {
+          const pId = container.id.replace('period-body-', '');
+          if (window.updateBillingFooterTotals) {
+            window.updateBillingFooterTotals(pId);
+          }
         }
       }
     }
