@@ -305,6 +305,31 @@ async function updateOrderStatus(orderId, newStatus) {
   }
 }
 
+window.toggleOrderRow = function(orderId) {
+  const row = document.getElementById(`row-${orderId}`);
+  const detailsRow = document.getElementById(`details-${orderId}`);
+  const chevron = document.getElementById(`chevron-${orderId}`);
+  if (!row || !detailsRow || !chevron) return;
+
+  const isExpanded = row.classList.contains('expanded');
+  if (isExpanded) {
+    row.classList.remove('expanded');
+    detailsRow.style.display = 'none';
+    chevron.style.transform = 'rotate(0deg)';
+  } else {
+    row.classList.add('expanded');
+    detailsRow.style.display = 'table-row';
+    chevron.style.transform = 'rotate(90deg)';
+  }
+};
+
+window.toggleRawOrderJson = function(orderId) {
+  const container = document.getElementById(`raw-json-${orderId}`);
+  if (!container) return;
+  const isHidden = container.style.display === 'none';
+  container.style.display = isHidden ? 'block' : 'none';
+};
+
 async function renderAdminOrders() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando todos los pedidos...</p>`;
@@ -324,14 +349,34 @@ async function renderAdminOrders() {
         sku,
         label_base64,
         total_value,
+        customer_name,
+        customer_email,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_complement,
+        shipping_method,
+        payment_status,
+        tracking_number,
+        tracking_url,
+        courier,
+        raw_woocommerce_data,
+        raw_falabella_data,
+        raw_meli_data,
+        raw_optiroute_data,
+        raw_lightdata_data,
+        raw_paris_data,
         profiles (company_name),
-        order_items (quantity, products(sku, name))
+        order_items (quantity, products(sku, name, price))
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Obtener los despachos correspondientes de la tabla envios_unificados
+    // Guardar en window para acceso desde el filtro
+    window.loadedOrders = orders || [];
+
+    // Obtener los despachos correspondientes de la tabla envios_unificados (sin filtrar visible_to_client para el admin)
     let shipments = [];
     if (orders && orders.length > 0) {
       const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
@@ -341,17 +386,51 @@ async function renderAdminOrders() {
       const { data: shipData, error: shipError } = await supabase
         .from('envios_unificados')
         .select('*')
-        .in('pedido_referencia', allRefs)
-        .eq('visible_to_client', true);
+        .in('pedido_referencia', allRefs);
 
       if (!shipError && shipData) {
         shipments = shipData;
       }
     }
 
+    // Calcular Estadísticas KPI
+    const totalOrders = orders.length;
+    const ordersToProcess = orders.filter(o => o.status === 'para procesar').length;
+    const ordersInPrep = orders.filter(o => o.status === 'en preparación' || o.status === 'preparado').length;
+    const totalSales = orders.filter(o => o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+
+    // Opciones del Filtro de Comercios
+    const uniqueMerchants = [...new Set(orders.map(o => o.profiles?.company_name).filter(Boolean))].sort();
+    const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
+
+    // Opciones de Estado
+    const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
+
     let rowsHtml = '';
     if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos en el sistema.</td></tr>`;
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      const { data: profile } = await supabase.from('profiles').eq('id', user?.id).single();
+      rowsHtml = `
+        <tr>
+          <td colspan="12" class="text-center" style="padding: 3rem 2rem; color: var(--color-text-muted);">
+            <div style="max-width: 450px; margin: 0 auto; background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); text-align: left; box-shadow: var(--shadow-sm);">
+              <h4 style="color: var(--color-warning); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 1rem;">
+                <i class="ri-error-warning-line" style="font-size: 1.25rem;"></i> Sin pedidos cargados
+              </h4>
+              <p style="font-size: 0.875rem; margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-muted);">
+                La consulta a la base de datos retornó cero registros. Esto puede deberse a políticas de seguridad RLS o a la falta de registros asignados.
+              </p>
+              <div style="font-size: 0.8rem; border-top: 1px solid var(--color-border); padding-top: 0.75rem; color: var(--color-text-main);">
+                <p style="margin-bottom: 0.25rem;"><strong>Usuario Autenticado:</strong> ${user?.email || 'Desconocido'}</p>
+                <p style="margin-bottom: 0.25rem;"><strong>Rol de Perfil:</strong> <span style="text-transform: uppercase; font-weight: 600; color: var(--color-primary);">${profile?.role || 'Ninguno'}</span></p>
+                <p style="margin-bottom: 0.25rem;"><strong>Comercio Asociado:</strong> ${profile?.comercio || 'No asignado'}</p>
+                <p style="margin-bottom: 0;"><strong>ID de Usuario:</strong> <code style="font-family: monospace; font-size: 0.75rem; background: var(--color-bg); padding: 0.1rem 0.25rem; border-radius: 3px;">${user?.id || '-'}</code></p>
+              </div>
+            </div>
+          </td>
+        </tr>
+      `;
     } else {
       orders.forEach(order => {
         // Buscar el envío en el listado cargado
@@ -387,26 +466,98 @@ async function renderAdminOrders() {
         
         if (order.label_base64) {
           labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+        } else if (order.label_url) {
+          labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
         }
+
+        let courier_destino = '';
+        let comuna_destino = '';
+        let trackingNum = order.tracking_number;
+        let trackingUrl = order.tracking_url;
 
         if (orderShipments.length > 0) {
           const shipment = orderShipments[0]; // Tomar el primer despacho
+          courier_destino = shipment.courier;
+          comuna_destino = shipment.comuna_destino;
           if (shipment.tracking) {
-            const courierName = shipment.courier || 'Seguimiento';
-            trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
-              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
+            trackingNum = shipment.tracking;
+            trackingUrl = shipment.tracking_url;
           }
         }
 
+        const courierName = order.courier || courier_destino || 'Courier';
+        if (trackingNum) {
+          trackingHtml = trackingUrl && trackingUrl !== 'N/A'
+            ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</a>`
+            : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</span>`;
+        }
+
+        // Generar filas de productos
+        let itemsRowsHtml = '';
+        if (order.order_items && order.order_items.length > 0) {
+          order.order_items.forEach(oi => {
+            const pSku = oi.products?.sku || order.sku || 'Sin SKU';
+            const pName = oi.products?.name || order.item || 'Sin Nombre';
+            const pQty = oi.quantity || 0;
+            const pPrice = Number(oi.products?.price) || (pQty > 0 ? (Number(order.total_value) / pQty) : 0) || 0;
+            const subtotal = pQty * pPrice;
+            itemsRowsHtml += `
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${pSku}</td>
+                <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pName}</td>
+                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+                <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+                <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
+              </tr>
+            `;
+          });
+        } else {
+          // Pedido simple/plano
+          const pQty = Number(order.cantidad) || 1;
+          const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
+          itemsRowsHtml += `
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
+              <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
+              <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+              <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+              <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
+            </tr>
+          `;
+        }
+
+        // Obtener datos raw de integración para mostrar
+        let rawData = null;
+        if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
+        else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
+        else if (order.raw_meli_data) rawData = order.raw_meli_data;
+        else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
+        else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
+        else if (order.raw_paris_data) rawData = order.raw_paris_data;
+
+        let rawJsonBtnHtml = '';
+        if (rawData) {
+          rawJsonBtnHtml = `
+            <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 1rem; width: 100%; justify-content: center; font-weight: 600;">
+              <i class="ri-code-s-slash-line"></i> Ver JSON de Integración
+            </button>
+            <div id="raw-json-${order.id}" style="display: none; margin-top: 0.5rem; text-align: left; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all;">
+              ${JSON.stringify(rawData, null, 2)}
+            </div>
+          `;
+        }
+
         rowsHtml += `
-          <tr style="transition: background-color 0.2s;">
+          <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
+            <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
+              <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
+            </td>
             <td>${orderDisplayId}</td>
             <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.profiles?.company_name || 'Desconocido'}</strong></td>
             <td>${originHtml}</td>
             <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
             <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
-            <td>${nameStr}</td>
+            <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${nameStr}">${nameStr}</td>
             <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
             <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
               ${window.formatCLP(order.total_value)}
@@ -419,19 +570,159 @@ async function renderAdminOrders() {
               </select>
             </td>
           </tr>
+          <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
+            <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+              <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+                
+                <!-- Col 1: Datos del Cliente y Despacho -->
+                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ri-user-line"></i> Datos de Despacho
+                  </h4>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${order.customer_name || 'No registrado'}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${order.customer_email || 'No registrado'}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${order.customer_phone || 'No registrado'}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
+                    <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
+                    ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
+                  </p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || comuna_destino || 'No registrada'}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
+                  <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+                </div>
+
+                <!-- Col 2: Desglose de Productos -->
+                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+                  </h4>
+                  <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                      <thead>
+                        <tr style="border-bottom: 1px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
+                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
+                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
+                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
+                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${itemsRowsHtml}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Col 3: Integración y Logística -->
+                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="ri-truck-line"></i> Logística e Integración
+                  </h4>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
+                  
+                  <!-- Botón para ver datos crudos de integración -->
+                  ${rawJsonBtnHtml}
+                </div>
+
+              </div>
+            </td>
+          </tr>
         `;
       });
     }
 
     appContent.innerHTML = `
+      <!-- Tarjetas de KPI -->
+      <div class="orders-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-shopping-bag-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
+            <strong id="kpi-total-orders" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${totalOrders}</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-time-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
+            <strong id="kpi-to-process" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${ordersToProcess}</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-hammer-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
+            <strong id="kpi-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${ordersInPrep}</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-money-dollar-circle-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Ventas Totales</span>
+            <strong id="kpi-total-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${window.formatCLP(totalSales)}</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de Filtros -->
+      <div class="filters-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
+            <input type="text" id="search-orders" class="form-input" placeholder="Buscar por ID, SKU, Cliente, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio / Cliente</label>
+            <select id="filter-merchant" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los comercios</option>
+              ${merchantOptions}
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-plug-line"></i> Origen / Integración</label>
+            <select id="filter-origen" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los orígenes</option>
+              <option value="Shopify">Shopify</option>
+              <option value="WooCommerce">WooCommerce</option>
+              <option value="MercadoLibre">Mercado Libre</option>
+              <option value="Falabella">Falabella</option>
+              <option value="Paris">Paris</option>
+              <option value="Manual">Manual</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado</label>
+            <select id="filter-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los estados</option>
+              ${statusOptions}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de Pedidos -->
       <div class="card">
         <div class="card-header">
           <h3>Panel de Control de Pedidos</h3>
         </div>
-        <div class="card-body">
+        <div class="card-body" style="overflow-x: auto;">
           <table class="data-table">
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center;"></th>
                 <th>ID</th>
                 <th>Cliente</th>
                 <th>Origen</th>
@@ -445,13 +736,96 @@ async function renderAdminOrders() {
                 <th>Estado</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="orders-tbody">
               ${rowsHtml}
             </tbody>
           </table>
         </div>
       </div>
     `;
+
+    // Escuchar eventos para aplicar filtros
+    const searchInput = document.getElementById('search-orders');
+    const merchantSelect = document.getElementById('filter-merchant');
+    const origenSelect = document.getElementById('filter-origen');
+    const statusSelect = document.getElementById('filter-status');
+
+    const applyFilters = () => {
+      const searchText = searchInput.value.toLowerCase();
+      const selectedMerchant = merchantSelect.value;
+      const selectedOrigen = origenSelect.value;
+      const selectedStatus = statusSelect.value;
+
+      const rows = document.querySelectorAll('.order-row');
+      let visibleCount = 0;
+      let visibleSales = 0;
+      let visibleToProcess = 0;
+      let visibleInPrep = 0;
+
+      rows.forEach(row => {
+        const orderId = row.getAttribute('data-order-id');
+        const order = window.loadedOrders.find(o => o.id === orderId);
+        if (!order) return;
+
+        const platform = order.origen || order.external_platform || 'Manual';
+        const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
+        const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
+        const company = (order.profiles?.company_name || '').toLowerCase();
+        const customer = (order.customer_name || '').toLowerCase();
+        const extNo = (order.external_order_number || '').toLowerCase();
+        const tracking = (order.tracking_number || '').toLowerCase();
+        const orderIdLower = order.id.toLowerCase();
+
+        const matchesSearch = !searchText || 
+          orderIdLower.includes(searchText) || 
+          extNo.includes(searchText) || 
+          skuStr.includes(searchText) || 
+          nameStr.includes(searchText) || 
+          company.includes(searchText) || 
+          customer.includes(searchText) ||
+          tracking.includes(searchText);
+
+        const matchesMerchant = !selectedMerchant || order.profiles?.company_name === selectedMerchant;
+        const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
+        const matchesStatus = !selectedStatus || order.status === selectedStatus;
+
+        const detailsRow = document.getElementById(`details-${orderId}`);
+
+        if (matchesSearch && matchesMerchant && matchesOrigen && matchesStatus) {
+          row.style.display = 'table-row';
+          visibleCount++;
+          if (order.status !== 'cancelado') {
+            visibleSales += Number(order.total_value) || 0;
+          }
+          if (order.status === 'para procesar') {
+            visibleToProcess++;
+          }
+          if (order.status === 'en preparación' || order.status === 'preparado') {
+            visibleInPrep++;
+          }
+          if (row.classList.contains('expanded') && detailsRow) {
+            detailsRow.style.display = 'table-row';
+          }
+        } else {
+          row.style.display = 'none';
+          if (detailsRow) {
+            detailsRow.style.display = 'none';
+          }
+        }
+      });
+
+      // Actualizar KPIs en base a los resultados filtrados
+      document.getElementById('kpi-total-orders').textContent = visibleCount;
+      document.getElementById('kpi-to-process').textContent = visibleToProcess;
+      document.getElementById('kpi-in-prep').textContent = visibleInPrep;
+      document.getElementById('kpi-total-sales').textContent = window.formatCLP(visibleSales);
+    };
+
+    searchInput.addEventListener('keyup', applyFilters);
+    merchantSelect.addEventListener('change', applyFilters);
+    origenSelect.addEventListener('change', applyFilters);
+    statusSelect.addEventListener('change', applyFilters);
+
   } catch (error) {
     console.error('Error fetching orders:', error);
     appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
@@ -4988,13 +5362,13 @@ window.renderBillingAdmin = async function() {
     
     <!-- Tabs -->
     <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem;">
-      <button class="billing-tab-btn active" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
+      <button class="billing-tab-btn" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
       <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
-      <button class="billing-tab-btn" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
+      <button class="billing-tab-btn active" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
       <button class="billing-tab-btn" id="tab-status-btn" onclick="switchBillingAdminTab('status')"><i class="ri-toggle-line"></i> Estados de Comercio</button>
     </div>
     
-    <div id="tab-control-content">
+    <div id="tab-control-content" style="display: none;">
       <div id="periods-list-container">
         <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
@@ -5014,7 +5388,7 @@ window.renderBillingAdmin = async function() {
       </div>
     </div>
 
-    <div id="tab-metrics-content" style="display: none;">
+    <div id="tab-metrics-content" style="display: block;">
       <div id="metrics-dashboard-container">
         <!-- Cargado dinámicamente -->
       </div>
@@ -5039,8 +5413,8 @@ window.renderBillingAdmin = async function() {
     </div>
   `;
   
-  await loadBillingPeriods();
   await updatePendingReportsBadge();
+  switchBillingAdminTab('metrics');
 };
 
 window.switchBillingAdminTab = function(tabName) {
@@ -5377,64 +5751,49 @@ async function loadBillingRecords(periodId, bodyElement) {
       `;
     });
     
+window.generateBillingMultiSelect = function(label, filterClass, periodId, options) {
+  let html = `
+    <div style="display: flex; align-items: center; gap: 0.35rem;">
+      <label style="font-size: 0.75rem; color: var(--color-text-muted);">${label}</label>
+      <div class="ms-container" style="position: relative; display: inline-block;">
+        <div class="form-input ms-header" onclick="toggleBillingMultiSelect(this)" style="cursor: pointer; padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; min-width: 140px; display: flex; justify-content: space-between; align-items: center; user-select: none; background: var(--color-surface);">
+          <span class="ms-label" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;">Todos</span>
+          <i class="ri-arrow-down-s-line"></i>
+        </div>
+        <div class="ms-dropdown" style="display: none; position: absolute; top: 100%; left: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); z-index: 100; max-height: 250px; overflow-y: auto; padding: 0.25rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 100%; margin-top: 0.25rem;">
+          <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
+            <input type="checkbox" value="" class="${filterClass}-all" checked onchange="toggleBillingMultiSelectAll(this, '${filterClass}', '${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> Todos
+          </label>
+  `;
+  
+  options.forEach(opt => {
+    html += `
+          <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
+            <input type="checkbox" value="${opt}" class="${filterClass}" checked onchange="updateBillingMultiSelectLabel('${filterClass}', this.closest('.ms-container')); filterBillingRows('${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> ${opt}
+          </label>
+    `;
+  });
+  
+  html += `
+        </div>
+      </div>
+    </div>
+  `;
+  return html;
+};
+
     bodyElement.innerHTML = `
         <!-- Filtros rápidos -->
         <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
           <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
           
-          <div style="display: flex; align-items: center; gap: 0.35rem;">
-            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Fulf:</label>
-            <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
-              <option value="">Todos</option>
-              <option value="Por solicitar">Por solicitar</option>
-              <option value="Recibido">Recibido</option>
-              <option value="En espera">En espera</option>
-              <option value="Atrasado">Atrasado</option>
-              <option value="abono">Abono</option>
-              <option value="aprobado">Aprobado</option>
-              <option value="incobrable">Incobrable</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
+          ${generateBillingMultiSelect('Pago Fulf:', 'filter-pago-fulf', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
           
-          <div style="display: flex; align-items: center; gap: 0.35rem;">
-            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Fulf:</label>
-            <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
-              <option value="">Todos</option>
-              <option value="Esperando">Esperando</option>
-              <option value="No se factura">No se factura</option>
-              <option value="Emitida">Emitida</option>
-              <option value="Facturar">Facturar</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
+          ${generateBillingMultiSelect('Factura Fulf:', 'filter-fact-fulf', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
           
-          <div style="display: flex; align-items: center; gap: 0.35rem;">
-            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Env:</label>
-            <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
-              <option value="">Todos</option>
-              <option value="Por solicitar">Por solicitar</option>
-              <option value="Recibido">Recibido</option>
-              <option value="En espera">En espera</option>
-              <option value="Atrasado">Atrasado</option>
-              <option value="abono">Abono</option>
-              <option value="aprobado">Aprobado</option>
-              <option value="incobrable">Incobrable</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
+          ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
           
-          <div style="display: flex; align-items: center; gap: 0.35rem;">
-            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Env:</label>
-            <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRows('${periodId}')">
-              <option value="">Todos</option>
-              <option value="Esperando">Esperando</option>
-              <option value="No se factura">No se factura</option>
-              <option value="Emitida">Emitida</option>
-              <option value="Facturar">Facturar</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
+          ${generateBillingMultiSelect('Factura Env:', 'filter-fact-env', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
         </div>
 
         <table class="data-table billing-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
@@ -5481,14 +5840,66 @@ async function loadBillingRecords(periodId, bodyElement) {
   }
 }
 
+window.toggleBillingMultiSelect = function(headerEl) {
+  const dropdown = headerEl.nextElementSibling;
+  const isVisible = dropdown.style.display === 'block';
+  document.querySelectorAll('.ms-dropdown').forEach(d => d.style.display = 'none');
+  if (!isVisible) dropdown.style.display = 'block';
+};
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ms-container')) {
+    document.querySelectorAll('.ms-dropdown').forEach(d => d.style.display = 'none');
+  }
+});
+
+window.toggleBillingMultiSelectAll = function(cbAll, filterClass, periodId) {
+  const isChecked = cbAll.checked;
+  const dropdown = cbAll.closest('.ms-dropdown');
+  dropdown.querySelectorAll('.' + filterClass).forEach(cb => cb.checked = isChecked);
+  updateBillingMultiSelectLabel(filterClass, dropdown.closest('.ms-container'));
+  filterBillingRows(periodId);
+};
+
+window.updateBillingMultiSelectLabel = function(filterClass, container) {
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('.' + filterClass);
+  const cbAll = container.querySelector('.' + filterClass + '-all');
+  const label = container.querySelector('.ms-label');
+  
+  const checked = Array.from(checkboxes).filter(cb => cb.checked);
+  
+  if (checked.length === checkboxes.length) {
+    if (cbAll) cbAll.checked = true;
+    label.textContent = 'Todos';
+  } else if (checked.length === 0) {
+    if (cbAll) cbAll.checked = false;
+    label.textContent = 'Ninguno';
+  } else if (checked.length === 1) {
+    if (cbAll) cbAll.checked = false;
+    label.textContent = checked[0].value;
+  } else {
+    if (cbAll) cbAll.checked = false;
+    label.textContent = checked.length + ' selec.';
+  }
+};
+
 window.filterBillingRows = function(periodId) {
   const container = document.getElementById(`period-body-${periodId}`);
   if (!container) return;
   
-  const filterPagoFulf = container.querySelector('.filter-pago-fulf').value;
-  const filterFactFulf = container.querySelector('.filter-fact-fulf').value;
-  const filterPagoEnv = container.querySelector('.filter-pago-env').value;
-  const filterFactEnv = container.querySelector('.filter-fact-env').value;
+  const getSelected = (filterClass) => {
+    const checkboxes = container.querySelectorAll('.' + filterClass + ':checked');
+    if (checkboxes.length === 0) return null;
+    const allCb = container.querySelector('.' + filterClass + '-all');
+    if (allCb && allCb.checked) return null; // "Todos" is selected, so no filter
+    return Array.from(checkboxes).map(cb => cb.value);
+  };
+  
+  const filterPagoFulf = getSelected('filter-pago-fulf');
+  const filterFactFulf = getSelected('filter-fact-fulf');
+  const filterPagoEnv = getSelected('filter-pago-env');
+  const filterFactEnv = getSelected('filter-fact-env');
   
   const rows = container.querySelectorAll('.billing-record-row');
   rows.forEach(row => {
@@ -5497,10 +5908,10 @@ window.filterBillingRows = function(periodId) {
     const pagoEnv = row.getAttribute('data-pago-env') || '';
     const factEnv = row.getAttribute('data-fact-env') || '';
     
-    const matchPagoFulf = !filterPagoFulf || pagoFulf === filterPagoFulf;
-    const matchFactFulf = !filterFactFulf || factFulf === filterFactFulf;
-    const matchPagoEnv = !filterPagoEnv || pagoEnv === filterPagoEnv;
-    const matchFactEnv = !filterFactEnv || factEnv === filterFactEnv;
+    const matchPagoFulf = !filterPagoFulf || filterPagoFulf.includes(pagoFulf);
+    const matchFactFulf = !filterFactFulf || filterFactFulf.includes(factFulf);
+    const matchPagoEnv = !filterPagoEnv || filterPagoEnv.includes(pagoEnv);
+    const matchFactEnv = !filterFactEnv || filterFactEnv.includes(factEnv);
     
     if (matchPagoFulf && matchFactFulf && matchPagoEnv && matchFactEnv) {
       row.style.display = '';
