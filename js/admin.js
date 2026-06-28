@@ -5664,10 +5664,10 @@ async function loadBillingRecords(periodId, bodyElement) {
             </select>
           </td>
           <td class="col-group-fulf" style="vertical-align: middle;">
-            <input type="number" value="${r.total_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'total_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
           <td class="col-group-fulf" style="vertical-align: middle;">
-            <input type="number" value="${r.abono_fulfillment || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_fulfillment', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
           <td class="col-group-fulf" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
@@ -5704,10 +5704,10 @@ async function loadBillingRecords(periodId, bodyElement) {
             <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value)" style="width: 125px;">
           </td>
           <td class="col-group-env" style="vertical-align: middle;">
-            <input type="number" value="${r.enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
           <td class="col-group-env" style="vertical-align: middle;">
-            <input type="number" value="${r.abono_enviame || 0}" class="billing-input text-right" onblur="saveNumberField('${r.id}', 'abono_enviame', this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
           <td class="col-group-env" style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
@@ -5906,7 +5906,11 @@ window.updateBillingFooterTotals = function(periodId) {
     
     const getVal = (nameContains) => {
       const input = row.querySelector(`input[onblur*="${nameContains}"]`);
-      return input ? parseFloat(input.value) || 0 : 0;
+      if (input) {
+        const valStr = (input.value || '0').replace(/[^\d-]/g, '');
+        return parseInt(valStr, 10) || 0;
+      }
+      return 0;
     };
     
     const tFulf = getVal('total_fulfillment');
@@ -6039,6 +6043,16 @@ window.updateSelectField = function(selectEl, recordId, fieldName) {
   saveField(recordId, fieldName, val);
 };
 
+window.saveMoneyField = function(recordId, fieldName, inputEl) {
+  let valueStr = inputEl.value || '0';
+  valueStr = valueStr.replace(/[^\d-]/g, '');
+  const val = parseInt(valueStr, 10);
+  const numericVal = isNaN(val) ? 0 : val;
+  
+  inputEl.value = formatCLP(numericVal);
+  saveField(recordId, fieldName, numericVal);
+};
+
 window.saveNumberField = function(recordId, fieldName, valueStr, isNullable = false) {
   if (valueStr === '' || valueStr === null || valueStr === undefined) {
     if (isNullable) {
@@ -6071,8 +6085,8 @@ window.saveField = async function(recordId, fieldName, fieldValue) {
         const totalCell = document.getElementById(`total-${recordId}`);
         
         if (totalFulfInput && enviameInput && totalCell) {
-          const tf = parseInt(totalFulfInput.value, 10) || 0;
-          const env = parseInt(enviameInput.value, 10) || 0;
+          const tf = parseInt(totalFulfInput.value.replace(/[^\d-]/g, ''), 10) || 0;
+          const env = parseInt(enviameInput.value.replace(/[^\d-]/g, ''), 10) || 0;
           totalCell.textContent = formatCLP(tf + env);
         }
       }
