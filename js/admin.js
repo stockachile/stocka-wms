@@ -262,6 +262,11 @@ async function init() {
         const newStatus = e.target.value;
         console.log(`DEBUG: Cambiando estado de pedido ${orderId} a ${newStatus}...`);
         await updateOrderStatus(orderId, newStatus);
+      } else if (e.target && e.target.classList.contains('wms-status-select')) {
+        const orderId = e.target.getAttribute('data-order-id');
+        const newWmsStatus = e.target.value;
+        console.log(`DEBUG: Cambiando estado WMS de pedido ${orderId} a ${newWmsStatus}...`);
+        await window.updateWmsOrderStatus(orderId, newWmsStatus);
       }
     });
 
@@ -322,7 +327,6 @@ window.toggleOrderRow = function(orderId) {
     chevron.style.transform = 'rotate(90deg)';
   }
 };
-
 window.toggleRawOrderJson = function(orderId) {
   const container = document.getElementById(`raw-json-${orderId}`);
   if (!container) return;
@@ -334,12 +338,19 @@ async function renderAdminOrders() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando todos los pedidos...</p>`;
 
+  // Reset/Init WMS state
+  window.wmsActiveTab = window.wmsActiveTab || 'Todos';
+  window.wmsPageSize = window.wmsPageSize !== undefined ? window.wmsPageSize : 25;
+  window.wmsCurrentPage = window.wmsCurrentPage || 1;
+  window.wmsSelectedOrderIds = window.wmsSelectedOrderIds || new Set();
+
   try {
     const { data: orders, error } = await supabase
       .from('orders')
       .select(`
         id,
         status,
+        estado_wms,
         created_at,
         external_order_number,
         external_platform,
@@ -366,14 +377,13 @@ async function renderAdminOrders() {
         raw_optiroute_data,
         raw_lightdata_data,
         raw_paris_data,
-        profiles (company_name),
+        comercio,
         order_items (quantity, products(sku, name, price))
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Guardar en window para acceso desde el filtro
     window.loadedOrders = orders || [];
 
     // Obtener los despachos correspondientes de la tabla envios_unificados (sin filtrar visible_to_client para el admin)
@@ -392,249 +402,12 @@ async function renderAdminOrders() {
         shipments = shipData;
       }
     }
+    window.loadedShipments = shipments;
 
-    // Calcular Estadísticas KPI
-    const totalOrders = orders.length;
-    const ordersToProcess = orders.filter(o => o.status === 'para procesar').length;
-    const ordersInPrep = orders.filter(o => o.status === 'en preparación' || o.status === 'preparado').length;
-    const totalSales = orders.filter(o => o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
-
-    // Opciones del Filtro de Comercios
-    const uniqueMerchants = [...new Set(orders.map(o => o.profiles?.company_name).filter(Boolean))].sort();
+    // Obtener las opciones únicas de Comercios/Clientes para el filtro
+    const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
-
-    // Opciones de Estado
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
-
-    let rowsHtml = '';
-    if (!orders || orders.length === 0) {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      const { data: profile } = await supabase.from('profiles').select('role, comercio').eq('id', user?.id).single();
-      rowsHtml = `
-        <tr>
-          <td colspan="12" class="text-center" style="padding: 3rem 2rem; color: var(--color-text-muted);">
-            <div style="max-width: 450px; margin: 0 auto; background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); text-align: left; box-shadow: var(--shadow-sm);">
-              <h4 style="color: var(--color-warning); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 1rem;">
-                <i class="ri-error-warning-line" style="font-size: 1.25rem;"></i> Sin pedidos cargados
-              </h4>
-              <p style="font-size: 0.875rem; margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-muted);">
-                La consulta a la base de datos retornó cero registros. Esto puede deberse a políticas de seguridad RLS o a la falta de registros asignados.
-              </p>
-              <div style="font-size: 0.8rem; border-top: 1px solid var(--color-border); padding-top: 0.75rem; color: var(--color-text-main);">
-                <p style="margin-bottom: 0.25rem;"><strong>Usuario Autenticado:</strong> ${user?.email || 'Desconocido'}</p>
-                <p style="margin-bottom: 0.25rem;"><strong>Rol de Perfil:</strong> <span style="text-transform: uppercase; font-weight: 600; color: var(--color-primary);">${profile?.role || 'Ninguno'}</span></p>
-                <p style="margin-bottom: 0.25rem;"><strong>Comercio Asociado:</strong> ${profile?.comercio || 'No asignado'}</p>
-                <p style="margin-bottom: 0;"><strong>ID de Usuario:</strong> <code style="font-family: monospace; font-size: 0.75rem; background: var(--color-bg); padding: 0.1rem 0.25rem; border-radius: 3px;">${user?.id || '-'}</code></p>
-              </div>
-            </div>
-          </td>
-        </tr>
-      `;
-    } else {
-      orders.forEach(order => {
-        // Buscar el envío en el listado cargado
-        const orderShipments = shipments.filter(s => 
-          s.pedido_referencia === order.id || 
-          (order.external_order_number && s.pedido_referencia === order.external_order_number)
-        );
-
-        // Usar la fecha del envío (plataforma) si existe, de lo contrario la nativa de la orden
-        const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
-          ? orderShipments[0].created_at 
-          : order.created_at;
-
-        const dateObj = new Date(dateSource);
-        const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        
-        let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
-
-        const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : '#6b7280'))));
-        const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
-
-        const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
-        const nameStr = order.item || order.order_items.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
-        const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
-
-        const orderDisplayId = order.external_order_number 
-          ? `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">(${order.id.split('-')[0]})</span>` 
-          : `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.id.split('-')[0]}</span>`;
-
-        let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        
-        if (order.label_base64) {
-          labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
-        } else if (order.label_url) {
-          labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
-        }
-
-        let courier_destino = '';
-        let comuna_destino = '';
-        let trackingNum = order.tracking_number;
-        let trackingUrl = order.tracking_url;
-
-        if (orderShipments.length > 0) {
-          const shipment = orderShipments[0]; // Tomar el primer despacho
-          courier_destino = shipment.courier;
-          comuna_destino = shipment.comuna_destino;
-          if (shipment.tracking) {
-            trackingNum = shipment.tracking;
-            trackingUrl = shipment.tracking_url;
-          }
-        }
-
-        const courierName = order.courier || courier_destino || 'Courier';
-        if (trackingNum) {
-          trackingHtml = trackingUrl && trackingUrl !== 'N/A'
-            ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</a>`
-            : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</span>`;
-        }
-
-        // Generar filas de productos
-        let itemsRowsHtml = '';
-        if (order.order_items && order.order_items.length > 0) {
-          order.order_items.forEach(oi => {
-            const pSku = oi.products?.sku || order.sku || 'Sin SKU';
-            const pName = oi.products?.name || order.item || 'Sin Nombre';
-            const pQty = oi.quantity || 0;
-            const pPrice = Number(oi.products?.price) || (pQty > 0 ? (Number(order.total_value) / pQty) : 0) || 0;
-            const subtotal = pQty * pPrice;
-            itemsRowsHtml += `
-              <tr style="border-bottom: 1px solid var(--color-border);">
-                <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${pSku}</td>
-                <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pName}</td>
-                <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
-                <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
-                <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
-              </tr>
-            `;
-          });
-        } else {
-          // Pedido simple/plano
-          const pQty = Number(order.cantidad) || 1;
-          const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
-          itemsRowsHtml += `
-            <tr style="border-bottom: 1px solid var(--color-border);">
-              <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
-              <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
-              <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
-              <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
-              <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
-            </tr>
-          `;
-        }
-
-        // Obtener datos raw de integración para mostrar
-        let rawData = null;
-        if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
-        else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
-        else if (order.raw_meli_data) rawData = order.raw_meli_data;
-        else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
-        else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
-        else if (order.raw_paris_data) rawData = order.raw_paris_data;
-
-        let rawJsonBtnHtml = '';
-        if (rawData) {
-          rawJsonBtnHtml = `
-            <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 1rem; width: 100%; justify-content: center; font-weight: 600;">
-              <i class="ri-code-s-slash-line"></i> Ver JSON de Integración
-            </button>
-            <div id="raw-json-${order.id}" style="display: none; margin-top: 0.5rem; text-align: left; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all;">
-              ${JSON.stringify(rawData, null, 2)}
-            </div>
-          `;
-        }
-
-        rowsHtml += `
-          <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
-            <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
-              <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
-            </td>
-            <td>${orderDisplayId}</td>
-            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.profiles?.company_name || 'Desconocido'}</strong></td>
-            <td>${originHtml}</td>
-            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
-            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
-            <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${nameStr}">${nameStr}</td>
-            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
-            <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
-              ${window.formatCLP(order.total_value)}
-            </td>
-            <td>${trackingHtml}</td>
-            <td>${labelHtml}</td>
-            <td>
-              <select class="form-input status-select" data-order-id="${order.id}" style="padding: 0.25rem; font-size: 0.875rem; width: auto; font-weight: 500;">
-                ${optionsHtml}
-              </select>
-            </td>
-          </tr>
-          <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-            <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
-              <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
-                
-                <!-- Col 1: Datos del Cliente y Despacho -->
-                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="ri-user-line"></i> Datos de Despacho
-                  </h4>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${order.customer_name || 'No registrado'}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${order.customer_email || 'No registrado'}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${order.customer_phone || 'No registrado'}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
-                    <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
-                    ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
-                  </p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || comuna_destino || 'No registrada'}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-                  <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
-                </div>
-
-                <!-- Col 2: Desglose de Productos -->
-                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
-                  </h4>
-                  <div style="overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
-                      <thead>
-                        <tr style="border-bottom: 1px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
-                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
-                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
-                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
-                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
-                          <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${itemsRowsHtml}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <!-- Col 3: Integración y Logística -->
-                <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                  <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="ri-truck-line"></i> Logística e Integración
-                  </h4>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
-                  <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
-                  
-                  <!-- Botón para ver datos crudos de integración -->
-                  ${rawJsonBtnHtml}
-                </div>
-
-              </div>
-            </td>
-          </tr>
-        `;
-      });
-    }
 
     appContent.innerHTML = `
       <!-- Tarjetas de KPI -->
@@ -645,7 +418,7 @@ async function renderAdminOrders() {
           </div>
           <div>
             <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
-            <strong id="kpi-total-orders" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${totalOrders}</strong>
+            <strong id="kpi-total-orders" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
         <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
@@ -654,7 +427,7 @@ async function renderAdminOrders() {
           </div>
           <div>
             <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
-            <strong id="kpi-to-process" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${ordersToProcess}</strong>
+            <strong id="kpi-to-process" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
         <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
@@ -663,7 +436,7 @@ async function renderAdminOrders() {
           </div>
           <div>
             <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
-            <strong id="kpi-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${ordersInPrep}</strong>
+            <strong id="kpi-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
         <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
@@ -672,7 +445,7 @@ async function renderAdminOrders() {
           </div>
           <div>
             <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Ventas Totales</span>
-            <strong id="kpi-total-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">${window.formatCLP(totalSales)}</strong>
+            <strong id="kpi-total-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">$0</strong>
           </div>
         </div>
       </div>
@@ -704,7 +477,7 @@ async function renderAdminOrders() {
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado</label>
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado Origen</label>
             <select id="filter-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
               <option value="">Todos los estados</option>
               ${statusOptions}
@@ -712,6 +485,12 @@ async function renderAdminOrders() {
           </div>
         </div>
       </div>
+
+      <!-- Agrupación por Pestañas de Estado WMS -->
+      <div id="wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
+
+      <!-- Barra de Acciones Masivas -->
+      <div id="wms-bulk-actions-container"></div>
 
       <!-- Tabla de Pedidos -->
       <div class="card">
@@ -722,9 +501,12 @@ async function renderAdminOrders() {
           <table class="data-table">
             <thead>
               <tr>
+                <th style="width: 40px; text-align: center;">
+                  <input type="checkbox" id="wms-select-all" onclick="window.toggleWmsSelectAll(this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+                </th>
                 <th style="width: 40px; text-align: center;"></th>
                 <th>ID</th>
-                <th>Cliente</th>
+                <th>Comercio</th>
                 <th>Origen</th>
                 <th>Fecha</th>
                 <th>SKU</th>
@@ -733,14 +515,17 @@ async function renderAdminOrders() {
                 <th style="text-align:right;">Valor Total</th>
                 <th>Seguimiento</th>
                 <th>Etiqueta</th>
-                <th>Estado</th>
+                <th>Estado Origen</th>
+                <th>Estado WMS</th>
               </tr>
             </thead>
             <tbody id="orders-tbody">
-              ${rowsHtml}
+              <!-- Carga dinámica -->
             </tbody>
           </table>
         </div>
+        <!-- Paginación -->
+        <div id="wms-pagination-container" style="padding: 1rem; border-top: 1px solid var(--color-border);"></div>
       </div>
     `;
 
@@ -750,87 +535,596 @@ async function renderAdminOrders() {
     const origenSelect = document.getElementById('filter-origen');
     const statusSelect = document.getElementById('filter-status');
 
-    const applyFilters = () => {
-      const searchText = searchInput.value.toLowerCase();
-      const selectedMerchant = merchantSelect.value;
-      const selectedOrigen = origenSelect.value;
-      const selectedStatus = statusSelect.value;
-
-      const rows = document.querySelectorAll('.order-row');
-      let visibleCount = 0;
-      let visibleSales = 0;
-      let visibleToProcess = 0;
-      let visibleInPrep = 0;
-
-      rows.forEach(row => {
-        const orderId = row.getAttribute('data-order-id');
-        const order = window.loadedOrders.find(o => o.id === orderId);
-        if (!order) return;
-
-        const platform = order.origen || order.external_platform || 'Manual';
-        const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
-        const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
-        const company = (order.profiles?.company_name || '').toLowerCase();
-        const customer = (order.customer_name || '').toLowerCase();
-        const extNo = (order.external_order_number || '').toLowerCase();
-        const tracking = (order.tracking_number || '').toLowerCase();
-        const orderIdLower = order.id.toLowerCase();
-
-        const matchesSearch = !searchText || 
-          orderIdLower.includes(searchText) || 
-          extNo.includes(searchText) || 
-          skuStr.includes(searchText) || 
-          nameStr.includes(searchText) || 
-          company.includes(searchText) || 
-          customer.includes(searchText) ||
-          tracking.includes(searchText);
-
-        const matchesMerchant = !selectedMerchant || order.profiles?.company_name === selectedMerchant;
-        const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
-        const matchesStatus = !selectedStatus || order.status === selectedStatus;
-
-        const detailsRow = document.getElementById(`details-${orderId}`);
-
-        if (matchesSearch && matchesMerchant && matchesOrigen && matchesStatus) {
-          row.style.display = 'table-row';
-          visibleCount++;
-          if (order.status !== 'cancelado') {
-            visibleSales += Number(order.total_value) || 0;
-          }
-          if (order.status === 'para procesar') {
-            visibleToProcess++;
-          }
-          if (order.status === 'en preparación' || order.status === 'preparado') {
-            visibleInPrep++;
-          }
-          if (row.classList.contains('expanded') && detailsRow) {
-            detailsRow.style.display = 'table-row';
-          }
-        } else {
-          row.style.display = 'none';
-          if (detailsRow) {
-            detailsRow.style.display = 'none';
-          }
-        }
-      });
-
-      // Actualizar KPIs en base a los resultados filtrados
-      document.getElementById('kpi-total-orders').textContent = visibleCount;
-      document.getElementById('kpi-to-process').textContent = visibleToProcess;
-      document.getElementById('kpi-in-prep').textContent = visibleInPrep;
-      document.getElementById('kpi-total-sales').textContent = window.formatCLP(visibleSales);
+    const triggerFilterUpdate = () => {
+      window.wmsCurrentPage = 1; // reset a la pág 1 en cada filtro nuevo
+      applyWmsFiltersAndRender();
     };
 
-    searchInput.addEventListener('keyup', applyFilters);
-    merchantSelect.addEventListener('change', applyFilters);
-    origenSelect.addEventListener('change', applyFilters);
-    statusSelect.addEventListener('change', applyFilters);
+    if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
+    if (merchantSelect) merchantSelect.addEventListener('change', triggerFilterUpdate);
+    if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
+    if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
+
+    // Primera renderización de datos
+    applyWmsFiltersAndRender();
 
   } catch (error) {
     console.error('Error fetching orders:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos: ${error.message}</p>`;
   }
 }
+
+window.applyWmsFiltersAndRender = function() {
+  const orders = window.loadedOrders || [];
+  const shipments = window.loadedShipments || [];
+
+  const searchInput = document.getElementById('search-orders');
+  const merchantSelect = document.getElementById('filter-merchant');
+  const origenSelect = document.getElementById('filter-origen');
+  const statusSelect = document.getElementById('filter-status');
+
+  const searchText = (searchInput?.value || '').toLowerCase();
+  const selectedMerchant = merchantSelect?.value || '';
+  const selectedOrigen = origenSelect?.value || '';
+  const selectedStatus = statusSelect?.value || '';
+
+  // Filtro de base para los dropdowns y buscador
+  const matchesBaseFilters = (order) => {
+    const platform = order.origen || order.external_platform || 'Manual';
+    const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
+    const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
+    const company = (order.comercio || '').toLowerCase();
+    const customer = (order.customer_name || '').toLowerCase();
+    const extNo = (order.external_order_number || '').toLowerCase();
+    const tracking = (order.tracking_number || '').toLowerCase();
+    const orderIdLower = order.id.toLowerCase();
+
+    const matchesSearch = !searchText || 
+      orderIdLower.includes(searchText) || 
+      extNo.includes(searchText) || 
+      skuStr.includes(searchText) || 
+      nameStr.includes(searchText) || 
+      company.includes(searchText) || 
+      customer.includes(searchText) ||
+      tracking.includes(searchText);
+
+    const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
+    const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
+    const matchesStatus = !selectedStatus || order.status === selectedStatus;
+
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus;
+  };
+
+  // 1. Obtener conteo de pestañas
+  const getTabCount = (tabName) => {
+    return orders.filter(o => {
+      const matchBase = matchesBaseFilters(o);
+      const matchTab = tabName === 'Todos' || o.estado_wms === tabName;
+      return matchBase && matchTab;
+    }).length;
+  };
+
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const tabsHtml = tabs.map(tab => {
+    const isActive = window.wmsActiveTab === tab;
+    const count = getTabCount(tab);
+    let badgeBg = 'var(--color-bg)';
+    let badgeColor = 'var(--color-text-muted)';
+    if (tab === 'Incidencia') {
+      badgeBg = '#fee2e2';
+      badgeColor = '#ef4444';
+    } else if (tab === 'Pickeado' || tab === 'Despachado') {
+      badgeBg = '#dcfce7';
+      badgeColor = '#22c55e';
+    } else if (tab === 'En preparación') {
+      badgeBg = '#fef3c7';
+      badgeColor = '#d97706';
+    } else if (tab === 'En procesamiento') {
+      badgeBg = '#e0f2fe';
+      badgeColor = '#0284c7';
+    }
+
+    return `
+      <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+        ${tab}
+        <span style="background: ${isActive ? 'rgba(255,255,255,0.2)' : badgeBg}; color: ${isActive ? '#ffffff' : badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
+      </button>
+    `;
+  }).join('');
+  
+  const tabsContainer = document.getElementById('wms-tabs-container');
+  if (tabsContainer) {
+    tabsContainer.innerHTML = `
+      <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        ${tabsHtml}
+      </div>
+    `;
+  }
+
+  // 2. Filtrar lista de pedidos completa
+  const filtered = orders.filter(o => {
+    const matchBase = matchesBaseFilters(o);
+    const matchTab = window.wmsActiveTab === 'Todos' || o.estado_wms === window.wmsActiveTab;
+    return matchBase && matchTab;
+  });
+
+  // Actualizar KPIs de forma local con la pestaña activa
+  const totalOrders = filtered.length;
+  const ordersToProcess = filtered.filter(o => o.estado_wms === 'En procesamiento').length;
+  const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
+  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+
+  document.getElementById('kpi-total-orders').textContent = totalOrders;
+  document.getElementById('kpi-to-process').textContent = ordersToProcess;
+  document.getElementById('kpi-in-prep').textContent = ordersInPrep;
+  document.getElementById('kpi-total-sales').textContent = window.formatCLP(totalSales);
+
+  // 3. Paginación
+  const totalResults = filtered.length;
+  const pageSize = window.wmsPageSize === 'All' ? totalResults : parseInt(window.wmsPageSize, 10);
+  const totalPages = pageSize > 0 ? Math.ceil(totalResults / pageSize) : 1;
+
+  if (window.wmsCurrentPage > totalPages) window.wmsCurrentPage = totalPages;
+  if (window.wmsCurrentPage < 1) window.wmsCurrentPage = 1;
+
+  const startIndex = (window.wmsCurrentPage - 1) * pageSize;
+  const endIndex = pageSize === totalResults ? totalResults : Math.min(startIndex + pageSize, totalResults);
+  const paginatedOrders = pageSize === totalResults ? filtered : filtered.slice(startIndex, endIndex);
+
+  // 4. Renderizar filas en el tbody
+  const tbody = document.getElementById('orders-tbody');
+  if (!tbody) return;
+
+  if (paginatedOrders.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="14" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          No se encontraron pedidos con los criterios de búsqueda actuales.
+        </td>
+      </tr>
+    `;
+    const pagContainer = document.getElementById('wms-pagination-container');
+    if (pagContainer) pagContainer.innerHTML = '';
+    const cbAll = document.getElementById('wms-select-all');
+    if (cbAll) cbAll.checked = false;
+    renderWmsBulkActionsBar();
+    return;
+  }
+
+  let rowsHtml = '';
+  paginatedOrders.forEach(order => {
+    // Buscar el envío en el listado cargado
+    const orderShipments = shipments.filter(s => 
+      s.pedido_referencia === order.id || 
+      (order.external_order_number && s.pedido_referencia === order.external_order_number)
+    );
+
+    const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
+      ? orderShipments[0].created_at 
+      : order.created_at;
+
+    const dateObj = new Date(dateSource);
+    const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    
+    let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
+
+    const platform = order.origen || order.external_platform || 'Manual';
+    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : '#6b7280'))));
+    const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+
+    const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
+    const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
+    const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items?.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
+
+    const orderDisplayId = order.external_order_number 
+      ? `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">(${order.id.split('-')[0]})</span>` 
+      : `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.id.split('-')[0]}</span>`;
+
+    let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+    let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+    
+    if (order.label_base64) {
+      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+    } else if (order.label_url) {
+      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+    }
+
+    let courier_destino = '';
+    let comuna_destino = '';
+    let trackingNum = order.tracking_number;
+    let trackingUrl = order.tracking_url;
+
+    if (orderShipments.length > 0) {
+      const shipment = orderShipments[0];
+      courier_destino = shipment.courier;
+      comuna_destino = shipment.comuna_destino;
+      if (shipment.tracking) {
+        trackingNum = shipment.tracking;
+        trackingUrl = shipment.tracking_url;
+      }
+    }
+
+    const courierName = order.courier || courier_destino || 'Courier';
+    if (trackingNum) {
+      trackingHtml = trackingUrl && trackingUrl !== 'N/A'
+        ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</a>`
+        : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</span>`;
+    }
+
+    // Items table breakdown
+    let itemsRowsHtml = '';
+    if (order.order_items && order.order_items.length > 0) {
+      order.order_items.forEach(oi => {
+        const pSku = oi.products?.sku || order.sku || 'Sin SKU';
+        const pName = oi.products?.name || order.item || 'Sin Nombre';
+        const pQty = oi.quantity || 0;
+        const pPrice = Number(oi.products?.price) || (pQty > 0 ? (Number(order.total_value) / pQty) : 0) || 0;
+        const subtotal = pQty * pPrice;
+        itemsRowsHtml += `
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${pSku}</td>
+            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pName}</td>
+            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+            <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+            <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
+          </tr>
+        `;
+      });
+    } else {
+      const pQty = Number(order.cantidad) || 1;
+      const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
+      itemsRowsHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
+          <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
+          <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+          <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
+        </tr>
+      `;
+    }
+
+    let rawData = null;
+    if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
+    else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
+    else if (order.raw_meli_data) rawData = order.raw_meli_data;
+    else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
+    else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
+    else if (order.raw_paris_data) rawData = order.raw_paris_data;
+
+    let rawJsonBtnHtml = '';
+    if (rawData) {
+      rawJsonBtnHtml = `
+        <button onclick="window.toggleRawOrderJson('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 1rem; width: 100%; justify-content: center; font-weight: 600;">
+          <i class="ri-code-s-slash-line"></i> Ver JSON de Integración
+        </button>
+        <div id="raw-json-${order.id}" style="display: none; margin-top: 0.5rem; text-align: left; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all;">
+          ${JSON.stringify(rawData, null, 2)}
+        </div>
+      `;
+    }
+
+    // Color del dropdown de WMS según el estado
+    let wmsColor = '#0ea5e9'; // info
+    if (order.estado_wms === 'Incidencia') wmsColor = '#ef4444'; // danger
+    else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
+    else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
+
+    rowsHtml += `
+      <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
+        <td style="text-align: center;" onclick="event.stopPropagation()">
+          <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onchange="window.toggleWmsOrderSelect(this, '${order.id}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+        </td>
+        <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
+          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
+        </td>
+        <td>${orderDisplayId}</td>
+        <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></td>
+        <td>${originHtml}</td>
+        <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+        <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
+        <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${nameStr}">${nameStr}</td>
+        <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
+        <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
+          ${window.formatCLP(order.total_value)}
+        </td>
+        <td>${trackingHtml}</td>
+        <td>${labelHtml}</td>
+        <td>
+          <select class="form-input status-select" data-order-id="${order.id}" style="padding: 0.25rem; font-size: 0.875rem; width: auto; font-weight: 500;">
+            ${optionsHtml}
+          </select>
+        </td>
+        <td>
+          <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.825rem; width: auto; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+            <option value="En procesamiento" ${order.estado_wms === 'En procesamiento' ? 'selected' : ''}>En procesamiento</option>
+            <option value="En preparación" ${order.estado_wms === 'En preparación' ? 'selected' : ''}>En preparación</option>
+            <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
+            <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
+            <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+          </select>
+        </td>
+      </tr>
+      <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
+        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+            
+            <!-- Col 1: Datos del Cliente y Despacho -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-user-line"></i> Datos de Despacho
+              </h4>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${order.customer_name || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${order.customer_email || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${order.customer_phone || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
+                <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
+                ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
+              </p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || comuna_destino || 'No registrada'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
+              <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+            </div>
+
+            <!-- Col 2: Desglose de Productos -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+              </h4>
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsRowsHtml}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Col 3: Integración y Logística -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-truck-line"></i> Logística e Integración
+              </h4>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
+              
+              <!-- Botón para ver datos crudos de integración -->
+              ${rawJsonBtnHtml}
+            </div>
+
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = rowsHtml;
+
+  // 5. Renderizar paginación
+  const pagContainer = document.getElementById('wms-pagination-container');
+  if (pagContainer) {
+    const isFirstPage = window.wmsCurrentPage === 1;
+    const isLastPage = window.wmsCurrentPage === totalPages;
+    const rangeStart = startIndex + 1;
+    const rangeEnd = endIndex;
+
+    pagContainer.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span>Mostrar</span>
+          <select id="wms-page-size" onchange="window.setWmsPageSize(this.value)" class="form-input" style="width: auto; padding: 0.25rem; font-size: 0.8rem; height: auto; margin: 0; display: inline-block;">
+            <option value="10" ${window.wmsPageSize == 10 ? 'selected' : ''}>10</option>
+            <option value="25" ${window.wmsPageSize == 25 ? 'selected' : ''}>25</option>
+            <option value="50" ${window.wmsPageSize == 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${window.wmsPageSize == 100 ? 'selected' : ''}>100</option>
+            <option value="All" ${window.wmsPageSize === 'All' ? 'selected' : ''}>Todos</option>
+          </select>
+          <span>resultados por página</span>
+        </div>
+        
+        <div>
+          Mostrando <strong>${rangeStart}-${rangeEnd}</strong> de <strong>${totalResults}</strong> resultados
+        </div>
+
+        <div style="display: flex; gap: 0.25rem;">
+          <button onclick="window.setWmsPage(1)" ${isFirstPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isFirstPage ? 'not-allowed' : 'pointer'}; opacity: ${isFirstPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-left-double-line"></i></button>
+          <button onclick="window.setWmsPage(${window.wmsCurrentPage - 1})" ${isFirstPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isFirstPage ? 'not-allowed' : 'pointer'}; opacity: ${isFirstPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-left-s-line"></i> Anterior</button>
+          
+          <span style="padding: 0.25rem 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-weight: 600; color: var(--color-text-main); font-size: 0.75rem; display: inline-flex; align-items: center;">
+            Pág. ${window.wmsCurrentPage} de ${totalPages}
+          </span>
+
+          <button onclick="window.setWmsPage(${window.wmsCurrentPage + 1})" ${isLastPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isLastPage ? 'not-allowed' : 'pointer'}; opacity: ${isLastPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);">Siguiente <i class="ri-arrow-right-s-line"></i></button>
+          <button onclick="window.setWmsPage(${totalPages})" ${isLastPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isLastPage ? 'not-allowed' : 'pointer'}; opacity: ${isLastPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-right-double-line"></i></button>
+        </div>
+      </div>
+    `;
+  }
+
+  // 6. Sincronizar checkbox de seleccionar todo en cabecera
+  updateSelectAllCheckboxState();
+
+  // 7. Renderizar barra de acciones masivas
+  renderWmsBulkActionsBar();
+};
+
+window.setWmsTab = function(tab) {
+  window.wmsActiveTab = tab;
+  window.wmsCurrentPage = 1;
+  window.wmsSelectedOrderIds.clear(); // Limpiar la selección cuando se cambian pestañas
+  applyWmsFiltersAndRender();
+};
+
+window.setWmsPageSize = function(size) {
+  window.wmsPageSize = size;
+  window.wmsCurrentPage = 1;
+  applyWmsFiltersAndRender();
+};
+
+window.setWmsPage = function(page) {
+  window.wmsCurrentPage = page;
+  applyWmsFiltersAndRender();
+};
+
+window.toggleWmsOrderSelect = function(cb, orderId) {
+  if (cb.checked) {
+    window.wmsSelectedOrderIds.add(orderId);
+  } else {
+    window.wmsSelectedOrderIds.delete(orderId);
+  }
+  updateSelectAllCheckboxState();
+  renderWmsBulkActionsBar();
+};
+
+window.toggleWmsSelectAll = function(cbAll) {
+  const checkboxes = document.querySelectorAll('.wms-order-cb');
+  checkboxes.forEach(cb => {
+    const orderId = cb.getAttribute('data-order-id');
+    cb.checked = cbAll.checked;
+    if (cbAll.checked) {
+      window.wmsSelectedOrderIds.add(orderId);
+    } else {
+      window.wmsSelectedOrderIds.delete(orderId);
+    }
+  });
+  renderWmsBulkActionsBar();
+};
+
+window.clearWmsSelection = function() {
+  window.wmsSelectedOrderIds.clear();
+  const checkboxes = document.querySelectorAll('.wms-order-cb');
+  checkboxes.forEach(cb => cb.checked = false);
+  const cbAll = document.getElementById('wms-select-all');
+  if (cbAll) cbAll.checked = false;
+  renderWmsBulkActionsBar();
+};
+
+function updateSelectAllCheckboxState() {
+  const cbAll = document.getElementById('wms-select-all');
+  if (!cbAll) return;
+  const checkboxes = document.querySelectorAll('.wms-order-cb');
+  if (checkboxes.length === 0) {
+    cbAll.checked = false;
+    return;
+  }
+  const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+  cbAll.checked = allChecked;
+}
+
+function renderWmsBulkActionsBar() {
+  const container = document.getElementById('wms-bulk-actions-container');
+  if (!container) return;
+  
+  const selectedCount = window.wmsSelectedOrderIds.size;
+  if (selectedCount === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  
+  container.innerHTML = `
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
+        <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} pedidos seleccionados</span>
+        <button onclick="window.clearWmsSelection()" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <label style="font-size: 0.8rem; font-weight: 500;">Cambiar estado WMS a:</label>
+        <select id="bulk-wms-status" class="form-input" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto; margin: 0; background: #ffffff; color: #111827; border: 1px solid rgba(0,0,0,0.1);">
+          <option value="En procesamiento">En procesamiento</option>
+          <option value="En preparación">En preparación</option>
+          <option value="Pickeado">Pickeado</option>
+          <option value="Despachado">Despachado</option>
+          <option value="Incidencia">Incidencia</option>
+        </select>
+        <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: #ffffff; color: var(--color-primary); font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.8rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
+      </div>
+    </div>
+  `;
+}
+
+window.applyBulkWmsStatus = async function() {
+  const newStatus = document.getElementById('bulk-wms-status').value;
+  const ids = Array.from(window.wmsSelectedOrderIds);
+  if (ids.length === 0) return;
+  
+  if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
+    return;
+  }
+  
+  try {
+    const updateData = { estado_wms: newStatus };
+    if (newStatus === 'Despachado') {
+      updateData.status = 'despachado';
+    }
+    const { error } = await supabase
+      .from('orders')
+      .update(updateData)
+      .in('id', ids);
+      
+    if (error) throw error;
+    alert(`Se actualizaron con éxito ${ids.length} pedidos a "${newStatus}".`);
+    
+    // Actualizar localmente
+    if (window.loadedOrders) {
+      ids.forEach(id => {
+        const order = window.loadedOrders.find(o => o.id === id);
+        if (order) {
+          order.estado_wms = newStatus;
+          if (newStatus === 'Despachado') order.status = 'despachado';
+        }
+      });
+    }
+    
+    window.wmsSelectedOrderIds.clear();
+    const cbAll = document.getElementById('wms-select-all');
+    if (cbAll) cbAll.checked = false;
+    
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    alert('Error en la actualización masiva: ' + err.message);
+  }
+};
+
+window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
+  try {
+    const updateData = { estado_wms: newWmsStatus };
+    if (newWmsStatus === 'Despachado') {
+      updateData.status = 'despachado';
+    }
+    const { error } = await supabase
+      .from('orders')
+      .update(updateData)
+      .eq('id', orderId);
+      
+    if (error) throw error;
+    
+    // Actualizar localmente
+    const order = window.loadedOrders.find(o => o.id === orderId);
+    if (order) {
+      order.estado_wms = newWmsStatus;
+      if (newWmsStatus === 'Despachado') order.status = 'despachado';
+    }
+    
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    alert('Error al actualizar estado WMS: ' + err.message);
+  }
+};
 
 async function renderReassignStock() {
   const appContent = document.getElementById('app-content');
