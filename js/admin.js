@@ -1721,29 +1721,29 @@ window.initAdminSkuMappings = async function() {
   const clientSelect = document.getElementById('eq-admin-client-select');
   if (!clientSelect) return;
 
-  // Cargar clientes desde perfiles
+  // Cargar clientes desde v_comercios_config
   try {
-    const { data: clients, error: clientErr } = await supabase
-      .from('profiles')
-      .select('comercio, company_name')
-      .order('company_name');
+    const { data: configComercios, error: clientErr } = await supabase
+      .from('v_comercios_config')
+      .select('sigla, nombre')
+      .order('nombre');
 
     if (clientErr) throw clientErr;
 
     // Poblar el select (filtrar únicos y no vacíos)
     const uniqueClients = [];
     const seen = new Set();
-    if (clients) {
-      clients.forEach(c => {
-        if (c.comercio && !seen.has(c.comercio)) {
-          seen.add(c.comercio);
+    if (configComercios) {
+      configComercios.forEach(c => {
+        if (c.sigla && !seen.has(c.sigla)) {
+          seen.add(c.sigla);
           uniqueClients.push(c);
         }
       });
     }
 
     clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-      uniqueClients.map(c => `<option value="${c.comercio}">${c.company_name} (${c.comercio})</option>`).join('');
+      uniqueClients.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('');
 
     // Agregar evento change
     clientSelect.addEventListener('change', (e) => {
