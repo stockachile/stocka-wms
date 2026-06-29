@@ -226,6 +226,9 @@ async function init() {
             viewTitle.textContent = 'Gestión de Tickets';
             const appContent = document.getElementById('app-content');
             renderTicketsAdmin(appContent);
+          } else if (view === 'documentation_admin') {
+            viewTitle.textContent = 'Documentación del Servicio';
+            renderDocsAdmin();
           }
         });
       });
@@ -1203,17 +1206,6 @@ async function renderReassignStock() {
 async function renderManualIn() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3>Ingreso Manual de Mercancía (En Desarrollo)</h3>
-      </div>
-      <div class="card-body">
-        <p style="color: var(--color-text-muted);">Pronto podrás registrar entradas directas de inventario para tus clientes aquí.</p>
-      </div>
-    </div>
-  `;
-}
-
 async function renderIntegrations() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando integraciones...</p>`;
@@ -1237,6 +1229,7 @@ async function renderIntegrations() {
     const optirouteStatusText = hasOptiroute 
       ? (optirouteIntegration.is_active ? '<span class="badge badge-success">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-neutral">No configurada</span>';
+
     // Obtener las integraciones de los comercios (clientes)
     const { data: merchantInts, error: merchErr } = await supabase
       .from('merchant_integrations')
@@ -1306,362 +1299,13 @@ async function renderIntegrations() {
 
     appContent.innerHTML = `
       <div style="margin-bottom: 2rem;">
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones del WMS (Administración)</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          En esta sección puedes conectar WMS STOCKA con tus tiendas en línea y marketplaces. 
-          Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados.
+          Conecta el WMS STOCKA con plataformas de logística globales. 
+          Sincroniza pedidos de todos los clientes y realiza el seguimiento de entregas en tiempo real.
         </p>
       </div>
 
-      ${selectorHtml}
-
-      <!-- Tabs Navigation -->
-      <div class="integration-tabs">
-        <button class="integration-tab active" data-tab="tab-summary"><i class="ri-dashboard-line"></i> Resumen</button>
-        <button class="integration-tab" data-tab="tab-shopify"><i class="ri-shopping-bag-3-line"></i> Shopify</button>
-        <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
-        <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
-        <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
-        <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
-      </div>
-
-      <!-- Tab Content Container -->
-      <div class="integration-content">
-
-        <!-- TAB: Resumen -->
-        <div id="tab-summary" class="integration-tab-pane" style="display: block;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
-            ${hasShopify ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-3-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Shopify</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + shopUrl + '</span></div></div>' + shopifyStatusText + '</div></div>' : ''}
-            ${hasParis ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">París</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + parisStatusText + '</div></div>' : ''}
-            ${hasFalabella ? '<div class="card" style="border: 1px solid rgba(132, 204, 22, 0.2); background: rgba(132, 204, 22, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #84cc16;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Falabella</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + falabellaUser + '</span></div></div>' + falabellaStatusText + '</div></div>' : ''}
-            ${hasMeli ? '<div class="card" style="border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #f59e0b;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">MercadoLibre</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + meliStatusText + '</div></div>' : ''}
-            ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
-            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
-          </div>
-        </div>
-
-        <!-- TAB: Shopify -->
-        <div id="tab-shopify" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border:none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-3-line"></i> Shopify Integration</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#10b981' : 'var(--color-text-main)'};">Shopify Store</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${shopifyStatusText}
-                   </div>
-                </div>
-                <form id="form-shopify-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
-                    <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${shopifyButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-shopping-bag-3-line" style="color: var(--color-primary);"></i></span> Guía de Integración Shopify
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Inicia la Conexión:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Ingresa la URL de tu tienda Shopify (ej: mitienda.myshopify.com) en el formulario y haz clic en <strong style="color: var(--color-text-main);">Conectar Tienda Shopify</strong>.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Autoriza la Aplicación:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Serás redirigido a tu panel de Shopify. Inicia sesión si es necesario y haz clic en <strong style="color: var(--color-text-main);">Instalar aplicación</strong> para otorgar los permisos de sincronización de pedidos e inventario a WMS STOCKA.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Conexión Exitosa:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez instalada, serás redirigido de vuelta al WMS y tu tienda aparecerá como <strong style="color: var(--color-text-main);">Activa</strong>. Los nuevos pedidos comenzarán a sincronizarse automáticamente.</p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TAB: Paris -->
-        <div id="tab-paris" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> París Marketplace (Cencosud)</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasParis ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasParis ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasParis ? '#10b981' : 'var(--color-text-main)'};">París Store (Mirakl)</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${parisStatusText}
-                   </div>
-                </div>
-                <form id="form-paris-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">URL de la API (Cencosud)</label>
-                    <input type="text" id="paris-url" class="form-input" placeholder="ej. https://api-developers.ecomm.cencosud.com" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
-                    <input type="password" id="paris-token" class="form-input" placeholder="Ingresa tu API Key de Cencosud" ${hasParis ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${parisButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración París
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Entrar al Seller Center:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de París (Cencosud) y navega a la sección <strong style="color: var(--color-text-main);">Mi Cuenta &gt; Integraciones</strong> o Ajustes de API.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Habilitar Modo Integrador:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Activa el switch que dice <strong style="color: var(--color-text-main);">"Sí, quiero"</strong> bajo la pregunta <em>¿Quieres operar en Market Place usando un integrador?</em>.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener la API Key:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez activado, copia la <strong style="color: var(--color-text-main);">API Key</strong> generada. Pégala en el formulario de la izquierda.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de París coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TAB: Falabella -->
-        <div id="tab-falabella" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${falabellaStatusText}
-                   </div>
-                </div>
-                <form id="form-falabella-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
-                    <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
-                    <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
-                    <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${falabellaButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu Seller Center de Falabella (Mirakl) y ve a la sección de configuración de perfil / API Key. Necesitarás tu <strong style="color: var(--color-text-main);">User ID</strong> (email de acceso API) y la <strong style="color: var(--color-text-main);">API Key</strong> correspondiente.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Configurar URL de la API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">La URL de producción es <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">https://sellercenter-api.falabella.com/</code>. Ingresa esta URL en el campo de la izquierda.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TAB: MercadoLibre -->
-        <div id="tab-meli" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${meliStatusText}
-                   </div>
-                </div>
-                <form id="form-meli-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
-                    <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
-                    <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">Redirect URI</label>
-                    <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
-                    <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
-                    <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${meliButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Código de Autorización:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
-                      Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
-                      <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
-                      Inicia sesión, autoriza el acceso y copia el código que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=TG-xxxxx</strong> y pégalo en el formulario de la izquierda.
-                    </p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Migración directa desde Google Sheets (Alternativa):</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
-                      Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong style="color: var(--color-text-main);">Refresh Token Existente</strong> extraído del Apps Script.
-                    </p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TAB: WooCommerce -->
-        <div id="tab-woo" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? 'rgba(150, 88, 138, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? 'rgba(150, 88, 138, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? '#96588a' : 'var(--color-text-main)'};">WooCommerce Store</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${wooStatusText}
-                   </div>
-                </div>
-                <form id="form-woo-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">URL de tu tienda WooCommerce</label>
-                    <input type="text" id="woo-url" class="form-input" placeholder="ej. https://mitienda.cl" value="${wooUrl}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Consumer Key</label>
-                    <input type="password" id="woo-key" class="form-input" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooKey}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
-                    <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${wooButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración WooCommerce
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Habilitar SSL y Permalinks:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tu sitio tenga habilitado HTTPS y que los enlaces permanentes (Permalinks) no sean del tipo "Simple" en los ajustes de WordPress.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Generar Claves de la API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Asignar Permisos:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Configura el acceso con permisos de <strong style="color: var(--color-text-main);">Lectura y Escritura</strong>. Copia el <em>Consumer Key</em> y el <em>Consumer Secret</em> que se generarán y pégalos en el formulario.</p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
         </div>
 
       </div>`;
@@ -2516,6 +2160,7 @@ const CLIENT_MODULES = [
   { id: 'sales', label: 'Punto de Ventas' },
   { id: 'billing', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
+  { id: 'documentation', label: 'Documentación' },
   { id: 'profile', label: 'Mi Perfil' }
 ];
 
@@ -2528,7 +2173,8 @@ const ADMIN_MODULES = [
   { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
   { id: 'billing_admin', label: 'Facturación' },
-  { id: 'integrations', label: 'Integraciones' }
+  { id: 'integrations', label: 'Integraciones' },
+  { id: 'documentation_admin', label: 'Documentación Admin' }
 ];
 
 // Abrir y cerrar el modal de creación de usuario
@@ -8638,4 +8284,742 @@ async function loadInboxData() {
     list.innerHTML = `<div style="padding: 2rem; color: var(--color-danger); text-align: center;">Error al cargar: ${err.message}</div>`;
   }
 }
+
+// ==========================================
+// Módulo de Documentación de Servicio (Admin)
+// ==========================================
+
+function injectDocsAdminStyles() {
+  if (document.getElementById('docs-admin-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'docs-admin-styles';
+  style.innerHTML = `
+    .docs-admin-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .docs-admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .docs-admin-filters {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .docs-grid {
+      display: grid;
+      grid-template-columns: 240px 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 768px) {
+      .docs-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .folder-sidebar {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 1rem;
+      align-self: start;
+    }
+    .folder-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .folder-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0.75rem;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      color: var(--color-text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .folder-item:hover {
+      background: var(--color-bg);
+      color: var(--color-text-main);
+    }
+    .folder-item.active {
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--color-primary);
+    }
+    .folder-icon {
+      font-size: 1.1rem;
+      margin-right: 0.5rem;
+    }
+    .file-list-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .badge-folder {
+      background-color: rgba(59, 130, 246, 0.1);
+      color: var(--color-primary);
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .btn-pin {
+      background: none;
+      border: none;
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: var(--radius-sm);
+      transition: all 0.2s;
+      line-height: 1;
+    }
+    .btn-pin.pinned {
+      color: #f59e0b;
+    }
+    .btn-pin.unpinned {
+      color: var(--color-text-muted);
+      opacity: 0.4;
+    }
+    .btn-pin:hover {
+      opacity: 1;
+      background: var(--color-bg);
+    }
+    .btn-action-doc {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-action-doc:hover {
+      border-color: var(--color-primary);
+      color: var(--color-primary);
+      background: var(--color-bg);
+    }
+    .btn-action-delete:hover {
+      border-color: var(--color-danger);
+      color: var(--color-danger);
+      background: rgba(239, 68, 68, 0.05);
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// Variables globales para administración de documentación
+let adminDocsList = [];
+let adminSelectedFolder = 'all';
+let adminSearchQuery = '';
+
+window.toggleUploadSourceType = function(type) {
+  const fileGroup = document.getElementById('doc-upload-file-group');
+  const urlGroup = document.getElementById('doc-upload-url-group');
+  const fileInput = document.getElementById('doc-upload-file');
+  const urlInput = document.getElementById('doc-upload-url');
+  
+  if (type === 'upload') {
+    if (fileGroup) fileGroup.style.display = 'block';
+    if (urlGroup) urlGroup.style.display = 'none';
+    if (fileInput) fileInput.required = true;
+    if (urlInput) urlInput.required = false;
+  } else {
+    if (fileGroup) fileGroup.style.display = 'none';
+    if (urlGroup) urlGroup.style.display = 'block';
+    if (fileInput) fileInput.required = false;
+    if (urlInput) urlInput.required = true;
+  }
+};
+
+window.toggleEditSourceType = function(type) {
+  const fileGroup = document.getElementById('doc-edit-file-group');
+  const urlGroup = document.getElementById('doc-edit-url-group');
+  const fileInput = document.getElementById('doc-edit-file');
+  const urlInput = document.getElementById('doc-edit-url');
+  
+  if (type === 'upload') {
+    if (fileGroup) fileGroup.style.display = 'block';
+    if (urlGroup) urlGroup.style.display = 'none';
+    if (fileInput) fileInput.required = false; 
+    if (urlInput) urlInput.required = false;
+  } else {
+    if (fileGroup) fileGroup.style.display = 'none';
+    if (urlGroup) urlGroup.style.display = 'block';
+    if (fileInput) fileInput.required = false;
+    if (urlInput) urlInput.required = true;
+  }
+};
+
+window.renderDocsAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  injectDocsAdminStyles();
+
+  appContent.innerHTML = `
+    <div class="docs-admin-container">
+      <div class="docs-admin-header">
+        <div>
+          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem;">Carga, actualiza y gestiona los archivos de documentación para los clientes.</p>
+        </div>
+        <button id="btn-open-upload-doc" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-upload-cloud-line"></i> Subir Documento
+        </button>
+      </div>
+
+      <div class="card" style="padding: 1.25rem; margin-bottom: 0.5rem;">
+        <div class="docs-admin-filters">
+          <div style="position: relative; flex: 1; min-width: 250px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            <input type="text" id="admin-doc-search" class="form-input" style="padding-left: 2.25rem;" placeholder="Buscar por nombre o descripción..." value="${adminSearchQuery}">
+          </div>
+        </div>
+      </div>
+
+      <div class="docs-grid">
+        <aside class="folder-sidebar">
+          <h4 style="font-size: 0.85rem; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 0.75rem; letter-spacing: 0.05em;">Carpetas</h4>
+          <ul id="admin-folder-list" class="folder-list">
+            <li class="folder-item active" data-folder="all">
+              <span><i class="ri-folder-open-line folder-icon"></i> Todas</span>
+              <span id="folder-count-all" class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem;">0</span>
+            </li>
+          </ul>
+        </aside>
+
+        <section class="file-list-card">
+          <div style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 1.1rem;" id="admin-current-folder-title">Todos los Archivos</h3>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);" id="admin-files-count">0 archivos encontrados</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="data-table" style="font-size: 0.875rem;">
+              <thead>
+                <tr>
+                  <th style="width: 50px; text-align: center;">Fijar</th>
+                  <th>Nombre del Archivo</th>
+                  <th>Carpeta</th>
+                  <th>Última Actualización</th>
+                  <th style="text-align: right; width: 150px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-docs-table-body">
+                <tr>
+                  <td colspan="5" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+                    <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                    Cargando documentos...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+
+  // Bind events
+  document.getElementById('btn-open-upload-doc').addEventListener('click', () => {
+    openUploadDocModal();
+  });
+
+  const searchInput = document.getElementById('admin-doc-search');
+  searchInput.addEventListener('input', (e) => {
+    adminSearchQuery = e.target.value.trim().toLowerCase();
+    filterAndRenderDocsTable();
+  });
+
+  // Load documentation from Supabase
+  await loadDocsAdminData();
+};
+
+async function loadDocsAdminData() {
+  try {
+    const { data, error } = await supabase
+      .from('service_docs')
+      .select('*')
+      .order('is_pinned', { ascending: false })
+      .order('updated_at', { ascending: false });
+
+    if (error) throw error;
+
+    adminDocsList = data || [];
+    renderFoldersSidebar();
+    filterAndRenderDocsTable();
+  } catch (err) {
+    console.error('Error loading documents:', err);
+    const tbody = document.getElementById('admin-docs-table-body');
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="text-center" style="padding: 2.5rem; color: var(--color-danger);">
+            <i class="ri-error-warning-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            Error al cargar documentación: ${err.message}
+          </td>
+        </tr>
+      `;
+    }
+  }
+}
+
+function renderFoldersSidebar() {
+  const sidebar = document.getElementById('admin-folder-list');
+  if (!sidebar) return;
+
+  const folders = {};
+  adminDocsList.forEach(doc => {
+    const f = doc.folder || 'General';
+    folders[f] = (folders[f] || 0) + 1;
+  });
+
+  let html = `
+    <li class="folder-item ${adminSelectedFolder === 'all' ? 'active' : ''}" data-folder="all">
+      <span><i class="ri-folder-open-line folder-icon"></i> Todas</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${adminDocsList.length}</span>
+    </li>
+  `;
+
+  Object.keys(folders).sort().forEach(folder => {
+    html += `
+      <li class="folder-item ${adminSelectedFolder === folder ? 'active' : ''}" data-folder="${folder}">
+        <span><i class="ri-folder-line folder-icon"></i> ${folder}</span>
+        <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${folders[folder]}</span>
+      </li>
+    `;
+  });
+
+  sidebar.innerHTML = html;
+
+  sidebar.querySelectorAll('.folder-item').forEach(item => {
+    item.addEventListener('click', () => {
+      sidebar.querySelectorAll('.folder-item').forEach(li => li.classList.remove('active'));
+      item.classList.add('active');
+      adminSelectedFolder = item.getAttribute('data-folder');
+      filterAndRenderDocsTable();
+    });
+  });
+}
+
+function filterAndRenderDocsTable() {
+  const tbody = document.getElementById('admin-docs-table-body');
+  const countSpan = document.getElementById('admin-files-count');
+  const folderTitle = document.getElementById('admin-current-folder-title');
+  if (!tbody) return;
+
+  let filtered = adminDocsList;
+
+  if (adminSelectedFolder !== 'all') {
+    filtered = filtered.filter(doc => doc.folder === adminSelectedFolder);
+    if (folderTitle) folderTitle.textContent = `Carpeta: ${adminSelectedFolder}`;
+  } else {
+    if (folderTitle) folderTitle.textContent = 'Todos los Archivos';
+  }
+
+  if (adminSearchQuery) {
+    filtered = filtered.filter(doc => 
+      doc.name.toLowerCase().includes(adminSearchQuery) || 
+      (doc.description && doc.description.toLowerCase().includes(adminSearchQuery))
+    );
+  }
+
+  if (countSpan) countSpan.textContent = `${filtered.length} archivos encontrados`;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-file-search-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+          No se encontraron documentos en esta carpeta.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(doc => {
+    const formattedDate = new Date(doc.updated_at).toLocaleDateString('es-CL', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const isPinnedClass = doc.is_pinned ? 'pinned' : 'unpinned';
+    const isPinnedIcon = doc.is_pinned ? 'ri-star-fill' : 'ri-star-line';
+
+    return `
+      <tr>
+        <td style="text-align: center;">
+          <button class="btn-pin ${isPinnedClass}" data-id="${doc.id}" title="${doc.is_pinned ? 'Quitar destacado' : 'Destacar/Fijar archivo'}">
+            <i class="${isPinnedIcon}"></i>
+          </button>
+        </td>
+        <td>
+          <div style="font-weight: 600; color: var(--color-text-main);">${doc.name}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${doc.description || 'Sin descripción'}</div>
+        </td>
+        <td>
+          <span class="badge-folder">${doc.folder || 'General'}</span>
+        </td>
+        <td style="color: var(--color-text-muted); font-size: 0.8rem;">
+          ${formattedDate}
+        </td>
+        <td style="text-align: right;">
+          <div style="display: inline-flex; gap: 0.25rem;">
+            <a href="${doc.file_url}" target="_blank" class="btn-action-doc" title="Descargar/Ver">
+              <i class="ri-download-2-line"></i>
+            </a>
+            <button class="btn-action-doc btn-edit-doc" data-id="${doc.id}" title="Editar metadatos / archivo">
+              <i class="ri-edit-line"></i>
+            </button>
+            <button class="btn-action-doc btn-action-delete btn-delete-doc" data-id="${doc.id}" data-path="${doc.storage_path}" title="Eliminar">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.querySelectorAll('.btn-pin').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const doc = adminDocsList.find(d => d.id === id);
+      if (doc) {
+        btn.innerHTML = '<i class="ri-loader-4-line spin" style="font-size: 1rem;"></i>';
+        const newPinned = !doc.is_pinned;
+        try {
+          const { error } = await supabase
+            .from('service_docs')
+            .update({ is_pinned: newPinned, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+          if (error) throw error;
+          await loadDocsAdminData();
+        } catch (err) {
+          alert('Error al destacar: ' + err.message);
+          await loadDocsAdminData();
+        }
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-edit-doc').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-id');
+      openEditDocModal(id);
+    });
+  });
+
+  tbody.querySelectorAll('.btn-delete-doc').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      const path = btn.getAttribute('data-path');
+      
+      if (confirm('¿Estás seguro de eliminar este documento? Esta acción no se puede deshacer y borrará el archivo de almacenamiento.')) {
+        btn.innerHTML = '<i class="ri-loader-4-line spin" style="font-size: 1rem;"></i>';
+        try {
+          if (path) {
+            const { error: storageError } = await supabase.storage
+              .from('service_docs')
+              .remove([path]);
+            if (storageError) console.warn('Aviso de Storage al borrar:', storageError);
+          }
+
+          const { error } = await supabase
+            .from('service_docs')
+            .delete()
+            .eq('id', id);
+
+          if (error) throw error;
+
+          await loadDocsAdminData();
+        } catch (err) {
+          alert('Error al eliminar: ' + err.message);
+          await loadDocsAdminData();
+        }
+      }
+    });
+  });
+}
+
+function openUploadDocModal() {
+  const modal = document.getElementById('modal-doc-upload');
+  const alertDiv = document.getElementById('modal-doc-upload-alert');
+  const form = document.getElementById('form-doc-upload');
+  
+  if (alertDiv) alertDiv.style.display = 'none';
+  if (form) form.reset();
+
+  const radioUpload = document.querySelector('input[name="doc-upload-type"][value="upload"]');
+  if (radioUpload) radioUpload.checked = true;
+  window.toggleUploadSourceType('upload');
+
+  const select = document.getElementById('doc-upload-folder-select');
+  if (select) {
+    const folders = Array.from(new Set(adminDocsList.map(d => d.folder || 'General')));
+    select.innerHTML = '<option value="">-- Selecciona Carpeta --</option>';
+    folders.forEach(f => {
+      select.innerHTML += `<option value="${f}">${f}</option>`;
+    });
+  }
+
+  if (modal) modal.classList.add('active');
+}
+
+function openEditDocModal(id) {
+  const modal = document.getElementById('modal-doc-edit');
+  const alertDiv = document.getElementById('modal-doc-edit-alert');
+  const form = document.getElementById('form-doc-edit');
+  
+  if (alertDiv) alertDiv.style.display = 'none';
+  if (form) form.reset();
+
+  const doc = adminDocsList.find(d => d.id === id);
+  if (!doc) return;
+
+  document.getElementById('doc-edit-id').value = doc.id;
+  document.getElementById('doc-edit-old-path').value = doc.storage_path || '';
+  document.getElementById('doc-edit-name').value = doc.name;
+  document.getElementById('doc-edit-desc').value = doc.description || '';
+  document.getElementById('doc-edit-pinned').checked = doc.is_pinned;
+  
+  const currentLabel = document.getElementById('doc-edit-current-file-label');
+  
+  if (doc.storage_path) {
+    const radioUpload = document.getElementById('radio-edit-upload');
+    if (radioUpload) radioUpload.checked = true;
+    window.toggleEditSourceType('upload');
+    if (currentLabel) {
+      currentLabel.innerHTML = `Archivo actual cargado.`;
+    }
+    const urlInput = document.getElementById('doc-edit-url');
+    if (urlInput) urlInput.value = '';
+  } else {
+    const radioUrl = document.getElementById('radio-edit-url');
+    if (radioUrl) radioUrl.checked = true;
+    window.toggleEditSourceType('url');
+    if (currentLabel) {
+      currentLabel.innerHTML = '';
+    }
+    const urlInput = document.getElementById('doc-edit-url');
+    if (urlInput) urlInput.value = doc.file_url || '';
+  }
+
+  const select = document.getElementById('doc-edit-folder-select');
+  if (select) {
+    const folders = Array.from(new Set(adminDocsList.map(d => d.folder || 'General')));
+    select.innerHTML = '<option value="">-- Selecciona Carpeta --</option>';
+    folders.forEach(f => {
+      const selected = f === doc.folder ? 'selected' : '';
+      select.innerHTML += `<option value="${f}" ${selected}>${f}</option>`;
+    });
+  }
+
+  if (modal) modal.classList.add('active');
+}
+
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'form-doc-upload') {
+    e.preventDefault();
+    const alertDiv = document.getElementById('modal-doc-upload-alert');
+    const submitBtn = document.getElementById('btn-submit-doc-upload');
+    
+    if (alertDiv) alertDiv.style.display = 'none';
+    
+    const name = document.getElementById('doc-upload-name').value.trim();
+    const desc = document.getElementById('doc-upload-desc').value.trim();
+    const selFolder = document.getElementById('doc-upload-folder-select').value;
+    const newFolder = document.getElementById('doc-upload-folder-new').value.trim();
+    const fileInput = document.getElementById('doc-upload-file');
+    const isPinned = document.getElementById('doc-upload-pinned').checked;
+    const uploadType = document.querySelector('input[name="doc-upload-type"]:checked').value;
+
+    const folder = newFolder || selFolder || 'General';
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Procesando...';
+
+    try {
+      let fileUrl = '';
+      let storagePath = null;
+
+      if (uploadType === 'upload') {
+        const file = fileInput.files[0];
+        if (!file) {
+          throw new Error('Por favor, selecciona un archivo para subir.');
+        }
+        
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+        storagePath = `docs/${Date.now()}_${sanitizedName}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('service_docs')
+          .upload(storagePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('service_docs')
+          .getPublicUrl(storagePath);
+
+        fileUrl = urlData.publicUrl;
+      } else {
+        fileUrl = document.getElementById('doc-upload-url').value.trim();
+        if (!fileUrl) {
+          throw new Error('Por favor, ingresa la URL del documento online.');
+        }
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
+
+      const { error: dbError } = await supabase
+        .from('service_docs')
+        .insert({
+          name: name,
+          description: desc,
+          file_url: fileUrl,
+          storage_path: storagePath,
+          folder: folder,
+          is_pinned: isPinned,
+          updated_by: userId
+        });
+
+      if (dbError) throw dbError;
+
+      document.getElementById('modal-doc-upload').classList.remove('active');
+      await loadDocsAdminData();
+
+    } catch (err) {
+      console.error('Error uploading document:', err);
+      if (alertDiv) {
+        alertDiv.textContent = 'Error: ' + err.message;
+        alertDiv.style.display = 'block';
+      }
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Subir Archivo';
+    }
+  }
+
+  if (e.target && e.target.id === 'form-doc-edit') {
+    e.preventDefault();
+    const alertDiv = document.getElementById('modal-doc-edit-alert');
+    const submitBtn = document.getElementById('btn-submit-doc-edit');
+    
+    if (alertDiv) alertDiv.style.display = 'none';
+
+    const id = document.getElementById('doc-edit-id').value;
+    const oldPath = document.getElementById('doc-edit-old-path').value;
+    const name = document.getElementById('doc-edit-name').value.trim();
+    const desc = document.getElementById('doc-edit-desc').value.trim();
+    const selFolder = document.getElementById('doc-edit-folder-select').value;
+    const newFolder = document.getElementById('doc-edit-folder-new').value.trim();
+    const fileInput = document.getElementById('doc-edit-file');
+    const isPinned = document.getElementById('doc-edit-pinned').checked;
+    const editType = document.querySelector('input[name="doc-edit-type"]:checked').value;
+
+    const folder = newFolder || selFolder || 'General';
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+
+    try {
+      let fileUrl = null;
+      let storagePath = oldPath || null;
+
+      const doc = adminDocsList.find(d => d.id === id);
+      if (doc) {
+        fileUrl = doc.file_url;
+      }
+
+      if (editType === 'upload') {
+        const newFile = fileInput.files[0];
+        if (newFile) {
+          const sanitizedName = newFile.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          storagePath = `docs/${Date.now()}_${sanitizedName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('service_docs')
+            .upload(storagePath, newFile);
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage
+            .from('service_docs')
+            .getPublicUrl(storagePath);
+
+          fileUrl = urlData.publicUrl;
+
+          if (oldPath) {
+            await supabase.storage.from('service_docs').remove([oldPath]);
+          }
+        }
+      } else {
+        fileUrl = document.getElementById('doc-edit-url').value.trim();
+        if (!fileUrl) {
+          throw new Error('Por favor, ingresa la URL del documento online.');
+        }
+        if (oldPath) {
+          await supabase.storage.from('service_docs').remove([oldPath]);
+          storagePath = null;
+        }
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id || null;
+
+      const updateData = {
+        name: name,
+        description: desc,
+        folder: folder,
+        is_pinned: isPinned,
+        updated_at: new Date().toISOString(),
+        updated_by: userId,
+        file_url: fileUrl,
+        storage_path: storagePath
+      };
+
+      const { error: dbError } = await supabase
+        .from('service_docs')
+        .update(updateData)
+        .eq('id', id);
+
+      if (dbError) throw dbError;
+
+      document.getElementById('modal-doc-edit').classList.remove('active');
+      await loadDocsAdminData();
+
+    } catch (err) {
+      console.error('Error updating document:', err);
+      if (alertDiv) {
+        alertDiv.textContent = 'Error: ' + err.message;
+        alertDiv.style.display = 'block';
+      }
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Guardar Cambios';
+    }
+  }
+});
 
