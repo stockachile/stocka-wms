@@ -240,6 +240,27 @@ async function saveProductToDb(integration, product, variation) {
  */
 async function syncOrders(integration, baseUrl, headers, warehouseId) {
   console.log('--> Extrayendo pedidos desde WooCommerce...');
+  
+  // Cargar equivalencias de SKU para este comercio
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'WooCommerce').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
   // Extraemos pedidos de cualquier estado para mantener el WMS actualizado, pero nos enfocamos en procesarlos.
   const url = `${baseUrl}/wp-json/wc/v3/orders?per_page=100`;
 
@@ -279,7 +300,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       for (const item of order.line_items) {
         let sku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
         sku = sku.replace(/\s+/g, '');
-        itemQuantities[sku] = (itemQuantities[sku] || 0) + Number(item.quantity);
+        // Aplicar equivalencia de SKU
+        let mappedSku = skuMap[sku] || sku;
+        itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
         if (item.name && !itemNames.includes(item.name)) {
           itemNames.push(item.name);
         }
@@ -362,11 +385,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
       // Registrar ítems en order_items
       if (localOrderId && shouldInsertItems) {
-        for (const item of order.line_items) {
-          let sku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
-          sku = sku.replace(/\s+/g, '');
-          const qty = Number(item.quantity);
-
+        for (const [sku, qty] of Object.entries(itemQuantities)) {
           // Buscar producto en la base de datos
           let { data: product } = await supabase
             .from('products')
@@ -376,9 +395,17 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
             .maybeSingle();
 
           if (!product) {
+            // Buscar detalle del item original usando mapeo inverso
+            const itemDetail = order.line_items.find(item => {
+              let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
+              let cleanItemSku = itemSku.replace(/\s+/g, '');
+              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+              return mappedItemSku === sku;
+            });
+
             // Auto-crear producto faltante
-            const productName = item.name || 'Producto WooCommerce ' + sku;
-            const productPrice = Number(item.price || 0);
+            const productName = itemDetail?.name || 'Producto WooCommerce ' + sku;
+            const productPrice = Number(itemDetail?.price || 0);
 
             const { data: newProd, error: prodErr } = await supabase
               .from('products')
@@ -388,9 +415,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
                 name: productName,
                 price: productPrice,
                 description: 'Creado automáticamente desde integración de WooCommerce (al procesar pedido)',
-                woocommerce_product_id: item.product_id.toString(),
-                woocommerce_variation_id: item.variation_id ? item.variation_id.toString() : null,
-                raw_woocommerce_data: item
+                woocommerce_product_id: itemDetail ? itemDetail.product_id.toString() : null,
+                woocommerce_variation_id: itemDetail && itemDetail.variation_id ? itemDetail.variation_id.toString() : null,
+                raw_woocommerce_data: itemDetail || null
               }])
               .select('id')
               .single();

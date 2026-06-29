@@ -156,6 +156,26 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
+  // Cargar equivalencias de SKU para este comercio
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'Falabella').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
   try {
     // 1. Obtener pedidos de los últimos 7 días
     const hace7Dias = new Date();
@@ -268,8 +288,10 @@ async function syncMerchantOrders(integration) {
         for (const item of items) {
           let sku = item.Sku || item.SellerSku;
           if (sku) {
-            sku = sku.replace(/\s+/g, '');
-            itemQuantities[sku] = (itemQuantities[sku] || 0) + 1;
+            let cleanSku = sku.replace(/\s+/g, '');
+            // Aplicar equivalencia de SKU
+            let mappedSku = skuMap[cleanSku] || cleanSku;
+            itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + 1;
           }
           if (item.Name && !itemNames.includes(item.Name)) {
             itemNames.push(item.Name);
@@ -350,7 +372,13 @@ async function syncMerchantOrders(integration) {
               const barcode = await fetchProductBarcode(integration, sku);
 
               // Auto-crear producto faltante
-              const orderItemDetail = items.find(item => (item.Sku || item.SellerSku)?.replace(/\s+/g, '') === sku);
+              const orderItemDetail = items.find(item => {
+                let itemSku = item.Sku || item.SellerSku;
+                if (!itemSku) return false;
+                let cleanItemSku = itemSku.replace(/\s+/g, '');
+                let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+                return mappedItemSku === sku;
+              });
               const productName = orderItemDetail?.Name || 'Producto Falabella ' + sku;
               const productPrice = Number(orderItemDetail?.ItemPrice || 0);
 

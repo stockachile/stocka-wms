@@ -211,6 +211,26 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
+  // Cargar equivalencias de SKU para este comercio
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'MercadoLibre').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
   // B. Obtener credenciales OAuth activas
   const credentials = await getValidAccessToken(integration);
   if (!credentials) {
@@ -398,17 +418,19 @@ async function syncMerchantOrders(integration) {
               if (vSku) sku = vSku.value_name;
             }
             sku = sku.trim().replace(/\s+/g, '');
+            // Aplicar equivalencia de SKU
+            let mappedSku = skuMap[sku] || sku;
 
             itemsList.push({
               itemId: item.item.id,
               title: item.item.title,
               price: Number(item.unit_price || 0),
               quantity: Number(item.quantity || 1),
-              sku: sku,
+              sku: mappedSku,
               variation: item.item.variation_attributes ? item.item.variation_attributes.map(v => v.value_name).join(', ') : 'N/A'
             });
 
-            itemQuantities[sku] = (itemQuantities[sku] || 0) + Number(item.quantity || 1);
+            itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity || 1);
             if (item.item.title && !itemNames.includes(item.item.title)) {
               itemNames.push(item.item.title);
             }

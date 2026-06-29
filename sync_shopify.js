@@ -125,6 +125,27 @@ async function syncOrders(integration) {
 
 async function syncProducts(integration) {
   console.log('--> Extrayendo productos...');
+
+  // Cargar equivalencias de SKU para este comercio
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'Shopify').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
   const url = `https://${integration.shop_url}/admin/api/2024-04/products.json`;
 
   try {
@@ -147,19 +168,23 @@ async function syncProducts(integration) {
     for (const product of products) {
         // Iteramos por las variantes (ya que en Shopify las variantes son los SKUs reales)
         for (const variant of product.variants) {
+            let variantSku = variant.sku || variant.id.toString();
+            let cleanSku = variantSku.trim().replace(/\s+/g, '');
+            // Aplicar equivalencia de SKU si existe
+            let mappedSku = skuMap[cleanSku] || cleanSku;
             
             // Verificamos si la variante (SKU) ya existe de forma global por merchant_id
             const { data: existingProduct } = await supabase
                 .from('products')
                 .select('id')
                 .eq('merchant_id', integration.merchant_id)
-                .eq('sku', variant.sku || variant.id.toString())
+                .eq('sku', mappedSku)
                 .maybeSingle();
 
             const productDataToSave = {
                 merchant_id: integration.merchant_id,
                 comercio: integration.comercio,
-                sku: variant.sku || variant.id.toString(), // Si no tiene SKU, usamos el ID como fallback
+                sku: mappedSku, // Si no tiene SKU, usamos el ID como fallback
                 name: `${product.title} ${variant.title !== 'Default Title' ? '- ' + variant.title : ''}`,
                 description: product.body_html,
                 barcode: variant.barcode,

@@ -154,12 +154,34 @@ async function handleOrderCreate(merchantId, comercio, order) {
   for (const item of lineItems) {
     let product = null;
 
+    // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
+    let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
+    let mappedSku = cleanSku;
+    let hasEquivalence = false;
+
+    if (cleanSku) {
+      const { data: eqData } = await supabase
+        .from("sku_equivalences")
+        .select("master_sku, platform")
+        .eq("comercio", comercio)
+        .eq("platform_sku", cleanSku)
+        .in("platform", ["Shopify", "Todas"]);
+
+      if (eqData && eqData.length > 0) {
+        const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
+        mappedSku = exactMatch ? exactMatch.master_sku : eqData[0].master_sku;
+        hasEquivalence = true;
+      }
+    }
+
     // Buscar el producto en el catálogo por shopify_variant_id o SKU
     let query = supabase.from("products").select("id");
-    if (item.variant_id) {
+    if (hasEquivalence) {
+      query = query.eq("sku", mappedSku).eq("comercio", comercio);
+    } else if (item.variant_id) {
       query = query.eq("shopify_variant_id", item.variant_id.toString());
     } else {
-      query = query.eq("sku", item.sku).eq("comercio", comercio);
+      query = query.eq("sku", cleanSku).eq("comercio", comercio);
     }
     
     const { data: foundProduct } = await query.maybeSingle();
@@ -167,15 +189,16 @@ async function handleOrderCreate(merchantId, comercio, order) {
 
     // Auto-crear producto si no existe en el catálogo
     if (!product) {
+      const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
       const { data: newProd, error: prodErr } = await supabase
         .from("products")
         .insert([{
           merchant_id: merchantId,
           comercio: comercio,
-          sku: item.sku || item.variant_id.toString(),
+          sku: targetSku,
           name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
           price: item.price ? parseFloat(item.price) : 0,
-          description: "Creado automáticamente desde webhook de Shopify",
+          description: "Creado automáticamente desde webhook de Shopify" + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ""),
           shopify_product_id: item.product_id?.toString() || null,
           shopify_variant_id: item.variant_id?.toString() || null,
           shopify_stock: 0,
@@ -185,10 +208,10 @@ async function handleOrderCreate(merchantId, comercio, order) {
         .single();
 
       if (!prodErr && newProd) {
-        console.log(`Creado producto faltante SKU ${item.sku} en catálogo.`);
+        console.log(`Creado producto faltante SKU ${targetSku} en catálogo.`);
         product = newProd;
       } else {
-        console.error(`Error auto-creando producto SKU ${item.sku}:`, prodErr);
+        console.error(`Error auto-creando producto SKU ${targetSku}:`, prodErr);
       }
     }
 
@@ -300,12 +323,34 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     for (const item of lineItems) {
       let product = null;
 
+      // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
+      let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
+      let mappedSku = cleanSku;
+      let hasEquivalence = false;
+
+      if (cleanSku) {
+        const { data: eqData } = await supabase
+          .from("sku_equivalences")
+          .select("master_sku, platform")
+          .eq("comercio", comercio)
+          .eq("platform_sku", cleanSku)
+          .in("platform", ["Shopify", "Todas"]);
+
+        if (eqData && eqData.length > 0) {
+          const exactMatch = eqData.find((e: any) => e.platform === "Shopify");
+          mappedSku = exactMatch ? exactMatch.master_sku : eqData[0].master_sku;
+          hasEquivalence = true;
+        }
+      }
+
       // Buscar el producto en el catálogo
       let query = supabase.from("products").select("id");
-      if (item.variant_id) {
+      if (hasEquivalence) {
+        query = query.eq("sku", mappedSku).eq("comercio", comercio);
+      } else if (item.variant_id) {
         query = query.eq("shopify_variant_id", item.variant_id.toString());
       } else {
-        query = query.eq("sku", item.sku).eq("comercio", comercio);
+        query = query.eq("sku", cleanSku).eq("comercio", comercio);
       }
       
       const { data: foundProduct } = await query.maybeSingle();
@@ -313,15 +358,16 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
 
       // Auto-crear producto si no existe
       if (!product) {
+        const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
         const { data: newProd } = await supabase
           .from("products")
           .insert([{
             merchant_id: merchantId,
             comercio: comercio,
-            sku: item.sku || item.variant_id.toString(),
+            sku: targetSku,
             name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
             price: item.price ? parseFloat(item.price) : 0,
-            description: "Creado automáticamente desde webhook de Shopify al actualizar",
+            description: "Creado automáticamente desde webhook de Shopify al actualizar" + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ""),
             shopify_product_id: item.product_id?.toString() || null,
             shopify_variant_id: item.variant_id?.toString() || null,
             shopify_stock: 0,
