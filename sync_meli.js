@@ -81,6 +81,7 @@ async function syncMeliData() {
       console.log(`========================================`);
 
       await syncMerchantOrders(integration);
+      await syncMerchantProducts(integration);
     }
 
     console.log('\n🎉 Sincronización finalizada.');
@@ -423,6 +424,7 @@ async function syncMerchantOrders(integration) {
 
             itemsList.push({
               itemId: item.item.id,
+              variationId: item.item.variation_id ? item.item.variation_id.toString() : null,
               title: item.item.title,
               price: Number(item.unit_price || 0),
               quantity: Number(item.quantity || 1),
@@ -545,10 +547,14 @@ async function syncMerchantOrders(integration) {
               let name = 'Producto MercadoLibre ' + sku;
               let price = 0;
               let rawItemData = null;
+              let meliItemId = null;
+              let meliVariationId = null;
 
               if (itemDetail) {
                 name = itemDetail.title;
                 price = itemDetail.price;
+                meliItemId = itemDetail.itemId;
+                meliVariationId = itemDetail.variationId;
                 
                 console.log(`🔍 Buscando datos y barcode en MercadoLibre para ítem ID ${itemDetail.itemId}...`);
                 try {
@@ -580,6 +586,8 @@ async function syncMerchantOrders(integration) {
                   barcode: barcode,
                   price: price,
                   description: 'Creado automáticamente desde integración de MercadoLibre',
+                  meli_item_id: meliItemId,
+                  meli_variation_id: meliVariationId,
                   raw_meli_data: rawItemData
                 }])
                 .select('id')
@@ -663,6 +671,215 @@ async function downloadMeliLabel(shippingId, accessToken) {
     console.error(`Error descargando etiqueta MercadoLibre para despacho ${shippingId}:`, e.message);
     return null;
   }
+}
+
+/**
+ * Sincroniza el catálogo completo de productos (publicaciones y variaciones) de un vendedor
+ */
+async function syncMerchantProducts(integration) {
+  console.log('\n--> Sincronizando catálogo de productos desde MercadoLibre...');
+
+  // 1. Cargar equivalencias de SKU para este comercio
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'MercadoLibre').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
+  // 2. Obtener credenciales OAuth activas
+  const credentials = await getValidAccessToken(integration);
+  if (!credentials) {
+    console.error(`❌ No se pudo obtener sesión activa para el comercio ${integration.comercio}. Saltando sync de productos.`);
+    return;
+  }
+
+  const { accessToken, userId } = credentials;
+
+  try {
+    let offset = 0;
+    let limit = 50;
+    let hasMore = true;
+    let allItemIds = [];
+
+    // Fase A: Obtener todos los item IDs del seller
+    while (hasMore) {
+      const searchUrl = `https://api.mercadolibre.com/users/${userId}/items/search?limit=${limit}&offset=${offset}`;
+      const response = await fetch(searchUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error al buscar items del vendedor: Status ${response.status}`);
+      }
+
+      const json = await response.json();
+      const results = json.results || [];
+      allItemIds.push(...results);
+
+      offset += results.length;
+      hasMore = results.length > 0 && json.paging && json.paging.total > offset;
+    }
+
+    console.log(`Se encontraron ${allItemIds.length} publicaciones de productos en MercadoLibre.`);
+
+    // Fase B: Obtener detalles de productos en lotes y guardar/actualizar en Supabase
+    const batchSize = 20;
+    for (let i = 0; i < allItemIds.length; i += batchSize) {
+      const batch = allItemIds.slice(i, i + batchSize);
+      console.log(`Procesando lote de productos ${i + 1} a ${Math.min(i + batchSize, allItemIds.length)} de ${allItemIds.length}...`);
+
+      const multigetUrl = `https://api.mercadolibre.com/items?ids=${batch.join(',')}`;
+      const response = await fetch(multigetUrl, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+
+      if (!response.ok) {
+        console.error(`⚠️ Error al obtener detalles de lote: Status ${response.status}`);
+        continue;
+      }
+
+      const itemsDetails = await response.json();
+
+      for (const itemWrapper of itemsDetails) {
+        if (itemWrapper.code !== 200 || !itemWrapper.body) {
+          console.warn(`⚠️ Error en publicación individual de lote: Code ${itemWrapper.code}`);
+          continue;
+        }
+
+        const itemDetail = itemWrapper.body;
+
+        // Comprobar si el producto tiene variaciones
+        if (itemDetail.variations && itemDetail.variations.length > 0) {
+          for (const variation of itemDetail.variations) {
+            let rawSku = getMeliSku(variation, variation.id.toString());
+            let cleanSku = rawSku.trim().replace(/\s+/g, '');
+            let mappedSku = skuMap[cleanSku] || cleanSku;
+
+            // Nombre descriptivo de la variación
+            let variantName = itemDetail.title;
+            if (variation.attribute_combinations && variation.attribute_combinations.length > 0) {
+              const combos = variation.attribute_combinations.map(a => a.value_name).filter(Boolean).join(', ');
+              if (combos) variantName += ` - ${combos}`;
+            }
+
+            const barcode = getBarcodeFromAttributes(variation.attributes, cleanSku);
+            const price = variation.price || itemDetail.price || 0;
+
+            const productDataToSave = {
+              merchant_id: integration.merchant_id,
+              comercio: integration.comercio,
+              sku: mappedSku,
+              name: variantName,
+              description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id} - Variación ${variation.id}`,
+              barcode: barcode,
+              price: price,
+              meli_item_id: itemDetail.id,
+              meli_variation_id: variation.id.toString(),
+              raw_meli_data: { ...variation, base_item_title: itemDetail.title, base_item_id: itemDetail.id }
+            };
+
+            await saveOrUpdateProduct(productDataToSave);
+          }
+        } else {
+          // Publicación sin variaciones
+          let rawSku = getMeliSku(itemDetail, itemDetail.id);
+          let cleanSku = rawSku.trim().replace(/\s+/g, '');
+          let mappedSku = skuMap[cleanSku] || cleanSku;
+
+          const barcode = getBarcodeFromAttributes(itemDetail.attributes, cleanSku);
+          const price = itemDetail.price || 0;
+
+          const productDataToSave = {
+            merchant_id: integration.merchant_id,
+            comercio: integration.comercio,
+            sku: mappedSku,
+            name: itemDetail.title,
+            description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id}`,
+            barcode: barcode,
+            price: price,
+            meli_item_id: itemDetail.id,
+            meli_variation_id: null,
+            raw_meli_data: itemDetail
+          };
+
+          await saveOrUpdateProduct(productDataToSave);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`❌ Error sincronizando catálogo para el comercio ${integration.comercio}:`, error.message);
+  }
+}
+
+// Helper para guardar o actualizar producto
+async function saveOrUpdateProduct(productData) {
+  try {
+    const { data: existingProduct } = await supabase
+      .from('products')
+      .select('id')
+      .eq('merchant_id', productData.merchant_id)
+      .eq('sku', productData.sku)
+      .maybeSingle();
+
+    if (existingProduct) {
+      const { error: updErr } = await supabase
+        .from('products')
+        .update(productData)
+        .eq('id', existingProduct.id);
+      
+      if (updErr) {
+        console.error(`   ❌ Error al actualizar SKU ${productData.sku}:`, updErr.message);
+      } else {
+        console.log(`   📝 Actualizado producto SKU ${productData.sku}`);
+      }
+    } else {
+      const { error: insErr } = await supabase
+        .from('products')
+        .insert([productData]);
+
+      if (insErr) {
+        console.error(`   ❌ Error al insertar SKU ${productData.sku}:`, insErr.message);
+      } else {
+        console.log(`   📥 Insertado nuevo producto SKU ${productData.sku}`);
+      }
+    }
+  } catch (err) {
+    console.error(`   ❌ Error general al procesar SKU ${productData.sku}:`, err.message);
+  }
+}
+
+// Helper para obtener SKU de MercadoLibre
+function getMeliSku(itemOrVariation, fallback) {
+  let sku = itemOrVariation.seller_custom_field || 'Sin SKU';
+  if ((sku === 'Sin SKU' || sku === '') && itemOrVariation.attributes) {
+    const skuAttr = itemOrVariation.attributes.find(a => a.id === 'SELLER_SKU');
+    if (skuAttr && skuAttr.value_name) sku = skuAttr.value_name;
+  }
+  sku = sku.trim().replace(/\s+/g, '');
+  if (sku === 'SinSKU' || sku === 'SinSKU' || sku === '') {
+    return fallback;
+  }
+  return sku;
+}
+
+// Helper para obtener código de barras
+function getBarcodeFromAttributes(attributes, fallback) {
+  if (!attributes) return fallback;
+  const barcodeAttr = attributes.find(a => a.id === 'GTIN' || a.id === 'EAN' || a.id === 'UPC');
+  return barcodeAttr && barcodeAttr.value_name ? barcodeAttr.value_name.trim() : fallback;
 }
 
 // Ejecutar script
