@@ -126,6 +126,29 @@ async function init() {
       return;
     }
 
+    // Auto-update admin profile if missing integrations or documentation_admin
+    if (profile.allowed_modules && profile.allowed_modules !== 'all') {
+      let currentModules = profile.allowed_modules.split(',').map(m => m.trim());
+      let updated = false;
+      if (!currentModules.includes('integrations')) {
+        currentModules.push('integrations');
+        updated = true;
+      }
+      if (!currentModules.includes('documentation_admin')) {
+        currentModules.push('documentation_admin');
+        updated = true;
+      }
+      if (updated) {
+        const updatedStr = currentModules.filter(Boolean).join(',');
+        console.log('DEBUG: Auto-agregando módulos a la cuenta administrador:', updatedStr);
+        await supabase
+          .from('profiles')
+          .update({ allowed_modules: updatedStr })
+          .eq('id', session.user.id);
+        profile.allowed_modules = updatedStr;
+      }
+    }
+
     // Set user info
     const user = session.user;
     if (userEmailSpan) {
