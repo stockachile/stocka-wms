@@ -204,15 +204,46 @@ async function init() {
       window.checkSystemCommunications(currentMerchantId);
     }
 
+    // Restaurar y configurar el estado colapsado del sidebar
+    const sidebar = document.querySelector('.sidebar');
+    const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+    const toggleIcon = toggleSidebarBtn?.querySelector('i');
+    
+    const isSidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (isSidebarCollapsed && sidebar) {
+      sidebar.classList.add('collapsed');
+      if (toggleSidebarBtn) toggleSidebarBtn.setAttribute('title', 'Expandir menú');
+      if (toggleIcon) toggleIcon.className = 'ri-menu-unfold-line';
+    }
+
+    if (toggleSidebarBtn) {
+      toggleSidebarBtn.addEventListener('click', () => {
+        if (sidebar) {
+          sidebar.classList.toggle('collapsed');
+          const collapsed = sidebar.classList.contains('collapsed');
+          localStorage.setItem('sidebar-collapsed', collapsed ? 'true' : 'false');
+          if (toggleSidebarBtn) {
+            toggleSidebarBtn.setAttribute('title', collapsed ? 'Expandir menú' : 'Contraer menú');
+          }
+          if (toggleIcon) {
+            toggleIcon.className = collapsed ? 'ri-menu-unfold-line' : 'ri-menu-fold-line';
+          }
+        }
+      });
+    }
+
     // Navigation Logic Setup
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
           e.preventDefault();
-          navItems.forEach(n => n.classList.remove('active'));
-          e.target.classList.add('active');
+          const targetItem = e.target.closest('.nav-item');
+          if (!targetItem) return;
 
-          const view = e.target.getAttribute('data-view');
+          navItems.forEach(n => n.classList.remove('active'));
+          targetItem.classList.add('active');
+
+          const view = targetItem.getAttribute('data-view');
           
           if (view === 'dashboard') {
             viewTitle.textContent = 'Dashboard';
@@ -300,6 +331,9 @@ async function init() {
         // Por defecto, si es 'all' todos los ítems están permitidos
         if (navItems.length > 0) firstVisibleItem = navItems[0];
       }
+      
+      // Ocultar cabeceras de categorías vacías
+      updateCategoryHeadersVisibility();
     }
 
     // Initial View selection based on allowed modules for Client
@@ -1041,6 +1075,24 @@ async function renderOrders() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando pedidos...</p>`;
 
+  const ALL_STATUSES = [
+    'para procesar', 
+    'en preparación', 
+    'preparado', 
+    'despachado', 
+    'en tránsito', 
+    'listo para retiro', 
+    'retirado',
+    'entregado', 
+    'en espera',
+    'cancelado'
+  ];
+
+  // Reset/Init WMS state
+  window.clientWmsActiveTab = window.clientWmsActiveTab || 'Todos';
+  window.clientWmsPageSize = window.clientWmsPageSize !== undefined ? window.clientWmsPageSize : 25;
+  window.clientWmsCurrentPage = window.clientWmsCurrentPage || 1;
+
   try {
     const companyList = getCompanyList();
     let query = supabase
@@ -1048,6 +1100,7 @@ async function renderOrders() {
       .select(`
         id,
         status,
+        estado_wms,
         created_at,
         external_order_number,
         external_platform,
@@ -1058,6 +1111,23 @@ async function renderOrders() {
         label_base64,
         comercio,
         total_value,
+        customer_name,
+        customer_email,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_complement,
+        shipping_method,
+        payment_status,
+        tracking_number,
+        tracking_url,
+        courier,
+        raw_woocommerce_data,
+        raw_falabella_data,
+        raw_meli_data,
+        raw_optiroute_data,
+        raw_lightdata_data,
+        raw_paris_data,
         order_items (quantity, products(sku, name))
       `);
 
@@ -1072,6 +1142,8 @@ async function renderOrders() {
     const { data: orders, error } = await query;
 
     if (error) throw error;
+
+    window.clientLoadedOrders = orders || [];
 
     // Obtener los despachos correspondientes de la tabla envios_unificados
     let shipments = [];
@@ -1090,328 +1162,611 @@ async function renderOrders() {
         shipments = shipData;
       }
     }
+    window.clientLoadedShipments = shipments;
 
-    let rowsHtml = '';
-    if (!orders || orders.length === 0) {
-      rowsHtml = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay pedidos registrados.</td></tr>`;
-    } else {
-      orders.forEach(order => {
-        // Buscar el envío en el listado cargado
-        const orderShipments = shipments.filter(s => 
-          s.pedido_referencia === order.id || 
-          (order.external_order_number && s.pedido_referencia === order.external_order_number)
-        );
-
-        // Usar la fecha del envío (plataforma) si existe, de lo contrario la nativa de la orden
-        const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
-          ? orderShipments[0].created_at 
-          : order.created_at;
-
-        const dateObj = new Date(dateSource);
-        const dateStr = dateObj.toLocaleDateString();
-        
-        let badgeColor = 'var(--color-gray)';
-        let badgeTextColor = '#1a1a1a';
-        if (order.status === 'despachado' || order.status === 'entregado' || order.status === 'retirado') {
-          badgeColor = '#d1fae5'; // green
-          badgeTextColor = '#065f46';
-        } else if (order.status === 'en preparación' || order.status === 'preparado' || order.status === 'listo para retiro') {
-          badgeColor = '#fef3c7'; // yellow
-          badgeTextColor = '#92400e';
-        } else if (order.status === 'en tránsito') {
-          badgeColor = '#e0f2fe'; // blue
-          badgeTextColor = '#0369a1';
-        } else if (order.status === 'cancelado' || order.status === 'incidencia') {
-          badgeColor = '#fee2e2'; // red
-          badgeTextColor = '#991b1b';
-        } else if (order.status === 'para procesar') {
-          badgeColor = '#e0e7ff'; // indigo
-          badgeTextColor = '#3730a3';
-        } else if (order.status === 'en espera' || order.status === 'sin stock') {
-          badgeColor = '#f3f4f6'; // gray
-          badgeTextColor = '#374151';
-        }
-
-        const platform = order.origen || order.external_platform || 'Manual';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
-        const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
-
-        const skuStr = order.sku || order.order_items.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
-        const nameStr = order.item || order.order_items.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
-        const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
-
-        const orderDisplayId = order.external_order_number 
-          ? `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">(${order.id.split('-')[0]})</span>` 
-          : `<span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${order.id.split('-')[0]}</span>`;
-
-        let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
-        
-        if (order.label_base64) {
-          labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
-        }
-
-        if (orderShipments.length > 0) {
-          const shipment = orderShipments[0]; // Tomar el primer despacho
-          if (shipment.tracking) {
-            const courierName = shipment.courier || 'Seguimiento';
-            trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-              ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
-              : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
-          }
-        }
-
-        // Datos de despacho para la fila
-        const firstShipment = orderShipments[0] || null;
-        const totalItems = order.order_items?.reduce((s, i) => s + (i.quantity || 1), 0) || order.cantidad || '-';
-
-        // Tipo de despacho legible
-        const rawTipo = firstShipment?.servicio_tipo_envio || order.shipping_type || '';
-        let tipoIcon = 'ri-truck-line';
-        let tipoLabel = rawTipo || '-';
-        if (/flex/i.test(rawTipo))          { tipoIcon = 'ri-flashlight-line';   tipoLabel = 'Flex'; }
-        else if (/centro.*env/i.test(rawTipo) || /fulfillment/i.test(rawTipo)) { tipoIcon = 'ri-building-2-line';  tipoLabel = 'Centro Envíos'; }
-        else if (/same.?day/i.test(rawTipo) || /24/i.test(rawTipo))            { tipoIcon = 'ri-time-line';         tipoLabel = 'Same Day'; }
-        else if (/retiro/i.test(rawTipo) || /pickup/i.test(rawTipo))           { tipoIcon = 'ri-store-line';        tipoLabel = 'Retiro'; }
-        else if (/normal/i.test(rawTipo))   { tipoIcon = 'ri-ship-line';         tipoLabel = 'Normal'; }
-        const tipoHtml = rawTipo
-          ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--color-text-main);"><i class="${tipoIcon}" style="color:var(--color-primary);"></i>${tipoLabel}</span>`
-          : `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
-
-        // SLA: días desde creación hasta ahora (o hasta entrega si existe)
-        const createdAt = new Date(order.created_at);
-        const slaRef = firstShipment?.promised_date || firstShipment?.date_closed || null;
-        let slaHtml = `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
-        if (slaRef) {
-          const slaDate = new Date(slaRef);
-          const diffDays = Math.round((slaDate - createdAt) / (1000 * 60 * 60 * 24));
-          const slaColor = diffDays <= 1 ? '#059669' : (diffDays <= 3 ? '#d97706' : '#dc2626');
-          slaHtml = `<span style="font-size:0.78rem; font-weight:600; color:${slaColor};">${diffDays}d</span>`;
-        } else if (firstShipment?.servicio_tipo_envio) {
-          // Mostrar SLA implícito según tipo
-          const slaMap = { flex:'<1d', 'same day':'<1d', '24':'1d', normal:'3-5d', fulfillment:'2d' };
-          const match = Object.keys(slaMap).find(k => rawTipo.toLowerCase().includes(k));
-          slaHtml = match ? `<span style="font-size:0.75rem; color:var(--color-text-muted);">${slaMap[match]}</span>` : slaHtml;
-        }
-
-        rowsHtml += `
-          <tr class="clickable-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
-            <td>
-              <div style="display:flex; flex-direction:column; gap:0.2rem;">
-                <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
-                ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
-              </div>
-            </td>
-            <td>${originHtml}</td>
-            <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem;">
-              <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
-            </td>
-            <td style="text-align:center;">
-              <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
-              <span style="display:block; font-size:0.68rem; color:var(--color-text-muted);">artículo${totalItems !== 1 ? 's' : ''}</span>
-            </td>
-            <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
-              ${window.formatCLP(order.total_value)}
-            </td>
-            <td>${tipoHtml}</td>
-            <td>${slaHtml}</td>
-            <td>${labelHtml}</td>
-            <td>
-              <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
-            </td>
-            <td>
-              <button class="btn-order-detail btn btn-outline" data-order-id="${order.id}" style="padding:0.2rem 0.65rem; font-size:0.75rem; display:inline-flex; align-items:center; gap:0.3rem; white-space:nowrap;">
-                <i class="ri-eye-line"></i> Ver detalle
-              </button>
-            </td>
-          </tr>
-        `;
-      });
-    }
     const isObserver = userRole === 'observer';
     const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-order"><i class="ri-add-line"></i> Crear Pedido</button>';
+    const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
 
     appContent.innerHTML = getObserverBanner() + `
+      <!-- Tarjetas de KPI -->
+      <div class="orders-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-shopping-bag-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
+            <strong id="kpi-client-total" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-time-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
+            <strong id="kpi-client-processing" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-hammer-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
+            <strong id="kpi-client-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+          </div>
+        </div>
+        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-money-dollar-circle-line"></i>
+          </div>
+          <div>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Valor Facturado</span>
+            <strong id="kpi-client-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">$0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de Filtros -->
+      <div class="filters-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
+            <input type="text" id="search-client-orders" class="form-input" placeholder="Buscar por ID, SKU, Producto, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-plug-line"></i> Origen / Integración</label>
+            <select id="filter-client-origen" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los orígenes</option>
+              <option value="Shopify">Shopify</option>
+              <option value="WooCommerce">WooCommerce</option>
+              <option value="MercadoLibre">Mercado Libre</option>
+              <option value="Falabella">Falabella</option>
+              <option value="Paris">Paris</option>
+              <option value="Manual">Manual</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-checkbox-circle-line"></i> Estado Origen</label>
+            <select id="filter-client-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los estados</option>
+              ${statusOptions}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agrupación por Pestañas de Estado WMS -->
+      <div id="client-wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
+
+      <!-- Tabla de Pedidos -->
       <div class="card">
         <div class="card-header flex justify-between items-center">
           <div>
             <h3 style="margin:0;">Mis Pedidos</h3>
-            <span style="font-size:0.8rem; color:var(--color-text-muted); margin-top:0.2rem; display:block;">${orders?.length || 0} pedidos encontrados</span>
           </div>
           ${actionBtn}
         </div>
-        <div class="card-body" style="padding:0;">
-          <div style="overflow-x:auto;">
-            <table class="data-table" style="min-width:600px;">
-              <thead>
-                <tr>
-                  <th style="min-width:140px;">ID Pedido</th>
-                  <th>Origen</th>
-                  <th>Fecha</th>
-                  <th style="text-align:center;">Artículos</th>
-                  <th style="text-align:right;">Valor Total</th>
-                  <th>Tipo Despacho</th>
-                  <th>SLA</th>
-                  <th>Etiqueta</th>
-                  <th>Estado</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
-            </table>
-          </div>
+        <div class="card-body" style="padding:0; overflow-x: auto;">
+          <table class="data-table" style="min-width:600px;">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center;"></th>
+                <th style="min-width:140px;">ID Pedido</th>
+                <th>Origen</th>
+                <th>Fecha</th>
+                <th style="text-align:center;">Artículos</th>
+                <th style="text-align:right;">Valor Total</th>
+                <th>Tipo Despacho</th>
+                <th>SLA</th>
+                <th>Etiqueta</th>
+                <th>Estado Origen</th>
+                <th>Estado WMS</th>
+              </tr>
+            </thead>
+            <tbody id="client-orders-tbody">
+              <!-- Carga dinámica -->
+            </tbody>
+          </table>
         </div>
-      </div>
-
-      <!-- Slide-over overlay para detalle de pedido -->
-      <div class="slide-over-overlay" id="order-detail-overlay">
-        <div class="slide-over-panel" id="order-detail-panel">
-          <div class="slide-over-header">
-            <h3><i class="ri-shopping-bag-3-line" style="color:var(--color-primary);"></i> Detalle del Pedido</h3>
-            <button class="slide-over-close" id="btn-close-order-detail">&times;</button>
-          </div>
-          <div class="slide-over-body" id="order-detail-body">
-            <div style="text-align:center; padding:3rem; color:var(--color-text-muted);">
-              <i class="ri-loader-4-line" style="font-size:2rem;"></i>
-              <p>Cargando...</p>
-            </div>
-          </div>
-        </div>
+        <!-- Paginación -->
+        <div id="client-wms-pagination-container" style="padding: 1rem; border-top: 1px solid var(--color-border);"></div>
       </div>
     `;
 
-    // Cerrar panel
-    document.getElementById('btn-close-order-detail')?.addEventListener('click', () => {
-      document.getElementById('order-detail-overlay').classList.remove('active');
-    });
-    document.getElementById('order-detail-overlay')?.addEventListener('click', (e) => {
-      if (e.target === document.getElementById('order-detail-overlay')) {
-        document.getElementById('order-detail-overlay').classList.remove('active');
-      }
-    });
+    // Listeners para filtros
+    const searchInput = document.getElementById('search-client-orders');
+    const origenSelect = document.getElementById('filter-client-origen');
+    const statusSelect = document.getElementById('filter-client-status');
 
-    // Botones Ver detalle
-    document.querySelectorAll('.btn-order-detail').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const orderId = btn.getAttribute('data-order-id');
-        const order = orders.find(o => o.id === orderId);
-        if (!order) return;
-        renderOrderDetailPanel(order, shipments);
-        document.getElementById('order-detail-overlay').classList.add('active');
-      });
-    });
+    const triggerFilterUpdate = () => {
+      window.clientWmsCurrentPage = 1;
+      applyClientWmsFiltersAndRender();
+    };
+
+    if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
+    if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
+    if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
+
+    // Primera renderización de datos
+    applyClientWmsFiltersAndRender();
 
   } catch (error) {
     console.error('Error fetching orders:', error);
-    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar pedidos: ${error.message}</p>`;
   }
 }
 
-function renderOrderDetailPanel(order, allShipments) {
-  const body = document.getElementById('order-detail-body');
-  if (!body) return;
+window.applyClientWmsFiltersAndRender = function() {
+  const orders = window.clientLoadedOrders || [];
+  const shipments = window.clientLoadedShipments || [];
 
-  const orderShipments = allShipments.filter(s =>
-    s.pedido_referencia === order.id ||
-    (order.external_order_number && s.pedido_referencia === order.external_order_number)
-  );
+  const searchInput = document.getElementById('search-client-orders');
+  const origenSelect = document.getElementById('filter-client-origen');
+  const statusSelect = document.getElementById('filter-client-status');
 
-  const platform = order.origen || order.external_platform || 'Manual';
-  const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
-  const dateStr = new Date(order.created_at).toLocaleString('es-CL');
+  const searchText = (searchInput?.value || '').toLowerCase();
+  const selectedOrigen = origenSelect?.value || '';
+  const selectedStatus = statusSelect?.value || '';
 
-  // Items HTML
-  const itemsHtml = (order.order_items && order.order_items.length > 0)
-    ? order.order_items.map(oi => `
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:0.65rem 1.25rem; border-bottom:1px solid var(--color-border); gap:1rem;">
-          <div style="flex:1; min-width:0;">
-            <div style="font-size:0.85rem; font-weight:600; color:var(--color-text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${oi.products?.name || oi.item_name || 'Producto'}</div>
-            <div style="font-size:0.72rem; color:var(--color-text-muted); margin-top:0.15rem; font-family:monospace;">${oi.products?.sku || oi.sku || '-'}</div>
-          </div>
-          <div style="flex-shrink:0; text-align:right;">
-            <span style="font-size:0.78rem; color:var(--color-text-muted);">Cant.</span>
-            <span style="font-size:0.95rem; font-weight:700; color:var(--color-text-main); margin-left:0.3rem;">${oi.quantity || 1}</span>
-          </div>
+  const matchesBaseFilters = (order) => {
+    const platform = order.origen || order.external_platform || 'Manual';
+    const skuStr = (order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || '').toLowerCase();
+    const nameStr = (order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || '').toLowerCase();
+    const customer = (order.customer_name || '').toLowerCase();
+    const extNo = (order.external_order_number || '').toLowerCase();
+    const tracking = (order.tracking_number || '').toLowerCase();
+    const orderIdLower = order.id.toLowerCase();
+
+    const matchesSearch = !searchText || 
+      orderIdLower.includes(searchText) || 
+      extNo.includes(searchText) || 
+      skuStr.includes(searchText) || 
+      nameStr.includes(searchText) || 
+      customer.includes(searchText) ||
+      tracking.includes(searchText);
+
+    const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
+    const matchesStatus = !selectedStatus || order.status === selectedStatus;
+
+    return matchesSearch && matchesOrigen && matchesStatus;
+  };
+
+  // 1. Obtener conteo de pestañas
+  const getTabCount = (tabName) => {
+    return orders.filter(o => {
+      const matchBase = matchesBaseFilters(o);
+      const matchTab = tabName === 'Todos' || (o.estado_wms || 'En procesamiento') === tabName;
+      return matchBase && matchTab;
+    }).length;
+  };
+
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const tabsHtml = tabs.map(tab => {
+    const isActive = window.clientWmsActiveTab === tab;
+    const count = getTabCount(tab);
+    let badgeBg = 'var(--color-bg)';
+    let badgeColor = 'var(--color-text-muted)';
+    if (tab === 'Incidencia') {
+      badgeBg = '#fee2e2';
+      badgeColor = '#ef4444';
+    } else if (tab === 'Pickeado' || tab === 'Despachado') {
+      badgeBg = '#dcfce7';
+      badgeColor = '#22c55e';
+    } else if (tab === 'En preparación') {
+      badgeBg = '#fef3c7';
+      badgeColor = '#d97706';
+    } else if (tab === 'En procesamiento') {
+      badgeBg = '#e0f2fe';
+      badgeColor = '#0284c7';
+    }
+
+    return `
+      <button onclick="window.setClientWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+        ${tab}
+        <span style="background: ${isActive ? 'rgba(255,255,255,0.2)' : badgeBg}; color: ${isActive ? '#ffffff' : badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
+      </button>
+    `;
+  }).join('');
+  
+  const tabsContainer = document.getElementById('client-wms-tabs-container');
+  if (tabsContainer) {
+    tabsContainer.innerHTML = `
+      <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        ${tabsHtml}
+      </div>
+    `;
+  }
+
+  // 2. Filtrar lista
+  const filtered = orders.filter(o => {
+    const matchBase = matchesBaseFilters(o);
+    const matchTab = window.clientWmsActiveTab === 'Todos' || (o.estado_wms || 'En procesamiento') === window.clientWmsActiveTab;
+    return matchBase && matchTab;
+  });
+
+  // KPIs
+  const totalOrders = filtered.length;
+  const ordersToProcess = filtered.filter(o => (o.estado_wms || 'En procesamiento') === 'En procesamiento').length;
+  const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
+  const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
+
+  document.getElementById('kpi-client-total').textContent = totalOrders;
+  document.getElementById('kpi-client-processing').textContent = ordersToProcess;
+  document.getElementById('kpi-client-in-prep').textContent = ordersInPrep;
+  document.getElementById('kpi-client-sales').textContent = window.formatCLP(totalSales);
+
+  // 3. Paginación
+  const totalResults = filtered.length;
+  const pageSize = window.clientWmsPageSize === 'All' ? totalResults : parseInt(window.clientWmsPageSize, 10);
+  const totalPages = pageSize > 0 ? Math.ceil(totalResults / pageSize) : 1;
+
+  if (window.clientWmsCurrentPage > totalPages) window.clientWmsCurrentPage = totalPages;
+  if (window.clientWmsCurrentPage < 1) window.clientWmsCurrentPage = 1;
+
+  const startIndex = (window.clientWmsCurrentPage - 1) * pageSize;
+  const endIndex = pageSize === totalResults ? totalResults : Math.min(startIndex + pageSize, totalResults);
+  const paginatedOrders = pageSize === totalResults ? filtered : filtered.slice(startIndex, endIndex);
+
+  // 4. Renderizar filas
+  const tbody = document.getElementById('client-orders-tbody');
+  if (!tbody) return;
+
+  if (paginatedOrders.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="11" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          No se encontraron pedidos con los criterios de búsqueda actuales.
+        </td>
+      </tr>
+    `;
+    const pagContainer = document.getElementById('client-wms-pagination-container');
+    if (pagContainer) pagContainer.innerHTML = '';
+    return;
+  }
+
+  let rowsHtml = '';
+  paginatedOrders.forEach(order => {
+    const orderShipments = shipments.filter(s => 
+      s.pedido_referencia === order.id || 
+      (order.external_order_number && s.pedido_referencia === order.external_order_number)
+    );
+
+    const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
+      ? orderShipments[0].created_at 
+      : order.created_at;
+
+    const dateObj = new Date(dateSource);
+    const dateStr = dateObj.toLocaleDateString();
+    
+    // Badge de Estado Origen
+    let badgeColor = 'var(--color-gray)';
+    let badgeTextColor = '#1a1a1a';
+    if (order.status === 'despachado' || order.status === 'entregado' || order.status === 'retirado') {
+      badgeColor = '#d1fae5'; // green
+      badgeTextColor = '#065f46';
+    } else if (order.status === 'en preparación' || order.status === 'preparado' || order.status === 'listo para retiro') {
+      badgeColor = '#fef3c7'; // yellow
+      badgeTextColor = '#92400e';
+    } else if (order.status === 'en tránsito') {
+      badgeColor = '#e0f2fe'; // blue
+      badgeTextColor = '#0369a1';
+    } else if (order.status === 'cancelado' || order.status === 'incidencia') {
+      badgeColor = '#fee2e2'; // red
+      badgeTextColor = '#991b1b';
+    } else if (order.status === 'para procesar') {
+      badgeColor = '#e0e7ff'; // indigo
+      badgeTextColor = '#3730a3';
+    } else if (order.status === 'en espera' || order.status === 'sin stock') {
+      badgeColor = '#f3f4f6'; // gray
+      badgeTextColor = '#374151';
+    }
+
+    // Badge de Estado WMS
+    const wmsStatus = order.estado_wms || 'En procesamiento';
+    let wmsBadgeBg = '#e0f2fe';
+    let wmsBadgeColor = '#0369a1';
+    if (wmsStatus === 'Incidencia') {
+      wmsBadgeBg = '#fee2e2';
+      wmsBadgeColor = '#991b1b';
+    } else if (wmsStatus === 'Pickeado' || wmsStatus === 'Despachado') {
+      wmsBadgeBg = '#d1fae5';
+      wmsBadgeColor = '#065f46';
+    } else if (wmsStatus === 'En preparación') {
+      wmsBadgeBg = '#fef3c7';
+      wmsBadgeColor = '#92400e';
+    }
+
+    const platform = order.origen || order.external_platform || 'Manual';
+    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+    const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+
+    const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
+    const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
+    const totalItems = order.order_items?.reduce((s, i) => s + (i.quantity || 1), 0) || order.cantidad || '-';
+
+    let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+    let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
+    
+    if (order.label_base64) {
+      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+    }
+
+    if (orderShipments.length > 0) {
+      const shipment = orderShipments[0];
+      if (shipment.tracking) {
+        const courierName = shipment.courier || 'Seguimiento';
+        trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
+          ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
+          : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
+      }
+    }
+
+    const firstShipment = orderShipments[0] || null;
+    const rawTipo = firstShipment?.servicio_tipo_envio || order.shipping_type || '';
+    let tipoIcon = 'ri-truck-line';
+    let tipoLabel = rawTipo || '-';
+    if (/flex/i.test(rawTipo))          { tipoIcon = 'ri-flashlight-line';   tipoLabel = 'Flex'; }
+    else if (/centro.*env/i.test(rawTipo) || /fulfillment/i.test(rawTipo)) { tipoIcon = 'ri-building-2-line';  tipoLabel = 'Centro Envíos'; }
+    else if (/same.?day/i.test(rawTipo) || /24/i.test(rawTipo))            { tipoIcon = 'ri-time-line';         tipoLabel = 'Same Day'; }
+    else if (/retiro/i.test(rawTipo) || /pickup/i.test(rawTipo))           { tipoIcon = 'ri-store-line';        tipoLabel = 'Retiro'; }
+    else if (/normal/i.test(rawTipo))   { tipoIcon = 'ri-ship-line';         tipoLabel = 'Normal'; }
+    const tipoHtml = rawTipo
+      ? `<span style="display:inline-flex; align-items:center; gap:0.3rem; font-size:0.75rem; color:var(--color-text-main);"><i class="${tipoIcon}" style="color:var(--color-primary);"></i>${tipoLabel}</span>`
+      : `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
+
+    const createdAt = new Date(order.created_at);
+    const slaRef = firstShipment?.promised_date || firstShipment?.date_closed || null;
+    let slaHtml = `<span style="color:var(--color-text-muted); font-size:0.78rem;">-</span>`;
+    if (slaRef) {
+      const slaDate = new Date(slaRef);
+      const diffDays = Math.round((slaDate - createdAt) / (1000 * 60 * 60 * 24));
+      const slaColor = diffDays <= 1 ? '#059669' : (diffDays <= 3 ? '#d97706' : '#dc2626');
+      slaHtml = `<span style="font-size:0.78rem; font-weight:600; color:${slaColor};">${diffDays}d</span>`;
+    } else if (firstShipment?.servicio_tipo_envio) {
+      const slaMap = { flex:'<1d', 'same day':'<1d', '24':'1d', normal:'3-5d', fulfillment:'2d' };
+      const match = Object.keys(slaMap).find(k => rawTipo.toLowerCase().includes(k));
+      slaHtml = match ? `<span style="font-size:0.75rem; color:var(--color-text-muted);">${slaMap[match]}</span>` : slaHtml;
+    }
+
+    // Generar ítems detallados para el desplegable
+    let itemsRowsHtml = '';
+    if (order.order_items && order.order_items.length > 0) {
+      order.order_items.forEach(oi => {
+        const pSku = oi.products?.sku || oi.sku || 'Sin SKU';
+        const pName = oi.products?.name || oi.item_name || 'Sin Nombre';
+        const pQty = Number(oi.quantity) || 1;
+        const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
+        const subtotal = pQty * pPrice;
+        itemsRowsHtml += `
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${pSku}</td>
+            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pName}</td>
+            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+            <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+            <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
+          </tr>
+        `;
+      });
+    } else {
+      const pQty = Number(order.cantidad) || 1;
+      const pPrice = pQty > 0 ? (Number(order.total_value) / pQty) : 0;
+      itemsRowsHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
+          <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
+          <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
+          <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
+        </tr>
+      `;
+    }
+
+    // Datos JSON Crudos
+    let rawData = null;
+    if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
+    else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
+    else if (order.raw_meli_data) rawData = order.raw_meli_data;
+    else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
+    else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
+    else if (order.raw_paris_data) rawData = order.raw_paris_data;
+
+    let rawJsonBtnHtml = '';
+    if (rawData) {
+      rawJsonBtnHtml = `
+        <button onclick="window.toggleClientRawOrderJson('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 1rem; width: 100%; justify-content: center; font-weight: 600;">
+          <i class="ri-code-s-slash-line"></i> Ver JSON de Integración
+        </button>
+        <div id="raw-json-${order.id}" style="display: none; margin-top: 0.5rem; text-align: left; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; white-space: pre-wrap; word-break: break-all;">
+          ${JSON.stringify(rawData, null, 2)}
         </div>
-      `).join('')
-    : `<div style="padding:1.25rem; color:var(--color-text-muted); font-size:0.85rem; text-align:center;">Sin ítems registrados.</div>`;
+      `;
+    }
 
-  // Tracking HTML
-  const trackingSection = orderShipments.length > 0 ? orderShipments.map(s => `
-    <div class="detail-info-row">
-      <span class="detail-info-label">Courier</span>
-      <span class="detail-info-value">${s.courier || '-'}</span>
-    </div>
-    <div class="detail-info-row">
-      <span class="detail-info-label">Tracking</span>
-      <span class="detail-info-value">
-        ${s.tracking
-          ? (s.tracking_url && s.tracking_url !== 'N/A'
-              ? `<a href="${s.tracking_url}" target="_blank" style="color:var(--color-primary); font-weight:600; display:inline-flex; align-items:center; gap:0.25rem;"><i class="ri-external-link-line"></i> ${s.tracking}</a>`
-              : `<span style="font-weight:600;">${s.tracking}</span>`)
-          : '-'}
-      </span>
-    </div>
-    <div class="detail-info-row">
-      <span class="detail-info-label">Estado despacho</span>
-      <span class="detail-info-value"><span style="background:rgba(99,102,241,0.12); color:var(--color-accent); padding:0.2rem 0.6rem; border-radius:99px; font-size:0.75rem; font-weight:700;">${s.status || '-'}</span></span>
-    </div>
-  `).join('<div style="height:0.5rem;"></div>') : `
-    <div style="padding:1rem 1.25rem; color:var(--color-text-muted); font-size:0.82rem;">Sin despachos asociados.</div>
-  `;
+    rowsHtml += `
+      <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
+        <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleClientOrderRow('${order.id}')">
+          <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
+        </td>
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.2rem;">
+            <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
+            ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
+          </div>
+        </td>
+        <td>${originHtml}</td>
+        <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem;">
+          <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
+        </td>
+        <td style="text-align:center;">
+          <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
+          <span style="display:block; font-size:0.68rem; color:var(--color-text-muted);">artículo${totalItems !== 1 ? 's' : ''}</span>
+        </td>
+        <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
+          ${window.formatCLP(order.total_value)}
+        </td>
+        <td>${tipoHtml}</td>
+        <td>${slaHtml}</td>
+        <td>${labelHtml}</td>
+        <td>
+          <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
+        </td>
+        <td>
+          <span style="background-color:${wmsBadgeBg}; color:${wmsBadgeColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${wmsStatus}</span>
+        </td>
+      </tr>
+      
+      <!-- Fila Desplegable de Detalles -->
+      <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
+        <td colspan="11" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+          <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+            
+            <!-- Col 1: Datos del Cliente y Despacho -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-user-line"></i> Datos de Despacho
+              </h4>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${order.customer_name || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${order.customer_email || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${order.customer_phone || 'No registrado'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
+                <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
+                ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
+              </p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || '-'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
+              <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+            </div>
 
-  body.innerHTML = `
-    <!-- Header info del pedido -->
-    <div style="display:flex; align-items:center; justify-content:space-between; padding:0.75rem 0; gap:1rem; flex-wrap:wrap;">
-      <div>
-        <div style="font-family:monospace; font-size:1rem; font-weight:700; color:var(--color-text-main);">${order.external_order_number || order.id.split('-')[0]}</div>
-        ${order.external_order_number ? `<div style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</div>` : ''}
-      </div>
-      <span style="background-color:${getBadgeColor(order.status).bg}; color:${getBadgeColor(order.status).text}; padding:0.25rem 0.75rem; border-radius:99px; font-size:0.75rem; font-weight:700;">${order.status}</span>
-    </div>
+            <!-- Col 2: Desglose de Productos -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+              </h4>
+              <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                  <thead>
+                    <tr style="border-bottom: 1px solid var(--color-border); text-align: left; color: var(--color-text-muted);">
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemsRowsHtml}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-    <!-- Sección: Info general -->
-    <div class="shipment-detail-section">
-      <h4 class="shipment-detail-title"><i class="ri-file-list-3-line"></i> Información General</h4>
-      <div class="detail-info-row">
-        <span class="detail-info-label">Origen</span>
-        <span class="detail-info-value"><span style="background-color:${platformColor}20; color:${platformColor}; padding:0.15rem 0.6rem; border-radius:4px; font-size:0.75rem; font-weight:700;">${platform}</span></span>
-      </div>
-      <div class="detail-info-row">
-        <span class="detail-info-label">Fecha creación</span>
-        <span class="detail-info-value">${dateStr}</span>
-      </div>
-      <div class="detail-info-row">
-        <span class="detail-info-label">Comercio</span>
-        <span class="detail-info-value">${order.comercio || '-'}</span>
-      </div>
-      <div class="detail-info-row">
-        <span class="detail-info-label">Valor Total</span>
-        <span class="detail-info-value" style="font-weight: 700; color: var(--color-text-main);">${window.formatCLP(order.total_value)}</span>
-      </div>
-      ${order.notes ? `<div class="detail-info-row"><span class="detail-info-label">Notas</span><span class="detail-info-value" style="font-style:italic;">${order.notes}</span></div>` : ''}
-    </div>
+            <!-- Col 3: Integración y Logística -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-truck-line"></i> Logística e Integración
+              </h4>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || '-'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
+              ${rawJsonBtnHtml}
+            </div>
 
-    <!-- Sección: Despacho -->
-    <div class="shipment-detail-section">
-      <h4 class="shipment-detail-title"><i class="ri-truck-line"></i> Despacho</h4>
-      ${trackingSection}
-    </div>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
 
-    <!-- Sección: Ítems -->
-    <div class="shipment-detail-section">
-      <h4 class="shipment-detail-title"><i class="ri-shopping-cart-line"></i> Ítems del Pedido</h4>
-      ${itemsHtml}
-      <div style="padding:0.6rem 1.25rem; background:var(--color-surface-hover); border-top:1px solid var(--color-border); display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:0.78rem; color:var(--color-text-muted);">Total ítems</span>
-        <span style="font-weight:700; font-size:0.9rem;">${order.order_items?.reduce((s,i) => s + (i.quantity||1), 0) || '-'} unidades</span>
+  tbody.innerHTML = rowsHtml;
+
+  // 5. Renderizar paginación
+  const pagContainer = document.getElementById('client-wms-pagination-container');
+  if (pagContainer) {
+    const isFirstPage = window.clientWmsCurrentPage === 1;
+    const isLastPage = window.clientWmsCurrentPage === totalPages;
+    const rangeStart = startIndex + 1;
+    const rangeEnd = endIndex;
+
+    pagContainer.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; color: var(--color-text-muted);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span>Mostrar</span>
+          <select id="client-wms-page-size" onchange="window.setClientWmsPageSize(this.value)" class="form-input" style="width: auto; padding: 0.25rem; font-size: 0.8rem; height: auto; margin: 0; display: inline-block;">
+            <option value="10" ${window.clientWmsPageSize == 10 ? 'selected' : ''}>10</option>
+            <option value="25" ${window.clientWmsPageSize == 25 ? 'selected' : ''}>25</option>
+            <option value="50" ${window.clientWmsPageSize == 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${window.clientWmsPageSize == 100 ? 'selected' : ''}>100</option>
+            <option value="All" ${window.clientWmsPageSize === 'All' ? 'selected' : ''}>Todos</option>
+          </select>
+          <span>resultados por página</span>
+        </div>
+        
+        <div>
+          Mostrando <strong>${rangeStart}-${rangeEnd}</strong> de <strong>${totalResults}</strong> resultados
+        </div>
+
+        <div style="display: flex; gap: 0.25rem;">
+          <button onclick="window.setClientWmsPage(1)" ${isFirstPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isFirstPage ? 'not-allowed' : 'pointer'}; opacity: ${isFirstPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-left-double-line"></i></button>
+          <button onclick="window.setClientWmsPage(${window.clientWmsCurrentPage - 1})" ${isFirstPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isFirstPage ? 'not-allowed' : 'pointer'}; opacity: ${isFirstPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-left-s-line"></i> Anterior</button>
+          
+          <span style="padding: 0.25rem 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-weight: 600; color: var(--color-text-main); font-size: 0.75rem; display: inline-flex; align-items: center;">
+            Pág. ${window.clientWmsCurrentPage} de ${totalPages}
+          </span>
+
+          <button onclick="window.setClientWmsPage(${window.clientWmsCurrentPage + 1})" ${isLastPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isLastPage ? 'not-allowed' : 'pointer'}; opacity: ${isLastPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);">Siguiente <i class="ri-arrow-right-s-line"></i></button>
+          <button onclick="window.setClientWmsPage(${totalPages})" ${isLastPage ? 'disabled' : ''} class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); cursor: ${isLastPage ? 'not-allowed' : 'pointer'}; opacity: ${isLastPage ? 0.5 : 1}; background: transparent; border-color: var(--color-border); color: var(--color-text-main);"><i class="ri-arrow-right-double-line"></i></button>
+        </div>
       </div>
-    </div>
-  `;
-}
+    `;
+  }
+};
+
+window.setClientWmsTab = function(tab) {
+  window.clientWmsActiveTab = tab;
+  window.clientWmsCurrentPage = 1;
+  applyClientWmsFiltersAndRender();
+};
+
+window.setClientWmsPageSize = function(size) {
+  window.clientWmsPageSize = size;
+  window.clientWmsCurrentPage = 1;
+  applyClientWmsFiltersAndRender();
+};
+
+window.setClientWmsPage = function(page) {
+  window.clientWmsCurrentPage = page;
+  applyClientWmsFiltersAndRender();
+};
+
+window.toggleClientOrderRow = function(orderId) {
+  const row = document.getElementById(`row-${orderId}`);
+  const detailsRow = document.getElementById(`details-${orderId}`);
+  const chevron = document.getElementById(`chevron-${orderId}`);
+  if (!row || !detailsRow || !chevron) return;
+
+  const isExpanded = row.classList.contains('expanded');
+  if (isExpanded) {
+    row.classList.remove('expanded');
+    detailsRow.style.display = 'none';
+    chevron.style.transform = 'rotate(0deg)';
+  } else {
+    row.classList.add('expanded');
+    detailsRow.style.display = 'table-row';
+    chevron.style.transform = 'rotate(90deg)';
+  }
+};
+
+window.toggleClientRawOrderJson = function(orderId) {
+  const container = document.getElementById(`raw-json-${orderId}`);
+  if (!container) return;
+  const isHidden = container.style.display === 'none';
+  container.style.display = isHidden ? 'block' : 'none';
+};
 
 function getBadgeColor(status) {
   if (['despachado','entregado','retirado'].includes(status)) return { bg:'#d1fae5', text:'#065f46' };
@@ -7960,8 +8315,33 @@ async function loadInboxData() {
   }
 }
 
+// Ocultar cabeceras de categorías vacías en el menú
+function updateCategoryHeadersVisibility() {
+  const listItems = Array.from(document.querySelectorAll('.sidebar-nav > ul > li'));
+  let currentHeader = null;
+  let hasVisibleItems = false;
+  
+  listItems.forEach(li => {
+    if (li.classList.contains('sidebar-category-header')) {
+      if (currentHeader && !hasVisibleItems) {
+        currentHeader.style.display = 'none';
+      }
+      currentHeader = li;
+      hasVisibleItems = false;
+    } else {
+      if (li.style.display !== 'none') {
+        hasVisibleItems = true;
+      }
+    }
+  });
+  
+  if (currentHeader && !hasVisibleItems) {
+    currentHeader.style.display = 'none';
+  }
+}
+
 // ==========================================
-// M├│dulo de Documentaci├│n de Servicio (Cliente)
+// Módulo de Documentación de Servicio (Cliente)
 // ==========================================
 
 function injectDocsStyles() {

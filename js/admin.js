@@ -128,6 +128,136 @@ async function init() {
     // Set user info
     const user = session.user;
     if (userEmailSpan) {
+import supabase from './supabase.js';
+import { renderTicketsAdmin } from './tickets.js';
+
+
+// Función global para descargar archivos en PDF codificados en Base64
+window.downloadBase64Pdf = function(base64, filename) {
+  try {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error('Error al descargar el PDF en Base64:', err);
+    alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
+  }
+};
+
+// Global function to toggle table action menus
+window.toggleTableActionMenu = function(event, btn) {
+  event.stopPropagation();
+  // Close any other open menus first
+  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
+    if (menu !== btn.nextElementSibling) {
+      menu.classList.remove('show');
+    }
+  });
+  // Toggle the clicked menu
+  btn.nextElementSibling.classList.toggle('show');
+};
+
+// Close all table action menus when clicking anywhere else
+document.addEventListener('click', function() {
+  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
+    menu.classList.remove('show');
+  });
+});
+
+// Formateador de moneda en pesos chilenos (CLP)
+window.formatCLP = function(value) {
+  if (value === null || value === undefined || isNaN(value) || value === '') {
+    return '-';
+  }
+  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
+};
+
+// Capturador de errores global para depuración en tiempo real
+window.onerror = function (message, source, lineno, colno, error) {
+  alert(`Error detectado en admin.js:\n${message}\n\nArchivo: ${source}\nLínea: ${lineno}:${colno}`);
+  return false;
+};
+window.onunhandledrejection = function (event) {
+  alert(`Error de Promesa no manejada en admin.js:\n${event.reason}`);
+};
+
+console.log('DEBUG: Iniciando js/admin.js...');
+
+function getDisplayStatusName(rawStatus) {
+  if (!rawStatus) return 'Desconocido';
+  const statusLower = rawStatus.trim().toLowerCase();
+  switch (statusLower) {
+    case 'delivered':
+      return 'Entregado';
+    case 'reviewing':
+      return 'Creado';
+    case 'skipped':
+      return 'Reprogramado';
+    default:
+      const clean = rawStatus.replace(/_/g, ' ').trim();
+      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
+  }
+}
+
+async function init() {
+  console.log('DEBUG: Ejecutando función init()...');
+  const userEmailSpan = document.getElementById('user-email');
+  const logoutBtn = document.getElementById('logout-btn');
+  const viewTitle = document.getElementById('view-title');
+  const navItems = document.querySelectorAll('.nav-item');
+
+  try {
+    // Verify authentication & Admin Role
+    console.log('DEBUG: Obteniendo sesión de Supabase...');
+    const { data: { session }, error } = await supabase.auth.getSession();
+
+    if (error) {
+      console.error('DEBUG: Error al obtener sesión:', error);
+    }
+
+    if (!session) {
+      console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
+      window.location.href = 'index.html';
+      return;
+    }
+
+    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
+
+    console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role, company_name, full_name, allowed_modules, comercio')
+      .eq('id', session.user.id)
+      .single();
+    
+    if (profileError) {
+      console.warn('DEBUG: Error al obtener perfil:', profileError);
+    } else {
+      console.log('DEBUG: Perfil encontrado:', profile);
+    }
+    
+    if (!profile || profile.role !== 'admin') {
+      console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
+      alert("Acceso denegado. Se requieren permisos de Administrador.");
+      window.location.href = 'dashboard.html';
+      return;
+    }
+
+    // Set user info
+    const user = session.user;
+    if (userEmailSpan) {
       const displayName = profile?.full_name || user.user_metadata?.full_name || profile?.company_name || user.email;
       userEmailSpan.textContent = `${displayName} (ADMIN)`;
     }
@@ -136,16 +266,47 @@ async function init() {
     if (profile && profile.comercio) {
       checkBillingSuspension(profile.comercio);
     }
+    
+    // Restaurar y configurar el estado colapsado del sidebar
+    const sidebar = document.querySelector('.sidebar');
+    const toggleSidebarBtn = document.getElementById('toggle-sidebar');
+    const toggleIcon = toggleSidebarBtn?.querySelector('i');
+    
+    const isSidebarCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (isSidebarCollapsed && sidebar) {
+      sidebar.classList.add('collapsed');
+      if (toggleSidebarBtn) toggleSidebarBtn.setAttribute('title', 'Expandir menú');
+      if (toggleIcon) toggleIcon.className = 'ri-menu-unfold-line';
+    }
+
+    if (toggleSidebarBtn) {
+      toggleSidebarBtn.addEventListener('click', () => {
+        if (sidebar) {
+          sidebar.classList.toggle('collapsed');
+          const collapsed = sidebar.classList.contains('collapsed');
+          localStorage.setItem('sidebar-collapsed', collapsed ? 'true' : 'false');
+          if (toggleSidebarBtn) {
+            toggleSidebarBtn.setAttribute('title', collapsed ? 'Expandir menú' : 'Contraer menú');
+          }
+          if (toggleIcon) {
+            toggleIcon.className = collapsed ? 'ri-menu-unfold-line' : 'ri-menu-fold-line';
+          }
+        }
+      });
+    }
 
     // Navigation and Filtering
     if (navItems) {
       navItems.forEach(item => {
         item.addEventListener('click', (e) => {
           e.preventDefault();
-          navItems.forEach(n => n.classList.remove('active'));
-          e.target.classList.add('active');
+          const targetItem = e.target.closest('.nav-item');
+          if (!targetItem) return;
 
-          const view = e.target.getAttribute('data-view');
+          navItems.forEach(n => n.classList.remove('active'));
+          targetItem.classList.add('active');
+
+          const view = targetItem.getAttribute('data-view');
           console.log('DEBUG: Navegando a vista administrador:', view);
           
           if (view === 'dashboard') {
@@ -225,6 +386,8 @@ async function init() {
         // Por defecto, si es 'all' todos los ítems de navegación están permitidos
         if (navItems.length > 0) firstVisibleItem = navItems[0];
       }
+      // Ocultar cabeceras de categorías vacías
+      updateCategoryHeadersVisibility();
     }
 
     // Initial View selection based on allowed modules
@@ -275,6 +438,31 @@ async function init() {
 
   } catch (err) {
     console.error('DEBUG: Error crítico durante la inicialización de admin.js:', err);
+  }
+}
+
+// Ocultar cabeceras de categorías vacías en el menú
+function updateCategoryHeadersVisibility() {
+  const listItems = Array.from(document.querySelectorAll('.sidebar-nav > ul > li'));
+  let currentHeader = null;
+  let hasVisibleItems = false;
+  
+  listItems.forEach(li => {
+    if (li.classList.contains('sidebar-category-header')) {
+      if (currentHeader && !hasVisibleItems) {
+        currentHeader.style.display = 'none';
+      }
+      currentHeader = li;
+      hasVisibleItems = false;
+    } else {
+      if (li.style.display !== 'none') {
+        hasVisibleItems = true;
+      }
+    }
+  });
+  
+  if (currentHeader && !hasVisibleItems) {
+    currentHeader.style.display = 'none';
   }
 }
 
