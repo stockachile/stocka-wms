@@ -84,55 +84,99 @@ export async function renderTicketsClient(appContent) {
         </button>
       </div>
 
-      <div class="card" style="margin-bottom: 1.5rem;">
-        <div class="card-body" style="padding: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
-          <div style="flex: 1; min-width: 250px; position: relative;">
-            <input type="text" id="search-ticket-subject" class="form-input" placeholder="Buscar por asunto..." style="padding-left: 2.25rem;">
-            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-          </div>
-          <div style="width: 180px;">
-            <select id="filter-ticket-status" class="form-input">
-              <option value="todos">Todos los Estados</option>
-              <option value="abierto">Abiertos</option>
-              <option value="en_proceso">En Proceso</option>
-              <option value="resuelto">Resueltos</option>
-              <option value="cerrado">Cerrados</option>
-            </select>
-          </div>
-          <div style="width: 180px;">
-            <select id="filter-ticket-category" class="form-input">
-              <option value="todos">Todas las Categorías</option>
-              <option value="facturacion">Facturación y Cobros</option>
-              <option value="incidencia">Incidencias de Bodega</option>
-              <option value="pedidos">Consultas sobre Pedidos</option>
-              <option value="otros">Otros</option>
-            </select>
+      <div class="ticket-layout-split">
+        <!-- Lado izquierdo: Tarjeta KAM -->
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <div class="card" style="height: fit-content; text-align: center; padding: 1.5rem 1.25rem;">
+            <div class="card-body" style="padding: 0;">
+              <div style="width: 60px; height: 60px; border-radius: 50%; background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: 700; margin: 0 auto 0.75rem; box-shadow: var(--shadow-glow);">
+                FC
+              </div>
+              <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 0.15rem; color: var(--color-text-main);">Fernanda Castro</h3>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Ejecutiva KAM</p>
+              
+              <hr style="border: 0; border-top: 1px solid var(--color-border); margin-bottom: 1rem;">
+              
+              <div style="text-align: left; display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.25rem;">
+                <a href="mailto:gestion@stocka.cl" class="kam-link" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-main); text-decoration: none; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background-color: var(--color-bg); transition: var(--transition-theme);">
+                  <i class="ri-mail-line" style="font-size: 1.1rem; color: var(--color-primary);"></i>
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">gestion@stocka.cl</span>
+                </a>
+                <a href="https://wa.me/56981354550" target="_blank" class="kam-link" style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-main); text-decoration: none; padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background-color: var(--color-bg); transition: var(--transition-theme);">
+                  <i class="ri-whatsapp-line" style="font-size: 1.1rem; color: var(--color-success);"></i>
+                  <span style="flex: 1;">+56 9 8135 4550</span>
+                </a>
+              </div>
+              
+              <div style="display: flex; gap: 0.5rem;">
+                <a href="https://wa.me/56981354550" target="_blank" class="btn btn-primary btn-sm" style="flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-size: 0.75rem; padding: 0.5rem;">
+                  <i class="ri-message-3-line"></i> WhatsApp
+                </a>
+                <a href="tel:+56981354550" class="btn btn-outline btn-sm" style="padding: 0.5rem; min-width: auto; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;" title="Llamar">
+                  <i class="ri-phone-line"></i>
+                </a>
+              </div>
+              
+              <p style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 1rem; line-height: 1.35; text-align: left;">
+                <i class="ri-information-line" style="color: var(--color-primary);"></i> Contacta a tu KAM para consultas comerciales, tarifas y negociaciones especiales.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="card">
-        <div class="card-body" style="padding: 0;">
-          <table class="data-table" style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr>
-                <th>Asunto</th>
-                <th>Categoría</th>
-                <th style="text-align: center;">Prioridad</th>
-                <th style="text-align: center;">Estado</th>
-                <th>Fecha de Creación</th>
-                <th>Última Actividad</th>
-                <th style="text-align: right;">Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="tickets-table-body">
-              <tr>
-                <td colspan="7" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-                  <i class="ri-loader-4-line spin" style="font-size: 2rem;"></i><br>Cargando casos de soporte...
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Lado derecho: Filtros y Tabla -->
+        <div>
+          <div class="card" style="margin-bottom: 1.5rem;">
+            <div class="card-body" style="padding: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: center;">
+              <div style="flex: 1; min-width: 200px; position: relative;">
+                <input type="text" id="search-ticket-subject" class="form-input" placeholder="Buscar por asunto..." style="padding-left: 2.25rem;">
+                <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              </div>
+              <div style="width: 160px;">
+                <select id="filter-ticket-status" class="form-input">
+                  <option value="todos">Todos los Estados</option>
+                  <option value="abierto">Abiertos</option>
+                  <option value="en_proceso">En Proceso</option>
+                  <option value="resuelto">Resueltos</option>
+                  <option value="cerrado">Cerrados</option>
+                </select>
+              </div>
+              <div style="width: 160px;">
+                <select id="filter-ticket-category" class="form-input">
+                  <option value="todos">Todas las Categorías</option>
+                  <option value="facturacion">Facturación y Cobros</option>
+                  <option value="incidencia">Incidencias de Bodega</option>
+                  <option value="pedidos">Consultas sobre Pedidos</option>
+                  <option value="otros">Otros</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse;">
+                <thead>
+                  <tr>
+                    <th>Asunto</th>
+                    <th>Categoría</th>
+                    <th style="text-align: center;">Prioridad</th>
+                    <th style="text-align: center;">Estado</th>
+                    <th>Fecha de Creación</th>
+                    <th>Última Actividad</th>
+                    <th style="text-align: right;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="tickets-table-body">
+                  <tr>
+                    <td colspan="7" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+                      <i class="ri-loader-4-line spin" style="font-size: 2rem;"></i><br>Cargando casos de soporte...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     `;

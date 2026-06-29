@@ -1689,3 +1689,11 @@ html[data-theme="dark"] .stat-card-purple { background-color: rgba(192, 132, 252
   box-shadow: var(--shadow-sm);
 }
 
+/* KAM Contact card links */
+.kam-link:hover {
+  border-color: var(--color-primary) !important;
+  background-color: var(--color-surface-hover) !important;
+  box-shadow: var(--shadow-sm);
+  color: var(--color-primary) !important;
+}
+
