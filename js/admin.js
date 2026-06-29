@@ -1472,26 +1472,28 @@ async function renderIntegrations() {
     </div>
 
     <!-- TAB: Equivalencias SKU -->
-    <div id="tab-sku-mappings" class="integration-tab-pane" style="display: none;">
-      <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-        <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Seleccionar Cliente (Comercio)</label>
-        <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
+    <div id="tab-sku-mappings" class="integration-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+      <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+        <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;"><i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)</label>
+        <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
           <option value="">-- Seleccione un Cliente --</option>
         </select>
       </div>
 
       <div id="eq-admin-workspace" style="display: none;">
         <!-- Configuración de Plataforma Principal -->
-        <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 1.5rem;">
-          <div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-            <div style="flex: 1; min-width: 250px;">
-              <h4 style="margin: 0 0 0.25rem 0; font-size: 1.1rem; color: var(--color-text-main);">Plataforma Principal de Ventas</h4>
-              <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">
+        <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+          <div class="card-header" style="background: linear-gradient(90deg, rgba(37,99,235,0.05) 0%, rgba(37,99,235,0) 100%); padding: 1.5rem 2rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Plataforma Principal de Ventas
+              </h4>
+              <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
                 Establece la plataforma de donde proviene tu catálogo maestro de productos.
               </p>
             </div>
             <div style="display: flex; align-items: center; gap: 1rem;">
-              <select id="eq-main-platform-select" class="form-input" style="width: 200px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); margin:0;">
+              <select id="eq-main-platform-select" class="form-input" style="min-width: 200px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
                 <option value="">Ninguna (Usar WMS)</option>
                 <option value="Shopify">Shopify</option>
                 <option value="MercadoLibre">MercadoLibre</option>
@@ -1499,39 +1501,61 @@ async function renderIntegrations() {
                 <option value="Paris">París</option>
                 <option value="WooCommerce">WooCommerce</option>
               </select>
-              <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; margin: 0; padding: 0.5rem 1rem; font-size: 0.875rem;">
+              <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; transition: all 0.2s;">
                 <i class="ri-save-line"></i> Guardar
               </button>
             </div>
           </div>
         </div>
 
+        <!-- Tarjeta de Instrucciones y Descarga de Plantilla -->
+        <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+            <i class="ri-information-line"></i> Instrucciones de Importación Masiva
+          </h4>
+          <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
+            Sube una planilla Excel o CSV para cargar equivalencias de SKU de forma masiva para el cliente seleccionado. Las columnas requeridas son:
+            <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce o Todas).
+            <br><strong>• SKU Plataforma:</strong> El SKU externo de la plataforma de ventas.
+            <br><strong>• SKU Master:</strong> El SKU maestro de tu catálogo WMS (el producto físico).
+          </p>
+          <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
+          </button>
+        </div>
+
         <!-- Matriz / Grid Principal -->
-        <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 1.5rem;">
-          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+          <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
-              <h3 style="margin: 0; font-size: 1.25rem;" id="eq-matrix-title">Matriz de Equivalencias</h3>
-              <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Asigna los SKUs equivalentes para tus plataformas de venta secundarias.</p>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;" id="eq-matrix-title">
+                <i class="ri-table-2" style="color: var(--color-primary);"></i> Matriz de Equivalencias
+              </h3>
+              <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asigna los SKUs equivalentes para tus plataformas de venta secundarias.</p>
             </div>
             <div style="display: flex; gap: 1rem; align-items: center;">
-              <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar producto..." style="max-width: 220px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; font-size: 0.85rem; margin:0;">
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar producto..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s;">
+              </div>
               <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-              <label for="eq-matrix-import-excel" class="btn btn-outline" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; border-color: var(--color-border); color: var(--color-text-main); margin:0; padding: 0.4rem 0.8rem; font-size: 0.85rem;">
-                <i class="ri-file-excel-2-line" style="color: #10b981;"></i> Importar Planilla
+              <label for="eq-matrix-import-excel" class="btn btn-outline" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); border-color: var(--color-border); background: var(--color-bg); color: var(--color-text-main); padding: 0.5rem 1rem; font-weight: 500; transition: all 0.2s;">
+                <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Importar Planilla
               </label>
             </div>
           </div>
           <div class="card-body" style="padding: 0; overflow-x: auto;">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 800px;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
               <thead id="eq-matrix-thead">
-                <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-                  <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">Producto (Principal)</th>
-                  <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU Principal</th>
+                <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                  <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Producto (Principal)</th>
+                  <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">SKU Principal</th>
                 </tr>
               </thead>
               <tbody id="eq-matrix-tbody">
                 <tr>
-                  <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+                  <td colspan="4" style="text-align: center; padding: 3rem; color: var(--color-text-muted); font-size: 0.95rem;">
+                    <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; color: var(--color-primary);"></i>
                     Cargando matriz...
                   </td>
                 </tr>
@@ -1541,21 +1565,25 @@ async function renderIntegrations() {
         </div>
 
         <!-- Sección de Chequeo de Consistencia (Errores / Advertencias) -->
-        <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.2); box-shadow: var(--shadow-md); margin:0;">
-          <div class="card-header" style="background-color: rgba(239, 68, 68, 0.05); border-bottom: 1px solid rgba(239, 68, 68, 0.1); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 0; font-size: 1.15rem; color: #b91c1c; display: flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-error-warning-line"></i> Chequeo de Consistencia de Canales Secundarios
-            </h3>
-            <button id="btn-run-consistency-check" class="btn btn-outline" style="border-color: #ef4444; color: #ef4444; margin:0; padding: 0.35rem 0.75rem; font-size: 0.85rem;">
+        <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: var(--shadow-sm); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(239, 68, 68, 0.02) 0%, rgba(239, 68, 68, 0.05) 100%); overflow: hidden; margin-bottom: 1.5rem;">
+          <div class="card-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.1); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--color-danger); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-error-warning-line"></i> Chequeo de Consistencia de Canales Secundarios
+              </h3>
+              <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
+                Valida que los productos que no se encuentran en la plataforma principal tengan exactamente el mismo SKU asignado en todas las plataformas secundarias de venta.
+              </p>
+            </div>
+            <button id="btn-run-consistency-check" class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.5rem; font-weight: 500; transition: all 0.2s;">
               <i class="ri-refresh-line"></i> Validar SKUs
             </button>
           </div>
-          <div class="card-body" style="padding: 1.5rem;">
-            <p style="margin: 0 0 1rem 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
-              Valida que los productos que no se encuentran en la plataforma principal tengan exactamente el mismo SKU asignado en todas las plataformas secundarias de venta.
-            </p>
-            <div id="eq-consistency-results" style="font-size: 0.9rem;">
-              <span style="color: var(--color-text-muted);">Haz clic en "Validar SKUs" para iniciar el análisis.</span>
+          <div class="card-body" style="padding: 1.5rem 2rem;">
+            <div id="eq-consistency-results" style="font-size: 0.9rem; padding: 1rem; border-radius: var(--radius-md); background: var(--color-surface); border: 1px dashed var(--color-border);">
+              <span style="color: var(--color-text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-information-line"></i> Haz clic en "Validar SKUs" para iniciar el análisis.
+              </span>
             </div>
           </div>
         </div>
@@ -1942,6 +1970,27 @@ function renderAdminMatrixRows(products, secondaryPlatforms, mappingsMap) {
 }
 
 function setupAdminSkuMappingsListeners() {
+  // 0. Descargar plantilla
+  const btnDownload = document.getElementById('btn-download-sku-template');
+  if (btnDownload) {
+    const newBtnDownload = btnDownload.cloneNode(true);
+    btnDownload.parentNode.replaceChild(newBtnDownload, btnDownload);
+    newBtnDownload.addEventListener('click', () => {
+      const headers = [['Plataforma', 'SKU Plataforma', 'SKU Master']];
+      const sampleData = [
+        ['Shopify', 'poleraazulxl', 'POL-AZ-XL'],
+        ['MercadoLibre', '12334456', 'POL-AZ-XL'],
+        ['Falabella', 'FAL-POLERA-AZUL', 'POL-AZ-XL'],
+        ['Todas', 'poleraazul-general', 'POL-AZ-XL']
+      ];
+      const wsData = headers.concat(sampleData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Equivalencias');
+      XLSX.writeFile(wb, 'plantilla_equivalencias_sku.xlsx');
+    });
+  }
+
   const btnSaveMain = document.getElementById('btn-save-main-platform');
   const mainSelect = document.getElementById('eq-main-platform-select');
   if (btnSaveMain && mainSelect) {
