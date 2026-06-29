@@ -175,4 +175,75 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // ── Forgot Password ──
+
+  const forgotForm = document.getElementById('forgot-form');
+  const forgotEmailInput = document.getElementById('forgot-email');
+  const forgotBtn = document.getElementById('forgot-btn');
+  const toggleToForgot = document.getElementById('toggle-to-forgot');
+  const toggleToLoginFromForgot = document.getElementById('toggle-to-login-from-forgot');
+
+  // Alternar a Forgot Password
+  if (toggleToForgot) {
+    toggleToForgot.addEventListener('click', (e) => {
+      e.preventDefault();
+      alertContainer.innerHTML = '';
+      loginForm.style.display = 'none';
+      registerForm.style.display = 'none';
+      forgotForm.style.display = 'block';
+      forgotForm.classList.add('auth-fade-in');
+      authTitle.textContent = 'Recuperar Contraseña';
+      authSubtitle.textContent = 'Ingresa tu correo y te enviaremos un enlace para restablecer tu contraseña.';
+    });
+  }
+
+  // Alternar de Forgot a Login
+  if (toggleToLoginFromForgot) {
+    toggleToLoginFromForgot.addEventListener('click', (e) => {
+      e.preventDefault();
+      alertContainer.innerHTML = '';
+      forgotForm.style.display = 'none';
+      loginForm.style.display = 'block';
+      loginForm.classList.add('auth-fade-in');
+      authTitle.textContent = 'Bienvenido';
+      authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+    });
+  }
+
+  // Handle Forgot Password
+  if (forgotForm) {
+    forgotForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const email = forgotEmailInput.value.trim();
+
+      if (!email) {
+        showAlert('Por favor, ingresa tu correo electrónico.');
+        return;
+      }
+
+      forgotBtn.disabled = true;
+      forgotBtn.textContent = 'Enviando...';
+
+      try {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/index.html'
+        });
+
+        if (error) throw error;
+
+        showAlert('¡Enlace enviado! Revisa tu bandeja de entrada y sigue las instrucciones.', 'success');
+        forgotForm.reset();
+      } catch (error) {
+        let msg = error.message;
+        if (typeof msg === 'object') msg = JSON.stringify(msg);
+        if (msg === '{}' || msg === '[object Object]') msg = '';
+        showAlert(msg || 'Error al enviar el enlace. Inténtalo de nuevo.');
+      } finally {
+        forgotBtn.disabled = false;
+        forgotBtn.textContent = 'Enviar enlace de recuperación';
+      }
+    });
+  }
 });
