@@ -68,7 +68,8 @@ serve(async (req) => {
 
     // 4. Parsear el body JSON
     const payload = JSON.parse(rawBody);
-    console.log(`Recibido Webhook: ${topic} para la tienda ${shopDomain} (Order: ${payload.name})`);
+    const identifier = payload.name || payload.title || payload.id || "N/A";
+    console.log(`Recibido Webhook: ${topic} para la tienda ${shopDomain} (ID/Ref: ${identifier})`);
 
     // 5. Lógica según el Topic
     if (topic === "orders/create") {
@@ -76,6 +77,12 @@ serve(async (req) => {
     } 
     else if (topic === "orders/updated" || topic === "orders/cancelled") {
       await handleOrderUpdate(merchantId, integration.comercio, payload, topic);
+    }
+    else if (topic === "products/create" || topic === "products/update") {
+      await handleProductSave(merchantId, integration.comercio, payload);
+    }
+    else if (topic === "products/delete") {
+      await handleProductDelete(merchantId, integration.comercio, payload);
     }
 
     return new Response("Webhook processed", { status: 200 });
@@ -389,5 +396,69 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }
     }
     console.log(`Ítems actualizados con éxito para el pedido ${order.name} en estado no crítico.`);
+  }
+}
+
+// ==========================================
+// FUNCIONES DE MANEJO DE PRODUCTOS (REAL-TIME SYNC)
+// ==========================================
+
+async function handleProductSave(merchantId, comercio, product) {
+  console.log(`Guardando variantes del producto ID ${product.id} ("${product.title}") vía Webhook`);
+  const productStatus = product.status || "active";
+
+  for (const variant of product.variants) {
+    // Intentar obtener la imagen asociada a la variante o la primera del producto como fallback
+    let imageUrl = "";
+    if (product.images && product.images.length > 0) {
+      const variantImage = product.images.find((img: any) => img.variant_ids && img.variant_ids.includes(variant.id));
+      imageUrl = variantImage ? variantImage.src : product.images[0].src;
+    }
+
+    const productDataToUpsert = {
+      merchant_id: merchantId,
+      comercio: comercio,
+      sku: variant.sku || variant.id.toString(),
+      name: `${product.title} ${variant.title !== "Default Title" ? "- " + variant.title : ""}`,
+      description: product.body_html || "",
+      barcode: variant.barcode || null,
+      price: variant.price ? parseFloat(variant.price) : 0.0,
+      weight: variant.weight || null,
+      shopify_product_id: product.id.toString(),
+      shopify_variant_id: variant.id.toString(),
+      image_url: imageUrl || null,
+      shopify_stock: variant.inventory_quantity ?? 0,
+      status: productStatus,
+      raw_shopify_data: variant
+    };
+
+    const { error } = await supabase
+      .from("products")
+      .upsert(productDataToUpsert, { onConflict: "comercio,sku" });
+
+    if (error) {
+      console.error(`Error al insertar/actualizar variante de producto SKU ${variant.sku}:`, error);
+    } else {
+      console.log(`Variante SKU ${variant.sku} sincronizada con éxito en tiempo real.`);
+    }
+  }
+}
+
+async function handleProductDelete(merchantId, comercio, payload) {
+  const shopifyProductId = payload.id?.toString();
+  if (!shopifyProductId) return;
+
+  console.log(`Marcando variantes del producto ID ${shopifyProductId} como archivadas (eliminado en Shopify)`);
+  
+  const { error } = await supabase
+    .from("products")
+    .update({ status: "archived" })
+    .eq("merchant_id", merchantId)
+    .eq("shopify_product_id", shopifyProductId);
+
+  if (error) {
+    console.error(`Error archivando variantes para producto ${shopifyProductId}:`, error);
+  } else {
+    console.log(`Variantes archivadas con éxito para el producto ID ${shopifyProductId}.`);
   }
 }

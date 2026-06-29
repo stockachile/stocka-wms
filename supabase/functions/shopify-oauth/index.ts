@@ -289,7 +289,14 @@ async function verifyShopifyHmac(searchParams: URLSearchParams, secret: string):
 
 // Registra los webhooks necesarios vía REST API en Shopify
 async function registerShopifyWebhooks(shop: string, accessToken: string, merchantId: string) {
-  const webhookTopics = ["orders/create", "orders/updated", "orders/cancelled"];
+  const webhookTopics = [
+    "orders/create", 
+    "orders/updated", 
+    "orders/cancelled",
+    "products/create",
+    "products/update",
+    "products/delete"
+  ];
   const webhookTargetUrl = `https://${new URL(supabaseUrl).hostname}/functions/v1/shopify-webhook?merchant_id=${merchantId}`;
 
   for (const topic of webhookTopics) {

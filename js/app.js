@@ -2691,7 +2691,32 @@ async function renderIntegrations() {
             }]);
             if(insErr) throw insErr;
             
-            alert('Integración con MercadoLibre guardada. La sincronización se iniciará en el próximo ciclo.');
+            // Llamar a la Edge Function inmediatamente para intercambiar el código
+            let syncNotice = '';
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/meli-sync', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                  },
+                  body: JSON.stringify({
+                    comercio: window.activeIntegrationCommerce
+                  })
+                });
+                
+                if (response.ok) {
+                  const result = await response.json();
+                  syncNotice = ` y se sincronizaron ${result.count} productos.`;
+                }
+              }
+            } catch (syncErr) {
+              console.warn('Advertencia en la sincronización inicial:', syncErr);
+            }
+
+            alert(`Integración con MercadoLibre guardada con éxito${syncNotice || '. La sincronización se iniciará en el próximo ciclo.'}`);
             renderIntegrations(); // Recargar vista
           } catch(err) {
             console.error(err);
