@@ -1677,6 +1677,7 @@ async function renderIntegrations() {
              alert('Error al desconectar: ' + err.message);
           }
         }
+      });
     }
 
     // JS Tabs Logic for Admin Integrations
