@@ -1206,6 +1206,17 @@ async function renderReassignStock() {
 async function renderManualIn() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
+    <div class="card">
+      <div class="card-header">
+        <h3>Ingreso Manual de Mercancía (En Desarrollo)</h3>
+      </div>
+      <div class="card-body">
+        <p style="color: var(--color-text-muted);">Pronto podrás registrar entradas directas de inventario para tus clientes aquí.</p>
+      </div>
+    </div>
+  `;
+}
+
 async function renderIntegrations() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando integraciones...</p>`;
