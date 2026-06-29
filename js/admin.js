@@ -1246,133 +1246,382 @@ async function renderIntegrations() {
 
     appContent.innerHTML = `
       <div style="margin-bottom: 2rem;">
-        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones del WMS (Administración)</h2>
+        <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Integraciones Ecommerce</h2>
         <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6;">
-          Conecta el WMS STOCKA con plataformas de logística globales. 
-          Sincroniza pedidos de todos los clientes y realiza el seguimiento de entregas en tiempo real.
+          En esta sección puedes conectar WMS STOCKA con tus tiendas en línea y marketplaces. 
+          Al realizar una integración, los <strong>pedidos</strong> que recibas en tu tienda se sincronizarán automáticamente con nuestro WMS para ser procesados y despachados.
         </p>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin-bottom: 2.5rem;">
-        <!-- Left Column: Active/Available Integrations -->
-        <div style="display: flex; flex-direction: column; gap: 2rem;">
-          
-          <!-- Optiroute Card -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-truck-line"></i> Optiroute API</h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasOptiroute ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasOptiroute ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
-                 <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div>
-                      <h4 style="margin: 0; font-size: 1.1rem; color: ${hasOptiroute ? '#10b981' : 'var(--color-text-main)'};">Optiroute Tracking</h4>
-                      <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de estado de despacho global.</p>
-                    </div>
-                 </div>
-                 <div>
-                    ${optirouteStatusText}
-                 </div>
-              </div>
-              
-              <form id="form-optiroute-integration">
-                <div class="form-group" style="margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
-                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" ${hasOptiroute ? 'readonly' : 'required'} style="background-color: ${hasOptiroute ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                </div>
+      ${selectorHtml}
 
-                <!-- Credential Helper (Only if not connected) -->
-                ${!hasOptiroute ? `
-                  <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: var(--color-surface);">
-                    <summary style="font-size: 0.875rem; font-weight: 600; cursor: pointer; color: var(--color-accent);"><i class="ri-key-line"></i> Generar Token usando credenciales</summary>
-                    <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Ingresa las credenciales de tu cuenta Optiroute para obtener el token automáticamente:</p>
-                      <div class="form-group" style="margin: 0;">
-                        <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
-                      </div>
-                      <div class="form-group" style="margin: 0;">
-                        <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
-                      </div>
-                      <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem; width: auto; font-weight: 600; border-color: var(--color-accent); color: var(--color-accent);">Obtener Token</button>
-                      <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.5rem; font-size: 0.8rem; margin: 0;"></div>
-                    </div>
-                  </details>
-                ` : ''}
-                
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${!hasOptiroute ? 
-                    '<button type="submit" class="btn btn-primary" id="btn-save-optiroute" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Optiroute</button>' : 
-                    '<button type="button" class="btn btn-outline" id="btn-disconnect-optiroute" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Optiroute</button>'
-                  }
-                </div>
-              </form>
-            </div>
+      <!-- Tabs Navigation -->
+      <div class="integration-tabs">
+        <button class="integration-tab active" data-tab="tab-summary"><i class="ri-dashboard-line"></i> Resumen</button>
+        <button class="integration-tab" data-tab="tab-shopify"><i class="ri-shopping-bag-3-line"></i> Shopify</button>
+        <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
+        <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
+        <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
+        <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
+      </div>
+
+      <!-- Tab Content Container -->
+      <div class="integration-content">
+
+        <!-- TAB: Resumen -->
+        <div id="tab-summary" class="integration-tab-pane" style="display: block;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+            ${hasShopify ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-3-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Shopify</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + shopUrl + '</span></div></div>' + shopifyStatusText + '</div></div>' : ''}
+            ${hasParis ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">París</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + parisStatusText + '</div></div>' : ''}
+            ${hasFalabella ? '<div class="card" style="border: 1px solid rgba(132, 204, 22, 0.2); background: rgba(132, 204, 22, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #84cc16;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Falabella</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + falabellaUser + '</span></div></div>' + falabellaStatusText + '</div></div>' : ''}
+            ${hasMeli ? '<div class="card" style="border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #f59e0b;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">MercadoLibre</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + meliStatusText + '</div></div>' : ''}
+            ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
+            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
           </div>
-
         </div>
 
-        <!-- Right Column: Manual/Guides -->
-        <div>
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);"><i class="ri-book-read-line" style="color: var(--color-primary);"></i> Guía de Integración Optiroute</h3>
+        <!-- TAB: Shopify -->
+        <div id="tab-shopify" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border:none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-3-line"></i> Shopify Integration</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasShopify ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasShopify ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasShopify ? '#10b981' : 'var(--color-text-main)'};">Shopify Store</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${shopifyStatusText}
+                   </div>
+                </div>
+                <form id="form-shopify-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
+                    <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${shopifyButtonHtml}
+                  </div>
+                </form>
+              </div>
             </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              
-              <div class="tab-content">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1rem;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-shopping-bag-3-line" style="color: var(--color-primary);"></i></span> Guía de Integración Shopify
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
                   <li>
-                    <strong style="color: var(--color-text-main);">¿Qué hace esta integración?</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">WMS STOCKA consultará periódicamente la API de Optiroute para obtener el estado de tránsito y entrega de las rutas de todos los pedidos, actualizando el WMS en tiempo real a nivel global.</p>
+                    <strong style="color: var(--color-text-main);">Inicia la Conexión:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Ingresa la URL de tu tienda Shopify (ej: mitienda.myshopify.com) en el formulario y haz clic en <strong style="color: var(--color-text-main);">Conectar Tienda Shopify</strong>.</p>
                   </li>
                   <li>
-                    <strong style="color: var(--color-text-main);">Obtener Token Automáticamente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Usa la sección desplegable <em>"Generar Token usando credenciales"</em> de la izquierda. Ingresa tu correo y contraseña de Optiroute para obtenerlo de inmediato.</p>
+                    <strong style="color: var(--color-text-main);">Autoriza la Aplicación:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Serás redirigido a tu panel de Shopify. Inicia sesión si es necesario y haz clic en <strong style="color: var(--color-text-main);">Instalar aplicación</strong> para otorgar los permisos de sincronización de pedidos e inventario a WMS STOCKA.</p>
                   </li>
                   <li>
-                    <strong style="color: var(--color-text-main);">Obtener Token Manualmente:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Si prefieres obtener tu token mediante un comando en la consola de tu computador:</p>
-                    <pre style="background: var(--color-bg); padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto; margin-top: 0.5rem; color: var(--color-text-main); border: 1px solid var(--color-border);">curl -X POST https://app.optiroute.cl/api-token-auth/ \\
-  -F "username=tu-correo@empresa.com" \\
-  -F "password=tu-contrasena"</pre>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem;">Copia el valor de 'token' retornado y pégalo arriba.</p>
+                    <strong style="color: var(--color-text-main);">Conexión Exitosa:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez instalada, serás redirigido de vuelta al WMS y tu tienda aparecerá como <strong style="color: var(--color-text-main);">Activa</strong>. Los nuevos pedidos comenzarán a sincronizarse automáticamente.</p>
                   </li>
                 </ol>
               </div>
-
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Sección de Integraciones Activas de Comercios (Clientes) -->
-      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-          <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Integraciones Activas de Comercios</h3>
-        </div>
-        <div class="card-body" style="padding: 1.5rem;">
-          <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0; margin-bottom: 1.5rem;">
-            Listado de los marketplaces y tiendas conectadas por tus clientes en el WMS.
-          </p>
-          <div class="table-responsive">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
-              <thead>
-                <tr>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Cliente / Empresa</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Plataforma</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Usuario / Tienda URL</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Fecha Conexión</th>
-                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml}
-              </tbody>
-            </table>
+        <!-- TAB: Paris -->
+        <div id="tab-paris" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> París Marketplace (Cencosud)</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasParis ? 'rgba(16, 185, 129, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasParis ? 'rgba(16, 185, 129, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasParis ? '#10b981' : 'var(--color-text-main)'};">París Store (Mirakl)</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${parisStatusText}
+                   </div>
+                </div>
+                <form id="form-paris-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de la API (Cencosud)</label>
+                    <input type="text" id="paris-url" class="form-input" placeholder="ej. https://api-developers.ecomm.cencosud.com" value="${parisUrl}" ${hasParis ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasParis || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasParis ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                    <input type="password" id="paris-token" class="form-input" placeholder="Ingresa tu API Key de Cencosud" ${hasParis ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${parisButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración París
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Entrar al Seller Center:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de París (Cencosud) y navega a la sección <strong style="color: var(--color-text-main);">Mi Cuenta &gt; Integraciones</strong> o Ajustes de API.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Habilitar Modo Integrador:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Activa el switch que dice <strong style="color: var(--color-text-main);">"Sí, quiero"</strong> bajo la pregunta <em>¿Quieres operar en Market Place usando un integrador?</em>.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener la API Key:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez activado, copia la <strong style="color: var(--color-text-main);">API Key</strong> generada. Pégala en el formulario de la izquierda.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de París coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    `;
+
+        <!-- TAB: Falabella -->
+        <div id="tab-falabella" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${falabellaStatusText}
+                   </div>
+                </div>
+                <form id="form-falabella-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
+                    <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
+                    <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                    <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${falabellaButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu Seller Center de Falabella (Mirakl) y ve a la sección de configuración de perfil / API Key. Necesitarás tu <strong style="color: var(--color-text-main);">User ID</strong> (email de acceso API) y la <strong style="color: var(--color-text-main);">API Key</strong> correspondiente.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Configurar URL de la API:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">La URL de producción es <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">https://sellercenter-api.falabella.com/</code>. Ingresa esta URL en el campo de la izquierda.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: MercadoLibre -->
+        <div id="tab-meli" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${meliStatusText}
+                   </div>
+                </div>
+                <form id="form-meli-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
+                    <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
+                    <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">Redirect URI</label>
+                    <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
+                    <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
+                    <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${meliButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener Código de Autorización:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                      Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
+                      <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
+                      Inicia sesión, autoriza el acceso y copia el código que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=TG-xxxxx</strong> y pégalo en el formulario de la izquierda.
+                    </p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Migración directa desde Google Sheets (Alternativa):</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                      Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong style="color: var(--color-text-main);">Refresh Token Existente</strong> extraído del Apps Script.
+                    </p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: WooCommerce -->
+        <div id="tab-woo" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-cart-2-line"></i> WooCommerce Integration</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWoo ? 'rgba(150, 88, 138, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWoo ? 'rgba(150, 88, 138, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWoo ? '#96588a' : 'var(--color-text-main)'};">WooCommerce Store</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${wooStatusText}
+                   </div>
+                </div>
+                <form id="form-woo-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de tu tienda WooCommerce</label>
+                    <input type="text" id="woo-url" class="form-input" placeholder="ej. https://mitienda.cl" value="${wooUrl}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Consumer Key</label>
+                    <input type="password" id="woo-key" class="form-input" placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooKey}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWoo ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Consumer Secret</label>
+                    <input type="password" id="woo-secret" class="form-input" placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" value="${wooSecret}" ${hasWoo ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasWoo || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${wooButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-shopping-cart-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración WooCommerce
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Habilitar SSL y Permalinks:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tu sitio tenga habilitado HTTPS y que los enlaces permanentes (Permalinks) no sean del tipo "Simple" en los ajustes de WordPress.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Generar Claves de la API:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel de WordPress, ve a <em>WooCommerce &gt; Ajustes &gt; Avanzado &gt; API REST</em>. Haz clic en <strong style="color: var(--color-text-main);">Añadir clave</strong>.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Asignar Permisos:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Configura el acceso con permisos de <strong style="color: var(--color-text-main);">Lectura y Escritura</strong>. Copia el <em>Consumer Key</em> y el <em>Consumer Secret</em> que se generarán y pégalos en el formulario.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>`;
+      // JS Tabs Logic
+      setTimeout(() => {
+        const tabs = document.querySelectorAll('.integration-tab');
+        const panes = document.querySelectorAll('.integration-tab-pane');
+        tabs.forEach(tab => {
+          tab.addEventListener('click', () => {
+            tabs.forEach(t => t.classList.remove('active'));
+            panes.forEach(p => p.style.display = 'none');
+            tab.classList.add('active');
+            const targetPane = document.getElementById(tab.getAttribute('data-tab'));
+            if (targetPane) {
+              targetPane.style.display = 'block';
+            }
+          });
+        });
+      }, 0);
+
 
     // Optiroute Submit Listener
     if(!hasOptiroute) {

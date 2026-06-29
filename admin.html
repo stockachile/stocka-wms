@@ -17,37 +17,40 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="sidebar-logo">
+        <button id="toggle-sidebar" class="sidebar-toggle" title="Contraer menú">
+          <i class="ri-menu-fold-line"></i>
+        </button>
       </div>
       <nav class="sidebar-nav">
         <ul>
-          <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Dashboard Admin</a></li>
-          <li><a href="#" class="nav-item" data-view="orders_admin"><i class="ri-box-3-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestor de Pedidos</a></li>
-          <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Envíos Consolidados</a></li>
-          <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-loop-right-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reubicar Stock</a></li>
-          <li><a href="#" class="nav-item" data-view="manual_in_admin"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingreso Manual</a></li>
-          <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Ingresos de Stock</a></li>
-          <li><a href="#" class="nav-item" data-view="upload_products_admin"><i class="ri-upload-cloud-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Carga de Planillas</a></li>
-          <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Catálogo</a></li>
-          <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestionar Usuarios</a></li>
-          <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestionar Bodegas</a></li>
-          <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Reglas de Visibilidad</a></li>
-          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Facturación</a></li>
-          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Integraciones</a></li>
-          <li style="margin-top: 1rem;"><a href="#" class="nav-item" data-view="tickets_admin"><i class="ri-customer-service-2-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Gestión de Tickets</a></li>
-          <li style="margin-top: 1rem;">
-            <a href="#" class="nav-item nav-item-has-submenu" onclick="this.nextElementSibling.classList.toggle('active'); return false;">
-              <i class="ri-user-line" style="margin-right: 0.5rem; font-size: 1.25rem;"></i> Mi Perfil <i class="ri-arrow-down-s-line" style="margin-left: auto;"></i>
-            </a>
-            <ul class="sidebar-submenu">
-              <li><a href="#" class="nav-item" data-view="profile"><i class="ri-profile-line" style="margin-right: 0.5rem;"></i> Ver Perfil</a></li>
-              <li><a href="#" class="nav-item" data-view="inbox"><i class="ri-inbox-line" style="margin-right: 0.5rem;"></i> Mi Inbox</a></li>
-            </ul>
-          </li>
+          <li class="sidebar-category-header">Operaciones</li>
+          <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line"></i> <span class="nav-text">Dashboard Admin</span></a></li>
+          <li><a href="#" class="nav-item" data-view="orders_admin"><i class="ri-box-3-line"></i> <span class="nav-text">Gestor de Pedidos</span></a></li>
+          <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line"></i> <span class="nav-text">Envíos Consolidados</span></a></li>
+          <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-loop-right-line"></i> <span class="nav-text">Reubicar Stock</span></a></li>
+          <li><a href="#" class="nav-item" data-view="manual_in_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingreso Manual</span></a></li>
+          <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
+          <li><a href="#" class="nav-item" data-view="upload_products_admin"><i class="ri-upload-cloud-2-line"></i> <span class="nav-text">Carga de Planillas</span></a></li>
+          <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
+          
+          <li class="sidebar-category-header">Gestión y Sistema</li>
+          <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span></a></li>
+          <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line"></i> <span class="nav-text">Gestionar Bodegas</span></a></li>
+          <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line"></i> <span class="nav-text">Reglas de Visibilidad</span></a></li>
+          <li><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
+          <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
+          <li><a href="#" class="nav-item" data-view="tickets_admin"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Gestión de Tickets</span></a></li>
+          <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
+          <li><a href="#" class="nav-item" data-view="profile"><i class="ri-user-line"></i> <span class="nav-text">Mi Perfil</span></a></li>
+          <li><a href="#" class="nav-item" data-view="inbox"><i class="ri-inbox-line"></i> <span class="nav-text">Mi Inbox</span></a></li>
         </ul>
       </nav>
       <div class="sidebar-footer">
-        <button id="logout-btn" class="btn btn-outline" style="width: 100%; border-color: var(--color-gray); color: var(--color-light);">Cerrar Sesión</button>
+        <button id="logout-btn" class="btn btn-outline" style="width: 100%; border-color: var(--color-gray); color: var(--color-light); display: flex; align-items: center; justify-content: center; gap: 0.5rem;" title="Cerrar Sesión">
+          <i class="ri-logout-box-r-line"></i>
+          <span class="nav-text">Cerrar Sesión</span>
+        </button>
       </div>
     </aside>
 
@@ -388,6 +391,173 @@
           <button type="submit" class="btn btn-primary">Guardar Cambios</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal Subir Documento -->
+  <div class="modal-overlay" id="modal-doc-upload">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Subir Documentación de Servicio</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-doc-upload').classList.remove('active')">&times;</button>
+      </div>
+      <form id="form-doc-upload">
+        <div class="modal-body">
+          <div id="modal-doc-upload-alert" class="alert alert-danger" style="display: none; padding: 0.75rem; margin-bottom: 1rem; border-radius: var(--radius-sm);"></div>
+          
+          <div class="form-group">
+            <label class="form-label">Nombre del Documento *</label>
+            <input type="text" id="doc-upload-name" class="form-input" required placeholder="Ej. Manual de Facturación y Cobros">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Descripción</label>
+            <textarea id="doc-upload-desc" class="form-input" rows="2" placeholder="Opcional. Describe brevemente el propósito de este documento..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Carpeta / Categoría *</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <select id="doc-upload-folder-select" class="form-input">
+                <option value="">-- Selecciona Carpeta --</option>
+              </select>
+              <input type="text" id="doc-upload-folder-new" class="form-input" placeholder="O crea nueva carpeta...">
+            </div>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Selecciona una carpeta existente o escribe un nombre nuevo para crear una.</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Origen del Archivo *</label>
+            <div style="display: flex; gap: 1rem; margin-bottom: 0.5rem;">
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-size: 0.85rem;">
+                <input type="radio" name="doc-upload-type" value="upload" checked onchange="window.toggleUploadSourceType('upload')">
+                <span>Subir Archivo Local</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-size: 0.85rem;">
+                <input type="radio" name="doc-upload-type" value="url" onchange="window.toggleUploadSourceType('url')">
+                <span>Enlace / URL Online</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" id="doc-upload-file-group">
+            <label class="form-label">Archivo *</label>
+            <input type="file" id="doc-upload-file" class="form-input" required>
+          </div>
+
+          <div class="form-group" id="doc-upload-url-group" style="display: none;">
+            <label class="form-label">URL del Archivo Online *</label>
+            <input type="url" id="doc-upload-url" class="form-input" placeholder="https://example.com/documento.pdf">
+          </div>
+
+          <div class="form-group" style="margin-top: 1rem;">
+            <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="doc-upload-pinned">
+              <span style="font-size: 0.9rem; font-weight: 500;">Destacar / Fijar este documento</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-doc-upload').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-doc-upload">Subir Archivo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Editar Documento -->
+  <div class="modal-overlay" id="modal-doc-edit">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Editar Documentación de Servicio</h3>
+        <button class="modal-close" onclick="document.getElementById('modal-doc-edit').classList.remove('active')">&times;</button>
+      </div>
+      <form id="form-doc-edit">
+        <input type="hidden" id="doc-edit-id">
+        <input type="hidden" id="doc-edit-old-path">
+        <div class="modal-body">
+          <div id="modal-doc-edit-alert" class="alert alert-danger" style="display: none; padding: 0.75rem; margin-bottom: 1rem; border-radius: var(--radius-sm);"></div>
+          
+          <div class="form-group">
+            <label class="form-label">Nombre del Documento *</label>
+            <input type="text" id="doc-edit-name" class="form-input" required>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Descripción</label>
+            <textarea id="doc-edit-desc" class="form-input" rows="2"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Carpeta / Categoría *</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <select id="doc-edit-folder-select" class="form-input">
+                <option value="">-- Selecciona Carpeta --</option>
+              </select>
+              <input type="text" id="doc-edit-folder-new" class="form-input" placeholder="O crea nueva carpeta...">
+            </div>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Selecciona una carpeta existente o escribe un nombre nuevo para crear una.</p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Origen del Archivo</label>
+            <div style="display: flex; gap: 1rem; margin-bottom: 0.5rem;">
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-size: 0.85rem;">
+                <input type="radio" name="doc-edit-type" id="radio-edit-upload" value="upload" checked onchange="window.toggleEditSourceType('upload')">
+                <span>Archivo Local (Reemplazar)</span>
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-size: 0.85rem;">
+                <input type="radio" name="doc-edit-type" id="radio-edit-url" value="url" onchange="window.toggleEditSourceType('url')">
+                <span>Enlace / URL Online</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" id="doc-edit-file-group">
+            <label class="form-label">Subir nuevo archivo (Dejar vacío para conservar el actual)</label>
+            <input type="file" id="doc-edit-file" class="form-input">
+            <p id="doc-edit-current-file-label" style="font-size: 0.8rem; color: var(--color-primary); margin-top: 0.25rem; font-style: italic;"></p>
+          </div>
+
+          <div class="form-group" id="doc-edit-url-group" style="display: none;">
+            <label class="form-label">URL del Archivo Online *</label>
+            <input type="url" id="doc-edit-url" class="form-input" placeholder="https://example.com/documento.pdf">
+          </div>
+
+          <div class="form-group" style="margin-top: 1rem;">
+            <label style="display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="doc-edit-pinned">
+              <span style="font-size: 0.9rem; font-weight: 500;">Destacar / Fijar este documento</span>
+            </label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-doc-edit').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-doc-edit">Guardar Cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Vista Previa de Documento -->
+  <div class="modal-overlay" id="modal-doc-preview">
+    <div class="modal-content" style="max-width: 900px; width: 90%; height: 85vh; display: flex; flex-direction: column; padding: 0;">
+      <div class="modal-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 id="doc-preview-title" style="margin: 0; font-size: 1.1rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 80%;">Vista Previa</h3>
+        <button type="button" class="modal-close" onclick="window.closeDocPreviewModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="doc-preview-body" style="flex: 1; padding: 0; overflow: hidden; background: var(--color-bg); display: flex; align-items: center; justify-content: center;">
+        <!-- Se inyecta dinámicamente -->
+      </div>
+      <div class="modal-footer" style="padding: 0.75rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); justify-content: space-between; display: flex; align-items: center;">
+        <span id="doc-preview-info" style="font-size: 0.8rem; color: var(--color-text-muted);"></span>
+        <div style="display: flex; gap: 0.5rem;">
+          <a href="#" id="doc-preview-download-btn" target="_blank" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; height: auto;">
+            <i class="ri-download-2-line"></i> Descargar Archivo
+          </a>
+          <button type="button" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; height: auto;" onclick="window.closeDocPreviewModal()">Cerrar</button>
+        </div>
+      </div>
     </div>
   </div>
 

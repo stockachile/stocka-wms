@@ -171,8 +171,10 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-primary:hover {
+  background-color: var(--color-primary-hover);
   transform: translateY(-2px);
   box-shadow: var(--shadow-glow);
+  color: #ffffff;
 }
 
 .btn-accent {
@@ -184,6 +186,7 @@ h1, h2, h3, h4, h5, h6 {
   background-color: #4b12bd;
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+  color: var(--color-surface);
 }
 
 .btn-outline {
@@ -895,7 +898,7 @@ html[data-theme="dark"] .floating-theme-toggle {
    ========================================================================== */
 
 /* Tabs */
-.shipments-tabs {
+.shipments-tabs, .integration-tabs {
   display: flex;
   gap: 1rem;
   border-bottom: 2px solid var(--color-border);
@@ -903,7 +906,7 @@ html[data-theme="dark"] .floating-theme-toggle {
   overflow-x: auto;
 }
 
-.shipment-tab {
+.shipment-tab, .integration-tab {
   padding: 0.75rem 1.5rem;
   background: transparent;
   border: none;
@@ -917,15 +920,15 @@ html[data-theme="dark"] .floating-theme-toggle {
   white-space: nowrap;
 }
 
-.shipment-tab:hover {
+.shipment-tab:hover, .integration-tab:hover {
   color: var(--color-text-main);
 }
 
-.shipment-tab.active {
+.shipment-tab.active, .integration-tab.active {
   color: var(--color-accent);
 }
 
-.shipment-tab.active::after {
+.shipment-tab.active::after, .integration-tab.active::after {
   content: '';
   position: absolute;
   bottom: -2px;
