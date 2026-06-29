@@ -39,17 +39,30 @@ serve(async (req) => {
         });
       }
 
-      // 2. Fetch the active MercadoLibre integration for this merchant
+      // Parse request body for comercio
+      const body = await req.json();
+      const comercio = body.comercio;
+
+      if (!comercio) {
+        return new Response(JSON.stringify({ error: "Missing comercio in request body" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        });
+      }
+
+      // 2. Fetch the active MercadoLibre integration for this merchant and commerce
       const { data: integration, error: intErr } = await supabase
         .from("merchant_integrations")
         .select("*")
         .eq("platform", "MercadoLibre")
         .eq("merchant_id", user.id)
+        .eq("comercio", comercio)
         .eq("is_active", true)
         .maybeSingle();
 
       if (intErr || !integration) {
-        return new Response(JSON.stringify({ error: "Active MercadoLibre integration not found" }), {
+        console.error("Integration Query Error / Not Found:", intErr, integration);
+        return new Response(JSON.stringify({ error: `Active MercadoLibre integration not found for commerce ${comercio}` }), {
           status: 404,
           headers: { ...corsHeaders, "Content-Type": "application/json" }
         });
@@ -232,6 +245,7 @@ async function syncMeliProducts(integration: any): Promise<number> {
 async function getValidAccessToken(integration: any) {
   const tokenUrl = 'https://api.mercadolibre.com/oauth/token';
 
+  // Case A: Has refresh token
   if (integration.refresh_token) {
     const params = new URLSearchParams({
       grant_type: 'refresh_token',
@@ -248,7 +262,7 @@ async function getValidAccessToken(integration: any) {
       });
 
       if (!res.ok) {
-        throw new Error(`Error en refresh_token flow: ${res.status}`);
+        throw new Error(`Token refresh failed: ${res.status}`);
       }
 
       const data = await res.json();
@@ -268,6 +282,49 @@ async function getValidAccessToken(integration: any) {
       return null;
     }
   }
+
+  // Case B: Authorization code exchange
+  if (integration.access_token && !integration.refresh_token) {
+    console.log(`🔌 Realizando intercambio de código inicial (authorization_code) para ${integration.comercio}...`);
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: integration.client_id,
+      client_secret: integration.client_secret,
+      code: integration.access_token,
+      redirect_uri: integration.shop_url || 'https://www.google.com'
+    });
+
+    try {
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Error en authorization_code flow: ${res.status} - ${errorText}`);
+      }
+
+      const data = await res.json();
+      console.log(`✅ Código intercambiado correctamente. Registrando refresh_token...`);
+
+      await supabase
+        .from('merchant_integrations')
+        .update({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+          username: String(data.user_id)
+        })
+        .eq('id', integration.id);
+
+      return { accessToken: data.access_token, userId: data.user_id };
+    } catch (e) {
+      console.error(`❌ Error al intercambiar código:`, e.message);
+      return null;
+    }
+  }
+
   return null;
 }
 

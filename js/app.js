@@ -2746,7 +2746,10 @@ async function renderIntegrations() {
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`
-              }
+              },
+              body: JSON.stringify({
+                comercio: window.activeIntegrationCommerce
+              })
             });
 
             const result = await response.json();
