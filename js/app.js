@@ -1908,7 +1908,8 @@ async function renderIntegrations() {
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasMeli 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-meli" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar MercadoLibre API</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>');
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-meli" style="background-color: #f59e0b; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
 
     const wooButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -2721,6 +2722,49 @@ async function renderIntegrations() {
                console.error(err);
                alert('Error al desconectar: ' + err.message);
             }
+          }
+        });
+      }
+
+      const btnSyncMeli = document.getElementById('btn-sync-meli');
+      if (btnSyncMeli) {
+        btnSyncMeli.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          
+          btnSyncMeli.disabled = true;
+          btnSyncMeli.textContent = 'Sincronizando...';
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("No hay sesión activa");
+
+            const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/meli-sync', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+              }
+            });
+
+            const result = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(result.error || 'Error al sincronizar');
+            }
+
+            alert(`¡Catálogo de MercadoLibre sincronizado exitosamente! Se importaron/actualizaron ${result.count} variantes de productos.`);
+            if (typeof renderInventory === 'function') {
+              renderInventory(); // Recargar inventario si corresponde
+            }
+          } catch (err) {
+            console.error(err);
+            alert('Error en la sincronización: ' + err.message);
+          } finally {
+            btnSyncMeli.disabled = false;
+            btnSyncMeli.textContent = 'Sincronizar Productos';
           }
         });
       }
