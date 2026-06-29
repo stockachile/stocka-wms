@@ -41,10 +41,8 @@
           <li class="sidebar-category-header">Sistema</li>
           <li><a href="#" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
           <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
-          <li><a href="#" class="nav-item" data-view="tickets"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Soporte y Tickets</span></a></li>
+          <li style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
           <li><a href="#" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
-          <li><a href="#" class="nav-item" data-view="profile"><i class="ri-user-line"></i> <span class="nav-text">Mi Perfil</span></a></li>
-          <li><a href="#" class="nav-item" data-view="inbox"><i class="ri-inbox-line"></i> <span class="nav-text">Mi Inbox</span></a></li>
         </ul>
       </nav>
       <div class="sidebar-footer">
@@ -101,6 +99,16 @@
               </div>
             </div>
           </div>
+
+          <!-- Inbox -->
+          <a href="#" class="nav-item header-icon-btn" data-view="inbox" title="Mi Inbox">
+            <i class="ri-inbox-line"></i>
+          </a>
+
+          <!-- Perfil -->
+          <a href="#" class="nav-item header-icon-btn" data-view="profile" title="Mi Perfil">
+            <i class="ri-user-settings-line"></i>
+          </a>
 
           <button class="theme-toggle-btn" aria-label="Cambiar tema">
             <i class="ri-sun-line sun-icon"></i>
@@ -339,6 +347,11 @@
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js"></script>
   <script src="./js/calendar.js"></script>
-  <script type="module" src="./js/app.js?v=1.0.1"></script>
+  <script type="module" src="./js/app.js?v=1.0.2"></script>
+
+  <!-- Floating Support Button -->
+  <a href="#" class="floating-support-btn" id="support-chat-btn" title="Soporte y Ayuda">
+    <i class="ri-customer-service-2-line"></i>
+  </a>
 </body>
 </html>

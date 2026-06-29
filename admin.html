@@ -40,10 +40,8 @@
           <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line"></i> <span class="nav-text">Reglas de Visibilidad</span></a></li>
           <li><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
           <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
-          <li><a href="#" class="nav-item" data-view="tickets_admin"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Gestión de Tickets</span></a></li>
+          <li style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"></a></li>
           <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
-          <li><a href="#" class="nav-item" data-view="profile"><i class="ri-user-line"></i> <span class="nav-text">Mi Perfil</span></a></li>
-          <li><a href="#" class="nav-item" data-view="inbox"><i class="ri-inbox-line"></i> <span class="nav-text">Mi Inbox</span></a></li>
         </ul>
       </nav>
       <div class="sidebar-footer">
@@ -100,6 +98,16 @@
               </div>
             </div>
           </div>
+
+          <!-- Inbox -->
+          <a href="#" class="nav-item header-icon-btn" data-view="inbox" title="Mi Inbox">
+            <i class="ri-inbox-line"></i>
+          </a>
+
+          <!-- Perfil -->
+          <a href="#" class="nav-item header-icon-btn" data-view="profile" title="Mi Perfil">
+            <i class="ri-user-settings-line"></i>
+          </a>
 
           <!-- Modo oscuro -->
           <button class="theme-toggle-btn" aria-label="Cambiar tema">
@@ -323,11 +331,13 @@
             <div><strong>Título/Descripción:</strong> <span id="manage-dec-title"></span></div>
             <div><strong>Fecha Estimada:</strong> <span id="manage-dec-date"></span></div>
             <div><strong>Cantidad Declarada:</strong> <span id="manage-dec-qty-declared"></span> uds</div>
+            <div><strong>Volumen Declarado:</strong> <span id="manage-dec-volume-declared"></span> m³</div>
             <div><strong>Bultos Totales:</strong> <span id="manage-dec-packages"></span> (<span id="manage-dec-package-type"></span>)</div>
             <div id="manage-dec-breakdown-section" style="font-size: 0.85rem; color: var(--color-text-muted); margin-left: 1rem; margin-top: -0.2rem; margin-bottom: 0.2rem;">
               • Contenedores: <strong id="manage-dec-container-count">0</strong> | Pallets: <strong id="manage-dec-pallet-count">0</strong> | Cajas: <strong id="manage-dec-box-count">0</strong>
             </div>
             <div><strong>Servicio Descarga Bodega:</strong> <span id="manage-dec-unloading"></span></div>
+            <div><strong>Costo Estimado Ingreso (UF):</strong> <span id="manage-dec-estimated-cost" style="color: var(--color-success); font-weight: bold;"></span></div>
             <div><strong>Método de Ingreso:</strong> <span id="manage-dec-method"></span></div>
             <div><strong>Bodega Asignada:</strong> <span id="manage-dec-warehouse-name">No asignada</span></div>
             <div id="manage-dec-contact-section"><strong>Contacto Comercio:</strong> <span id="manage-dec-contact"></span></div>
@@ -349,6 +359,12 @@
           <div class="form-group" id="manage-dec-group-received">
             <label class="form-label">Cantidad Total Recepcionada (Física)</label>
             <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required>
+          </div>
+
+          <div class="form-group" id="manage-dec-group-volume-confirmed" style="display: none;">
+            <label class="form-label">Volumen Confirmado Recepcionado (m³) *</label>
+            <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0.01" step="0.01">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Indica el volumen verificado físicamente en la bodega en m³.</p>
           </div>
 
           <div class="form-group" id="manage-dec-group-incidents">
@@ -566,6 +582,11 @@
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js"></script>
   <script src="./js/calendar.js"></script>
-  <script type="module" src="./js/admin.js?v=1.0.1"></script>
+  <script type="module" src="./js/admin.js?v=1.0.2"></script>
+
+  <!-- Floating Support Button -->
+  <a href="#" class="floating-support-btn" id="support-chat-btn" title="Soporte y Ayuda">
+    <i class="ri-customer-service-2-line"></i>
+  </a>
 </body>
 </html>

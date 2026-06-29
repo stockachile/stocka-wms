@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS public.stock_declarations (
   history JSONB NOT NULL DEFAULT '[]'::jsonb,
   file_name TEXT NOT NULL,
   file_base64 TEXT NOT NULL,
+  volume_declared NUMERIC DEFAULT 0 CHECK (volume_declared >= 0),
+  volume_confirmed NUMERIC DEFAULT 0 CHECK (volume_confirmed >= 0),
+  estimated_cost NUMERIC DEFAULT 0 CHECK (estimated_cost >= 0),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -41,6 +44,9 @@ ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS container_count I
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS pallet_count INTEGER DEFAULT 0 CHECK (pallet_count >= 0);
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS box_count INTEGER DEFAULT 0 CHECK (box_count >= 0);
 ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS requires_unloading BOOLEAN DEFAULT false;
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS volume_declared NUMERIC DEFAULT 0 CHECK (volume_declared >= 0);
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS volume_confirmed NUMERIC DEFAULT 0 CHECK (volume_confirmed >= 0);
+ALTER TABLE public.stock_declarations ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC DEFAULT 0 CHECK (estimated_cost >= 0);
 
 -- Actualizar restricción CHECK (primero eliminar la antigua para permitir la migración de datos)
 ALTER TABLE public.stock_declarations DROP CONSTRAINT IF EXISTS stock_declarations_status_check;

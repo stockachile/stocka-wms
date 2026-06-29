@@ -1,5 +1,6 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
+import { initChatWidget } from './chat.js';
 
 
 // Función global para descargar archivos en PDF codificados en Base64
@@ -374,6 +375,7 @@ async function init() {
 
 // Ejecutar inicialización
 init();
+initChatWidget();
 
 // Supabase Rendering Functions
 
@@ -5605,6 +5607,10 @@ window.renderDeclarations = async function() {
             </div>
 
           <form id="form-new-declaration">
+            <div id="dec-general-error-container" class="alert alert-error" style="display: none; padding: 0.75rem 1rem; font-size: 0.85rem; background: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid var(--color-danger); margin-bottom: 1.25rem; border-radius: 8px; line-height: 1.5; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1);">
+              <strong style="display: block; margin-bottom: 0.25rem;"><i class="ri-error-warning-line" style="vertical-align: text-bottom; margin-right: 3px;"></i> Errores de Validación:</strong>
+              <div id="dec-general-error-list" style="margin-left: 1rem;"></div>
+            </div>
             ${commerceSelectHtml}
             <div class="form-group">
               <label class="form-label">Título / Descripción del Ingreso *</label>
@@ -5614,6 +5620,15 @@ window.renderDeclarations = async function() {
             <div class="form-group">
               <label class="form-label">Cantidad Total Unidades *</label>
               <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Volumen Estimado (m³) *</label>
+              <input type="number" id="dec-volume-declared" class="form-input" min="0.01" step="0.01" placeholder="Ej. 1.5" required>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; line-height: 1.4;">
+                <i class="ri-information-line" style="color: var(--color-primary); vertical-align: middle; margin-right: 2px;"></i>
+                El volumen puede ser un valor estimado. Puedes multiplicar largo (m) × ancho (m) × alto (m) para obtenerlo. Se usará para indicar la bodega con capacidad suficiente y será confirmado en terreno.
+              </p>
             </div>
 
             <!-- Desglose de Bultos -->
@@ -5795,6 +5810,7 @@ window.renderDeclarations = async function() {
                   <th>Llegada Estimada</th>
                   <th>Cant. Uds</th>
                   <th>Bultos</th>
+                  <th>Volumen (m³)</th>
                   <th>Método Envío</th>
                   <th>Estado</th>
                   <th>Recibido / Incidencias</th>
@@ -5802,7 +5818,7 @@ window.renderDeclarations = async function() {
                 </tr>
               </thead>
               <tbody id="declarations-table-body">
-                <tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>
+                <tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>
               </tbody>
             </table>
           </div>
@@ -5963,9 +5979,20 @@ window.renderDeclarations = async function() {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
+        // Limpiar errores previos
+        const generalErrorContainer = document.getElementById('dec-general-error-container');
+        const generalErrorList = document.getElementById('dec-general-error-list');
+        if (generalErrorContainer) generalErrorContainer.style.display = 'none';
+
+        const formErrors = [];
         const title = document.getElementById('dec-title').value.trim();
         const qtyDeclared = parseInt(document.getElementById('dec-qty-declared').value);
-        
+        const volumeDeclared = parseFloat(document.getElementById('dec-volume-declared').value);
+
+        if (!title) formErrors.push("El título del ingreso es obligatorio.");
+        if (isNaN(qtyDeclared) || qtyDeclared <= 0) formErrors.push("La cantidad total de unidades debe ser mayor a 0.");
+        if (isNaN(volumeDeclared) || volumeDeclared <= 0) formErrors.push("El volumen estimado debe ser un número válido mayor a 0.");
+
         const noContainer = document.getElementById('dec-no-container').checked;
         const noPallet = document.getElementById('dec-no-pallet').checked;
         const noBox = document.getElementById('dec-no-box').checked;
@@ -5976,8 +6003,7 @@ window.renderDeclarations = async function() {
 
         const totalPackages = containerCount + palletCount + boxCount;
         if (totalPackages < 1) {
-          alert('Debe declarar al menos 1 bulto total (contenedores, pallets o cajas).');
-          return;
+          formErrors.push("Debe declarar al menos 1 bulto total (contenedores, pallets o cajas).");
         }
 
         // Determinar tipo de bulto
@@ -5986,79 +6012,169 @@ window.renderDeclarations = async function() {
         if (containerCount > 0) activeTypes.push('Contenedores');
         if (palletCount > 0) activeTypes.push('Pallets');
         if (boxCount > 0) activeTypes.push('Cajas');
-
         if (activeTypes.length === 1) {
           packageType = activeTypes[0];
         }
 
         const requiresUnloading = document.getElementById('dec-requires-unloading').checked;
-        
         const deliveryMethod = document.getElementById('dec-delivery-method').value;
         const contactInfo = document.getElementById('dec-contact-info').value.trim();
         const carrierInfo = document.getElementById('dec-carrier-info').value.trim();
         const notes = document.getElementById('dec-notes').value.trim();
 
-        if (!title) {
-          alert('El título o descripción del ingreso es obligatorio.');
-          return;
+        const fileInput = document.getElementById('dec-file-input');
+        if (!editingDeclarationId && (!clientUploadedFileBase64 || !clientUploadedFileName)) {
+          formErrors.push("Es obligatorio adjuntar la planilla detallada de ingreso.");
         }
+
+        // ETA checks
+        let estimatedArrivalDate = null;
+        let estimatedArrivalPeriod = null;
 
         if (dateMode === 'exact') {
           if (!clientSelectedDateStr) {
-            alert('Debes seleccionar una fecha exacta de llegada en el calendario.');
-            return;
-          }
-          const selectedDate = new Date(clientSelectedDateStr + 'T00:00:00');
-          const isSunday = selectedDate.getDay() === 0;
-          const isSaturday = selectedDate.getDay() === 6;
-          const now = new Date();
-          const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            formErrors.push("Debes seleccionar una fecha exacta de llegada en el calendario.");
+          } else {
+            estimatedArrivalDate = clientSelectedDateStr;
+            const selectedDate = new Date(clientSelectedDateStr + 'T00:00:00');
+            const isSunday = selectedDate.getDay() === 0;
+            const isSaturday = selectedDate.getDay() === 6;
+            const now = new Date();
+            const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-          if (selectedDate < todayMidnight) {
-            alert('No puedes declarar un ingreso en fechas pasadas.');
-            return;
-          }
-          if (isSunday) {
-            alert('No se permiten ingresos los días domingo.');
-            return;
-          }
-          if (isSaturday) {
-            const diffTime = selectedDate.getTime() - now.getTime();
-            const diffHours = diffTime / (60 * 60 * 1000);
-            if (diffHours < 48) {
-              alert('Los ingresos en día sábado requieren al menos 48 horas de aviso anticipado.');
-              return;
+            if (selectedDate < todayMidnight) {
+              formErrors.push("No puedes declarar un ingreso en fechas pasadas.");
+            }
+            if (isSunday) {
+              formErrors.push("No se permiten ingresos los días domingo.");
+            }
+            if (isSaturday) {
+              const diffTime = selectedDate.getTime() - now.getTime();
+              const diffHours = diffTime / (60 * 60 * 1000);
+              if (diffHours < 48) {
+                formErrors.push("Los ingresos en día sábado requieren al menos 48 horas de aviso anticipado.");
+              }
             }
           }
+        } else {
+          const pQty = document.getElementById('dec-period-qty').value;
+          const pUnit = document.getElementById('dec-period-unit').value;
+          estimatedArrivalPeriod = `${pQty} ${pUnit}`;
         }
 
-        if (!editingDeclarationId && (!clientUploadedFileBase64 || !clientUploadedFileName)) {
-          alert('Es obligatorio adjuntar la planilla detallada de ingreso.');
+        if (formErrors.length > 0) {
+          if (generalErrorContainer && generalErrorList) {
+            generalErrorList.innerHTML = `<ul style="margin: 0; padding-left: 0.5rem; text-align: left;">${formErrors.map(e => `<li style="margin-bottom: 2px;">${e}</li>`).join('')}</ul>`;
+            generalErrorContainer.style.display = 'block';
+            document.querySelector('.slideover-body').scrollTop = 0;
+          } else {
+            alert(formErrors.join('\n'));
+          }
           return;
         }
 
         const submitBtn = document.getElementById('btn-submit-declaration');
         submitBtn.disabled = true;
-        submitBtn.textContent = editingDeclarationId ? 'Guardando cambios...' : 'Creando declaración...';
+        submitBtn.textContent = 'Analizando planilla...';
+
+        let fileBase64 = clientUploadedFileBase64;
+        let fileName = clientUploadedFileName;
+        let excelRows = null;
+
+        if (editingDeclarationId && (!fileInput || !fileInput.files[0])) {
+          try {
+            const { data: decData, error: decErr } = await supabase
+              .from('stock_declarations')
+              .select('file_name, file_base64')
+              .eq('id', editingDeclarationId)
+              .single();
+
+            if (decErr) throw decErr;
+            if (decData) {
+              fileBase64 = decData.file_base64;
+              fileName = decData.file_name;
+            }
+          } catch (err) {
+            console.error('Error fetching existing file:', err);
+            alert('No se pudo recuperar la planilla previa de la base de datos.');
+            submitBtn.disabled = false;
+            submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
+            return;
+          }
+        }
 
         try {
-          let estimatedArrivalDate = null;
-          let estimatedArrivalPeriod = null;
-
-          if (dateMode === 'exact') {
-            estimatedArrivalDate = clientSelectedDateStr;
-          } else {
-            const pQty = document.getElementById('dec-period-qty').value;
-            const pUnit = document.getElementById('dec-period-unit').value;
-            estimatedArrivalPeriod = `${pQty} ${pUnit}`;
+          if (fileInput && fileInput.files[0]) {
+            excelRows = await parseExcelData(fileInput.files[0], false);
+          } else if (fileBase64) {
+            excelRows = await parseExcelData(fileBase64, true);
           }
+        } catch (err) {
+          console.error('Error parsing Excel:', err);
+          submitBtn.disabled = false;
+          submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
+          if (generalErrorContainer && generalErrorList) {
+            generalErrorList.innerHTML = `No se pudo interpretar el archivo Excel: ${err.message}`;
+            generalErrorContainer.style.display = 'block';
+            document.querySelector('.slideover-body').scrollTop = 0;
+          } else {
+            alert('Error al leer la planilla Excel: ' + err.message);
+          }
+          return;
+        }
 
-          const selectedCommerce = document.getElementById('dec-comercio')
-            ? document.getElementById('dec-comercio').value
-            : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+        // Validar Excel
+        const validationResult = validateExcelData(
+          excelRows, 
+          qtyDeclared, 
+          volumeDeclared, 
+          requiresUnloading, 
+          dateMode, 
+          estimatedArrivalDate
+        );
+        const { errors, warnings, parsedProducts, totalQtyFromExcel } = validationResult;
 
+        if (errors.length > 0) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
+          if (generalErrorContainer && generalErrorList) {
+            generalErrorList.innerHTML = `<ul style="margin: 0; padding-left: 0.5rem; text-align: left;">${errors.map(e => `<li style="margin-bottom: 2px;">${e}</li>`).join('')}</ul>`;
+            generalErrorContainer.style.display = 'block';
+            document.querySelector('.slideover-body').scrollTop = 0;
+          } else {
+            alert("Errores críticos en la planilla Excel:\n" + errors.join('\n'));
+          }
+          return;
+        }
+
+        // Calcular costos
+        const cost = calculateEntryCost(volumeDeclared, requiresUnloading, dateMode, estimatedArrivalDate);
+
+        submitBtn.disabled = false;
+        submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
+
+        const selectedCommerce = document.getElementById('dec-comercio')
+          ? document.getElementById('dec-comercio').value
+          : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
+        // Mostrar Vista Previa
+        showDeclarationPreviewModal({
+          title,
+          commerce: selectedCommerce,
+          dateText: dateMode === 'exact' ? `${estimatedArrivalDate.split('-')[2]}/${estimatedArrivalDate.split('-')[1]}/${estimatedArrivalDate.split('-')[0]}` : estimatedArrivalPeriod,
+          deliveryMethod,
+          volumeDeclared,
+          containerCount,
+          palletCount,
+          boxCount,
+          packageType,
+          contactInfo,
+          carrierInfo,
+          notes,
+          requiresUnloading
+        }, parsedProducts, warnings, cost, !!editingDeclarationId, async () => {
+          // Callback de Confirmación del usuario en la modal de vista previa
           if (editingDeclarationId) {
-            // Fetch current declaration data to get current status and history
             const { data: currentDec, error: getError } = await supabase
               .from('stock_declarations')
               .select('status, history')
@@ -6090,6 +6206,8 @@ window.renderDeclarations = async function() {
               contact_info: contactInfo,
               carrier_info: carrierInfo,
               notes: notes,
+              volume_declared: volumeDeclared,
+              estimated_cost: cost.totalCost,
               history: newHistory
             };
 
@@ -6130,6 +6248,9 @@ window.renderDeclarations = async function() {
               notes: notes,
               status: 'Creada',
               incidents_list: [],
+              volume_declared: volumeDeclared,
+              volume_confirmed: 0,
+              estimated_cost: cost.totalCost,
               history: [{
                 status: 'Creada',
                 timestamp: new Date().toISOString(),
@@ -6148,7 +6269,7 @@ window.renderDeclarations = async function() {
             alert('¡Declaración de ingreso de stock creada con éxito!');
             form.reset();
             
-            // Re-enable inputs and reset styles
+            // Re-establecer inputs
             const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
             inputs.forEach(id => {
               const el = document.getElementById(id);
@@ -6174,18 +6295,12 @@ window.renderDeclarations = async function() {
             closeNewDeclarationSlideOver();
           }
 
-          // Redraw calendar to clear selection styling
+          // Redibujar calendario
           drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
 
-          // Reload table
+          // Recargar tabla
           fetchAndRenderClientDeclarations();
-        } catch (err) {
-          console.error('Error al guardar declaración:', err);
-          alert('Error al guardar declaración: ' + err.message);
-        } finally {
-          submitBtn.disabled = false;
-          submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Crear Declaración de Ingreso';
-        }
+        });
       });
     }
 
@@ -6358,7 +6473,7 @@ async function fetchAndRenderClientDeclarations() {
     if (error) throw error;
     
     if (!declarations || declarations.length === 0) {
-      listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones creadas.</td></tr>`;
+      listTableBody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones creadas.</td></tr>`;
       return;
     }
     
@@ -6443,6 +6558,14 @@ async function fetchAndRenderClientDeclarations() {
             </div>
             ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
           </td>
+          <td style="font-size: 0.85rem;">
+            <div style="font-size: 0.85rem;">
+              <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
+              </span>
+            </div>
+          </td>
           <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
           <td style="font-size: 0.85rem;">${statusBadge}</td>
           <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -6470,7 +6593,7 @@ async function fetchAndRenderClientDeclarations() {
     listTableBody.innerHTML = html;
   } catch (err) {
     console.error('Error fetching client declarations:', err);
-    listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</td></tr>`;
+    listTableBody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">Error al cargar declaraciones: ${err.message}</td></tr>`;
   }
 }
 
@@ -6721,8 +6844,10 @@ window.viewDeclarationDetail = async function(id) {
             <table style="width: 100%; text-align: left; border-collapse: collapse;">
               <thead>
                 <tr style="background: rgba(0,0,0,0.02);">
-                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Declaradas</th>
-                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Recepcionadas</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Uds. Declaradas</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Uds. Recibidas</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Volumen Decl.</th>
+                  <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Volumen Conf.</th>
                   <th style="padding: 0.75rem 1.25rem; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--color-border);">Incidencias</th>
                 </tr>
               </thead>
@@ -6730,6 +6855,8 @@ window.viewDeclarationDetail = async function(id) {
                 <tr>
                   <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 600; color: var(--color-text-main); border-right: 1px dashed var(--color-border);">${dec.quantity_declared}</td>
                   <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 700; color: var(--color-success); border-right: 1px dashed var(--color-border);">${dec.quantity_received}</td>
+                  <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 600; color: var(--color-text-main); border-right: 1px dashed var(--color-border);">${dec.volume_declared || 0} m³</td>
+                  <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 700; color: var(--color-success); border-right: 1px dashed var(--color-border);">${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</td>
                   <td style="padding: 1.25rem; font-size: 1.2rem; font-weight: 600; color: ${dec.quantity_incidents > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'};">${dec.quantity_incidents}</td>
                 </tr>
               </tbody>
@@ -6759,6 +6886,20 @@ window.viewDeclarationDetail = async function(id) {
               <div style="flex: 1;">
                 <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.35rem;">Datos del Transportista</strong>
                 <div style="font-size: 0.95rem; color: var(--color-text-main); white-space: pre-wrap; font-weight: 500;">${dec.carrier_info || '<span style="color:var(--color-text-muted); font-style:italic; font-weight: normal;">Sin registrar</span>'}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Costo Estimado del Ingreso Block -->
+          <div style="margin-bottom: 1.5rem;">
+            <div class="info-block" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); border-left: 4px solid var(--color-success); display: flex; align-items: flex-start; gap: 1rem;">
+              <div style="background: rgba(16, 185, 129, 0.1); padding: 0.6rem; border-radius: 50%; color: var(--color-success);"><i class="ri-money-dollar-circle-line" style="font-size: 1.2rem;"></i></div>
+              <div style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <strong style="display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-muted); margin-bottom: 0.15rem;">Costo Estimado del Ingreso</strong>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted);">Calculado al registrar la declaración logística.</span>
+                </div>
+                <div style="font-size: 1.2rem; font-weight: 700; color: var(--color-success);">${(dec.estimated_cost || 0).toFixed(2)} UF</div>
               </div>
             </div>
           </div>
@@ -6793,6 +6934,362 @@ window.viewDeclarationDetail = async function(id) {
     console.error('Error viewing declaration detail:', err);
     alert('Error al obtener los detalles: ' + err.message);
   }
+};
+
+// Excel Parser Helper using SheetJS
+window.parseExcelData = function(fileOrBase64, isBase64 = false) {
+  return new Promise((resolve, reject) => {
+    try {
+      let bytes;
+      if (isBase64) {
+        const binaryString = window.atob(fileOrBase64);
+        const len = binaryString.length;
+        bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+      }
+      
+      const readData = (data) => {
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        return XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      };
+
+      if (isBase64) {
+        resolve(readData(bytes));
+      } else {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = new Uint8Array(e.target.result);
+            resolve(readData(data));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = (err) => reject(err);
+        reader.readAsArrayBuffer(fileOrBase64);
+      }
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+// Excel Data Validator
+window.validateExcelData = function(rows, formQty, volumeDeclared, requiresUnloading, dateMode, estimatedArrivalDateStr) {
+  const errors = [];
+  const warnings = [];
+  const parsedProducts = [];
+
+  if (!rows || rows.length <= 1) {
+    errors.push("La planilla no contiene filas de datos (solo cabeceras o vacía).");
+    return { errors, warnings, parsedProducts };
+  }
+
+  const headerRow = rows[0];
+  const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+  const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+  const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+  const priceIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'valor');
+  const barcodeIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'código de barra');
+  const expiryIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'fecha de vencimiento');
+
+  if (skuIdx === -1) errors.push("No se encontró la columna requerida 'SKU' en la primera fila.");
+  if (nameIdx === -1) errors.push("No se encontró la columna requerida 'Nombre Producto' en la primera fila.");
+  if (qtyIdx === -1) errors.push("No se encontró la columna requerida 'Cantidad declarada' en la primera fila.");
+
+  if (errors.length > 0) {
+    return { errors, warnings, parsedProducts };
+  }
+
+  let totalQtyFromExcel = 0;
+  const skuSet = new Set();
+  const duplicateSkus = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    
+    // Ignorar filas vacías
+    const isEmptyRow = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+    if (isEmptyRow) continue;
+
+    const sku = row[skuIdx] ? row[skuIdx].toString().trim() : '';
+    const name = row[nameIdx] ? row[nameIdx].toString().trim() : '';
+    const qtyVal = row[qtyIdx];
+    const barcode = barcodeIdx !== -1 && row[barcodeIdx] ? row[barcodeIdx].toString().trim() : '';
+    const priceVal = priceIdx !== -1 ? row[priceIdx] : '';
+    const expiryVal = expiryIdx !== -1 && row[expiryIdx] ? row[expiryIdx].toString().trim() : '';
+
+    const rowNum = i + 1; // Fila de la planilla para avisar
+
+    if (!sku) {
+      errors.push(`Fila ${rowNum}: El SKU es obligatorio.`);
+    } else {
+      if (skuSet.has(sku)) {
+        if (!duplicateSkus.includes(sku)) duplicateSkus.push(sku);
+      } else {
+        skuSet.add(sku);
+      }
+    }
+
+    if (!name) {
+      errors.push(`Fila ${rowNum}: El Nombre Producto es obligatorio.`);
+    }
+
+    const qty = parseInt(qtyVal);
+    if (isNaN(qtyVal) || isNaN(qty) || qty <= 0 || qty !== parseFloat(qtyVal)) {
+      errors.push(`Fila ${rowNum} (${sku || 'S/SKU'}): La Cantidad declarada debe ser un número entero mayor a 0 (recibido: "${qtyVal || ''}").`);
+    } else {
+      totalQtyFromExcel += qty;
+    }
+
+    let price = 0;
+    if (priceVal !== '' && priceVal !== null && priceVal !== undefined) {
+      price = parseFloat(priceVal);
+      if (isNaN(price) || price < 0) {
+        warnings.push(`Fila ${rowNum} (${sku || 'S/SKU'}): El Valor "${priceVal}" no es un número válido. Se asumirá 0.`);
+        price = 0;
+      }
+    }
+
+    parsedProducts.push({
+      rowNum,
+      sku,
+      name,
+      barcode,
+      qty,
+      price,
+      expiry: expiryVal,
+      subtotal: qty * price
+    });
+  }
+
+  if (duplicateSkus.length > 0) {
+    warnings.push(`Se detectaron SKUs duplicados en la planilla: ${duplicateSkus.join(', ')}. Esto agrupará el stock al ingresar.`);
+  }
+
+  if (totalQtyFromExcel !== formQty) {
+    warnings.push(`La suma de unidades de la planilla (${totalQtyFromExcel} uds) no coincide con la Cantidad Total Unidades declarada en el formulario (${formQty} uds).`);
+  }
+
+  return { errors, warnings, parsedProducts, totalQtyFromExcel };
+};
+
+// Cost Calculator for Stock Entry
+window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arrivalDateStr) {
+  let standardCost = 0;
+  let unloadingCost = 0;
+  let surchargeCost = 0;
+
+  // 1. Costo de Descarga: 0.1 UF por m3 si requiere descarga
+  if (requiresUnloading) {
+    unloadingCost = 0.1 * volume;
+  }
+
+  // 2. Recargo por aviso tardío (< 24h)
+  if (arrivalType === 'exact' && arrivalDateStr) {
+    const selectedDate = new Date(arrivalDateStr + 'T00:00:00');
+    const now = new Date();
+    const diffTime = selectedDate.getTime() - now.getTime();
+    if (diffTime < 24 * 60 * 60 * 1000) {
+      surchargeCost = 0.75 * volume;
+    }
+  }
+
+  const totalCost = unloadingCost + surchargeCost;
+
+  return {
+    standardCost,
+    unloadingCost,
+    surchargeCost,
+    totalCost
+  };
+};
+
+// Render Preview Modal
+window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings, cost, isEditMode, onConfirm) {
+  const modalId = 'modal-client-dec-preview';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  let warningsHtml = '';
+  if (warnings && warnings.length > 0) {
+    warningsHtml = `
+      <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.05);">
+        <strong style="color: #d97706; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem;">
+          <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i> Advertencias de Validación:
+        </strong>
+        <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.8rem; color: var(--color-text-main);">
+          ${warnings.map(w => `<li style="margin-bottom: 2px;">${w}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+  }
+
+  const skuSet = new Set(parsedProducts.map(p => p.sku));
+  const totalValue = parsedProducts.reduce((acc, p) => acc + (p.subtotal || 0), 0);
+  const totalQty = parsedProducts.reduce((acc, p) => acc + (p.qty || 0), 0);
+
+  let rowsHtml = '';
+  if (parsedProducts.length === 0) {
+    rowsHtml = `<tr><td colspan="5" style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">Sin productos en la planilla o planilla ya cargada anteriormente</td></tr>`;
+  } else {
+    parsedProducts.forEach(p => {
+      rowsHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.8rem;">
+          <td style="padding: 0.6rem 0.75rem; text-align: left; font-family: monospace; font-size: 0.75rem; color: var(--color-primary); font-weight: 500;">${p.sku}</td>
+          <td style="padding: 0.6rem 0.75rem; text-align: left; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name}">${p.name}</td>
+          <td style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${p.qty}</td>
+          <td style="padding: 0.6rem 0.75rem; text-align: right; color: var(--color-text-muted);">$ ${p.price.toLocaleString('es-CL')}</td>
+          <td style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">$ ${p.subtotal.toLocaleString('es-CL')}</td>
+        </tr>
+      `;
+    });
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content animate-fade-in" style="max-width: 950px; width: 95%; display: flex; flex-direction: column; max-height: 90vh; border-radius: 12px; border: 1px solid var(--color-border); background: var(--color-surface); box-shadow: 0 12px 36px rgba(0,0,0,0.3); font-family: var(--font-family);">
+      <div class="modal-header" style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; background: var(--color-surface-hover);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main); font-weight: 700; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa de la Declaración</h3>
+          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Verifica los datos logísticos, costos asociados y productos de la planilla antes de confirmar.</p>
+        </div>
+        <button onclick="document.getElementById('${modalId}').remove()" style="background: none; border: none; font-size: 1.5rem; color: var(--color-text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: color 0.2s;"><i class="ri-close-line"></i></button>
+      </div>
+      
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+        ${warningsHtml}
+        
+        <div style="display: grid; grid-template-columns: 1fr 1.3fr; gap: 1.5rem;">
+          <!-- Col 1: Logistic Details -->
+          <div style="background: var(--color-surface-hover); border: 1px solid var(--color-border); border-radius: 10px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; height: fit-content; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">
+            <h4 style="margin: 0; font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+              <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Resumen Logístico
+            </h4>
+            
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.85rem; line-height: 1.45;">
+              <div><strong style="color: var(--color-text-muted);">Título/Descripción:</strong><br><span style="color: var(--color-text-main); font-weight: 500;">${formData.title}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Comercio:</strong><br><span style="color: var(--color-text-main); font-weight: 500;">${formData.commerce}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Llegada Estimada:</strong><br><span style="color: var(--color-text-main); font-weight: 500;">${formData.dateText}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Método de Envío:</strong><br><span class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.75rem; padding: 2px 6px; display: inline-block; margin-top: 2px; font-weight: 500;">${formData.deliveryMethod}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Volumen Declarado:</strong><br><span style="color: var(--color-text-main); font-weight: 600;">${formData.volumeDeclared} m³</span></div>
+              <div><strong style="color: var(--color-text-muted);">Detalle de Bultos:</strong><br>
+                <div style="margin-top: 4px; font-size: 0.8rem; color: var(--color-text-main); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--color-surface); padding: 8px; border-radius: 6px; border: 1px solid var(--color-border);">
+                  <span>Contenedores: <strong>${formData.containerCount}</strong></span>
+                  <span>Pallets: <strong>${formData.palletCount}</strong></span>
+                  <span>Cajas: <strong>${formData.boxCount}</strong></span>
+                  <span>Tipo: <strong>${formData.packageType}</strong></span>
+                </div>
+              </div>
+              <div><strong style="color: var(--color-text-muted);">Contacto:</strong><br><span style="color: var(--color-text-main);">${formData.contactInfo || '—'}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Transportista:</strong><br><span style="color: var(--color-text-main);">${formData.carrierInfo || '—'}</span></div>
+              <div><strong style="color: var(--color-text-muted);">Notas del Cliente:</strong><br><span style="font-style: italic; color: var(--color-text-main);">"${formData.notes || 'Sin comentarios'}"</span></div>
+            </div>
+            
+            <!-- Cost Breakdown -->
+            <div style="margin-top: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem; font-weight: 600;">
+                <i class="ri-money-dollar-circle-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Costo Estimado del Ingreso
+              </h4>
+              <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                <div style="display: flex; justify-content: space-between;">
+                  <span style="color: var(--color-text-muted);">Servicio de Descarga (0.1 UF x m³):</span>
+                  <strong>${cost.unloadingCost.toFixed(2)} UF</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; color: ${cost.surchargeCost > 0 ? 'var(--color-danger)' : 'inherit'}; font-weight: ${cost.surchargeCost > 0 ? '600' : 'normal'};">
+                  <span style="color: ${cost.surchargeCost > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'}; font-size: 0.78rem;">Recargo Aviso Tardío (< 24h):</span>
+                  <strong>${cost.surchargeCost.toFixed(2)} UF</strong>
+                </div>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">
+                <span>Costo Total Estimado:</span>
+                <span style="color: var(--color-success); font-size: 1.1rem;">${cost.totalCost.toFixed(2)} UF</span>
+              </div>
+              <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; line-height: 1.3;">
+                * Los montos se expresan en UF y se liquidarán con el volumen físico corroborado en bodega.
+              </p>
+            </div>
+          </div>
+          
+          <!-- Col 2: Products parsed from Excel -->
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; justify-content: space-between; align-items: center; font-weight: 600;">
+              <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-file-list-3-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Detalle de Planilla</span>
+              <span style="font-size: 0.75rem; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600;">
+                ${parsedProducts.length} filas
+              </span>
+            </h4>
+            
+            <div style="max-height: 310px; border: 1px solid var(--color-border); border-radius: 8px; overflow-y: auto; background: var(--color-surface); box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem; margin: 0;">
+                <thead>
+                  <tr style="position: sticky; top: 0; background: var(--color-surface-hover); z-index: 10; border-bottom: 2px solid var(--color-border); font-size: 0.75rem;">
+                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600;">SKU</th>
+                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600;">Producto</th>
+                    <th style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600;">Cant</th>
+                    <th style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600;">Valor</th>
+                    <th style="padding: 0.6rem 0.75rem; text-align: right; font-weight: 600;">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowsHtml}
+                </tbody>
+              </table>
+            </div>
+            
+            <!-- Totals box -->
+            <div style="background: var(--color-surface-hover); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px; text-align: center; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+              <div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">SKUs Únicos</div>
+                <strong style="font-size: 1rem; color: var(--color-text-main);">${skuSet.size}</strong>
+              </div>
+              <div style="border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border);">
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">Total Uds Planilla</div>
+                <strong style="font-size: 1rem; color: var(--color-primary);">${totalQty}</strong>
+              </div>
+              <div>
+                <div style="font-size: 0.7rem; color: var(--color-text-muted);">Valor Declarado</div>
+                <strong style="font-size: 1rem; color: var(--color-success);">$ ${totalValue.toLocaleString('es-CL')}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1.25rem 1.5rem; background: var(--color-surface-hover); display: flex; justify-content: space-between; gap: 1rem;">
+        <button class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.6rem 1.25rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; transition: all 0.2s;">
+          <i class="ri-arrow-left-line" style="vertical-align: middle; margin-right: 3px;"></i> Volver a Editar Formulario
+        </button>
+        
+        <button class="btn btn-primary" id="btn-confirm-send-declaration" style="padding: 0.6rem 1.5rem; font-size: 0.85rem; font-weight: 600; border-radius: 6px; background: var(--color-success); border-color: var(--color-success); transition: all 0.2s; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);">
+          <i class="ri-checkbox-circle-line" style="vertical-align: middle; margin-right: 3px;"></i> ${isEditMode ? 'Guardar Cambios' : 'Confirmar y Enviar Declaración'}
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById('btn-confirm-send-declaration').addEventListener('click', async () => {
+    const confirmBtn = document.getElementById('btn-confirm-send-declaration');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Guardando...';
+    try {
+      await onConfirm();
+      modal.remove();
+    } catch (err) {
+      console.error(err);
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = `<i class="ri-checkbox-circle-line"></i> ${isEditMode ? 'Guardar Cambios' : 'Confirmar y Enviar Declaración'}`;
+    }
+  });
 };
 
 window.showDeclarationsInfoModal = function() {
@@ -6914,6 +7411,7 @@ window.editDeclaration = async function(id) {
 
     document.getElementById('dec-title').value = dec.title || '';
     document.getElementById('dec-qty-declared').value = dec.quantity_declared || '';
+    document.getElementById('dec-volume-declared').value = dec.volume_declared || '';
     document.getElementById('dec-delivery-method').value = dec.delivery_method || '';
     document.getElementById('dec-contact-info').value = dec.contact_info || '';
     document.getElementById('dec-carrier-info').value = dec.carrier_info || '';

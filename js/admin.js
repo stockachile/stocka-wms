@@ -1,135 +1,6 @@
 import supabase from './supabase.js';
 import { renderTicketsAdmin } from './tickets.js';
-
-
-// Función global para descargar archivos en PDF codificados en Base64
-window.downloadBase64Pdf = function(base64, filename) {
-  try {
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    const blob = new Blob([bytes], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (err) {
-    console.error('Error al descargar el PDF en Base64:', err);
-    alert('No se pudo descargar la etiqueta de despacho: el archivo está dañado o no está disponible.');
-  }
-};
-
-// Global function to toggle table action menus
-window.toggleTableActionMenu = function(event, btn) {
-  event.stopPropagation();
-  // Close any other open menus first
-  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
-    if (menu !== btn.nextElementSibling) {
-      menu.classList.remove('show');
-    }
-  });
-  // Toggle the clicked menu
-  btn.nextElementSibling.classList.toggle('show');
-};
-
-// Close all table action menus when clicking anywhere else
-document.addEventListener('click', function() {
-  document.querySelectorAll('.table-action-menu-content.show').forEach(menu => {
-    menu.classList.remove('show');
-  });
-});
-
-// Formateador de moneda en pesos chilenos (CLP)
-window.formatCLP = function(value) {
-  if (value === null || value === undefined || isNaN(value) || value === '') {
-    return '-';
-  }
-  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
-};
-
-// Capturador de errores global para depuración en tiempo real
-window.onerror = function (message, source, lineno, colno, error) {
-  alert(`Error detectado en admin.js:\n${message}\n\nArchivo: ${source}\nLínea: ${lineno}:${colno}`);
-  return false;
-};
-window.onunhandledrejection = function (event) {
-  alert(`Error de Promesa no manejada en admin.js:\n${event.reason}`);
-};
-
-console.log('DEBUG: Iniciando js/admin.js...');
-
-function getDisplayStatusName(rawStatus) {
-  if (!rawStatus) return 'Desconocido';
-  const statusLower = rawStatus.trim().toLowerCase();
-  switch (statusLower) {
-    case 'delivered':
-      return 'Entregado';
-    case 'reviewing':
-      return 'Creado';
-    case 'skipped':
-      return 'Reprogramado';
-    default:
-      const clean = rawStatus.replace(/_/g, ' ').trim();
-      return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
-  }
-}
-
-async function init() {
-  console.log('DEBUG: Ejecutando función init()...');
-  const userEmailSpan = document.getElementById('user-email');
-  const logoutBtn = document.getElementById('logout-btn');
-  const viewTitle = document.getElementById('view-title');
-  const navItems = document.querySelectorAll('.nav-item');
-
-  try {
-    // Verify authentication & Admin Role
-    console.log('DEBUG: Obteniendo sesión de Supabase...');
-    const { data: { session }, error } = await supabase.auth.getSession();
-
-    if (error) {
-      console.error('DEBUG: Error al obtener sesión:', error);
-    }
-
-    if (!session) {
-      console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
-      window.location.href = 'index.html';
-      return;
-    }
-
-    console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
-
-    console.log('DEBUG: Consultando perfil de administrador para ID:', session.user.id);
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role, company_name, full_name, allowed_modules, comercio')
-      .eq('id', session.user.id)
-      .single();
-    
-    if (profileError) {
-      console.warn('DEBUG: Error al obtener perfil:', profileError);
-    } else {
-      console.log('DEBUG: Perfil encontrado:', profile);
-    }
-    
-    if (!profile || profile.role !== 'admin') {
-      console.warn('DEBUG: Acceso denegado, no es administrador. Redirigiendo...');
-      alert("Acceso denegado. Se requieren permisos de Administrador.");
-      window.location.href = 'dashboard.html';
-      return;
-    }
-
-    // Set user info
-    const user = session.user;
-    if (userEmailSpan) {
-import supabase from './supabase.js';
-import { renderTicketsAdmin } from './tickets.js';
+import { initChatWidget } from './chat.js';
 
 
 // Función global para descargar archivos en PDF codificados en Base64
@@ -468,6 +339,7 @@ function updateCategoryHeadersVisibility() {
 
 // Ejecutar inicialización
 init();
+initChatWidget();
 
 const ALL_STATUSES = [
   'para procesar', 
@@ -4604,7 +4476,7 @@ window.renderDeclarationsAdmin = async function() {
 
     let rowsHtml = '';
     if (!declarations || declarations.length === 0) {
-      rowsHtml = '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos registradas.</td></tr>';
+      rowsHtml = '<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos registradas.</td></tr>';
     } else {
       declarations.forEach(dec => {
         let statusBadge = '';
@@ -4675,6 +4547,14 @@ window.renderDeclarationsAdmin = async function() {
               </div>
               ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
             </td>
+            <td style="font-size: 0.85rem;">
+              <div style="font-size: 0.85rem;">
+                <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                  Conf: <strong>${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</strong>
+                </span>
+              </div>
+            </td>
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
             <td style="font-size: 0.85rem;">${statusBadge}</td>
             <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -4723,6 +4603,7 @@ window.renderDeclarationsAdmin = async function() {
                 <th>Llegada Estimada</th>
                 <th>Declaradas</th>
                 <th>Bultos</th>
+                <th>Volumen (m³)</th>
                 <th>Método Envío</th>
                 <th>Estado</th>
                 <th>Recibido / Incidencias</th>
@@ -4862,6 +4743,8 @@ function handleManageStatusChange(status) {
   const groupReceived = document.getElementById('manage-dec-group-received');
   const groupIncidents = document.getElementById('manage-dec-group-incidents');
   const groupWarehouse = document.getElementById('manage-dec-group-warehouse');
+  const groupVolumeConfirmed = document.getElementById('manage-dec-group-volume-confirmed');
+  const volumeConfirmedInput = document.getElementById('manage-dec-volume-confirmed');
   
   if (status === 'Bodega Asignada') {
     if (groupWarehouse) {
@@ -4875,6 +4758,14 @@ function handleManageStatusChange(status) {
       const selectEl = document.getElementById('manage-dec-warehouse-select');
       if (selectEl) selectEl.removeAttribute('required');
     }
+  }
+
+  if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+    if (groupVolumeConfirmed) groupVolumeConfirmed.style.display = 'block';
+    if (volumeConfirmedInput) volumeConfirmedInput.setAttribute('required', 'required');
+  } else {
+    if (groupVolumeConfirmed) groupVolumeConfirmed.style.display = 'none';
+    if (volumeConfirmedInput) volumeConfirmedInput.removeAttribute('required');
   }
   
   if (status === 'Recibido Conforme') {
@@ -4985,6 +4876,7 @@ window.manageDeclaration = async function(id) {
     }
     document.getElementById('manage-dec-date').textContent = etaText;
     document.getElementById('manage-dec-qty-declared').textContent = dec.quantity_declared;
+    document.getElementById('manage-dec-volume-declared').textContent = dec.volume_declared || 0;
     document.getElementById('manage-dec-packages').textContent = dec.package_count;
     document.getElementById('manage-dec-package-type').textContent = dec.package_type;
     document.getElementById('manage-dec-container-count').textContent = dec.container_count || 0;
@@ -4993,6 +4885,7 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-unloading').innerHTML = dec.requires_unloading 
       ? '<span style="color: var(--color-warning); font-weight: bold;">Sí, solicitada (0.1 UF x m³)</span>' 
       : 'No requerida';
+    document.getElementById('manage-dec-estimated-cost').textContent = (dec.estimated_cost || 0).toFixed(2) + ' UF';
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
 
     // Bodega asignada
@@ -5036,6 +4929,7 @@ window.manageDeclaration = async function(id) {
     // Si la cantidad recibida es 0 y el estado es Creada, sugerimos la declarada para ahorrar trabajo
     document.getElementById('manage-dec-qty-received').value = dec.status === 'Creada' ? dec.quantity_declared : dec.quantity_received;
     document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
+    document.getElementById('manage-dec-volume-confirmed').value = (dec.status === 'Creada' || dec.status === 'Bodega Asignada') ? (dec.volume_declared || '') : (dec.volume_confirmed || '');
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
 
     // Renderizar botones de acción según el estado actual de la declaración
@@ -5080,6 +4974,16 @@ document.addEventListener('submit', async (e) => {
     if (!stageComment) {
       alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El comentario de la etapa / notas de avance es obligatorio.</div>';
       return;
+    }
+
+    // Validar volumen confirmado si el estado requiere confirmación de recepción
+    let volumeConfirmed = 0;
+    if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+      volumeConfirmed = parseFloat(document.getElementById('manage-dec-volume-confirmed').value);
+      if (isNaN(volumeConfirmed) || volumeConfirmed <= 0) {
+        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El volumen confirmado (m³) es obligatorio y debe ser mayor a 0.</div>';
+        return;
+      }
     }
 
     // Validar bodega si es Bodega Asignada
@@ -5133,7 +5037,7 @@ document.addEventListener('submit', async (e) => {
         comment: stageComment
       };
       const updatedHistory = [...existingHistory, newHistoryEntry];
-
+ 
       // 2. Ejecutar actualización
       const updateData = {
         status: status,
@@ -5145,6 +5049,10 @@ document.addEventListener('submit', async (e) => {
         updated_at: new Date().toISOString()
       };
 
+      if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
+        updateData.volume_confirmed = volumeConfirmed;
+      }
+ 
       if (status === 'Bodega Asignada') {
         updateData.warehouse_id = warehouseId;
       }

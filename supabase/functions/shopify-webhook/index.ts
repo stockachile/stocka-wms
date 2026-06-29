@@ -106,6 +106,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
     shipping_address: order.shipping_address?.address1,
     shipping_city: order.shipping_address?.city,
     shipping_complement: order.shipping_address?.address2,
+    shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: order,
     created_at: new Date(order.created_at).toISOString(),
     status: "para procesar"
@@ -215,7 +216,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
-    .select("id, status")
+    .select("id, status, estado_wms")
     .eq("merchant_id", merchantId)
     .eq("external_order_number", order.name)
     .maybeSingle();
@@ -232,6 +233,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     shipping_address: order.shipping_address?.address1,
     shipping_city: order.shipping_address?.city,
     shipping_complement: order.shipping_address?.address2,
+    shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
     raw_shopify_data: order
   };
 
@@ -252,15 +254,16 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   }
 
   // Lógica de Alertas Condicionales
-  // Estados críticos: 'en preparación', 'preparado', 'despachado'
-  const estadosCriticos = ['en preparación', 'preparado', 'despachado'];
+  // Estados críticos del WMS: 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'
+  const wmsStatus = existingOrder.estado_wms || 'En procesamiento';
+  const estadosCriticos = ['En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
   
-  if (estadosCriticos.includes(existingOrder.status)) {
-    let alertMessage = `El pedido ${order.name} ha sido modificado en Shopify mientras estaba en estado: ${existingOrder.status}.`;
+  if (estadosCriticos.includes(wmsStatus)) {
+    let alertMessage = `El pedido ${order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = 'MODIFICADO_EN_PREPARACION';
 
     if (topic === "orders/cancelled") {
-        alertMessage = `¡CRÍTICO! El pedido ${order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en estado: ${existingOrder.status}. Detener despacho de inmediato.`;
+        alertMessage = `¡CRÍTICO! El pedido ${order.name} ha sido CANCELADO en Shopify, pero aquí se encuentra en WMS con estado: ${wmsStatus}. Detener despacho de inmediato.`;
         alertType = 'CANCELADO_EN_PREPARACION';
     }
 
@@ -275,5 +278,70 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }]);
       
     if (alertErr) console.error("Error creando alerta:", alertErr);
+  } else {
+    // Si NO está en un estado crítico (ej: está 'para procesar'), sincronizamos los items del pedido
+    // para mantener el WMS actualizado antes de que comience la preparación.
+    
+    // 1. Eliminar ítems anteriores
+    await supabase.from("order_items").delete().eq("order_id", existingOrder.id);
+
+    // 2. Obtener primera bodega asignada al comerciante
+    const { data: whRelation } = await supabase
+      .from("merchants_warehouses")
+      .select("warehouse_id")
+      .eq("merchant_id", merchantId)
+      .limit(1)
+      .maybeSingle();
+      
+    const warehouseId = whRelation?.warehouse_id || null;
+
+    // 3. Registrar ítems actualizados
+    const lineItems = order.line_items || [];
+    for (const item of lineItems) {
+      let product = null;
+
+      // Buscar el producto en el catálogo
+      let query = supabase.from("products").select("id");
+      if (item.variant_id) {
+        query = query.eq("shopify_variant_id", item.variant_id.toString());
+      } else {
+        query = query.eq("sku", item.sku).eq("comercio", comercio);
+      }
+      
+      const { data: foundProduct } = await query.maybeSingle();
+      product = foundProduct;
+
+      // Auto-crear producto si no existe
+      if (!product) {
+        const { data: newProd } = await supabase
+          .from("products")
+          .insert([{
+            merchant_id: merchantId,
+            comercio: comercio,
+            sku: item.sku || item.variant_id.toString(),
+            name: `${item.title}${item.variant_title && item.variant_title !== "Default Title" ? " - " + item.variant_title : ""}`,
+            price: item.price ? parseFloat(item.price) : 0,
+            description: "Creado automáticamente desde webhook de Shopify al actualizar",
+            shopify_product_id: item.product_id?.toString() || null,
+            shopify_variant_id: item.variant_id?.toString() || null,
+            shopify_stock: 0,
+            status: "active"
+          }])
+          .select("id")
+          .single();
+
+        product = newProd;
+      }
+
+      if (product) {
+        await supabase.from("order_items").insert([{
+          order_id: existingOrder.id,
+          product_id: product.id,
+          warehouse_id: warehouseId,
+          quantity: item.quantity
+        }]);
+      }
+    }
+    console.log(`Ítems actualizados con éxito para el pedido ${order.name} en estado no crítico.`);
   }
 }
