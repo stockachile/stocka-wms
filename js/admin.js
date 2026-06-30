@@ -5917,6 +5917,18 @@ function injectBillingStyles() {
     .status-red { background-color: rgba(239, 68, 68, 0.15) !important; color: #991b1b !important; border: 1px solid rgba(239, 68, 68, 0.3) !important; }
     .status-teal { background-color: rgba(20, 184, 166, 0.15) !important; color: #115e59 !important; border: 1px solid rgba(20, 184, 166, 0.3) !important; }
     .status-cyan { background-color: rgba(6, 182, 212, 0.15) !important; color: #075985 !important; border: 1px solid rgba(6, 182, 212, 0.3) !important; }
+
+    /* Dark mode overrides for status badges */
+    [data-theme="dark"] .status-green { background-color: rgba(16, 185, 129, 0.18) !important; color: #6ee7b7 !important; border-color: rgba(16, 185, 129, 0.35) !important; }
+    [data-theme="dark"] .status-green-light { background-color: rgba(52, 211, 153, 0.18) !important; color: #6ee7b7 !important; border-color: rgba(52, 211, 153, 0.35) !important; }
+    [data-theme="dark"] .status-gray { background-color: rgba(148, 163, 184, 0.12) !important; color: #cbd5e1 !important; border-color: rgba(148, 163, 184, 0.25) !important; }
+    [data-theme="dark"] .status-blue { background-color: rgba(59, 130, 246, 0.18) !important; color: #93c5fd !important; border-color: rgba(59, 130, 246, 0.35) !important; }
+    [data-theme="dark"] .status-purple { background-color: rgba(139, 92, 246, 0.18) !important; color: #c4b5fd !important; border-color: rgba(139, 92, 246, 0.35) !important; }
+    [data-theme="dark"] .status-yellow { background-color: rgba(245, 158, 11, 0.18) !important; color: #fcd34d !important; border-color: rgba(245, 158, 11, 0.35) !important; }
+    [data-theme="dark"] .status-red { background-color: rgba(239, 68, 68, 0.18) !important; color: #fca5a5 !important; border-color: rgba(239, 68, 68, 0.35) !important; }
+    [data-theme="dark"] .status-teal { background-color: rgba(20, 184, 166, 0.18) !important; color: #5eead4 !important; border-color: rgba(20, 184, 166, 0.35) !important; }
+    [data-theme="dark"] .status-cyan { background-color: rgba(6, 182, 212, 0.18) !important; color: #67e8f9 !important; border-color: rgba(6, 182, 212, 0.35) !important; }
+
     
     .billing-period-card {
       background: var(--color-surface);
@@ -8782,6 +8794,12 @@ function renderDashboardPendingView() {
   const content = document.getElementById('d-content-pending');
   if (!content) return;
   
+  // Persist filter state across re-renders
+  const prevCommerce = document.getElementById('filter-pending-commerce')?.value || '';
+  const prevPeriod = document.getElementById('filter-pending-period')?.value || '';
+  const prevService = document.getElementById('filter-pending-service')?.value || '';
+  const prevFiltersVisible = document.getElementById('pending-invoices-filters')?.style.display !== 'none';
+  
   const invoicesToEmit = [];
   cachedDashboardRecords.forEach(r => {
     if (r.factura_fulfillment === 'Facturar') {
@@ -8799,13 +8817,34 @@ function renderDashboardPendingView() {
   const envDetailsToSend = cachedDashboardRecords.filter(r => 
     r.pago_enviame === 'Por solicitar' && (r.enviame || 0) > 0
   );
+
+  // Build filter options from data
+  const allCommerces = [...new Set(invoicesToEmit.map(i => i.commerce))].sort();
+  const allPeriods = [...new Set(invoicesToEmit.map(i => i.periodName))].sort();
+  const allServices = [...new Set(invoicesToEmit.map(i => i.service))].sort();
+
+  const commerceOptions = allCommerces.map(c => `<option value="${c}">${c}</option>`).join('');
+  const periodOptions = allPeriods.map(p => `<option value="${p}">${p}</option>`).join('');
+  const serviceOptions = allServices.map(s => `<option value="${s}">${s}</option>`).join('');
+
+  // Service badge color helper
+  function getServiceBadgeClass(service) {
+    return service === 'Fulfillment' ? 'status-purple' : 'status-teal';
+  }
   
   let invoicesRows = invoicesToEmit.map(i => `
-    <tr>
+    <tr data-commerce="${i.commerce}" data-period="${i.periodName}" data-service="${i.service}">
       <td><strong>${i.commerce}</strong></td>
       <td>${i.periodName}</td>
-      <td><span class="client-badge status-blue">${i.service}</span></td>
-      <td style="font-weight: 600;">${window.formatCLP(i.amount)}</td>
+      <td><span class="client-badge ${getServiceBadgeClass(i.service)}">${i.service}</span></td>
+      <td style="font-weight: 600;">
+        <span class="amount-cell">
+          ${window.formatCLP(i.amount)}
+          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${i.amount}, this)" title="Copiar monto">
+            <i class="ri-file-copy-line"></i>
+          </button>
+        </span>
+      </td>
       <td>
         <button class="btn btn-primary btn-sm" onclick="markDashboardInvoiceAsIssued('${i.recordId}', '${i.type}')">
           <i class="ri-file-add-line"></i> Registrar Factura
@@ -8819,7 +8858,14 @@ function renderDashboardPendingView() {
       <td><strong>${r.comercio}</strong></td>
       <td>${r.billing_periods?.name || ''}</td>
       <td><span class="client-badge status-gray">${r.desglose_fulfillment}</span></td>
-      <td style="font-weight: 500;">${window.formatCLP(r.total_fulfillment)}</td>
+      <td style="font-weight: 500;">
+        <span class="amount-cell">
+          ${window.formatCLP(r.total_fulfillment)}
+          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${r.total_fulfillment}, this)" title="Copiar monto">
+            <i class="ri-file-copy-line"></i>
+          </button>
+        </span>
+      </td>
       <td>
         <button class="btn btn-outline btn-sm" onclick="markDashboardFulfDetailSent('${r.id}')">
           <i class="ri-mail-send-line"></i> Marcar Enviado
@@ -8833,7 +8879,14 @@ function renderDashboardPendingView() {
       <td><strong>${r.comercio}</strong></td>
       <td>${r.billing_periods?.name || ''}</td>
       <td><span class="client-badge status-gray">${r.pago_enviame}</span></td>
-      <td style="font-weight: 500;">${window.formatCLP(r.enviame)}</td>
+      <td style="font-weight: 500;">
+        <span class="amount-cell">
+          ${window.formatCLP(r.enviame)}
+          <button class="copy-amount-btn" onclick="copyAmountToClipboard(${r.enviame}, this)" title="Copiar monto">
+            <i class="ri-file-copy-line"></i>
+          </button>
+        </span>
+      </td>
       <td>
         <button class="btn btn-outline btn-sm" onclick="markDashboardEnvDetailSent('${r.id}')">
           <i class="ri-mail-send-line"></i> Marcar Enviado
@@ -8845,12 +8898,47 @@ function renderDashboardPendingView() {
   content.innerHTML = `
     <!-- Section 1: Facturas por Emitir -->
     <div class="card" style="margin-bottom: 1.5rem;">
-      <div class="card-header">
-        <h3><i class="ri-file-warning-line"></i> Facturas por Emitir (${invoicesToEmit.length})</h3>
+      <div class="card-header" style="flex-direction: column; align-items: stretch;">
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+          <h3><i class="ri-file-warning-line"></i> Facturas por Emitir (${invoicesToEmit.length})</h3>
+          <button class="btn btn-outline btn-sm" onclick="togglePendingFilters()" style="font-size: 0.78rem; gap: 0.35rem;">
+            <i class="ri-filter-3-line"></i> Filtros
+          </button>
+        </div>
+        <div id="pending-invoices-filters" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Comercio</label>
+              <select id="filter-pending-commerce" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
+                <option value="">Todos</option>
+                ${commerceOptions}
+              </select>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Periodo</label>
+              <select id="filter-pending-period" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
+                <option value="">Todos</option>
+                ${periodOptions}
+              </select>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Servicio</label>
+              <select id="filter-pending-service" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
+                <option value="">Todos</option>
+                ${serviceOptions}
+              </select>
+            </div>
+            <div style="display: flex; align-items: flex-end; padding-bottom: 1px;">
+              <button class="btn btn-outline btn-sm" onclick="clearPendingInvoiceFilters()" style="font-size: 0.75rem; padding: 0.4rem 0.6rem; color: var(--color-text-muted);">
+                <i class="ri-close-line"></i> Limpiar
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="card-body table-responsive" style="padding: 0;">
         ${invoicesRows ? `
-          <table class="data-table">
+          <table class="data-table" id="pending-invoices-table">
             <thead>
               <tr>
                 <th>Comercio</th>
@@ -8864,6 +8952,10 @@ function renderDashboardPendingView() {
               ${invoicesRows}
             </tbody>
           </table>
+          <div id="pending-no-results" style="display: none; padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+            <i class="ri-filter-off-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            No se encontraron registros con los filtros aplicados.
+          </div>
         ` : `
           <div style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
             No hay facturas pendientes de emisión.
@@ -8932,7 +9024,147 @@ function renderDashboardPendingView() {
       </div>
     </div>
   `;
+
+  // Restore persisted filter state
+  const cSel = document.getElementById('filter-pending-commerce');
+  const pSel = document.getElementById('filter-pending-period');
+  const sSel = document.getElementById('filter-pending-service');
+  const filtersDiv = document.getElementById('pending-invoices-filters');
+  if (cSel && prevCommerce) cSel.value = prevCommerce;
+  if (pSel && prevPeriod) pSel.value = prevPeriod;
+  if (sSel && prevService) sSel.value = prevService;
+  if (filtersDiv && prevFiltersVisible) filtersDiv.style.display = 'block';
+  if (prevCommerce || prevPeriod || prevService) applyPendingInvoiceFilters();
 }
+
+// === Copy amount to clipboard utility ===
+window.copyAmountToClipboard = function(amount, btnEl) {
+  const text = String(amount);
+  navigator.clipboard.writeText(text).then(() => {
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  });
+};
+
+// === Toggle pending invoices filters ===
+window.togglePendingFilters = function() {
+  const filtersDiv = document.getElementById('pending-invoices-filters');
+  if (!filtersDiv) return;
+  const isHidden = filtersDiv.style.display === 'none';
+  filtersDiv.style.display = isHidden ? 'block' : 'none';
+};
+
+// === Apply filters on pending invoices table ===
+window.applyPendingInvoiceFilters = function() {
+  const commerceVal = document.getElementById('filter-pending-commerce')?.value || '';
+  const periodVal = document.getElementById('filter-pending-period')?.value || '';
+  const serviceVal = document.getElementById('filter-pending-service')?.value || '';
+  
+  const table = document.getElementById('pending-invoices-table');
+  if (!table) return;
+  
+  const rows = table.querySelectorAll('tbody tr');
+  let visibleCount = 0;
+  
+  rows.forEach(row => {
+    const matchCommerce = !commerceVal || row.dataset.commerce === commerceVal;
+    const matchPeriod = !periodVal || row.dataset.period === periodVal;
+    const matchService = !serviceVal || row.dataset.service === serviceVal;
+    
+    if (matchCommerce && matchPeriod && matchService) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  // Show/hide "no results" message
+  const noResults = document.getElementById('pending-no-results');
+  if (noResults) {
+    noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+  }
+  if (table) {
+    table.style.display = visibleCount === 0 ? 'none' : '';
+  }
+};
+
+// === Clear all pending invoice filters ===
+window.clearPendingInvoiceFilters = function() {
+  const commerce = document.getElementById('filter-pending-commerce');
+  const period = document.getElementById('filter-pending-period');
+  const service = document.getElementById('filter-pending-service');
+  if (commerce) commerce.value = '';
+  if (period) period.value = '';
+  if (service) service.value = '';
+  applyPendingInvoiceFilters();
+};
+
+// Inject CSS for copy button and amount cell
+(function() {
+  const styleId = 'billing-copy-btn-styles';
+  if (!document.getElementById(styleId)) {
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+      .amount-cell {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .copy-amount-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius-sm);
+        background: var(--color-surface);
+        color: var(--color-text-muted);
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+        padding: 0;
+        flex-shrink: 0;
+      }
+      .copy-amount-btn:hover {
+        background: var(--color-surface-hover);
+        color: var(--color-primary);
+        border-color: var(--color-primary);
+        transform: scale(1.08);
+      }
+      .copy-amount-btn.copied {
+        background: rgba(16, 185, 129, 0.15);
+        color: #10b981;
+        border-color: rgba(16, 185, 129, 0.4);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+})();
 
 window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
   const invoiceNumStr = prompt('Introduce el Número de Factura emitida:');
