@@ -6922,9 +6922,17 @@ async function loadBillingRecords(periodId, bodyElement) {
             ${formatCLP(total)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
-            <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
-              <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
-            </button>
+            <div style="display: inline-flex; gap: 0.25rem;">
+              <button class="btn btn-outline btn-sm" 
+                      onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url || (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0)) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
+                      title="Gestionar Adjuntos y Enlaces">
+                <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
+                <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
+              </button>
+            </div>
           </td>
         </tr>
       `;
@@ -8803,10 +8811,10 @@ function renderDashboardPendingView() {
   const invoicesToEmit = [];
   cachedDashboardRecords.forEach(r => {
     if (r.factura_fulfillment === 'Facturar') {
-      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Fulfillment', amount: r.total_fulfillment, type: 'fulfillment' });
+      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Fulfillment', amount: r.total_fulfillment, type: 'fulfillment', paymentStatus: r.pago_fulfillment || 'Sin estado' });
     }
     if (r.factura_enviame === 'Facturar') {
-      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Envíame', amount: r.enviame, type: 'enviame' });
+      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Envíame', amount: r.enviame, type: 'enviame', paymentStatus: r.pago_enviame || 'Sin estado' });
     }
   });
   
@@ -8837,6 +8845,7 @@ function renderDashboardPendingView() {
       <td><strong>${i.commerce}</strong></td>
       <td>${i.periodName}</td>
       <td><span class="client-badge ${getServiceBadgeClass(i.service)}">${i.service}</span></td>
+      <td><span class="client-badge ${getStatusClass(i.paymentStatus)}">${i.paymentStatus}</span></td>
       <td style="font-weight: 600;">
         <span class="amount-cell">
           ${window.formatCLP(i.amount)}
@@ -8944,6 +8953,7 @@ function renderDashboardPendingView() {
                 <th>Comercio</th>
                 <th>Periodo</th>
                 <th>Servicio</th>
+                <th>Estado Pago</th>
                 <th>Monto</th>
                 <th>Acción</th>
               </tr>
@@ -10136,4 +10146,408 @@ document.addEventListener('submit', async (e) => {
     }
   }
 });
+
+// =========================================================================
+// BILLING ATTACHMENTS & PREVIEW MODALS
+// =========================================================================
+
+window.openDocPreviewModal = function(name, url) {
+  const modal = document.getElementById('modal-doc-preview');
+  const title = document.getElementById('doc-preview-title');
+  const body = document.getElementById('doc-preview-body');
+  const info = document.getElementById('doc-preview-info');
+  const downloadBtn = document.getElementById('doc-preview-download-btn');
+  
+  if (!modal || !body) return;
+  
+  title.textContent = name;
+  body.innerHTML = '';
+  
+  const knownExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'txt', 'html', 'htm', 'xlsx', 'xls', 'csv', 'docx', 'doc', 'zip', 'rar', '7z'];
+  let ext = '';
+  let isExternalLink = false;
+  
+  try {
+    const parsedUrl = new URL(url);
+    const pathname = parsedUrl.pathname;
+    const lastSegment = pathname.substring(pathname.lastIndexOf('/') + 1);
+    if (lastSegment.includes('.')) {
+      ext = lastSegment.split('.').pop().toLowerCase();
+      if (!knownExtensions.includes(ext)) {
+        isExternalLink = true;
+      }
+    } else {
+      isExternalLink = true;
+    }
+  } catch (e) {
+    const cleanUrl = url.split('?')[0];
+    ext = cleanUrl.split('.').pop().toLowerCase();
+    if (!knownExtensions.includes(ext)) {
+      isExternalLink = true;
+    }
+  }
+  
+  let html = '';
+  let infoText = 'Vista previa del archivo';
+  
+  if (isExternalLink) {
+    html = `
+      <div style="padding:3rem; text-align:center; color:var(--color-text-muted); display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; box-sizing:border-box;">
+        <div style="width:70px; height:70px; border-radius:50%; background:rgba(59, 130, 246, 0.1); color:var(--color-primary); display:flex; align-items:center; justify-content:center; margin-bottom:1.5rem;">
+          <i class="ri-external-link-line" style="font-size:2.5rem;"></i>
+        </div>
+        <h3 style="color:var(--color-text-main); margin-bottom:0.75rem; font-size:1.4rem; font-weight:700;">Documento Online Externo</h3>
+        <p style="font-size:0.9rem; max-width:480px; margin:0 auto 1.5rem auto; line-height:1.6; color:var(--color-text-muted);">
+          Este documento está enlazado a un servicio externo (como Google Sheets, Notion, OneDrive o YouTube) y no se puede visualizar directamente dentro de esta ventana debido a restricciones de seguridad del sitio de origen.
+        </p>
+        <a href="${url}" target="_blank" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.6rem 1.25rem; font-size:0.95rem; font-weight:600; text-decoration:none;">
+          <i class="ri-external-link-line"></i> Abrir en pestaña nueva
+        </a>
+        <div style="margin-top:2rem; padding:0.75rem 1rem; background:var(--color-bg); border:1px solid var(--color-border); border-radius:var(--radius-md); font-family:monospace; font-size:0.75rem; color:var(--color-text-muted); word-break:break-all; max-width:90%;">
+          Enlace: ${url}
+        </div>
+      </div>
+    `;
+    infoText = 'Enlace externo';
+    if (downloadBtn) {
+      downloadBtn.innerHTML = '<i class="ri-external-link-line"></i> Abrir Enlace';
+    }
+  } else if (['pdf', 'txt', 'html', 'htm'].includes(ext)) {
+    html = `<iframe src="${url}" style="width:100%; height:100%; border:none; background:white;"></iframe>`;
+    if (downloadBtn) {
+      downloadBtn.innerHTML = '<i class="ri-download-2-line"></i> Descargar Archivo';
+    }
+  } else if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) {
+    html = `<div style="padding:1rem; width:100%; height:100%; overflow:auto; display:flex; align-items:center; justify-content:center;"><img src="${url}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; box-shadow:var(--shadow-md);"></div>`;
+    if (downloadBtn) {
+      downloadBtn.innerHTML = '<i class="ri-download-2-line"></i> Descargar Archivo';
+    }
+  } else {
+    html = `
+      <div style="padding:2.5rem; text-align:center; color:var(--color-text-muted);">
+        <i class="ri-file-warning-line" style="font-size:3rem; color:var(--color-primary); display:block; margin-bottom:1rem;"></i>
+        <h4 style="color:var(--color-text-main); margin-bottom:0.5rem;">Vista previa no disponible</h4>
+        <p style="font-size:0.875rem; max-width:400px; margin:0 auto 1.5rem auto;">Los archivos de tipo <strong>.${ext}</strong> no se pueden visualizar directamente en el navegador.</p>
+        <a href="${url}" target="_blank" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem;">
+          <i class="ri-download-2-line"></i> Descargar para Visualizar
+        </a>
+      </div>
+    `;
+    infoText = 'Descarga requerida para este tipo de archivo';
+    if (downloadBtn) {
+      downloadBtn.innerHTML = '<i class="ri-download-2-line"></i> Descargar Archivo';
+    }
+  }
+  
+  body.innerHTML = html;
+  if (info) info.textContent = infoText;
+  if (downloadBtn) {
+    downloadBtn.href = url;
+    downloadBtn.setAttribute('download', name);
+  }
+  
+  modal.classList.add('active');
+};
+
+window.closeDocPreviewModal = function() {
+  const modal = document.getElementById('modal-doc-preview');
+  const body = document.getElementById('doc-preview-body');
+  if (body) body.innerHTML = '';
+  if (modal) modal.classList.remove('active');
+};
+
+window.openBillingAttachmentsModal = async function(recordId, commerceName, periodId) {
+  let modal = document.getElementById('modal-billing-attachments');
+  if (modal) modal.remove();
+  
+  // 1. Crear modal con overlay de carga
+  modal = document.createElement('div');
+  modal.id = 'modal-billing-attachments';
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3><i class="ri-attachment-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Adjuntos: ${commerceName}</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" id="billing-adjuntos-body" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando adjuntos del registro...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  try {
+    // 2. Consultar datos de facturación actuales
+    const { data: r, error } = await supabase
+      .from('billing_records')
+      .select('fulfillment_link, fulfillment_pdf_url, enviame_pdfs')
+      .eq('id', recordId)
+      .single();
+      
+    if (error) throw error;
+    
+    const fulfillmentLink = r.fulfillment_link || '';
+    const fulfillmentPdfUrl = r.fulfillment_pdf_url || '';
+    const enviamePdfs = r.enviame_pdfs || [];
+    
+    // 3. Renderizar el cuerpo del modal con datos cargados
+    const bodyEl = document.getElementById('billing-adjuntos-body');
+    bodyEl.removeAttribute('style');
+    bodyEl.style.padding = '1.25rem';
+    
+    let envPdfsHtml = '';
+    if (enviamePdfs && Array.isArray(enviamePdfs) && enviamePdfs.length > 0) {
+      envPdfsHtml = enviamePdfs.map((pdf, idx) => `
+        <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
+          <span style="color: var(--color-text-main); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 250px;"><i class="ri-file-pdf-line" style="color: #ef4444;"></i> ${pdf.name || `PDF ${idx + 1}`}</span>
+          <div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      envPdfsHtml = '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.5rem 0;">No hay PDFs cargados en Envíame.</p>';
+    }
+    
+    bodyEl.innerHTML = `
+      <form id="form-billing-attachments-submit">
+        <!-- Fulfillment Section -->
+        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700;">Fulfillment</h4>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Enlace Fulfillment (URL)</label>
+          <input type="url" id="adj-fulf-link" class="form-input" value="${fulfillmentLink}" placeholder="https://ejemplo.com/desglose" style="width: 100%;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Archivo PDF Fulfillment</label>
+          <input type="file" id="adj-fulf-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
+          ${fulfillmentPdfUrl ? `
+            <div id="adj-fulf-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
+              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> PDF Cargado</span>
+              <div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('PDF Fulfillment - ${commerceName}', '${fulfillmentPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+        
+        <!-- Envíame Section -->
+        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700;">Envíame</h4>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Subir Nuevo PDF Envíame</label>
+          <input type="file" id="adj-env-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem; display: block;">PDFs Cargados (Envíame)</label>
+          <div id="adj-env-pdfs-list">
+            ${envPdfsHtml}
+          </div>
+        </div>
+        
+        <div class="modal-footer" style="padding: 1rem 0 0 0; margin-top: 1rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-adjuntos"><i class="ri-save-line"></i> Guardar Adjuntos</button>
+        </div>
+      </form>
+    `;
+    
+    // Bind Submit Handler
+    const formSubmit = document.getElementById('form-billing-attachments-submit');
+    formSubmit.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btnSubmit = document.getElementById('btn-submit-adjuntos');
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+      
+      try {
+        const fulfLinkVal = document.getElementById('adj-fulf-link').value.trim();
+        const fulfPdfInput = document.getElementById('adj-fulf-pdf');
+        const envPdfInput = document.getElementById('adj-env-pdf');
+        
+        const updates = {
+          fulfillment_link: fulfLinkVal || null,
+          updated_at: new Date().toISOString()
+        };
+        
+        // 1. Subir PDF Fulfillment
+        if (fulfPdfInput && fulfPdfInput.files && fulfPdfInput.files[0]) {
+          const file = fulfPdfInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const storagePath = `billing_files/${recordId}_fulf_${Date.now()}_${sanitizedName}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('payment_receipts')
+            .upload(storagePath, file);
+            
+          if (uploadError) throw uploadError;
+          
+          const { data: urlData } = supabase.storage
+            .from('payment_receipts')
+            .getPublicUrl(storagePath);
+            
+          updates.fulfillment_pdf_url = urlData.publicUrl;
+        }
+        
+        // 2. Subir PDF Envíame (agregar al array)
+        if (envPdfInput && envPdfInput.files && envPdfInput.files[0]) {
+          const file = envPdfInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const storagePath = `billing_files/${recordId}_env_${Date.now()}_${sanitizedName}`;
+          
+          const { error: uploadError } = await supabase.storage
+            .from('payment_receipts')
+            .upload(storagePath, file);
+            
+          if (uploadError) throw uploadError;
+          
+          const { data: urlData } = supabase.storage
+            .from('payment_receipts')
+            .getPublicUrl(storagePath);
+            
+          // Obtener el array actual de nuevo para evitar carreras
+          const { data: currentRecord } = await supabase
+            .from('billing_records')
+            .select('enviame_pdfs')
+            .eq('id', recordId)
+            .single();
+            
+          const currentPdfs = currentRecord?.enviame_pdfs || [];
+          currentPdfs.push({ name: file.name, url: urlData.publicUrl });
+          
+          updates.enviame_pdfs = currentPdfs;
+        }
+        
+        // Guardar cambios en Supabase
+        const { error: saveError } = await supabase
+          .from('billing_records')
+          .update(updates)
+          .eq('id', recordId);
+          
+        if (saveError) throw saveError;
+        
+        modal.remove();
+        
+        // Recargar las filas
+        const body = document.getElementById(`period-body-${periodId}`);
+        if (body) {
+          await loadBillingRecords(periodId, body);
+        }
+        
+      } catch (err) {
+        console.error('Error saving billing attachments:', err);
+        alert('Error al guardar adjuntos: ' + err.message);
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar Adjuntos';
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error opening attachments modal:', err);
+    alert('Error al abrir adjuntos: ' + err.message);
+    modal.remove();
+  }
+};
+
+window.deleteBillingAttachmentField = async function(recordId, fieldName, btnEl) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este adjunto de forma permanente?')) return;
+  
+  showSavingBadge(true);
+  try {
+    const { data: record, error: getErr } = await supabase
+      .from('billing_records')
+      .select(fieldName)
+      .eq('id', recordId)
+      .single();
+      
+    if (getErr) throw getErr;
+    const fileUrl = record[fieldName];
+    
+    if (fileUrl && fileUrl.includes('payment_receipts')) {
+      const match = fileUrl.match(/\/payment_receipts\/(.+)$/);
+      if (match && match[1]) {
+        const storagePath = decodeURIComponent(match[1]);
+        await supabase.storage.from('payment_receipts').remove([storagePath]);
+      }
+    }
+    
+    const { error: updErr } = await supabase
+      .from('billing_records')
+      .update({ [fieldName]: null })
+      .eq('id', recordId);
+      
+    if (updErr) throw updErr;
+    
+    const statusDiv = btnEl.closest('#adj-fulf-pdf-status');
+    if (statusDiv) statusDiv.remove();
+    
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error deleting attachment field:', err);
+    alert('Error al eliminar adjunto: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
+window.deleteBillingAttachmentArray = async function(recordId, index, btnEl) {
+  if (!confirm('¿Estás seguro de que deseas eliminar este archivo PDF de Envíame de forma permanente?')) return;
+  
+  showSavingBadge(true);
+  try {
+    // 1. Obtener array actual
+    const { data: record, error: getErr } = await supabase
+      .from('billing_records')
+      .select('enviame_pdfs')
+      .eq('id', recordId)
+      .single();
+      
+    if (getErr) throw getErr;
+    const currentPdfs = record?.enviame_pdfs || [];
+    
+    if (index >= 0 && index < currentPdfs.length) {
+      const targetPdf = currentPdfs[index];
+      
+      // Borrar de storage
+      if (targetPdf.url && targetPdf.url.includes('payment_receipts')) {
+        const match = targetPdf.url.match(/\/payment_receipts\/(.+)$/);
+        if (match && match[1]) {
+          const storagePath = decodeURIComponent(match[1]);
+          await supabase.storage.from('payment_receipts').remove([storagePath]);
+        }
+      }
+      
+      // Remover del array
+      currentPdfs.splice(index, 1);
+      
+      // Actualizar DB
+      const { error: updErr } = await supabase
+        .from('billing_records')
+        .update({ enviame_pdfs: currentPdfs })
+        .eq('id', recordId);
+        
+      if (updErr) throw updErr;
+      
+      // Borrar el elemento en el modal sin recargar todo el modal
+      const itemDiv = btnEl.closest('.env-pdf-item');
+      if (itemDiv) itemDiv.remove();
+      
+      if (currentPdfs.length === 0) {
+        const listDiv = document.getElementById('adj-env-pdfs-list');
+        if (listDiv) listDiv.innerHTML = '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.5rem 0;">No hay PDFs cargados en Envíame.</p>';
+      }
+    }
+    
+    setTimeout(() => showSavingBadge(false), 500);
+  } catch (err) {
+    console.error('Error deleting array attachment:', err);
+    alert('Error al eliminar adjunto: ' + err.message);
+    showSavingBadge(false);
+  }
+};
 

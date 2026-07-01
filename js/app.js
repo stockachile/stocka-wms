@@ -299,7 +299,7 @@ async function init() {
             const appContent = document.getElementById('app-content');
             renderTicketsClient(appContent);
           } else if (view === 'documentation') {
-            viewTitle.textContent = 'Documentaci├│n del Servicio';
+            viewTitle.textContent = 'Documentación del Servicio';
             renderDocsClient();
           }
         });
@@ -8054,6 +8054,21 @@ window.loadClientBillingData = async function(periodId) {
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
+          <td style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
+              ${r.fulfillment_link ? `
+                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(59, 130, 246, 0.4); color: var(--color-primary); background: rgba(59, 130, 246, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                  <i class="ri-link" style="font-size: 0.9rem;"></i> Revisar registro de facturación
+                </button>
+              ` : ''}
+              ${r.fulfillment_pdf_url ? `
+                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(220, 38, 38, 0.4); color: #ef4444; background: rgba(220, 38, 38, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                  <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> Ver Desglose
+                </button>
+              ` : ''}
+              ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>' : ''}
+            </div>
+          </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
             ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
           </td>
@@ -8094,6 +8109,15 @@ window.loadClientBillingData = async function(periodId) {
         <tr class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
+          </td>
+          <td style="vertical-align: middle;">
+            <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
+              ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => `
+                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(220, 38, 38, 0.4); color: #ef4444; background: rgba(220, 38, 38, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                  <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> ${pdf.name || `PDF ${idx + 1}`}
+                </button>
+              `).join('') : '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>'}
+            </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
             ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
@@ -8223,6 +8247,7 @@ window.loadClientBillingData = async function(periodId) {
           <thead>
             <tr>
               <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 200px; border-bottom: 1px solid var(--color-border);">Registros</th>
               <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
               <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Desglose</th>
               <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
@@ -8246,6 +8271,7 @@ window.loadClientBillingData = async function(periodId) {
           <thead>
             <tr>
               <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 200px; border-bottom: 1px solid var(--color-border);">Registros</th>
               <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
               <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
               <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
@@ -8262,6 +8288,16 @@ window.loadClientBillingData = async function(periodId) {
         </table>
       </div>
     `;
+    
+    // Bind previews for client billing attachments
+    tableContainer.querySelectorAll('.btn-client-preview-doc').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const name = btn.getAttribute('data-name');
+        const url = btn.getAttribute('data-url');
+        window.openDocPreviewModal(name, url);
+      });
+    });
     
     // 4. Consultar y listar reportes de pago de estos comercios para el periodo
     await loadClientPaymentReports(periodId, resolvedCompanyList);
@@ -9200,7 +9236,7 @@ window.renderDocsClient = async function() {
         <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
           <div style="position: relative; flex: 1; min-width: 250px;">
             <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-            <input type="text" id="client-doc-search" class="form-input" style="padding-left: 2.25rem;" placeholder="Buscar documentos por nombre o descripci├│n..." value="${clientSearchQuery}">
+            <input type="text" id="client-doc-search" class="form-input" style="padding-left: 2.25rem;" placeholder="Buscar documentos por nombre o descripción..." value="${clientSearchQuery}">
           </div>
         </div>
       </div>
@@ -9217,7 +9253,7 @@ window.renderDocsClient = async function() {
         </aside>
 
         <div class="docs-main-content">
-          <!-- Secci├│n de Destacados -->
+          <!-- Sección de Destacados -->
           <div id="client-pinned-section" class="pinned-section" style="display: none;">
             <h4 style="margin: 0; color: #b45309; display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">
               <i class="ri-star-fill" style="color: #f59e0b;"></i> Documentos Destacados
@@ -9370,7 +9406,7 @@ function filterAndRenderDocsClient() {
 
   if (countSpan) countSpan.textContent = `${filtered.length} archivos`;
 
-  // Renderizar destacados (solo si no hay filtro de b├║squeda activo, o si los destacados coinciden con la b├║squeda)
+  // Renderizar destacados (solo si no hay filtro de búsqueda activo, o si los destacados coinciden con la búsqueda)
   const pinnedFiles = filtered.filter(doc => doc.is_pinned);
   if (pinnedFiles.length > 0) {
     if (pinnedSection) pinnedSection.style.display = 'block';
@@ -9393,7 +9429,7 @@ function filterAndRenderDocsClient() {
                 <span class="doc-badge-folder" style="margin-top: 0.25rem; display: inline-block;">${doc.folder || 'General'}</span>
               </div>
             </div>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 1rem 0; min-height: 2.4rem; line-height: 1.4;">${doc.description || 'Sin descripci├│n'}</p>
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 1rem 0; min-height: 2.4rem; line-height: 1.4;">${doc.description || 'Sin descripción'}</p>
             <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--color-border); padding-top: 0.75rem; margin-top: auto;">
               <span style="font-size: 0.75rem; color: var(--color-text-muted);">Act: ${formattedDate}</span>
               <div style="display: flex; gap: 0.25rem;">
@@ -9413,7 +9449,7 @@ function filterAndRenderDocsClient() {
     if (pinnedSection) pinnedSection.style.display = 'none';
   }
 
-  // Renderizar est├índar
+  // Renderizar estándar
   if (filtered.length === 0) {
     grid.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 3rem; color: var(--color-text-muted);">
@@ -9448,7 +9484,7 @@ function filterAndRenderDocsClient() {
               </div>
             </div>
           </div>
-          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; line-height: 1.4;">${doc.description || 'Sin descripci├│n'}</p>
+          <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.5rem 0 0 0; line-height: 1.4;">${doc.description || 'Sin descripción'}</p>
         </div>
         <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--color-border); padding-top: 0.75rem; margin-top: 0.5rem;">
           <span style="font-size: 0.75rem; color: var(--color-text-muted);">Actualizado: ${formattedDate}</span>
@@ -9502,10 +9538,10 @@ window.openDocPreviewModal = function(name, url) {
         isExternalLink = true;
       }
     } else {
-      isExternalLink = true; // No hay extensi├│n de archivo en el path, asumimos que es link
+      isExternalLink = true; // No hay extensión de archivo en el path, asumimos que es link
     }
   } catch (e) {
-    // Si no es URL v├ílida, intentar split simple
+    // Si no es URL válida, intentar split simple
     const cleanUrl = url.split('?')[0];
     ext = cleanUrl.split('.').pop().toLowerCase();
     if (!knownExtensions.includes(ext)) {
@@ -9524,10 +9560,10 @@ window.openDocPreviewModal = function(name, url) {
         </div>
         <h3 style="color:var(--color-text-main); margin-bottom:0.75rem; font-size:1.4rem; font-weight:700;">Documento Online Externo</h3>
         <p style="font-size:0.9rem; max-width:480px; margin:0 auto 1.5rem auto; line-height:1.6; color:var(--color-text-muted);">
-          Este documento est├í enlazado a un servicio externo (como Google Sheets, Notion, OneDrive o YouTube) y no se puede visualizar directamente dentro de esta ventana debido a restricciones de seguridad del sitio de origen.
+          Este documento está enlazado a un servicio externo (como Google Sheets, Notion, OneDrive o YouTube) y no se puede visualizar directamente dentro de esta ventana debido a restricciones de seguridad del sitio de origen.
         </p>
         <a href="${url}" target="_blank" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.6rem 1.25rem; font-size:0.95rem; font-weight:600; text-decoration:none;">
-          <i class="ri-external-link-line"></i> Abrir en pesta├▒a nueva
+          <i class="ri-external-link-line"></i> Abrir en pestaña nueva
         </a>
         <div style="margin-top:2rem; padding:0.75rem 1rem; background:var(--color-bg); border:1px solid var(--color-border); border-radius:var(--radius-md); font-family:monospace; font-size:0.75rem; color:var(--color-text-muted); word-break:break-all; max-width:90%;">
           Enlace: ${url}

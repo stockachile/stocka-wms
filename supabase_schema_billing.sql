@@ -91,6 +91,9 @@ CREATE TABLE IF NOT EXISTS public.billing_records (
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_limite_enviame DATE;
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_pago_recibido_fulfillment DATE;
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_pago_recibido_enviame DATE;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fulfillment_link TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fulfillment_pdf_url TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS enviame_pdfs JSONB DEFAULT '[]'::jsonb;
 
 
 -- 5. Crear la Tabla de Reportes de Pagos (Enviados por Clientes)
