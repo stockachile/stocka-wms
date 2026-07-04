@@ -458,6 +458,7 @@ async function renderAdminOrders() {
         tracking_url,
         courier,
         raw_woocommerce_data,
+        raw_jumpseller_data,
         raw_falabella_data,
         raw_meli_data,
         raw_optiroute_data,
@@ -556,6 +557,7 @@ async function renderAdminOrders() {
               <option value="">Todos los orígenes</option>
               <option value="Shopify">Shopify</option>
               <option value="WooCommerce">WooCommerce</option>
+              <option value="Jumpseller">Jumpseller</option>
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
@@ -795,7 +797,7 @@ window.applyWmsFiltersAndRender = function() {
     let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
 
     const platform = order.origen || order.external_platform || 'Manual';
-    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : '#6b7280'))));
+    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280')))));
     const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -872,6 +874,7 @@ window.applyWmsFiltersAndRender = function() {
 
     let rawData = null;
     if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
+    else if (order.raw_jumpseller_data) rawData = order.raw_jumpseller_data;
     else if (order.raw_falabella_data) rawData = order.raw_falabella_data;
     else if (order.raw_meli_data) rawData = order.raw_meli_data;
     else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
@@ -1289,7 +1292,7 @@ async function renderIntegrations() {
         const companyName = mi.profiles?.company_name || 'Desconocido';
         const commerceName = mi.comercio || 'No especificado';
         const platform = mi.platform || 'Desconocida';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : '#6b7280'))));
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280')))));
         
         const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
         
@@ -1500,6 +1503,7 @@ async function renderIntegrations() {
                 <option value="Falabella">Falabella</option>
                 <option value="Paris">París</option>
                 <option value="WooCommerce">WooCommerce</option>
+                <option value="Jumpseller">Jumpseller</option>
               </select>
               <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; transition: all 0.2s;">
                 <i class="ri-save-line"></i> Guardar
@@ -1515,7 +1519,7 @@ async function renderIntegrations() {
           </h4>
           <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
             Sube una planilla Excel o CSV para cargar equivalencias de SKU de forma masiva para el cliente seleccionado. Las columnas requeridas son:
-            <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce o Todas).
+            <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce, Jumpseller o Todas).
             <br><strong>• SKU Plataforma:</strong> El SKU externo de la plataforma de ventas.
             <br><strong>• SKU Master:</strong> El SKU maestro de tu catálogo WMS (el producto físico).
           </p>
@@ -2193,7 +2197,7 @@ function setupAdminSkuMappingsListeners() {
           const validSkus = new Set((validProducts || []).map(p => p.sku));
 
           const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce'];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller'];
 
           rows.forEach((r) => {
             let platformVal = colPlatform ? r[colPlatform] : 'Todas';

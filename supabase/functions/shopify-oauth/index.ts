@@ -62,7 +62,8 @@ serve(async (req) => {
         });
       }
 
-      // 3. Ejecutar la sincronización
+      // 3. Asegurar registro de webhooks y ejecutar la sincronización
+      await registerShopifyWebhooks(integration.shop_url, integration.access_token, integration.merchant_id);
       const syncedCount = await syncShopifyProducts(integration);
 
       return new Response(JSON.stringify({ success: true, count: syncedCount }), {

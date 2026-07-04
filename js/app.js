@@ -544,6 +544,164 @@ async function renderDashboard() {
       `).join('');
     }
 
+    // Obtener información de facturación
+    let activePeriod = null;
+    let currentPeriodRecords = [];
+    let billingEnabled = false;
+    let totalPendingAllPeriods = 0;
+    let hasOverduePayments = false;
+    let pendingFulfillmentAny = false;
+    let pendingEnviameAny = false;
+    let currentPeriodTotal = 0;
+    let currentPeriodPaid = 0;
+    let currentPeriodPending = 0;
+
+    if (companyList.length > 0) {
+      billingEnabled = true;
+      try {
+        const [periodsRes, mappingsRes] = await Promise.all([
+          supabase.from('billing_periods').select('*').order('name', { ascending: false }),
+          supabase.from('billing_mappings').select('comercio_nombre, billing_name')
+        ]);
+
+        const periods = periodsRes.data;
+        const mappings = mappingsRes.data || [];
+
+        if (periods && periods.length > 0) {
+          activePeriod = periods.find(p => p.status === 'activo') || periods[0];
+        }
+
+        const uniqueBillingNames = new Set();
+        companyList.forEach(c => {
+          const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+          const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+          uniqueBillingNames.add(nameToUse);
+        });
+        const resolvedCompanyList = Array.from(uniqueBillingNames);
+
+        if (resolvedCompanyList.length > 0) {
+          const { data: allRecords } = await supabase
+            .from('billing_records')
+            .select('*')
+            .in('comercio', resolvedCompanyList);
+
+          if (allRecords && allRecords.length > 0) {
+            if (activePeriod) {
+              currentPeriodRecords = allRecords.filter(r => r.period_id === activePeriod.id);
+            }
+
+            allRecords.forEach(r => {
+              const pendingFulf = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+              const pendingEnv = (r.enviame || 0) - (r.abono_enviame || 0);
+              
+              if (pendingFulf > 0) {
+                totalPendingAllPeriods += pendingFulf;
+                pendingFulfillmentAny = true;
+              }
+              if (pendingEnv > 0) {
+                totalPendingAllPeriods += pendingEnv;
+                pendingEnviameAny = true;
+              }
+
+              if (r.pago_fulfillment === 'Atrasado' || r.pago_enviame === 'Atrasado') {
+                hasOverduePayments = true;
+              }
+            });
+          }
+        }
+
+        currentPeriodRecords.forEach(r => {
+          currentPeriodTotal += (r.total_fulfillment || 0) + (r.enviame || 0);
+          currentPeriodPaid += (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
+        });
+        currentPeriodPending = currentPeriodTotal - currentPeriodPaid;
+      } catch (err) {
+        console.error('Error fetching billing data for dashboard:', err);
+      }
+    }
+
+    let billingHtml = '';
+    if (billingEnabled && activePeriod) {
+      let statusBadge = '';
+      let alertBanner = '';
+
+      if (hasOverduePayments) {
+        statusBadge = `
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-danger); font-size: 0.8rem; background: rgba(239, 68, 68, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
+            <i class="ri-error-warning-fill" style="font-size: 1rem;"></i> Pago Atrasado
+          </span>
+        `;
+        let overdueServices = [];
+        if (pendingFulfillmentAny) overdueServices.push('Fulfillment');
+        if (pendingEnviameAny) overdueServices.push('Envíame');
+        alertBanner = `
+          <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid var(--color-danger); padding: 1rem; border-radius: 4px; margin-top: 1.5rem; display: flex; align-items: center; gap: 0.75rem; text-align: left; width: 100%;">
+            <i class="ri-alert-fill" style="color: var(--color-danger); font-size: 1.5rem; flex-shrink: 0;"></i>
+            <div style="font-size: 0.9rem; color: var(--color-text-main);">
+              <strong>¡Atención!</strong> Tienes pagos atrasados pendientes para el/los servicios de <strong>${overdueServices.join(' y ')}</strong>. Por favor, regulariza tu cuenta a la brevedad para evitar suspensiones de servicio.
+            </div>
+          </div>
+        `;
+      } else if (totalPendingAllPeriods > 0) {
+        statusBadge = `
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-warning); font-size: 0.8rem; background: rgba(245, 158, 11, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
+            <i class="ri-time-fill" style="font-size: 1rem;"></i> Saldo Pendiente
+          </span>
+        `;
+        let pendingServices = [];
+        if (pendingFulfillmentAny) pendingServices.push('Fulfillment');
+        if (pendingEnviameAny) pendingServices.push('Envíame');
+        alertBanner = `
+          <div style="background: rgba(245, 158, 11, 0.1); border-left: 4px solid var(--color-warning); padding: 1rem; border-radius: 4px; margin-top: 1.5rem; display: flex; align-items: center; gap: 0.75rem; text-align: left; width: 100%;">
+            <i class="ri-information-fill" style="color: var(--color-warning); font-size: 1.5rem; flex-shrink: 0;"></i>
+            <div style="font-size: 0.9rem; color: var(--color-text-main);">
+              Tienes un saldo total pendiente de cobro de <strong>$${totalPendingAllPeriods.toLocaleString()}</strong> correspondiente a los servicios de <strong>${pendingServices.join(' y ')}</strong>.
+            </div>
+          </div>
+        `;
+      } else {
+        statusBadge = `
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Al Día
+          </span>
+        `;
+      }
+
+      billingHtml = `
+        <div class="card" style="grid-column: 1 / -1; display: flex; flex-direction: column;">
+          <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <h3 style="margin: 0;"><i class="ri-bill-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Facturación y Estado de Cuenta</h3>
+              <span style="font-size: 0.8rem; color: var(--color-text-muted); background: var(--color-bg-secondary); padding: 0.25rem 0.75rem; border-radius: 4px;">Periodo: ${activePeriod.name}</span>
+            </div>
+            ${statusBadge}
+          </div>
+          <div class="card-body" style="padding: 1.5rem;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem;">
+              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Total Facturado del Mes</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">$${currentPeriodTotal.toLocaleString()}</div>
+              </div>
+              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Abonado/Pagado</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-success);">$${currentPeriodPaid.toLocaleString()}</div>
+              </div>
+              <div style="background: var(--color-bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--color-border); text-align: center;">
+                <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.25rem;">Saldo Pendiente del Mes</div>
+                <div style="font-size: 1.5rem; font-weight: 700; color: ${currentPeriodPending > 0 ? 'var(--color-warning)' : 'var(--color-text-main)'};">$${currentPeriodPending.toLocaleString()}</div>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: center;">
+                <button class="btn btn-primary" style="width: 100%; max-width: 200px; padding: 0.75rem 1rem; border-radius: 8px;" id="dashboard-to-billing-btn">
+                  <i class="ri-receipt-line" style="margin-right: 0.5rem;"></i> Detalle de Facturas
+                </button>
+              </div>
+            </div>
+            ${alertBanner}
+          </div>
+        </div>
+      `;
+    }
+
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-hero">
         <div class="dashboard-hero-content">
@@ -609,6 +767,8 @@ async function renderDashboard() {
             ${newsHtml}
           </div>
         </div>
+
+        ${billingHtml}
       </div>
     `;
 
@@ -620,6 +780,17 @@ async function renderDashboard() {
   // Load dynamic calendar data
   if (typeof window.updateCalendarView_app === 'function') {
     window.updateCalendarView_app();
+  }
+
+  // Redirección al detalle de facturas
+  const toBillingBtn = document.getElementById('dashboard-to-billing-btn');
+  if (toBillingBtn) {
+    toBillingBtn.addEventListener('click', () => {
+      const billingNavItem = document.querySelector('[data-view="billing"]');
+      if (billingNavItem) {
+        billingNavItem.click();
+      }
+    });
   }
 }
 
@@ -1224,6 +1395,7 @@ async function renderOrders() {
               <option value="">Todos los orígenes</option>
               <option value="Shopify">Shopify</option>
               <option value="WooCommerce">WooCommerce</option>
+              <option value="Jumpseller">Jumpseller</option>
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
@@ -1837,6 +2009,7 @@ async function renderIntegrations() {
     const falabellaIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Falabella') : null;
     const meliIntegration = integrationsList ? integrationsList.find(i => i.platform === 'MercadoLibre') : null;
     const wooIntegration = integrationsList ? integrationsList.find(i => i.platform === 'WooCommerce') : null;
+    const jumpsellerIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Jumpseller') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
@@ -1882,6 +2055,26 @@ async function renderIntegrations() {
       }
     }
 
+    const hasJumpseller = !!jumpsellerIntegration;
+    const jumpsellerUrl = hasJumpseller ? jumpsellerIntegration.shop_url : '';
+    const jumpsellerStatusText = hasJumpseller 
+      ? (jumpsellerIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    let jumpsellerLoginKey = '';
+    let jumpsellerAuthToken = '';
+    let jumpsellerWebhookSecret = '';
+    if (hasJumpseller) {
+      jumpsellerWebhookSecret = jumpsellerIntegration.webhook_secret || '';
+      try {
+        const creds = JSON.parse(jumpsellerIntegration.access_token);
+        jumpsellerLoginKey = creds.login_key || '';
+        jumpsellerAuthToken = creds.auth_token || '';
+      } catch(e) {
+        console.error("Error parsing Jumpseller credentials", e);
+      }
+    }
+
     const isObserver = userRole === 'observer';
     const disabledAttr = isObserver ? 'disabled' : '';
 
@@ -1916,6 +2109,12 @@ async function renderIntegrations() {
       : (!hasWoo 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-woo" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda WooCommerce</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-woo" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar WooCommerce</button>');
+
+    const jumpsellerButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasJumpseller 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-jumpseller" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Jumpseller</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-jumpseller" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Jumpseller</button>');
 
     let selectorHtml = '';
     if (assignedComercios.length > 1) {
@@ -1955,6 +2154,7 @@ async function renderIntegrations() {
         <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
         <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
         <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
+        <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
         <button class="integration-tab" data-tab="tab-sku-mappings"><i class="ri-equalizer-line"></i> Equivalencias SKU</button>
       </div>
 
@@ -1969,7 +2169,8 @@ async function renderIntegrations() {
             ${hasFalabella ? '<div class="card" style="border: 1px solid rgba(132, 204, 22, 0.2); background: rgba(132, 204, 22, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #84cc16;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Falabella</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + falabellaUser + '</span></div></div>' + falabellaStatusText + '</div></div>' : ''}
             ${hasMeli ? '<div class="card" style="border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #f59e0b;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">MercadoLibre</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + meliStatusText + '</div></div>' : ''}
             ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
-            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
+            ${hasJumpseller ? '<div class="card" style="border: 1px solid rgba(2, 132, 199, 0.2); background: rgba(2, 132, 199, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-2-line" style="font-size: 2rem; color: #0284c7;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Jumpseller</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + jumpsellerUrl + '</span></div></div>' + jumpsellerStatusText + '</div></div>' : ''}
+            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
           </div>
         </div>
 
@@ -1997,6 +2198,26 @@ async function renderIntegrations() {
                     <label class="form-label" style="font-weight: 600;">URL de tu tienda Shopify</label>
                     <input type="text" id="shopify-url" class="form-input" placeholder="ej. mitienda.myshopify.com" value="${shopUrl}" ${hasShopify ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasShopify || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
                   </div>
+                  
+                  ${!hasShopify ? `
+                  <div style="margin-bottom: 1.25rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="shopify-manual-mode" style="cursor: pointer;">
+                      <span>¿Conectar manualmente usando API Access Token privado?</span>
+                    </label>
+                  </div>
+                  <div id="shopify-manual-fields" style="display: none; border-left: 2px solid var(--color-primary); padding-left: 1rem; margin-bottom: 1.25rem; margin-top: 0.5rem;">
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                      <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Token de acceso Admin API (shpat_...)</label>
+                      <input type="password" id="shopify-access-token" class="form-input" placeholder="shpat_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                      <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Secreto del Cliente / Webhook Secret</label>
+                      <input type="password" id="shopify-webhook-secret" class="form-input" placeholder="shpss_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    </div>
+                  </div>
+                  ` : ''}
+
                   <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
                     ${shopifyButtonHtml}
                   </div>
@@ -2024,6 +2245,47 @@ async function renderIntegrations() {
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez instalada, serás redirigido de vuelta al WMS y tu tienda aparecerá como <strong style="color: var(--color-text-main);">Activa</strong>. Los nuevos pedidos comenzarán a sincronizarse automáticamente.</p>
                   </li>
                 </ol>
+
+                <div style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1.5rem;">
+                  <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); cursor: pointer;" id="toggle-manual-guide">
+                    <span><i class="ri-information-line" style="color: var(--color-primary);"></i></span>
+                    <span style="font-weight: 600;">¿Cómo conectar manualmente con Token Privado?</span>
+                    <i class="ri-arrow-down-s-line" id="arrow-manual-guide" style="margin-left: auto; transition: transform 0.2s;"></i>
+                  </h4>
+                  <div id="manual-guide-content" style="display: none; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.6;">
+                    <p style="margin-bottom: 0.75rem;">Si prefieres conectar tu tienda sin pasar por la aprobación de Shopify, puedes crear una aplicación personalizada privada en tu administrador de Shopify:</p>
+                    <ol style="padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                      <li>
+                        <strong>Habilitar desarrollo de apps:</strong>
+                        <p style="margin: 0;">Ve a tu panel de Shopify -> <strong>Configuración</strong> -> <strong>Aplicaciones y canales de venta</strong> -> Haz clic en <strong>Desarrollar aplicaciones</strong> -> Activa el desarrollo si aún no lo has hecho.</p>
+                      </li>
+                      <li>
+                        <strong>Crear la aplicación:</strong>
+                        <p style="margin: 0;">Haz clic en <strong>Crear una aplicación</strong>, nómbrala (ej: <code>STOCKA WMS Conexión</code>) y selecciona tu usuario administrador.</p>
+                      </li>
+                      <li>
+                        <strong>Configurar alcances del API (Scopes):</strong>
+                        <p style="margin: 0;">Entra a <strong>Configuración del API del panel de control</strong> y otorga los siguientes permisos:</p>
+                        <ul style="padding-left: 1rem; margin-top: 0.25rem; list-style-type: disc;">
+                          <li><code>read_products</code> (Leer productos)</li>
+                          <li><code>read_orders</code> (Leer pedidos)</li>
+                        </ul>
+                      </li>
+                      <li>
+                        <strong>Instalar y Copiar Token:</strong>
+                        <p style="margin: 0;">Haz clic en <strong>Instalar aplicación</strong> en la esquina superior derecha. En la pestaña <strong>Credenciales de API</strong> verás el <strong>Token de acceso de la API del panel de control</strong>. Cópialo al portapapeles (este token comienza con <code>shpat_</code> y solo se puede ver una vez).</p>
+                      </li>
+                      <li>
+                        <strong>Copiar Secreto de Cliente:</strong>
+                        <p style="margin: 0;">En esa misma pestaña de Credenciales, desplázate un poco hacia abajo hasta la caja <strong>Clave de API y secreto de cliente</strong>. Copia el valor de <strong>Secreto de cliente</strong> (comienza con <code>shpss_</code>). Este secreto es indispensable para validar las firmas de las notificaciones de pedidos en tiempo real.</p>
+                      </li>
+                      <li>
+                        <strong>Pega en el WMS:</strong>
+                        <p style="margin: 0;">Regresa aquí, marca la casilla manual, pega los valores y haz clic en <strong>Guardar Conexión Manual</strong>.</p>
+                      </li>
+                    </ol>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2297,6 +2559,74 @@ async function renderIntegrations() {
           </div>
         </div>
 
+        <!-- TAB: Jumpseller -->
+        <div id="tab-jumpseller" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shopping-bag-2-line"></i> Jumpseller Integration</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasJumpseller ? 'rgba(2, 132, 199, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasJumpseller ? 'rgba(2, 132, 199, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasJumpseller ? '#0284c7' : 'var(--color-text-main)'};">Jumpseller Store</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${jumpsellerStatusText}
+                   </div>
+                </div>
+                <form id="form-jumpseller-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de tu tienda Jumpseller</label>
+                    <input type="text" id="jumpseller-url" class="form-input" placeholder="ej. https://mitienda.jumpseller.com" value="${jumpsellerUrl}" ${hasJumpseller ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasJumpseller || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasJumpseller ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Login Key</label>
+                    <input type="text" id="jumpseller-login-key" class="form-input" placeholder="ej. api_user@domain.com o login key de la API" value="${jumpsellerLoginKey}" ${hasJumpseller ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasJumpseller || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasJumpseller ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Auth Token</label>
+                    <input type="password" id="jumpseller-auth-token" class="form-input" placeholder="Token de autorización API" value="${jumpsellerAuthToken}" ${hasJumpseller ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasJumpseller || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasJumpseller ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Webhook Secret (Hooks Token)</label>
+                    <input type="password" id="jumpseller-webhook-secret" class="form-input" placeholder="Token de notificaciones (webhooks)" value="${jumpsellerWebhookSecret}" ${hasJumpseller ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasJumpseller || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${jumpsellerButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-shopping-bag-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Jumpseller
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Habilitar HTTPS:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tu tienda Jumpseller esté activa y sea accesible de forma segura bajo HTTPS.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener Credenciales de la API:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel administrativo de Jumpseller, ve a <em>Configuración &gt; API</em> (o entra en la esquina superior de tu cuenta). Copia el <strong>Login Key</strong> y el <strong>Auth Token</strong> generados.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Guardar Configuración:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Pega la URL de tu tienda (ej: <code>https://mitienda.jumpseller.com</code>), el Login Key y el Auth Token en el formulario y haz clic en <strong>Conectar Tienda Jumpseller</strong>.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- TAB: Equivalencias SKU -->
         <div id="tab-sku-mappings" class="integration-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
           <!-- Configuración de Plataforma Principal -->
@@ -2318,6 +2648,7 @@ async function renderIntegrations() {
                   <option value="Falabella">Falabella</option>
                   <option value="Paris">París</option>
                   <option value="WooCommerce">WooCommerce</option>
+                  <option value="Jumpseller">Jumpseller</option>
                 </select>
                 <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; transition: all 0.2s;">
                   <i class="ri-save-line"></i> Guardar
@@ -2333,7 +2664,7 @@ async function renderIntegrations() {
             </h4>
             <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
               Sube una planilla Excel o CSV para cargar equivalencias de SKU de forma masiva. Las columnas requeridas son:
-              <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce o Todas).
+              <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce, Jumpseller o Todas).
               <br><strong>• SKU Plataforma:</strong> El SKU externo de la plataforma de ventas.
               <br><strong>• SKU Master:</strong> El SKU maestro de tu catálogo WMS (el producto físico).
             </p>
@@ -2427,6 +2758,46 @@ async function renderIntegrations() {
             }
           });
         });
+
+        // Toggle para la conexión manual de Shopify
+        const chkManual = document.getElementById('shopify-manual-mode');
+        const divManual = document.getElementById('shopify-manual-fields');
+        const btnSave = document.getElementById('btn-save-shopify');
+        const txtAccessToken = document.getElementById('shopify-access-token');
+        const txtWebhookSecret = document.getElementById('shopify-webhook-secret');
+        
+        if (chkManual && divManual && btnSave) {
+          chkManual.addEventListener('change', () => {
+            if (chkManual.checked) {
+              divManual.style.display = 'block';
+              btnSave.textContent = 'Guardar Conexión Manual';
+              txtAccessToken.required = true;
+              txtWebhookSecret.required = true;
+            } else {
+              divManual.style.display = 'none';
+              btnSave.textContent = 'Conectar Tienda Shopify';
+              txtAccessToken.required = false;
+              txtWebhookSecret.required = false;
+            }
+          });
+        }
+
+        // Toggle para mostrar/ocultar la guía de conexión manual
+        const toggleGuide = document.getElementById('toggle-manual-guide');
+        const guideContent = document.getElementById('manual-guide-content');
+        const arrowGuide = document.getElementById('arrow-manual-guide');
+        
+        if (toggleGuide && guideContent) {
+          toggleGuide.addEventListener('click', () => {
+            if (guideContent.style.display === 'none') {
+              guideContent.style.display = 'block';
+              if (arrowGuide) arrowGuide.style.transform = 'rotate(180deg)';
+            } else {
+              guideContent.style.display = 'none';
+              if (arrowGuide) arrowGuide.style.transform = 'rotate(0deg)';
+            }
+          });
+        }
       }, 0);
 
 
@@ -2440,7 +2811,6 @@ async function renderIntegrations() {
         }
         const btn = document.getElementById('btn-save-shopify');
         btn.disabled = true;
-        btn.textContent = 'Redirigiendo a Shopify...';
 
         const shop_url = document.getElementById('shopify-url').value.trim();
         const cleanShopUrl = shop_url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
@@ -2448,10 +2818,65 @@ async function renderIntegrations() {
         if (!cleanShopUrl.endsWith('.myshopify.com')) {
           alert('Por favor, ingresa una URL válida de Shopify (ej: mitienda.myshopify.com)');
           btn.disabled = false;
-          btn.textContent = 'Conectar Tienda Shopify';
+          btn.textContent = document.getElementById('shopify-manual-mode')?.checked ? 'Guardar Conexión Manual' : 'Conectar Tienda Shopify';
           return;
         }
 
+        const chkManual = document.getElementById('shopify-manual-mode');
+        const isManual = chkManual ? chkManual.checked : false;
+
+        if (isManual) {
+          btn.textContent = 'Guardando conexión...';
+          const accessToken = document.getElementById('shopify-access-token').value.trim();
+          const webhookSecret = document.getElementById('shopify-webhook-secret').value.trim();
+
+          if (!accessToken || !webhookSecret) {
+            alert('Por favor, ingresa tanto el Token de acceso como el Secreto de cliente.');
+            btn.disabled = false;
+            btn.textContent = 'Guardar Conexión Manual';
+            return;
+          }
+
+          try {
+            const { error: saveErr } = await supabase
+              .from('merchant_integrations')
+              .upsert({
+                merchant_id: merchantId,
+                comercio: window.activeIntegrationCommerce,
+                platform: 'Shopify',
+                shop_url: cleanShopUrl,
+                access_token: accessToken,
+                webhook_secret: webhookSecret,
+                is_active: true
+              }, { onConflict: 'comercio,platform' });
+
+            if (saveErr) throw saveErr;
+
+            btn.textContent = 'Sincronizando catálogo...';
+            // Ejecutar la primera sincronización y registro de webhooks de forma automática
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                }
+              });
+            }
+
+            alert('Tienda Shopify conectada manualmente y catálogo sincronizado con éxito.');
+            renderIntegrations();
+          } catch (err) {
+            console.error(err);
+            alert('Error al guardar conexión manual: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Guardar Conexión Manual';
+          }
+          return;
+        }
+
+        btn.textContent = 'Redirigiendo a Shopify...';
         // Configuración de la App en Shopify Partners
         const clientId = '67efac0695de4fde9f6c8d90ed2319b4'; // Client ID de Shopify Partners de STOCKA WMS
         const scopes = 'read_products,read_orders';
@@ -2856,6 +3281,78 @@ async function renderIntegrations() {
                 .delete()
                 .eq('comercio', window.activeIntegrationCommerce)
                 .eq('platform', 'WooCommerce');
+              if(delErr) throw delErr;
+              alert('Tienda desconectada.');
+              renderIntegrations();
+            } catch(err) {
+               console.error(err);
+               alert('Error al desconectar: ' + err.message);
+            }
+          }
+        });
+      }
+    }
+
+    // Jumpseller Submit Listener
+    if(!hasJumpseller) {
+      const formJumpseller = document.getElementById('form-jumpseller-integration');
+      if (formJumpseller) {
+        formJumpseller.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const btn = document.getElementById('btn-save-jumpseller');
+          btn.disabled = true;
+          btn.textContent = 'Conectando...';
+
+          const shop_url = document.getElementById('jumpseller-url').value.trim();
+          const login_key = document.getElementById('jumpseller-login-key').value.trim();
+          const auth_token = document.getElementById('jumpseller-auth-token').value.trim();
+          const webhook_secret = document.getElementById('jumpseller-webhook-secret').value.trim();
+
+          const tokenJson = JSON.stringify({
+            login_key: login_key,
+            auth_token: auth_token
+          });
+
+          try {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'Jumpseller',
+              shop_url: shop_url,
+              access_token: tokenJson,
+              webhook_secret: webhook_secret,
+              is_active: true,
+              comercio: window.activeIntegrationCommerce
+            }]);
+            if(insErr) throw insErr;
+            
+            alert('Integración con Jumpseller guardada correctamente.');
+            renderIntegrations(); // Recargar vista
+          } catch(err) {
+            console.error(err);
+            alert('Error al guardar la integración: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Conectar Tienda Jumpseller';
+          }
+        });
+      }
+    } else {
+      const btnDisconnectJumpseller = document.getElementById('btn-disconnect-jumpseller');
+      if (btnDisconnectJumpseller) {
+        btnDisconnectJumpseller.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          if(confirm('¿Estás seguro que deseas desconectar tu tienda Jumpseller?')) {
+            try {
+              const { error: delErr } = await supabase.from('merchant_integrations')
+                .delete()
+                .eq('comercio', window.activeIntegrationCommerce)
+                .eq('platform', 'Jumpseller');
               if(delErr) throw delErr;
               alert('Tienda desconectada.');
               renderIntegrations();
@@ -8057,12 +8554,12 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
               ${r.fulfillment_link ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(59, 130, 246, 0.4); color: var(--color-primary); background: rgba(59, 130, 246, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-link" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
                   <i class="ri-link" style="font-size: 0.9rem;"></i> Revisar registro de facturación
                 </button>
               ` : ''}
               ${r.fulfillment_pdf_url ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(220, 38, 38, 0.4); color: #ef4444; background: rgba(220, 38, 38, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
                   <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> Ver Desglose
                 </button>
               ` : ''}
@@ -8113,7 +8610,7 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
               ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; border-color: rgba(220, 38, 38, 0.4); color: #ef4444; background: rgba(220, 38, 38, 0.05); width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
                   <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> ${pdf.name || `PDF ${idx + 1}`}
                 </button>
               `).join('') : '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>'}
@@ -8788,6 +9285,46 @@ function injectClientBillingStyles() {
     .action-btn-modern:hover {
       transform: scale(1.03);
       box-shadow: 0 4px 12px rgba(79, 70, 229, 0.5);
+    }
+
+    /* Billing document buttons */
+    .btn-billing-link {
+      border-color: rgba(59, 130, 246, 0.3) !important;
+      color: #2563eb !important;
+      background: rgba(59, 130, 246, 0.06) !important;
+    }
+    .btn-billing-link:hover {
+      background: rgba(59, 130, 246, 0.12) !important;
+      border-color: rgba(59, 130, 246, 0.5) !important;
+    }
+    .btn-billing-pdf {
+      border-color: rgba(220, 38, 38, 0.3) !important;
+      color: #dc2626 !important;
+      background: rgba(220, 38, 38, 0.06) !important;
+    }
+    .btn-billing-pdf:hover {
+      background: rgba(220, 38, 38, 0.12) !important;
+      border-color: rgba(220, 38, 38, 0.5) !important;
+    }
+
+    /* Dark mode overrides */
+    [data-theme="dark"] .btn-billing-link {
+      border-color: rgba(96, 165, 250, 0.25) !important;
+      color: #93c5fd !important;
+      background: rgba(96, 165, 250, 0.08) !important;
+    }
+    [data-theme="dark"] .btn-billing-link:hover {
+      background: rgba(96, 165, 250, 0.15) !important;
+      border-color: rgba(96, 165, 250, 0.4) !important;
+    }
+    [data-theme="dark"] .btn-billing-pdf {
+      border-color: rgba(251, 113, 133, 0.25) !important;
+      color: #fda4af !important;
+      background: rgba(251, 113, 133, 0.08) !important;
+    }
+    [data-theme="dark"] .btn-billing-pdf:hover {
+      background: rgba(251, 113, 133, 0.15) !important;
+      border-color: rgba(251, 113, 133, 0.4) !important;
     }
   `;
   document.head.appendChild(style);
@@ -10067,7 +10604,7 @@ function setupSkuMappingsListeners() {
           const validSkus = new Set((validProducts || []).map(p => p.sku));
 
           const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce'];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller'];
 
           rows.forEach((r) => {
             let platformVal = colPlatform ? r[colPlatform] : 'Todas';
