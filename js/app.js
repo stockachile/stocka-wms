@@ -1301,6 +1301,8 @@ async function renderOrders() {
         raw_optiroute_data,
         raw_lightdata_data,
         raw_paris_data,
+        raw_shopify_data,
+        shopify_exported,
         order_items (quantity, products(sku, name))
       `);
 
@@ -1384,7 +1386,7 @@ async function renderOrders() {
 
       <!-- Panel de Filtros -->
       <div class="filters-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
             <input type="text" id="search-client-orders" class="form-input" placeholder="Buscar por ID, SKU, Producto, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
@@ -1409,11 +1411,38 @@ async function renderOrders() {
               ${statusOptions}
             </select>
           </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-download-2-line"></i> Exportación Shopify</label>
+            <select id="filter-client-export-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos</option>
+              <option value="pending">Pendientes de exportar</option>
+              <option value="exported">Exportados</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <!-- Agrupación por Pestañas de Estado WMS -->
       <div id="client-wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
+
+      <!-- Barra de Acciones por Lote (Bulk Actions) -->
+      <div id="client-orders-bulk-actions" style="display: none; background: var(--color-surface); border: 1px solid var(--color-primary); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-md);">
+        <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-weight: 600; font-size: 0.9rem;">
+          <i class="ri-checkbox-multiple-line" style="color: var(--color-primary); font-size: 1.2rem;"></i>
+          <span>Seleccionados: <strong id="selected-orders-count" style="color: var(--color-primary);">0</strong> pedidos</span>
+        </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <button id="btn-bulk-export-shopify" class="btn btn-primary" style="background: #96bf48; border: none; color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
+            <i class="ri-download-2-line"></i> Exportar Formato Shopify (CSV)
+          </button>
+          <button id="btn-bulk-mark-exported" class="btn btn-outline" style="border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; color: var(--color-text-main); background: transparent;">
+            <i class="ri-check-double-line" style="color: var(--color-success);"></i> Marcar como Exportados
+          </button>
+          <button id="btn-bulk-clear-selection" class="btn btn-outline" style="border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; color: var(--color-text-muted); background: transparent;">
+            Cancelar
+          </button>
+        </div>
+      </div>
 
       <!-- Tabla de Pedidos -->
       <div class="card">
@@ -1427,7 +1456,10 @@ async function renderOrders() {
           <table class="data-table" style="min-width:600px;">
             <thead>
               <tr>
-                <th style="width: 40px; text-align: center;"></th>
+                <th style="width: 30px; text-align: center;"></th>
+                <th style="width: 40px; text-align: center;">
+                  <input type="checkbox" id="select-all-client-orders" style="cursor: pointer;">
+                </th>
                 <th style="min-width:140px;">ID Pedido</th>
                 <th>Origen</th>
                 <th>Fecha</th>
@@ -1454,6 +1486,7 @@ async function renderOrders() {
     const searchInput = document.getElementById('search-client-orders');
     const origenSelect = document.getElementById('filter-client-origen');
     const statusSelect = document.getElementById('filter-client-status');
+    const exportStatusSelect = document.getElementById('filter-client-export-status');
 
     const triggerFilterUpdate = () => {
       window.clientWmsCurrentPage = 1;
@@ -1463,6 +1496,52 @@ async function renderOrders() {
     if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
+    if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
+
+    // Listeners para acciones por lote (Bulk Actions)
+    setTimeout(() => {
+      const btnExport = document.getElementById('btn-bulk-export-shopify');
+      const btnMark = document.getElementById('btn-bulk-mark-exported');
+      const btnClear = document.getElementById('btn-bulk-clear-selection');
+      
+      const getSelectedIds = () => {
+        const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
+        return Array.from(checkboxes).map(cb => cb.getAttribute('data-order-id'));
+      };
+      
+      if (btnExport) {
+        btnExport.addEventListener('click', () => {
+          const ids = getSelectedIds();
+          if (ids.length === 0) return;
+          window.exportShopifyOrdersCsv(ids);
+          
+          // Preguntar si quiere marcarlos como exportados
+          setTimeout(() => {
+            if (confirm('¿Deseas marcar los pedidos exportados como "Exportados" en el sistema?')) {
+              window.markOrdersAsExported(ids);
+            }
+          }, 1000);
+        });
+      }
+      
+      if (btnMark) {
+        btnMark.addEventListener('click', () => {
+          const ids = getSelectedIds();
+          if (ids.length === 0) return;
+          if (confirm(`¿Estás seguro de marcar ${ids.length} pedidos como exportados?`)) {
+            window.markOrdersAsExported(ids);
+          }
+        });
+      }
+      
+      if (btnClear) {
+        btnClear.addEventListener('click', () => {
+          window.toggleSelectAllClientOrders(false);
+          const selectAllCb = document.getElementById('select-all-client-orders');
+          if (selectAllCb) selectAllCb.checked = false;
+        });
+      }
+    }, 0);
 
     // Primera renderización de datos
     applyClientWmsFiltersAndRender();
@@ -1480,10 +1559,12 @@ window.applyClientWmsFiltersAndRender = function() {
   const searchInput = document.getElementById('search-client-orders');
   const origenSelect = document.getElementById('filter-client-origen');
   const statusSelect = document.getElementById('filter-client-status');
+  const exportStatusSelect = document.getElementById('filter-client-export-status');
 
   const searchText = (searchInput?.value || '').toLowerCase();
   const selectedOrigen = origenSelect?.value || '';
   const selectedStatus = statusSelect?.value || '';
+  const selectedExportStatus = exportStatusSelect?.value || '';
 
   const matchesBaseFilters = (order) => {
     const platform = order.origen || order.external_platform || 'Manual';
@@ -1504,8 +1585,15 @@ window.applyClientWmsFiltersAndRender = function() {
 
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
     const matchesStatus = !selectedStatus || order.status === selectedStatus;
+    
+    let matchesExport = true;
+    if (selectedExportStatus === 'pending') {
+      matchesExport = !order.shopify_exported;
+    } else if (selectedExportStatus === 'exported') {
+      matchesExport = !!order.shopify_exported;
+    }
 
-    return matchesSearch && matchesOrigen && matchesStatus;
+    return matchesSearch && matchesOrigen && matchesStatus && matchesExport;
   };
 
   // 1. Obtener conteo de pestañas
@@ -1759,15 +1847,23 @@ window.applyClientWmsFiltersAndRender = function() {
       `;
     }
 
+    const exportBadgeHtml = order.shopify_exported 
+      ? `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.2rem;"><i class="ri-check-line"></i> Exportado</span>`
+      : '';
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
         <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleClientOrderRow('${order.id}')">
           <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
         </td>
+        <td style="text-align: center; vertical-align: middle;">
+          <input type="checkbox" class="order-select-checkbox" data-order-id="${order.id}" style="cursor: pointer;" onclick="event.stopPropagation();">
+        </td>
         <td>
           <div style="display:flex; flex-direction:column; gap:0.2rem;">
             <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
             ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
+            ${exportBadgeHtml}
           </div>
         </td>
         <td>${originHtml}</td>
@@ -1794,7 +1890,7 @@ window.applyClientWmsFiltersAndRender = function() {
       
       <!-- Fila Desplegable de Detalles -->
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="11" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
@@ -1898,6 +1994,24 @@ window.applyClientWmsFiltersAndRender = function() {
       </div>
     `;
   }
+
+  // Vincular eventos para los checkboxes
+  const selectAllCb = document.getElementById('select-all-client-orders');
+  if (selectAllCb) {
+    selectAllCb.checked = false;
+    selectAllCb.addEventListener('change', (e) => {
+      window.toggleSelectAllClientOrders(e.target.checked);
+    });
+  }
+  
+  const checkboxes = document.querySelectorAll('.order-select-checkbox');
+  checkboxes.forEach(cb => {
+    cb.addEventListener('change', () => {
+      window.updateClientOrdersBulkSelection();
+    });
+  });
+  
+  window.updateClientOrdersBulkSelection();
 };
 
 window.setClientWmsTab = function(tab) {
@@ -8567,7 +8681,8 @@ window.loadClientBillingData = async function(periodId) {
             </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
-            ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
+            <div>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</div>
+            ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}">${r.desglose_fulfillment || '-'}</span>
@@ -8617,7 +8732,8 @@ window.loadClientBillingData = async function(periodId) {
             </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
-            ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
+            <div>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</div>
+            ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
           </td>
           <td style="vertical-align: middle; text-align: right; font-weight: 500;">
             ${window.formatCLP(r.enviame)}
@@ -8658,16 +8774,35 @@ window.loadClientBillingData = async function(periodId) {
       });
       btn.classList.add('active');
       
+      const tabFulf = document.getElementById('billing-tab-fulf');
+      const tabEnv = document.getElementById('billing-tab-env');
+      const tabExtra = document.getElementById('billing-tab-extra');
+      const filtersFulf = document.getElementById('filters-fulf');
+      const filtersEnv = document.getElementById('filters-env');
+      const filtersExtra = document.getElementById('filters-extra');
+
       if (tabName === 'fulf') {
-        document.getElementById('billing-tab-fulf').style.display = 'block';
-        document.getElementById('billing-tab-env').style.display = 'none';
-        document.getElementById('filters-fulf').style.display = 'flex';
-        document.getElementById('filters-env').style.display = 'none';
+        if (tabFulf) tabFulf.style.display = 'block';
+        if (tabEnv) tabEnv.style.display = 'none';
+        if (tabExtra) tabExtra.style.display = 'none';
+        if (filtersFulf) filtersFulf.style.display = 'flex';
+        if (filtersEnv) filtersEnv.style.display = 'none';
+        if (filtersExtra) filtersExtra.style.display = 'none';
+      } else if (tabName === 'env') {
+        if (tabFulf) tabFulf.style.display = 'none';
+        if (tabEnv) tabEnv.style.display = 'block';
+        if (tabExtra) tabExtra.style.display = 'none';
+        if (filtersFulf) filtersFulf.style.display = 'none';
+        if (filtersEnv) filtersEnv.style.display = 'flex';
+        if (filtersExtra) filtersExtra.style.display = 'none';
       } else {
-        document.getElementById('billing-tab-fulf').style.display = 'none';
-        document.getElementById('billing-tab-env').style.display = 'block';
-        document.getElementById('filters-fulf').style.display = 'none';
-        document.getElementById('filters-env').style.display = 'flex';
+        if (tabFulf) tabFulf.style.display = 'none';
+        if (tabEnv) tabEnv.style.display = 'none';
+        if (tabExtra) tabExtra.style.display = 'block';
+        if (filtersFulf) filtersFulf.style.display = 'none';
+        if (filtersEnv) filtersEnv.style.display = 'none';
+        if (filtersExtra) filtersExtra.style.display = 'flex';
+        window.loadClientExtraCharges(periodId);
       }
     };
 
@@ -8676,6 +8811,7 @@ window.loadClientBillingData = async function(periodId) {
       <div class="billing-tabs-container">
         <button class="billing-tab-btn active" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
         <button class="billing-tab-btn" onclick="switchBillingTabClient('env', this)">Envíame</button>
+        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">Cobros Adicionales</button>
       </div>
 
       <!-- Filtros Fulf -->
@@ -8738,6 +8874,12 @@ window.loadClientBillingData = async function(periodId) {
         </div>
       </div>
 
+      <!-- Filtros Extra -->
+      <div id="filters-extra" class="billing-filters-bar" style="display: none; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
+        <span style="font-size: 0.8rem; color: var(--color-text-muted);">Historial de cobros extraordinarios que hayan sido registrados por administración.</span>
+      </div>
+
       <!-- Tabla Fulfillment -->
       <div id="billing-tab-fulf" class="table-responsive">
         <table class="data-table" style="min-width: 1000px; font-size: 0.85rem; border-collapse: collapse;">
@@ -8781,6 +8923,30 @@ window.loadClientBillingData = async function(periodId) {
           </thead>
           <tbody>
             ${tableRowsEnv}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tabla Cobros Adicionales -->
+      <div id="billing-tab-extra" class="table-responsive" style="display: none;">
+        <table class="data-table" style="min-width: 800px; font-size: 0.85rem; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Fecha</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 300px; border-bottom: 1px solid var(--color-border);">Detalle del Cobro</th>
+              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Monto</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Estado</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Periodo Asignado</th>
+            </tr>
+          </thead>
+          <tbody id="client-extra-charges-table-body">
+            <tr>
+              <td colspan="6" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+                <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                Cargando cobros adicionales...
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -10742,3 +10908,390 @@ function showImportPreviewModal(previewData) {
     });
   }
 }
+
+window.getDeadlineBadgeHtml = function(fechaLimiteStr, pagoStatus) {
+  if (!fechaLimiteStr) return '';
+  if (pagoStatus === 'Recibido' || pagoStatus === 'aprobado' || pagoStatus === 'Sin movimientos') return '';
+  
+  const limitDate = new Date(fechaLimiteStr + 'T00:00:00');
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  limitDate.setHours(0, 0, 0, 0);
+  
+  const diffTime = limitDate.getTime() - today.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) {
+    const days = Math.abs(diffDays);
+    return `<div class="deadline-badge deadline-overdue" style="margin-top: 0.35rem; font-size: 0.7rem; font-weight: 700; color: var(--color-danger); display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(239, 68, 68, 0.1); padding: 0.15rem 0.4rem; border-radius: 4px;">
+      <i class="ri-error-warning-line"></i> Venció hace ${days} ${days === 1 ? 'día' : 'días'}
+    </div>`;
+  } else if (diffDays === 0) {
+    return `<div class="deadline-badge deadline-today" style="margin-top: 0.35rem; font-size: 0.7rem; font-weight: 700; color: #d97706; display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(217, 119, 6, 0.1); padding: 0.15rem 0.4rem; border-radius: 4px;">
+      <i class="ri-time-line"></i> Vence hoy
+    </div>`;
+  } else {
+    return `<div class="deadline-badge deadline-upcoming" style="margin-top: 0.35rem; font-size: 0.7rem; font-weight: 700; color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(59, 130, 246, 0.1); padding: 0.15rem 0.4rem; border-radius: 4px;">
+      <i class="ri-calendar-todo-line"></i> Vence en ${diffDays} ${diffDays === 1 ? 'día' : 'días'}
+    </div>`;
+  }
+};
+
+window.updateClientOrdersBulkSelection = function() {
+  const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
+  const bulkBar = document.getElementById('client-orders-bulk-actions');
+  const countEl = document.getElementById('selected-orders-count');
+  
+  if (checkboxes.length > 0) {
+    if (bulkBar) bulkBar.style.display = 'flex';
+    if (countEl) countEl.textContent = checkboxes.length;
+  } else {
+    if (bulkBar) bulkBar.style.display = 'none';
+  }
+};
+
+window.toggleSelectAllClientOrders = function(checked) {
+  const checkboxes = document.querySelectorAll('.order-select-checkbox');
+  checkboxes.forEach(cb => cb.checked = checked);
+  window.updateClientOrdersBulkSelection();
+};
+
+window.exportShopifyOrdersCsv = function(selectedOrderIds) {
+  const allOrders = window.clientLoadedOrders || [];
+  const selectedOrders = allOrders.filter(o => selectedOrderIds.includes(o.id));
+  
+  if (selectedOrders.length === 0) {
+    alert("No hay pedidos seleccionados.");
+    return;
+  }
+  
+  // Ordenar de forma cronológica ascendente (el más antiguo primero)
+  selectedOrders.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  
+  const shopifyHeaders = [
+    "Name", "Email", "Financial Status", "Paid at", "Fulfillment Status", "Fulfilled at", 
+    "Accepts Marketing", "Currency", "Subtotal", "Shipping", "Taxes", "Total", 
+    "Discount Code", "Discount Amount", "Shipping Method", "Created at", 
+    "Lineitem quantity", "Lineitem name", "Lineitem price", "Lineitem compare at price", 
+    "Lineitem sku", "Lineitem requires shipping", "Lineitem taxable", "Lineitem fulfillment status", 
+    "Billing Name", "Billing Street", "Billing Address1", "Billing Address2", "Billing Company", 
+    "Billing City", "Billing Zip", "Billing Province", "Billing Country", "Billing Phone", 
+    "Shipping Name", "Shipping Street", "Shipping Address1", "Shipping Address2", "Shipping Company", 
+    "Shipping City", "Shipping Zip", "Shipping Province", "Shipping Country", "Shipping Phone", 
+    "Notes", "Note Attributes", "Cancelled at", "Payment Method", "Payment Reference", 
+    "Refunded Amount", "Vendor", "Outstanding Balance", "Employee", "Location", 
+    "Device ID", "Id", "Tags", "Risk Level", "Source", "Lineitem discount", 
+    "Tax 1 Name", "Tax 1 Value", "Tax 2 Name", "Tax 2 Value", "Tax 3 Name", "Tax 3 Value", 
+    "Tax 4 Name", "Tax 4 Value", "Tax 5 Name", "Tax 5 Value", "Phone", "Receipt Number", 
+    "Duties", "Billing Province Name", "Shipping Province Name", "Payment ID", 
+    "Payment Terms Name", "Next Payment Due At", "Payment References"
+  ];
+  
+  const csvRows = [];
+  csvRows.push(shopifyHeaders.join(","));
+  
+  selectedOrders.forEach(order => {
+    const raw = order.raw_shopify_data || {};
+    
+    // Determinar line items
+    let lineItems = [];
+    if (raw.line_items && raw.line_items.length > 0) {
+      lineItems = raw.line_items;
+    } else if (order.order_items && order.order_items.length > 0) {
+      lineItems = order.order_items.map(oi => ({
+        quantity: oi.quantity || 1,
+        title: oi.products?.name || oi.item_name || "Producto sin nombre",
+        price: order.total_value ? (Number(order.total_value) / order.order_items.length).toFixed(2) : "0.00",
+        sku: oi.products?.sku || oi.sku || "",
+        requires_shipping: true,
+        taxable: true,
+        fulfillment_status: order.estado_wms === 'Despachado' ? 'fulfilled' : null,
+        vendor: "WMS STOCKA"
+      }));
+    } else {
+      lineItems = [{
+        quantity: order.cantidad || 1,
+        title: order.item || "Producto sin nombre",
+        price: order.total_value || "0.00",
+        sku: order.sku || "",
+        requires_shipping: true,
+        taxable: true,
+        fulfillment_status: order.estado_wms === 'Despachado' ? 'fulfilled' : null,
+        vendor: "WMS STOCKA"
+      }];
+    }
+    
+    // Mapear shipping / billing details de raw o fallback de WMS
+    const shippingName = raw.shipping_address ? `${raw.shipping_address.first_name || ''} ${raw.shipping_address.last_name || ''}`.trim() : (order.customer_name || "");
+    const shippingAddr1 = raw.shipping_address?.address1 || (order.shipping_address || "");
+    const shippingAddr2 = raw.shipping_address?.address2 || (order.shipping_complement || "");
+    const shippingCompany = raw.shipping_address?.company || "";
+    const shippingCity = raw.shipping_address?.city || (order.shipping_city || "");
+    const shippingZip = raw.shipping_address?.zip || "";
+    const shippingProvince = raw.shipping_address?.province_code || "";
+    const shippingCountry = raw.shipping_address?.country_code || "";
+    const shippingPhone = raw.shipping_address?.phone || (order.customer_phone || "");
+    
+    const billingName = raw.billing_address ? `${raw.billing_address.first_name || ''} ${raw.billing_address.last_name || ''}`.trim() : shippingName;
+    const billingAddr1 = raw.billing_address?.address1 || shippingAddr1;
+    const billingAddr2 = raw.billing_address?.address2 || shippingAddr2;
+    const billingCompany = raw.billing_address?.company || shippingCompany;
+    const billingCity = raw.billing_address?.city || shippingCity;
+    const billingZip = raw.billing_address?.zip || shippingZip;
+    const billingProvince = raw.billing_address?.province_code || shippingProvince;
+    const billingCountry = raw.billing_address?.country_code || shippingCountry;
+    const billingPhone = raw.billing_address?.phone || shippingPhone;
+    
+    const orderName = raw.name || order.external_order_number || `#${order.id.split('-')[0]}`;
+    const email = raw.email || order.customer_email || "";
+    const finStatus = raw.financial_status || (order.payment_status === 'PAID' ? 'paid' : 'pending');
+    const fulfillStatus = raw.fulfillment_status || (order.estado_wms === 'Despachado' ? 'fulfilled' : '');
+    const paidAt = raw.processed_at || order.created_at;
+    const fulfilledAt = order.estado_wms === 'Despachado' ? order.created_at : '';
+    const currency = raw.currency || "CLP";
+    const subtotal = raw.subtotal_price || (Number(order.total_value) || 0).toFixed(2);
+    const shipping = raw.total_shipping_price_set?.shop_money?.amount || "0.00";
+    const taxes = raw.total_tax || "0.00";
+    const total = raw.total_price || (Number(order.total_value) || 0).toFixed(2);
+    const discountCode = raw.discount_codes?.map(dc => dc.code).join(", ") || "";
+    const discountAmt = raw.total_discounts || "0.00";
+    const shippingMethod = raw.shipping_lines?.map(sl => sl.title).join(", ") || order.shipping_method || "";
+    const createdAt = raw.created_at || order.created_at;
+    const note = raw.note || "";
+    const tags = raw.tags || "";
+    const paymentMethod = raw.gateway || "";
+    
+    lineItems.forEach((item, index) => {
+      const rowData = {
+        "Name": orderName,
+        "Email": index === 0 ? email : "",
+        "Financial Status": index === 0 ? finStatus : "",
+        "Paid at": index === 0 ? paidAt : "",
+        "Fulfillment Status": index === 0 ? fulfillStatus : "",
+        "Fulfilled at": index === 0 ? fulfilledAt : "",
+        "Accepts Marketing": index === 0 ? "yes" : "",
+        "Currency": index === 0 ? currency : "",
+        "Subtotal": index === 0 ? subtotal : "",
+        "Shipping": index === 0 ? shipping : "",
+        "Taxes": index === 0 ? taxes : "",
+        "Total": index === 0 ? total : "",
+        "Discount Code": index === 0 ? discountCode : "",
+        "Discount Amount": index === 0 ? discountAmt : "",
+        "Shipping Method": index === 0 ? shippingMethod : "",
+        "Created at": index === 0 ? createdAt : "",
+        "Lineitem quantity": item.quantity || 1,
+        "Lineitem name": item.title || item.name || "",
+        "Lineitem price": item.price || "0.00",
+        "Lineitem compare at price": "",
+        "Lineitem sku": item.sku || "",
+        "Lineitem requires shipping": item.requires_shipping !== false ? "true" : "false",
+        "Lineitem taxable": item.taxable !== false ? "true" : "false",
+        "Lineitem fulfillment status": item.fulfillment_status || "",
+        "Billing Name": index === 0 ? billingName : "",
+        "Billing Street": index === 0 ? billingAddr1 : "",
+        "Billing Address1": index === 0 ? billingAddr1 : "",
+        "Billing Address2": index === 0 ? billingAddr2 : "",
+        "Billing Company": index === 0 ? billingCompany : "",
+        "Billing City": index === 0 ? billingCity : "",
+        "Billing Zip": index === 0 ? billingZip : "",
+        "Billing Province": index === 0 ? billingProvince : "",
+        "Billing Country": index === 0 ? billingCountry : "",
+        "Billing Phone": index === 0 ? billingPhone : "",
+        "Shipping Name": index === 0 ? shippingName : "",
+        "Shipping Street": index === 0 ? shippingAddr1 : "",
+        "Shipping Address1": index === 0 ? shippingAddr1 : "",
+        "Shipping Address2": index === 0 ? shippingAddr2 : "",
+        "Shipping Company": index === 0 ? shippingCompany : "",
+        "Shipping City": index === 0 ? shippingCity : "",
+        "Shipping Zip": index === 0 ? shippingZip : "",
+        "Shipping Province": index === 0 ? shippingProvince : "",
+        "Shipping Country": index === 0 ? shippingCountry : "",
+        "Shipping Phone": index === 0 ? shippingPhone : "",
+        "Notes": index === 0 ? note : "",
+        "Note Attributes": "",
+        "Cancelled at": index === 0 ? (raw.cancelled_at || "") : "",
+        "Payment Method": index === 0 ? paymentMethod : "",
+        "Payment Reference": "",
+        "Refunded Amount": "0.00",
+        "Vendor": item.vendor || "",
+        "Outstanding Balance": "0.00",
+        "Employee": "",
+        "Location": "",
+        "Device ID": "",
+        "Id": index === 0 ? (raw.id || "") : "",
+        "Tags": index === 0 ? tags : "",
+        "Risk Level": "low",
+        "Source": index === 0 ? (raw.source_name || "web") : "",
+        "Lineitem discount": "0.00",
+        "Tax 1 Name": "",
+        "Tax 1 Value": "",
+        "Tax 2 Name": "",
+        "Tax 2 Value": "",
+        "Tax 3 Name": "",
+        "Tax 3 Value": "",
+        "Tax 4 Name": "",
+        "Tax 4 Value": "",
+        "Tax 5 Name": "",
+        "Tax 5 Value": "",
+        "Phone": index === 0 ? (raw.phone || "") : "",
+        "Receipt Number": "",
+        "Duties": "",
+        "Billing Province Name": "",
+        "Shipping Province Name": "",
+        "Payment ID": "",
+        "Payment Terms Name": "",
+        "Next Payment Due At": "",
+        "Payment References": ""
+      };
+      
+      const csvRow = shopifyHeaders.map(h => {
+        const val = rowData[h] !== undefined ? String(rowData[h]) : "";
+        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      }).join(",");
+      csvRows.push(csvRow);
+    });
+  });
+  
+  const csvContent = "\ufeff" + csvRows.join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `shopify_orders_export_${new Date().toISOString().slice(0,10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+window.markOrdersAsExported = async function(selectedOrderIds) {
+  if (typeof userRole !== 'undefined' && userRole === 'observer') {
+    alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+    return;
+  }
+  
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ shopify_exported: true })
+      .in('id', selectedOrderIds);
+      
+    if (error) throw error;
+    
+    alert(`Se marcaron ${selectedOrderIds.length} pedidos como exportados.`);
+    
+    // Desmarcar cabecera general
+    const selectAllCb = document.getElementById('select-all-client-orders');
+    if (selectAllCb) selectAllCb.checked = false;
+    
+    renderOrders();
+  } catch (err) {
+    console.error(err);
+    alert('Error al marcar pedidos como exportados: ' + err.message);
+  }
+};
+
+window.loadClientExtraCharges = async function(periodId) {
+  const tbody = document.getElementById('client-extra-charges-table-body');
+  if (!tbody) return;
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) throw new Error("No hay sesión activa");
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('comercio')
+      .eq('id', userId)
+      .single();
+
+    let charges = [];
+    if (profile && profile.comercio === 'all') {
+      const { data, error: cErr } = await supabase
+        .from('extra_billing_charges')
+        .select('*')
+        .order('fecha', { ascending: false });
+      if (cErr) throw cErr;
+      charges = data || [];
+    } else {
+      let companyList = [];
+      if (profile && profile.comercio) {
+        companyList = profile.comercio.split(',').map(c => c.trim()).filter(Boolean);
+      }
+
+      if (companyList.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+              No tienes comercios asociados para ver cobros adicionales.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      const { data, error: cErr } = await supabase
+        .from('extra_billing_charges')
+        .select('*')
+        .in('comercio', companyList)
+        .order('fecha', { ascending: false });
+      if (cErr) throw cErr;
+      charges = data || [];
+    }
+
+    const { data: periods } = await supabase
+      .from('billing_periods')
+      .select('id, name');
+    
+    const periodsMap = {};
+    if (periods) {
+      periods.forEach(p => {
+        periodsMap[p.id] = p.name;
+      });
+    }
+
+    if (!charges || charges.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+            No se registran cobros adicionales ni extraordinarios para tu comercio.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = charges.map(c => {
+      const formattedDate = new Date(c.fecha + 'T00:00:00').toLocaleDateString();
+      const statusClass = c.status === 'cobrado' ? 'status-active' : 'status-inactive';
+      const statusText = c.status === 'cobrado' ? 'Cobrado' : 'Pendiente';
+      const statusBadge = `<span class="client-badge ${statusClass}">${statusText}</span>`;
+      const periodName = c.status === 'cobrado' ? (periodsMap[c.periodo_id] || 'No especificado') : '-';
+
+      return `
+        <tr>
+          <td style="vertical-align: middle; color: var(--color-text-muted);">${formattedDate}</td>
+          <td style="vertical-align: middle; font-weight: 600; color: var(--color-text-main);">${c.comercio}</td>
+          <td style="vertical-align: middle;">${c.detalle}</td>
+          <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(c.monto)}</td>
+          <td style="vertical-align: middle;">${statusBadge}</td>
+          <td style="vertical-align: middle; color: var(--color-text-muted);">${periodName}</td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.error('Error loading client extra charges:', err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          Error al consultar cobros adicionales: ${err.message}
+        </td>
+      </tr>
+    `;
+  }
+};
+

@@ -566,3 +566,51 @@ CREATE POLICY "Admins gestionan todos los objetos de almacenamiento" ON storage.
             SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
         )
     );
+
+
+-- ==========================================================
+-- 6. Tabla de Cobros Adicionales (Extraordinarios)
+-- ==========================================================
+
+CREATE TABLE IF NOT EXISTS public.extra_billing_charges (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    comercio TEXT NOT NULL,
+    fecha DATE NOT NULL,
+    detalle TEXT NOT NULL,
+    monto INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pendiente', 'cobrado')) DEFAULT 'pendiente',
+    periodo_id UUID REFERENCES public.billing_periods(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Habilitar RLS
+ALTER TABLE public.extra_billing_charges ENABLE ROW LEVEL SECURITY;
+
+-- Admins gestionan cobros adicionales
+DROP POLICY IF EXISTS "Admins gestionan cobros adicionales" ON public.extra_billing_charges;
+CREATE POLICY "Admins gestionan cobros adicionales" ON public.extra_billing_charges FOR ALL USING (
+    EXISTS (SELECT 1 FROM public.profiles WHERE profiles.id = auth.uid() AND profiles.role = 'admin')
+);
+
+-- Clientes ven cobros adicionales de sus comercios autorizados
+DROP POLICY IF EXISTS "Clientes ven cobros adicionales de sus comercios autorizados" ON public.extra_billing_charges;
+CREATE POLICY "Clientes ven cobros adicionales de sus comercios autorizados" ON public.extra_billing_charges FOR SELECT USING (
+    EXISTS (
+        SELECT 1 FROM public.profiles p
+        WHERE p.id = auth.uid()
+          AND (
+            p.role = 'admin'
+            OR p.comercio = 'all'
+            OR public.extra_billing_charges.comercio = ANY (
+                 ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
+            )
+            OR EXISTS (
+                 SELECT 1 FROM public.billing_mappings bg
+                 WHERE bg.billing_name = public.extra_billing_charges.comercio
+                   AND bg.comercio_nombre = ANY (
+                        ARRAY(SELECT trim(name) FROM unnest(string_to_array(p.comercio, ',')) AS name)
+                   )
+            )
+          )
+    )
+);
