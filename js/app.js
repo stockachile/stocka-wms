@@ -3817,10 +3817,21 @@ async function renderShipments() {
     const defaultDateFrom = `${year}-${month}-01`;
     const defaultDateTo = `${year}-${month}-${day}`;
 
+    window.shipActiveTab = window.shipActiveTab || 'Todos';
+
+    const tabMappings = {
+      'Todos': null,
+      'Creado': ['Creado', 'REVIEWING'],
+      'Listo para despacho': ['Listo para despacho', 'Listo para despacho - Impreso'],
+      'Entregado': ['Entregado', 'DELIVERED', 'Entregado con exito'],
+      'No retirado': ['No Retirado', 'SKIPPED'],
+      'Devolución': ['Devolucion entregada']
+    };
+
     let allData = [];
     let filters = {
       search: '',
-      statuses: [], // Array to store multiple selected original statuses
+      statuses: tabMappings[window.shipActiveTab] ? [...tabMappings[window.shipActiveTab]] : [], // Initialize based on active tab
       courier: '',
       dateFrom: defaultDateFrom,
       dateTo: defaultDateTo
@@ -3886,6 +3897,9 @@ async function renderShipments() {
           <span><i class="ri-inbox-archive-line"></i></span> Exportar Excel
         </button>
       </div>
+
+      <!-- Tabs Container -->
+      <div id="shipments-tabs-container" style="margin-bottom: 1.25rem;"></div>
 
       <!-- Table Card -->
       <div class="card" style="border: none; box-shadow: var(--shadow-md);">
@@ -4086,7 +4100,32 @@ async function renderShipments() {
           .from('reglas_visibilidad')
           .select('*');
 
-        // 1. Query paginada y filtrada para la tabla
+        // 1. Query para obtener los estados de todos los despachos bajo los filtros actuales (para los contadores de las pestañas)
+        let countQuery = supabase
+          .from('envios_unificados')
+          .select('status')
+          .eq('visible_to_client', true);
+
+        countQuery = applyVisibilityRulesToQuery(countQuery, rules);
+
+        if (companyList.length > 0) {
+          countQuery = countQuery.in('empresa_comercio_proveedor', companyList);
+        }
+        if (filters.courier) {
+          countQuery = countQuery.eq('courier', filters.courier);
+        }
+        if (filters.dateFrom) {
+          countQuery = countQuery.gte('created_at', filters.dateFrom + 'T00:00:00Z');
+        }
+        if (filters.dateTo) {
+          countQuery = countQuery.lte('created_at', filters.dateTo + 'T23:59:59Z');
+        }
+        if (filters.search) {
+          const term = `%${filters.search}%`;
+          countQuery = countQuery.or(`pedido_referencia.ilike.${term},nombre_destinatario.ilike.${term},tracking.ilike.${term},courier.ilike.${term},comuna_destino.ilike.${term},direccion_destino.ilike.${term}`);
+        }
+
+        // 2. Query paginada y filtrada para la tabla
         let query = supabase
           .from('envios_unificados')
           .select('*', { count: 'exact' })
@@ -4120,11 +4159,81 @@ async function renderShipments() {
         query = query.order('created_at', { ascending: false });
         query = query.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
 
-        const dataRes = await query;
+        const [dataRes, countRes] = await Promise.all([query, countQuery]);
         if (dataRes.error) throw dataRes.error;
 
         allData = dataRes.data || [];
         totalFilteredRows = dataRes.count || 0;
+
+        // Calcular contadores dinámicos para las pestañas
+        let todosCount = 0;
+        let creadoCount = 0;
+        let listoCount = 0;
+        let entregadoCount = 0;
+        let noRetiradoCount = 0;
+        let devolucionCount = 0;
+
+        const countData = countRes.data || [];
+        countData.forEach(item => {
+          todosCount++;
+          const statusLower = item.status ? item.status.trim().toLowerCase() : '';
+          if (statusLower === 'creado' || statusLower === 'reviewing') {
+            creadoCount++;
+          } else if (statusLower === 'listo para despacho' || statusLower === 'listo para despacho - impreso') {
+            listoCount++;
+          } else if (statusLower === 'entregado' || statusLower === 'delivered' || statusLower === 'entregado con exito') {
+            entregadoCount++;
+          } else if (statusLower === 'no retirado' || statusLower === 'skipped') {
+            noRetiradoCount++;
+          } else if (statusLower === 'devolucion entregada') {
+            devolucionCount++;
+          }
+        });
+
+        const tabCounts = {
+          'Todos': todosCount,
+          'Creado': creadoCount,
+          'Listo para despacho': listoCount,
+          'Entregado': entregadoCount,
+          'No retirado': noRetiradoCount,
+          'Devolución': devolucionCount
+        };
+
+        const tabColors = {
+          'Todos': { bg: 'var(--color-bg)', text: 'var(--color-text-muted)' },
+          'Creado': { bg: '#e0f2fe', text: '#0284c7' },
+          'Listo para despacho': { bg: '#fef3c7', text: '#d97706' },
+          'Entregado': { bg: '#dcfce7', text: '#22c55e' },
+          'No retirado': { bg: '#fee2e2', text: '#ef4444' },
+          'Devolución': { bg: '#f3e8ff', text: '#a855f7' }
+        };
+
+        const tabsList = ['Todos', 'Creado', 'Listo para despacho', 'Entregado', 'No retirado', 'Devolución'];
+        const activeTabCur = window.shipActiveTab || 'Todos';
+
+        const tabsHtml = tabsList.map(tab => {
+          const isActive = activeTabCur === tab;
+          const count = tabCounts[tab] || 0;
+          const colors = tabColors[tab];
+          const badgeBg = isActive ? 'rgba(255,255,255,0.2)' : colors.bg;
+          const badgeColor = isActive ? '#ffffff' : colors.text;
+
+          return `
+            <button onclick="window.setShipTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+              ${tab}
+              <span style="background: ${badgeBg}; color: ${badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
+            </button>
+          `;
+        }).join('');
+
+        const tabsContainer = document.getElementById('shipments-tabs-container');
+        if (tabsContainer) {
+          tabsContainer.innerHTML = `
+            <div style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+              ${tabsHtml}
+            </div>
+          `;
+        }
 
         applyFiltersAndRenderTable();
       } catch (err) {
@@ -4158,14 +4267,51 @@ async function renderShipments() {
       }
     };
 
+    const syncActiveTabFromDropdown = () => {
+      let matchedTab = 'Todos';
+      if (filters.statuses.length > 0) {
+        for (const [tabName, statuses] of Object.entries(tabMappings)) {
+          if (!statuses) continue;
+          if (filters.statuses.length === statuses.length && 
+              filters.statuses.every(s => statuses.includes(s))) {
+            matchedTab = tabName;
+            break;
+          }
+        }
+      }
+      window.shipActiveTab = matchedTab;
+    };
+
+    window.setShipTab = async (tab) => {
+      window.shipActiveTab = tab;
+      currentPage = 1;
+      
+      const tabStatuses = tabMappings[tab];
+      if (tabStatuses) {
+        filters.statuses = [...tabStatuses];
+      } else {
+        filters.statuses = [];
+      }
+      
+      // Update checkboxes checked states
+      const checkboxes = statusOptionsList.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(chk => {
+        chk.checked = filters.statuses.includes(chk.value);
+      });
+      
+      updateStatusTriggerText();
+      await fetchAndRenderTable();
+    };
+
     originalStatuses.forEach(st => {
       const optDiv = document.createElement('div');
       optDiv.className = 'multiselect-option';
       
       const displayLabel = getDisplayStatusName(st);
+      const isChecked = filters.statuses.includes(st);
 
       optDiv.innerHTML = `
-        <input type="checkbox" id="chk-status-${st}" value="${st}">
+        <input type="checkbox" id="chk-status-${st}" value="${st}" ${isChecked ? 'checked' : ''}>
         <label for="chk-status-${st}">${displayLabel}</label>
       `;
 
@@ -4188,6 +4334,7 @@ async function renderShipments() {
         } else {
           filters.statuses = filters.statuses.filter(v => v !== val);
         }
+        syncActiveTabFromDropdown();
         updateStatusTriggerText();
         currentPage = 1;
         await fetchAndRenderTable();
@@ -4195,6 +4342,8 @@ async function renderShipments() {
 
       statusOptionsList.appendChild(optDiv);
     });
+
+    updateStatusTriggerText();
 
     // Toggle Dropdown menu visibility
     const multiselectTrigger = document.getElementById('status-multiselect-trigger');
@@ -4212,6 +4361,7 @@ async function renderShipments() {
       statusOptionsList.querySelectorAll('input[type="checkbox"]').forEach(chk => {
         chk.checked = true;
       });
+      syncActiveTabFromDropdown();
       updateStatusTriggerText();
       currentPage = 1;
       await fetchAndRenderTable();
@@ -4224,6 +4374,7 @@ async function renderShipments() {
       statusOptionsList.querySelectorAll('input[type="checkbox"]').forEach(chk => {
         chk.checked = false;
       });
+      syncActiveTabFromDropdown();
       updateStatusTriggerText();
       currentPage = 1;
       await fetchAndRenderTable();

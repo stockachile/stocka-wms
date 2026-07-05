@@ -359,14 +359,14 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, status: 'cancelado', comercio: integration.comercio, created_at: group.date_created })
+            .update({ payment_status: group.status, status: 'cancelado', created_at: group.date_created })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${groupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else {
-          // Actualizar datos del pedido
+          // Actualizar datos del pedido sin sobreescribir el comercio para preservar reasignaciones manuales
           await supabase
             .from('orders')
-            .update({ payment_status: group.status, raw_meli_data: group.orders, comercio: integration.comercio, created_at: group.date_created })
+            .update({ payment_status: group.status, raw_meli_data: group.orders, created_at: group.date_created })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${groupId}`);
         }
@@ -481,9 +481,32 @@ async function syncMerchantOrders(integration) {
         }
         const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
 
+        // Determinar comercio a asignar basado en el catálogo de productos
+        const itemComercios = [];
+        for (const sku of Object.keys(itemQuantities)) {
+          let { data: product } = await supabase
+            .from('products')
+            .select('comercio')
+            .eq('merchant_id', integration.merchant_id)
+            .eq('sku', sku)
+            .maybeSingle();
+          
+          if (product && product.comercio) {
+            itemComercios.push(product.comercio);
+          }
+        }
+
+        let resolvedCommerce = integration.comercio;
+        const uniqueComercios = [...new Set(itemComercios)];
+        if (uniqueComercios.length === 1) {
+          resolvedCommerce = uniqueComercios[0];
+        } else if (uniqueComercios.length > 1) {
+          console.log(`⚠️ Pedido mixto detectado. Contiene productos de: ${uniqueComercios.join(', ')}. Asignando a tienda por defecto: ${resolvedCommerce}`);
+        }
+
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
-          comercio: integration.comercio,
+          comercio: resolvedCommerce,
           external_order_number: groupId,
           external_platform: 'MercadoLibre',
           payment_status: group.status,

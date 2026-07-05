@@ -420,6 +420,25 @@ window.toggleRawOrderJson = function(orderId) {
   container.style.display = isHidden ? 'block' : 'none';
 };
 
+window.reassignOrderCommerce = async function(orderId, newCommerce) {
+  if (confirm(`¿Estás seguro de que deseas reasignar este pedido al comercio '${newCommerce}'?`)) {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ comercio: newCommerce })
+        .eq('id', orderId);
+      
+      if (error) throw error;
+      
+      alert(`Pedido reasignado exitosamente al comercio '${newCommerce}'.`);
+      renderAdminOrders();
+    } catch (err) {
+      console.error(err);
+      alert('Error al reasignar el comercio: ' + err.message);
+    }
+  }
+};
+
 async function renderAdminOrders() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando todos los pedidos...</p>`;
@@ -497,6 +516,25 @@ async function renderAdminOrders() {
     const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
+
+    // Cargar comercios de perfiles para la reasignación manual
+    if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
+      try {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('comercio')
+          .eq('role', 'client')
+          .not('comercio', 'is', null);
+        if (profilesData) {
+          window.wmsAllComercios = [...new Set(profilesData.map(p => p.comercio))].sort();
+        }
+      } catch (err) {
+        console.error('Error al cargar comercios:', err);
+      }
+      if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
+        window.wmsAllComercios = uniqueMerchants;
+      }
+    }
 
     appContent.innerHTML = `
       <!-- Tarjetas de KPI -->
@@ -1017,6 +1055,14 @@ window.applyWmsFiltersAndRender = function() {
               
               <!-- Botón para ver datos crudos de integración -->
               ${rawJsonBtnHtml}
+
+              <!-- Reasignar Comercio de la Orden -->
+              <div class="form-group" style="margin-top: 1rem; margin-bottom: 0; background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600; display: block; color: var(--color-text-main);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
+                <select onchange="window.reassignOrderCommerce('${order.id}', this.value)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                  ${(window.wmsAllComercios || []).map(c => `<option value="${c}" ${c === order.comercio ? 'selected' : ''}>${c}</option>`).join('')}
+                </select>
+              </div>
             </div>
 
           </div>
@@ -8163,11 +8209,13 @@ async function loadBillingMetricsDashboard() {
         <button class="dashboard-subtab-btn active" id="d-subtab-period" onclick="switchDashboardSubTab('period')"><i class="ri-calendar-line"></i> Vista por Periodo</button>
         <button class="dashboard-subtab-btn" id="d-subtab-commerce" onclick="switchDashboardSubTab('commerce')"><i class="ri-store-2-line"></i> Vista por Comercio</button>
         <button class="dashboard-subtab-btn" id="d-subtab-pending" onclick="switchDashboardSubTab('pending')"><i class="ri-checkbox-circle-line"></i> Tareas y Pendientes</button>
+        <button class="dashboard-subtab-btn" id="d-subtab-year" onclick="switchDashboardSubTab('year')"><i class="ri-bar-chart-box-line"></i> Vista Anual</button>
       </div>
       
       <div id="d-content-period"></div>
       <div id="d-content-commerce" style="display: none;"></div>
       <div id="d-content-pending" style="display: none;"></div>
+      <div id="d-content-year" style="display: none;"></div>
 
       <!-- Dashboard Detail Modal -->
       <div id="dashboard-detail-modal" class="d-modal-overlay" onclick="closeDashboardModal()">
@@ -8194,7 +8242,7 @@ async function loadBillingMetricsDashboard() {
 }
 
 window.switchDashboardSubTab = function(tabName) {
-  const tabs = ['period', 'commerce', 'pending'];
+  const tabs = ['period', 'commerce', 'pending', 'year'];
   tabs.forEach(t => {
     const btn = document.getElementById(`d-subtab-${t}`);
     const content = document.getElementById(`d-content-${t}`);
@@ -8215,6 +8263,8 @@ window.switchDashboardSubTab = function(tabName) {
     renderDashboardCommerceView();
   } else if (tabName === 'pending') {
     renderDashboardPendingView();
+  } else if (tabName === 'year') {
+    renderDashboardYearView();
   }
 };
 
@@ -11251,5 +11301,325 @@ window.markAdminOrdersAsExported = async function() {
     alert('Error al marcar pedidos como exportados: ' + err.message);
   }
 };
+
+
+// =========================================================================
+// DASHBOARD VISTA ANUAL - ADMIN VIEW WITH INTERACTIVE CHARTJS
+// =========================================================================
+
+window.renderDashboardYearView = async function() {
+  const content = document.getElementById('d-content-year');
+  if (!content) return;
+
+  const yearsSet = new Set();
+  cachedDashboardPeriods.forEach(p => {
+    let pY = p.period_year;
+    if (!pY) {
+      const parts = (p.name || '').split(' ');
+      pY = parts[1] ? parseInt(parts[1], 10) : 0;
+    }
+    if (pY > 2000) {
+      yearsSet.add(pY);
+    }
+  });
+
+  let yearsList = Array.from(yearsSet).sort((a, b) => b - a);
+  if (yearsList.length === 0) {
+    yearsList = [new Date().getFullYear()];
+  }
+
+  const selectedYear = yearsList[0];
+  const options = yearsList.map(y => `<option value="${y}" ${y === selectedYear ? 'selected' : ''}>${y}</option>`).join('');
+
+  content.innerHTML = `
+    <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <label style="font-weight: 600; font-size: 0.9rem; color: var(--color-text-main);">Seleccionar Año:</label>
+        <select id="d-year-select" class="form-input" style="width: 150px; margin: 0; padding: 0.35rem 0.75rem;" onchange="window.updateDashboardYearView()">
+          ${options}
+        </select>
+      </div>
+      <div style="font-size: 0.85rem; color: var(--color-text-muted);">
+        <i class="ri-information-line"></i> Métricas anuales consolidadas en base a los registros de facturación creados.
+      </div>
+    </div>
+    
+    <!-- KPI Cards Grid -->
+    <div id="d-year-metrics-cards" class="dashboard-grid" style="margin-bottom: 1.5rem;"></div>
+
+    <!-- Charts Section -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+      <div class="card" style="padding: 1.25rem;">
+        <div class="card-header" style="padding: 0 0 1rem 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem;">
+          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-bar-chart-fill" style="color: var(--color-primary);"></i> Facturación Mensual (CLP)</h4>
+        </div>
+        <div style="position: relative; height: 320px; width: 100%;">
+          <canvas id="chart-annual-monthly"></canvas>
+        </div>
+      </div>
+      <div class="card" style="padding: 1.25rem;">
+        <div class="card-header" style="padding: 0 0 1rem 0; border-bottom: 1px solid var(--color-border); margin-bottom: 1rem;">
+          <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;"><i class="ri-pie-chart-fill" style="color: var(--color-primary);"></i> Top 8 Comercios por Facturación Anual</h4>
+        </div>
+        <div style="position: relative; height: 320px; width: 100%; display: flex; justify-content: center; align-items: center;">
+          <canvas id="chart-annual-commerce" style="max-height: 100%; max-width: 100%;"></canvas>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await loadChartJS();
+  window.updateDashboardYearView();
+};
+
+let annualMonthlyChartInstance = null;
+let annualCommerceChartInstance = null;
+
+function loadChartJS() {
+  return new Promise((resolve) => {
+    if (window.Chart) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.onload = () => {
+      resolve();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+window.updateDashboardYearView = function() {
+  const yearSelect = document.getElementById('d-year-select');
+  if (!yearSelect) return;
+  const selectedYear = parseInt(yearSelect.value, 10);
+
+  const yearPeriods = cachedDashboardPeriods.filter(p => {
+    let pY = p.period_year;
+    if (!pY) {
+      const parts = (p.name || '').split(' ');
+      pY = parts[1] ? parseInt(parts[1], 10) : 0;
+    }
+    return pY === selectedYear;
+  });
+
+  const periodIds = yearPeriods.map(p => p.id);
+  const yearRecords = cachedDashboardRecords.filter(r => periodIds.includes(r.period_id));
+
+  const periodMonthMap = {};
+  yearPeriods.forEach(p => {
+    let pM = p.period_month;
+    if (!pM) {
+      const parts = (p.name || '').split(' ');
+      const monthsMap = {
+        'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
+        'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
+        'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12
+      };
+      pM = monthsMap[parts[0]?.toUpperCase()] || 1;
+    }
+    periodMonthMap[p.id] = pM;
+  });
+
+  let annualFulfFact = 0;
+  let annualEnvFact = 0;
+  let annualFulfRec = 0;
+  let annualEnvRec = 0;
+  
+  const monthlyData = Array.from({ length: 12 }, () => ({ fulfillment: 0, enviame: 0 }));
+  const commerceBillingMap = {};
+
+  yearRecords.forEach(r => {
+    const fulfFact = r.total_fulfillment || 0;
+    const envFact = r.enviame || 0;
+    const fulfRec = r.abono_fulfillment || 0;
+    const envRec = r.abono_enviame || 0;
+
+    annualFulfFact += fulfFact;
+    annualEnvFact += envFact;
+    annualFulfRec += fulfRec;
+    annualEnvRec += envRec;
+
+    const monthVal = periodMonthMap[r.period_id];
+    if (monthVal && monthVal >= 1 && monthVal <= 12) {
+      monthlyData[monthVal - 1].fulfillment += fulfFact;
+      monthlyData[monthVal - 1].enviame += envFact;
+    }
+
+    const comm = r.comercio || 'Otro';
+    if (!commerceBillingMap[comm]) {
+      commerceBillingMap[comm] = 0;
+    }
+    commerceBillingMap[comm] += (fulfFact + envFact);
+  });
+
+  const annualTotalFact = annualFulfFact + annualEnvFact;
+  const annualTotalRec = annualFulfRec + annualEnvRec;
+  const annualPending = annualTotalFact - annualTotalRec;
+  const recPercentage = annualTotalFact > 0 ? ((annualTotalRec / annualTotalFact) * 100).toFixed(1) : '0';
+
+  const cardsContainer = document.getElementById('d-year-metrics-cards');
+  if (cardsContainer) {
+    cardsContainer.innerHTML = `
+      <div class="dashboard-card primary">
+        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Fulfillment</div>
+        <div class="dashboard-card-value">${window.formatCLP(annualFulfFact)}</div>
+        <div class="dashboard-card-sub">Total facturado en el año</div>
+      </div>
+      <div class="dashboard-card primary">
+        <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Envíame</div>
+        <div class="dashboard-card-value">${window.formatCLP(annualEnvFact)}</div>
+        <div class="dashboard-card-sub">Total facturado en el año</div>
+      </div>
+      <div class="dashboard-card primary" style="background: rgba(147, 51, 234, 0.05); border-color: rgba(147, 51, 234, 0.2);">
+        <div class="dashboard-card-label" style="color: #a855f7;"><i class="ri-calculator-line"></i> Facturación Total Anual</div>
+        <div class="dashboard-card-value" style="color: #a855f7;">${window.formatCLP(annualTotalFact)}</div>
+        <div class="dashboard-card-sub">Fulfillment + Envíame</div>
+      </div>
+      <div class="dashboard-card success">
+        <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos</div>
+        <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(annualTotalRec)}</div>
+        <div class="dashboard-card-sub">${recPercentage}% recaudado en el año</div>
+      </div>
+      <div class="dashboard-card danger">
+        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Saldo Pendiente Anual</div>
+        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(annualPending)}</div>
+        <div class="dashboard-card-sub">Pendiente de cobro en el año</div>
+      </div>
+    `;
+  }
+
+  if (!window.Chart) return;
+
+  const ctxMonthly = document.getElementById('chart-annual-monthly');
+  if (ctxMonthly) {
+    if (annualMonthlyChartInstance) {
+      annualMonthlyChartInstance.destroy();
+    }
+
+    const monthsLabels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const fulfDataset = monthlyData.map(d => d.fulfillment);
+    const envDataset = monthlyData.map(d => d.enviame);
+
+    annualMonthlyChartInstance = new Chart(ctxMonthly, {
+      type: 'bar',
+      data: {
+        labels: monthsLabels,
+        datasets: [
+          {
+            label: 'Fulfillment',
+            data: fulfDataset,
+            backgroundColor: '#3b82f6',
+            borderRadius: 4
+          },
+          {
+            label: 'Envíame',
+            data: envDataset,
+            backgroundColor: '#10b981',
+            borderRadius: 4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: { color: '#94a3b8', font: { family: 'Outfit, sans-serif' } }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + window.formatCLP(context.raw);
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: '#94a3b8' }
+          },
+          y: {
+            stacked: true,
+            grid: { color: 'rgba(148, 163, 184, 0.1)' },
+            ticks: {
+              color: '#94a3b8',
+              callback: function(value) {
+                return window.formatCLP(value);
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  const ctxCommerce = document.getElementById('chart-annual-commerce');
+  if (ctxCommerce) {
+    if (annualCommerceChartInstance) {
+      annualCommerceChartInstance.destroy();
+    }
+
+    const sortedCommerces = Object.entries(commerceBillingMap)
+      .sort((a, b) => b[1] - a[1]);
+
+    const topCommerces = sortedCommerces.slice(0, 8);
+    const otherCommercesSum = sortedCommerces.slice(8).reduce((sum, item) => sum + item[1], 0);
+
+    const labels = topCommerces.map(item => item[0]);
+    const data = topCommerces.map(item => item[1]);
+
+    if (otherCommercesSum > 0) {
+      labels.push('Otros');
+      data.push(otherCommercesSum);
+    }
+
+    const colors = [
+      '#3b82f6', '#10b981', '#f59e0b', '#ef4444', 
+      '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', 
+      '#64748b'
+    ];
+
+    annualCommerceChartInstance = new Chart(ctxCommerce, {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: colors.slice(0, labels.length),
+          borderWidth: 1,
+          borderColor: 'var(--color-surface)'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { 
+              color: '#94a3b8', 
+              font: { family: 'Outfit, sans-serif', size: 11 } 
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                const val = context.raw;
+                const pct = annualTotalFact > 0 ? ((val / annualTotalFact) * 100).toFixed(1) : 0;
+                return context.label + ': ' + window.formatCLP(val) + ' (' + pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+};
+
 
 
