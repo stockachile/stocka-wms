@@ -1743,7 +1743,8 @@ window.applyClientWmsFiltersAndRender = function() {
 
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
-    const originHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
+    const platformLower = platform.toLowerCase();
+    const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 24px; max-width: 80px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
@@ -2567,8 +2568,8 @@ async function renderIntegrations() {
                   </div>
                   <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
                     <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
-                    <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones (dejar vacío si migras con Refresh Token).</p>
+                    <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxx-xxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones. Debe incluir el guión y los números del final.</p>
                   </div>
                   <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
                     <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
@@ -2594,7 +2595,8 @@ async function renderIntegrations() {
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
                       Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
                       <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
-                      Inicia sesión, autoriza el acceso y copia el código que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=TG-xxxxx</strong> y pégalo en el formulario de la izquierda.
+                      Inicia sesión, autoriza el acceso y copia el código de autorización completo que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=</strong>.<br>
+                      <span style="color: #ef4444; font-weight: 600;"><i class="ri-error-warning-line"></i> IMPORTANTE:</span> Asegúrate de copiar el código <strong>completo</strong>, incluyendo el guión y los números que vienen al final (ej: <code style="background-color: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-family: monospace;">TG-xxxxxxxxx-xxxxxxxxxx</code>). Si omites la parte final, la conexión fallará.
                     </p>
                   </li>
                   <li>
