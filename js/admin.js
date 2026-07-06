@@ -517,19 +517,18 @@ async function renderAdminOrders() {
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
 
-    // Cargar comercios de perfiles para la reasignación manual
+    // Cargar comercios de v_comercios_config para la reasignación manual
     if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
       try {
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('comercio')
-          .eq('role', 'client')
-          .not('comercio', 'is', null);
-        if (profilesData) {
-          window.wmsAllComercios = [...new Set(profilesData.map(p => p.comercio))].sort();
+        const { data: configComercios } = await supabase
+          .from('v_comercios_config')
+          .select('nombre')
+          .order('nombre', { ascending: true });
+        if (configComercios) {
+          window.wmsAllComercios = [...new Set(configComercios.map(c => c.nombre).filter(Boolean))].sort();
         }
       } catch (err) {
-        console.error('Error al cargar comercios:', err);
+        console.error('Error al cargar comercios desde v_comercios_config:', err);
       }
       if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
         window.wmsAllComercios = uniqueMerchants;
@@ -853,7 +852,27 @@ window.applyWmsFiltersAndRender = function() {
     const dateObj = new Date(dateSource);
     const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
     
-    let optionsHtml = ALL_STATUSES.map(s => `<option value="${s}" ${order.status === s ? 'selected' : ''}>${s}</option>`).join('');
+    let badgeBg = 'var(--color-gray)';
+    let badgeTextColor = '#1a1a1a';
+    if (order.status === 'despachado' || order.status === 'entregado' || order.status === 'retirado') {
+      badgeBg = '#d1fae5'; // green
+      badgeTextColor = '#065f46';
+    } else if (order.status === 'en preparación' || order.status === 'preparado' || order.status === 'listo para retiro') {
+      badgeBg = '#fef3c7'; // yellow
+      badgeTextColor = '#92400e';
+    } else if (order.status === 'en tránsito') {
+      badgeBg = '#e0f2fe'; // blue
+      badgeTextColor = '#0369a1';
+    } else if (order.status === 'cancelado' || order.status === 'incidencia') {
+      badgeBg = '#fee2e2'; // red
+      badgeTextColor = '#991b1b';
+    } else if (order.status === 'para procesar') {
+      badgeBg = '#e0e7ff'; // indigo
+      badgeTextColor = '#3730a3';
+    } else if (order.status === 'en espera' || order.status === 'sin stock') {
+      badgeBg = '#f3f4f6'; // gray
+      badgeTextColor = '#374151';
+    }
 
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280')))));
@@ -984,9 +1003,7 @@ window.applyWmsFiltersAndRender = function() {
         <td>${trackingHtml}</td>
         <td>${labelHtml}</td>
         <td>
-          <select class="form-input status-select" data-order-id="${order.id}" style="padding: 0.25rem; font-size: 0.875rem; width: auto; font-weight: 500;">
-            ${optionsHtml}
-          </select>
+          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
         <td>
           <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.825rem; width: auto; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
