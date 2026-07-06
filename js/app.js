@@ -2609,6 +2609,38 @@ async function renderIntegrations() {
               </div>
             </div>
           </div>
+
+          <!-- Información de Servicios -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 1.5rem 0 0 0; background-color: var(--color-surface);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-information-line" style="color: var(--color-primary);"></i></span> Servicios Disponibles y Tarifas
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6;">
+              <p style="margin-top: 0;">Stocka puede conectarse a tu cuenta de MercadoLibre para el procesamiento automatizado de tus ventas. Al integrar tu cuenta, podrás activar modalidades como <strong>Flex</strong>, <strong>MercadoEnvíos</strong> y gestionar envíos de mercadería a <strong>Full</strong>.</p>
+              
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1.25rem;">
+                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-flashlight-line" style="color: #f59e0b; font-size: 1.1rem;"></i> MercadoLibre Flex</h4>
+                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de despacho Flex es de <strong>$3.200 + IVA</strong> y cubre las 36 comunas que ofrece MercadoLibre en la Región Metropolitana. Además se debe considerar el costo regular de preparación del pedido.</p>
+                </div>
+                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-truck-line" style="color: #3b82f6; font-size: 1.1rem;"></i> MercadoEnvíos</h4>
+                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo para pedidos de MercadoEnvíos corresponde únicamente al costo de preparación del pedido + un recargo de <strong>$100</strong>. No hay costos de despacho cobrados por Stocka.</p>
+                </div>
+                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-building-2-line" style="color: #10b981; font-size: 1.1rem;"></i> Envíos FULL</h4>
+                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de procesamiento de envíos FULL se trata como un pedido normal (aplicando los recargos de SKU o unidades totales si corresponde), y conlleva un cargo adicional de <strong>$100 por unidad</strong>.</p>
+                </div>
+              </div>
+              
+              <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background-color: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.75rem;">
+                <i class="ri-customer-service-2-line" style="font-size: 1.5rem; color: var(--color-primary);"></i>
+                <p style="margin: 0; color: var(--color-primary); font-weight: 500; font-size: 0.9rem;">Para activar cada servicio, pueden contactar con nosotros a través de su ejecutiva KAM.</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- TAB: WooCommerce -->
@@ -3205,6 +3237,47 @@ async function renderIntegrations() {
           btn.disabled = true;
           btn.textContent = 'Conectando...';
 
+          // Mostrar overlay de carga premium
+          const loadingOverlay = document.createElement('div');
+          loadingOverlay.id = 'meli-loading-overlay';
+          loadingOverlay.style = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+            font-family: inherit;
+            transition: all 0.3s ease;
+          `;
+          loadingOverlay.innerHTML = `
+            <div style="background: var(--color-surface, #1e293b); padding: 2.5rem; border-radius: var(--radius-lg, 12px); border: 1px solid var(--color-border, #334155); box-shadow: var(--shadow-2xl); text-align: center; max-width: 400px; width: 90%;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: #f59e0b; display: inline-block; margin-bottom: 1.5rem;"></i>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main, #f8fafc);">Conectando con MercadoLibre</h3>
+              <p style="margin: 0 0 1.5rem 0; font-size: 0.9rem; color: var(--color-text-muted, #94a3b8); line-height: 1.5;">
+                Estamos validando tus credenciales y realizando la primera sincronización de tu catálogo de productos. Esto puede tomar unos segundos...
+              </p>
+              <div style="width: 100%; background: var(--color-bg, #0f172a); height: 6px; border-radius: 99px; overflow: hidden; position: relative;">
+                <div style="position: absolute; height: 100%; background: #f59e0b; width: 30%; border-radius: 99px; animation: meliProgress 1.5s infinite ease-in-out;"></div>
+              </div>
+            </div>
+            <style>
+              @keyframes meliProgress {
+                0% { left: -30%; }
+                50% { width: 40%; }
+                100% { left: 100%; }
+              }
+            </style>
+          `;
+          document.body.appendChild(loadingOverlay);
+
           const client_id = document.getElementById('meli-client-id').value.trim();
           const client_secret = document.getElementById('meli-client-secret').value.trim();
           const redirect_uri = document.getElementById('meli-redirect-uri').value.trim();
@@ -3212,6 +3285,7 @@ async function renderIntegrations() {
           const refresh_token = document.getElementById('meli-refresh-token').value.trim();
 
           if (!auth_code && !refresh_token) {
+            loadingOverlay.remove();
             alert('Debes ingresar al menos el Código de Autorización (para cuenta nueva) o el Refresh Token (para migración).');
             btn.disabled = false;
             btn.textContent = 'Conectar MercadoLibre API';
@@ -3251,15 +3325,21 @@ async function renderIntegrations() {
                 if (response.ok) {
                   const result = await response.json();
                   syncNotice = ` y se sincronizaron ${result.count} productos.`;
+                } else {
+                  const errJson = await response.json();
+                  throw new Error(errJson.error || 'Error en sincronización inicial');
                 }
               }
             } catch (syncErr) {
               console.warn('Advertencia en la sincronización inicial:', syncErr);
+              syncNotice = ` (advertencia: la sincronización inicial falló por '${syncErr.message}', pero las credenciales se guardaron. El script de segundo plano intentará de nuevo)`;
             }
 
-            alert(`Integración con MercadoLibre guardada con éxito${syncNotice || '. La sincronización se iniciará en el próximo ciclo.'}`);
+            loadingOverlay.remove();
+            alert(`Integración con MercadoLibre guardada con éxito${syncNotice}`);
             renderIntegrations(); // Recargar vista
           } catch(err) {
+            loadingOverlay.remove();
             console.error(err);
             alert('Error al guardar la integración: ' + err.message);
             btn.disabled = false;
@@ -3303,6 +3383,47 @@ async function renderIntegrations() {
           btnSyncMeli.disabled = true;
           btnSyncMeli.textContent = 'Sincronizando...';
 
+          // Mostrar overlay de carga premium
+          const loadingOverlay = document.createElement('div');
+          loadingOverlay.id = 'meli-loading-overlay';
+          loadingOverlay.style = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+            font-family: inherit;
+            transition: all 0.3s ease;
+          `;
+          loadingOverlay.innerHTML = `
+            <div style="background: var(--color-surface, #1e293b); padding: 2.5rem; border-radius: var(--radius-lg, 12px); border: 1px solid var(--color-border, #334155); box-shadow: var(--shadow-2xl); text-align: center; max-width: 400px; width: 90%;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: #f59e0b; display: inline-block; margin-bottom: 1.5rem;"></i>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main, #f8fafc);">Sincronizando MercadoLibre</h3>
+              <p style="margin: 0 0 1.5rem 0; font-size: 0.9rem; color: var(--color-text-muted, #94a3b8); line-height: 1.5;">
+                Estamos actualizando el catálogo de productos y variaciones en tiempo real. Esto puede tomar unos segundos...
+              </p>
+              <div style="width: 100%; background: var(--color-bg, #0f172a); height: 6px; border-radius: 99px; overflow: hidden; position: relative;">
+                <div style="position: absolute; height: 100%; background: #f59e0b; width: 30%; border-radius: 99px; animation: meliProgress 1.5s infinite ease-in-out;"></div>
+              </div>
+            </div>
+            <style>
+              @keyframes meliProgress {
+                0% { left: -30%; }
+                50% { width: 40%; }
+                100% { left: 100%; }
+              }
+            </style>
+          `;
+          document.body.appendChild(loadingOverlay);
+
           try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) throw new Error("No hay sesión activa");
@@ -3324,11 +3445,13 @@ async function renderIntegrations() {
               throw new Error(result.error || 'Error al sincronizar');
             }
 
+            loadingOverlay.remove();
             alert(`¡Catálogo de MercadoLibre sincronizado exitosamente! Se importaron/actualizaron ${result.count} variantes de productos.`);
             if (typeof renderInventory === 'function') {
               renderInventory(); // Recargar inventario si corresponde
             }
           } catch (err) {
+            loadingOverlay.remove();
             console.error(err);
             alert('Error en la sincronización: ' + err.message);
           } finally {
