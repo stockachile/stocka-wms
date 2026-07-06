@@ -423,12 +423,17 @@ window.toggleRawOrderJson = function(orderId) {
 window.reassignOrderCommerce = async function(orderId, newCommerce) {
   if (confirm(`¿Estás seguro de que deseas reasignar este pedido al comercio '${newCommerce}'?`)) {
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('orders')
         .update({ comercio: newCommerce })
-        .eq('id', orderId);
+        .eq('id', orderId)
+        .select();
       
       if (error) throw error;
+      
+      if (!data || data.length === 0) {
+        throw new Error('No se modificó ningún registro. Es probable que no tengas permisos de base de datos (RLS) para asignar pedidos a este comercio, o que el pedido ya no exista.');
+      }
       
       alert(`Pedido reasignado exitosamente al comercio '${newCommerce}'.`);
       renderAdminOrders();
