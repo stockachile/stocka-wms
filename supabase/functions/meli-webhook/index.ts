@@ -167,7 +167,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
   const { data: existingOrder } = await supabase
     .from('orders')
-    .select('id, status, label_base64, comercio')
+    .select('id, status, comercio')
     .eq('merchant_id', integration.merchant_id)
     .eq('external_order_number', groupId)
     .eq('external_platform', 'MercadoLibre')
@@ -175,7 +175,6 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
   let localOrderId = null;
   let shouldInsertItems = false;
-  let labelBase64 = existingOrder?.label_base64 || null;
 
   if (existingOrder) {
     localOrderId = existingOrder.id;
@@ -192,15 +191,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
         .eq('id', existingOrder.id);
     }
 
-    if (!labelBase64 && group.shipping && group.shipping.id) {
-      labelBase64 = await downloadMeliLabel(group.shipping.id, accessToken);
-      if (labelBase64) {
-        await supabase
-          .from('orders')
-          .update({ label_base64: labelBase64 })
-          .eq('id', existingOrder.id);
-      }
-    }
+
 
     const { data: existingItems, error: itemsCheckErr } = await supabase
       .from('order_items')
@@ -213,9 +204,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
   } else {
     if (isCancelled) return;
 
-    if (group.shipping && group.shipping.id) {
-      labelBase64 = await downloadMeliLabel(group.shipping.id, accessToken);
-    }
+
 
     const skuMap: Record<string, string> = {};
     const { data: equivalences } = await supabase
@@ -340,7 +329,6 @@ async function handleOrderNotification(orderId: string, integration: any, access
       shipping_city: shippingCity,
       shipping_complement: shippingComplement,
       raw_meli_data: group.orders,
-      label_base64: labelBase64,
       origen: 'MercadoLibre',
       item: flatItemName,
       cantidad: flatQuantity,

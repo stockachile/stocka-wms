@@ -649,7 +649,6 @@ async function renderAdminOrders() {
                 <th>Cantidad</th>
                 <th style="text-align:right;">Valor Total</th>
                 <th>Seguimiento</th>
-                <th>Etiqueta</th>
                 <th>Estado Origen</th>
                 <th>Estado WMS</th>
               </tr>
@@ -1001,7 +1000,6 @@ window.applyWmsFiltersAndRender = function() {
           ${window.formatCLP(order.total_value)}
         </td>
         <td>${trackingHtml}</td>
-        <td>${labelHtml}</td>
         <td>
           <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
@@ -1016,7 +1014,7 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="13" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
@@ -1068,7 +1066,6 @@ window.applyWmsFiltersAndRender = function() {
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
               
               <!-- Botón para ver datos crudos de integración -->
               ${rawJsonBtnHtml}

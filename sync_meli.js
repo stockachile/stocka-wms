@@ -342,7 +342,7 @@ async function syncMerchantOrders(integration) {
       // B. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
-        .select('id, status, label_base64, comercio')
+        .select('id, status, comercio')
         .eq('merchant_id', integration.merchant_id)
         .eq('external_order_number', groupId)
         .eq('external_platform', 'MercadoLibre')
@@ -350,7 +350,6 @@ async function syncMerchantOrders(integration) {
 
       let localOrderId = null;
       let shouldInsertItems = false;
-      let labelBase64 = existingOrder?.label_base64 || null;
 
       if (existingOrder) {
         localOrderId = existingOrder.id;
@@ -371,18 +370,7 @@ async function syncMerchantOrders(integration) {
           console.log(`📝 Actualizado pedido local ${groupId}`);
         }
 
-        // Descargar etiqueta de despacho si falta
-        if (!labelBase64 && group.shipping && group.shipping.id) {
-          console.log(`📄 Descargando etiqueta pendiente para pedido existente...`);
-          labelBase64 = await downloadMeliLabel(group.shipping.id, accessToken);
-          if (labelBase64) {
-            await supabase
-              .from('orders')
-              .update({ label_base64: labelBase64 })
-              .eq('id', existingOrder.id);
-            console.log(`✅ Etiqueta guardada en el WMS.`);
-          }
-        }
+
 
         // Verificar si tiene ítems registrados
         const { data: existingItems, error: itemsCheckErr } = await supabase
@@ -400,11 +388,7 @@ async function syncMerchantOrders(integration) {
           continue;
         }
 
-        // Descargar etiqueta de despacho
-        if (group.shipping && group.shipping.id) {
-          console.log(`--> Descargando etiqueta de despacho...`);
-          labelBase64 = await downloadMeliLabel(group.shipping.id, accessToken);
-        }
+
 
         // Agrupar ítems por SKU y recolectar nombres
         const itemsList = [];
@@ -518,7 +502,6 @@ async function syncMerchantOrders(integration) {
           shipping_city: shippingCity,
           shipping_complement: shippingComplement,
           raw_meli_data: group.orders,
-          label_base64: labelBase64,
           origen: 'MercadoLibre',
           item: flatItemName,
           cantidad: flatQuantity,
