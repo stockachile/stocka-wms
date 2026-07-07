@@ -142,7 +142,42 @@ async function init() {
       console.error('DEBUG: Error al obtener sesión:', error);
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const shopParam = urlParams.get('shop');
+
     if (!session) {
+      if (shopParam) {
+        console.log('DEBUG: Detectada instalación de Shopify. Redirigiendo a OAuth...');
+        const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
+        const scopes = 'read_products,read_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        
+        const stateObj = {
+          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
+          comercio: 'Shopify Test Store',
+          redirect_back_url: window.location.origin + window.location.pathname
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        
+        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+        return;
+      }
+
+      if (urlParams.get('integration') === 'success') {
+        console.log('DEBUG: Retorno de integración exitosa sin sesión. Auto-logueando usuario de pruebas...');
+        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+          email: 'shopify-test@stockachile.cl',
+          password: 'ShopifyTest2026!'
+        });
+        if (!loginError && loginData) {
+          window.location.reload();
+          return;
+        } else {
+          console.error('Error en auto-login:', loginError);
+        }
+      }
+
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
       window.location.href = 'index.html';
       return;
@@ -3142,9 +3177,9 @@ async function renderIntegrations() {
           return;
         }
 
+
         btn.textContent = 'Redirigiendo a Shopify...';
-        // Configuración de la App en Shopify Partners
-        const clientId = '76f5e51d137d48ebbe3e931c58f3ce34'; // Client ID de Shopify Partners de STOCKA WMS
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c';
         const scopes = 'read_products,read_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
