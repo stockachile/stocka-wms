@@ -1266,6 +1266,9 @@ async function renderOrders() {
   window.clientWmsPageSize = window.clientWmsPageSize !== undefined ? window.clientWmsPageSize : 25;
   window.clientWmsCurrentPage = window.clientWmsCurrentPage || 1;
 
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
   try {
     const companyList = getCompanyList();
     let query = supabase
@@ -1304,7 +1307,8 @@ async function renderOrders() {
         raw_shopify_data,
         shopify_exported,
         order_items (quantity, products(sku, name))
-      `);
+      `)
+      .gte('created_at', startOfMonth);
 
     if (companyList.length > 0) {
       query = query.in('comercio', companyList);
@@ -1338,6 +1342,85 @@ async function renderOrders() {
       }
     }
     window.clientLoadedShipments = shipments;
+
+    // Cargar historial en segundo plano
+    (async () => {
+      try {
+        let histQuery = supabase
+          .from('orders')
+          .select(`
+            id,
+            status,
+            estado_wms,
+            created_at,
+            external_order_number,
+            external_platform,
+            origen,
+            item,
+            cantidad,
+            sku,
+            label_base64,
+            comercio,
+            total_value,
+            customer_name,
+            customer_email,
+            customer_phone,
+            shipping_address,
+            shipping_city,
+            shipping_complement,
+            shipping_method,
+            payment_status,
+            tracking_number,
+            tracking_url,
+            courier,
+            raw_woocommerce_data,
+            raw_falabella_data,
+            raw_meli_data,
+            raw_optiroute_data,
+            raw_lightdata_data,
+            raw_paris_data,
+            raw_shopify_data,
+            shopify_exported,
+            order_items (quantity, products(sku, name))
+          `)
+          .lt('created_at', startOfMonth);
+
+        if (companyList.length > 0) {
+          histQuery = histQuery.in('comercio', companyList);
+        } else {
+          histQuery = histQuery.eq('comercio', 'no asignado');
+        }
+
+        histQuery = histQuery.order('created_at', { ascending: false });
+
+        const { data: histOrders, error: histError } = await histQuery;
+        if (histError) throw histError;
+
+        if (histOrders && histOrders.length > 0) {
+          window.clientLoadedOrders = [...(window.clientLoadedOrders || []), ...histOrders];
+
+          // Cargar despachos del historial
+          const orderRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
+          const orderIds = histOrders.map(o => o.id);
+          const allRefs = [...orderRefs, ...orderIds];
+
+          const { data: shipData, error: shipError } = await supabase
+            .from('envios_unificados')
+            .select('*')
+            .in('pedido_referencia', allRefs)
+            .eq('visible_to_client', true);
+
+          if (!shipError && shipData) {
+            window.clientLoadedShipments = [...(window.clientLoadedShipments || []), ...shipData];
+          }
+
+          applyClientWmsFiltersAndRender();
+          console.log(`[WMS Cliente] Cargados ${histOrders.length} pedidos históricos en segundo plano.`);
+        }
+      } catch (histErr) {
+        console.warn('[WMS Cliente] Error al cargar pedidos históricos en segundo plano:', histErr);
+      }
+    })();
 
     const isObserver = userRole === 'observer';
     const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-order"><i class="ri-add-line"></i> Crear Pedido</button>';

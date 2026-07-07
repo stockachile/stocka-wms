@@ -21,16 +21,24 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function check() {
-  const { data: order, error } = await supabase
+  const { data: counts, error } = await supabase
     .from('orders')
-    .select('id, comercio, external_order_number')
-    .eq('external_order_number', '2000013870043685')
-    .maybeSingle();
-  
+    .select('estado_wms, status');
+
   if (error) {
     console.error('Error:', error);
-  } else {
-    console.log('ORDER DETAILS:', order);
+    return;
   }
+
+  const wmsStats = {};
+  const statusStats = {};
+
+  counts.forEach(o => {
+    wmsStats[o.estado_wms] = (wmsStats[o.estado_wms] || 0) + 1;
+    statusStats[o.status] = (statusStats[o.status] || 0) + 1;
+  });
+
+  console.log('WMS STATUS STATS IN DB:', wmsStats);
+  console.log('ORIGIN STATUS STATS IN DB:', statusStats);
 }
 check();

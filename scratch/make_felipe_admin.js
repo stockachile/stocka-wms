@@ -20,17 +20,19 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function check() {
-  const { data: order, error } = await supabase
-    .from('orders')
-    .select('id, comercio, external_order_number')
-    .eq('external_order_number', '2000013870043685')
-    .maybeSingle();
-  
+async function makeAdmin() {
+  console.log('Updating felipe.trup@gmail.com profile to role = admin...');
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ role: 'admin', comercio: 'all' })
+    .eq('email', 'felipe.trup@gmail.com')
+    .select();
+
   if (error) {
-    console.error('Error:', error);
+    console.error('Failed to update profile:', error);
   } else {
-    console.log('ORDER DETAILS:', order);
+    console.log('Successfully updated profile:', data);
   }
 }
-check();
+
+makeAdmin();

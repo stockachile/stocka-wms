@@ -21,16 +21,12 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function check() {
-  const { data: order, error } = await supabase
+  const { data: order } = await supabase
     .from('orders')
-    .select('id, comercio, external_order_number')
-    .eq('external_order_number', '2000013870043685')
-    .maybeSingle();
+    .select('*')
+    .eq('id', 'e793d7ec-aef3-4f00-a85e-1639145847e3')
+    .single();
   
-  if (error) {
-    console.error('Error:', error);
-  } else {
-    console.log('ORDER DETAILS:', order);
-  }
+  console.log('FULL ORDER DETAILS IN DATABASE:', order);
 }
 check();

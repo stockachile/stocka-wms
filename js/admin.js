@@ -454,6 +454,9 @@ async function renderAdminOrders() {
   window.wmsCurrentPage = window.wmsCurrentPage || 1;
   window.wmsSelectedOrderIds = window.wmsSelectedOrderIds || new Set();
 
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
   try {
     const { data: orders, error } = await supabase
       .from('orders')
@@ -493,6 +496,7 @@ async function renderAdminOrders() {
         comercio,
         order_items (quantity, products(sku, name, price))
       `)
+      .gte('created_at', startOfMonth)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -521,6 +525,89 @@ async function renderAdminOrders() {
     const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
+
+    const updateMerchantFilterOptions = () => {
+      const select = document.getElementById('filter-merchant');
+      if (!select) return;
+      const currentVal = select.value;
+      const uniqueMerchantsList = [...new Set((window.loadedOrders || []).map(o => o.comercio).filter(Boolean))].sort();
+      let optionsHtml = '<option value="">Todos los comercios</option>';
+      optionsHtml += uniqueMerchantsList.map(m => `<option value="${m}">${m}</option>`).join('');
+      select.innerHTML = optionsHtml;
+      select.value = currentVal;
+    };
+
+    // Cargar historial en segundo plano
+    (async () => {
+      try {
+        const { data: histOrders, error: histError } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            status,
+            estado_wms,
+            created_at,
+            external_order_number,
+            external_platform,
+            origen,
+            item,
+            cantidad,
+            sku,
+            label_base64,
+            total_value,
+            customer_name,
+            customer_email,
+            customer_phone,
+            shipping_address,
+            shipping_city,
+            shipping_complement,
+            shipping_method,
+            payment_status,
+            tracking_number,
+            tracking_url,
+            courier,
+            raw_woocommerce_data,
+            raw_jumpseller_data,
+            raw_falabella_data,
+            raw_meli_data,
+            raw_optiroute_data,
+            raw_lightdata_data,
+            raw_paris_data,
+            raw_shopify_data,
+            shopify_exported,
+            comercio,
+            order_items (quantity, products(sku, name, price))
+          `)
+          .lt('created_at', startOfMonth)
+          .order('created_at', { ascending: false });
+
+        if (histError) throw histError;
+
+        if (histOrders && histOrders.length > 0) {
+          window.loadedOrders = [...(window.loadedOrders || []), ...histOrders];
+
+          // Cargar despachos correspondientes para historial
+          const orderRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
+          const orderIds = histOrders.map(o => o.id);
+          const allRefs = [...orderRefs, ...orderIds];
+
+          const { data: shipData, error: shipError } = await supabase
+            .from('envios_unificados')
+            .select('*')
+            .in('pedido_referencia', allRefs);
+
+          if (!shipError && shipData) {
+            window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
+          }
+
+          updateMerchantFilterOptions();
+          applyWmsFiltersAndRender();
+          console.log(`[WMS] Cargados ${histOrders.length} pedidos históricos en segundo plano.`);
+        }
+      } catch (histErr) {
+        console.warn('[WMS] Error al cargar pedidos históricos en segundo plano:', histErr);
+      }
+    })();
 
     // Cargar comercios de v_comercios_config para la reasignación manual
     if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
