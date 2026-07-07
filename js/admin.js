@@ -361,7 +361,72 @@ function updateCategoryHeadersVisibility() {
   if (currentHeader && !hasVisibleItems) {
     currentHeader.style.display = 'none';
   }
+
+  // Initial badge update and periodic refresh
+  window.updateAdminBadges();
+  setInterval(window.updateAdminBadges, 60000);
 }
+
+window.updateAdminBadges = async function() {
+  try {
+    // 1. Tickets
+    const { count: ticketsCount } = await supabase
+      .from('tickets')
+      .select('*', { count: 'exact', head: true })
+      .in('status', ['abierto', 'en_proceso']);
+    
+    const badgeTickets = document.getElementById('badge-tickets');
+    if (badgeTickets && ticketsCount !== null) {
+      badgeTickets.textContent = ticketsCount;
+      badgeTickets.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    // 2. Billing
+    const { count: billingCount } = await supabase
+      .from('payment_reports')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pendiente');
+      
+    const badgeBilling = document.getElementById('badge-billing');
+    if (badgeBilling && billingCount !== null) {
+      badgeBilling.textContent = billingCount;
+      badgeBilling.style.display = billingCount > 0 ? 'inline-flex' : 'none';
+    }
+    const internalBillingBadge = document.getElementById('pending-reports-badge');
+    if (internalBillingBadge && billingCount !== null) {
+      internalBillingBadge.textContent = billingCount;
+      internalBillingBadge.style.display = billingCount > 0 ? 'inline-block' : 'none';
+    }
+
+    // 3. Users
+    const { count: usersCount } = await supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('role', 'observer');
+      
+    const badgeUsers = document.getElementById('badge-users');
+    if (badgeUsers && usersCount !== null) {
+      badgeUsers.textContent = usersCount;
+      badgeUsers.style.display = usersCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    // 4. Declarations
+    const { count: decCount } = await supabase
+      .from('stock_declarations')
+      .select('*', { count: 'exact', head: true })
+      .neq('status', 'Recibido Conforme')
+      .neq('status', 'Recibido con Incidencias');
+      
+    const badgeDecs = document.getElementById('badge-declarations');
+    if (badgeDecs && decCount !== null) {
+      badgeDecs.textContent = decCount;
+      badgeDecs.style.display = decCount > 0 ? 'inline-flex' : 'none';
+    }
+
+  } catch (e) {
+    console.error('Error updating admin badges:', e);
+  }
+};
 
 // Ejecutar inicialización
 init();

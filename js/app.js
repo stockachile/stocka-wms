@@ -3124,7 +3124,10 @@ async function renderIntegrations() {
                 headers: {
                   'Content-Type': 'application/json',
                   'Authorization': `Bearer ${session.access_token}`
-                }
+                },
+                body: JSON.stringify({
+                  comercio: window.activeIntegrationCommerce
+                })
               });
             }
 
@@ -3141,7 +3144,7 @@ async function renderIntegrations() {
 
         btn.textContent = 'Redirigiendo a Shopify...';
         // Configuración de la App en Shopify Partners
-        const clientId = '67efac0695de4fde9f6c8d90ed2319b4'; // Client ID de Shopify Partners de STOCKA WMS
+        const clientId = '76f5e51d137d48ebbe3e931c58f3ce34'; // Client ID de Shopify Partners de STOCKA WMS
         const scopes = 'read_products,read_orders';
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
@@ -3197,7 +3200,10 @@ async function renderIntegrations() {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${session.access_token}`
-            }
+            },
+            body: JSON.stringify({
+              comercio: window.activeIntegrationCommerce
+            })
           });
 
           const result = await response.json();

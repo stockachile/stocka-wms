@@ -46,14 +46,43 @@ serve(async (req) => {
         });
       }
 
-      // 2. Buscar la integración activa filtrando por merchant_id de forma segura
-      const { data: integration, error: intErr } = await supabase
+      // 2. Obtener el rol del usuario para permitir acciones de administrador
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", user.id)
+        .maybeSingle();
+      const isAdmin = profile?.role === "admin";
+
+      // 3. Leer el cuerpo de la petición (opcional comercio / merchant_id)
+      let body: any = {};
+      try {
+        body = await req.json();
+      } catch (e) {
+        // La petición podría no llevar cuerpo
+      }
+
+      let targetMerchantId = user.id;
+      let targetComercio = body.comercio || "";
+
+      if (isAdmin && body.merchant_id) {
+        targetMerchantId = body.merchant_id;
+      }
+
+      // 4. Buscar la integración activa filtrando de forma segura
+      let query = supabase
         .from("merchant_integrations")
         .select("*")
         .eq("platform", "Shopify")
-        .eq("merchant_id", user.id)
-        .eq("is_active", true)
-        .maybeSingle();
+        .eq("is_active", true);
+
+      if (isAdmin && targetComercio) {
+        query = query.eq("comercio", targetComercio);
+      } else {
+        query = query.eq("merchant_id", targetMerchantId);
+      }
+
+      const { data: integration, error: intErr } = await query.maybeSingle();
 
       if (intErr || !integration) {
         return new Response(JSON.stringify({ error: "Active Shopify integration not found" }), {

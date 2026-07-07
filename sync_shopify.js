@@ -3,9 +3,27 @@ const { createClient } = require('@supabase/supabase-js');
 // ==========================================
 // CONFIGURACIÓN DE SUPABASE
 // ==========================================
-// TODO: Reemplaza estas variables con tus datos de Supabase
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // Usamos la key de servicio para poder hacer bypass al RLS desde el backend
+const fs = require('fs');
+
+const envPath = '.env';
+let env = {};
+if (fs.existsSync(envPath)) {
+  const content = fs.readFileSync(envPath, 'utf8');
+  content.split('\n').forEach(line => {
+    const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+    if (match) {
+      const key = match[1];
+      let value = match[2] || '';
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.substring(1, value.length - 1);
+      }
+      env[key] = value.trim();
+    }
+  });
+}
+
+const SUPABASE_URL = env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
+const SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('ERROR: La variable de entorno SUPABASE_SERVICE_ROLE_KEY no está configurada.');
@@ -54,6 +72,35 @@ async function syncOrders(integration) {
   console.log('--> Extrayendo pedidos...');
   const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any`;
 
+  // Cargar primera bodega asignada al comerciante
+  const { data: whRelation } = await supabase
+    .from('merchants_warehouses')
+    .select('warehouse_id')
+    .eq('merchant_id', integration.merchant_id)
+    .limit(1)
+    .maybeSingle();
+  const warehouseId = whRelation?.warehouse_id || null;
+
+  // Cargar equivalencias de SKU
+  const skuMap = {};
+  try {
+    const { data: equivalences } = await supabase
+      .from('sku_equivalences')
+      .select('platform_sku, master_sku, platform')
+      .eq('comercio', integration.comercio);
+    
+    if (equivalences) {
+      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+      equivalences.filter(e => e.platform === 'Shopify').forEach(e => {
+        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
+      });
+    }
+  } catch (err) {
+    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
+  }
+
   try {
     const response = await fetch(url, {
       method: 'GET',
@@ -94,27 +141,99 @@ async function syncOrders(integration) {
         shipping_address: order.shipping_address?.address1,
         shipping_city: order.shipping_address?.city,
         shipping_complement: order.shipping_address?.address2,
+        shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
         raw_shopify_data: order, // GUARDAMOS EL PAYLOAD COMPLETO AQUI
         created_at: new Date(order.created_at).toISOString()
       };
 
+      let orderId;
       if (existingOrder) {
         // Actualizar pedido existente
         await supabase
           .from('orders')
           .update(orderDataToSave)
           .eq('id', existingOrder.id);
+        orderId = existingOrder.id;
         console.log(`Actualizado pedido ${order.name}`);
       } else {
         // Insertar nuevo pedido (lo ponemos como "para procesar" o su equivalente)
-        const { error: insErr } = await supabase
+        const { data: newOrder, error: insErr } = await supabase
           .from('orders')
-          .insert([{ ...orderDataToSave, status: 'para procesar' }]);
+          .insert([{ ...orderDataToSave, status: 'para procesar' }])
+          .select('id')
+          .single();
           
-        if(insErr) {
-            console.error(`Error al insertar pedido ${order.name}:`, insErr);
+        if(insErr || !newOrder) {
+            console.error(`Error al insertar pedido ${order.name}:`, insErr ? insErr.message : 'No se retornaron datos');
+            continue;
         } else {
+            orderId = newOrder.id;
             console.log(`Insertado nuevo pedido ${order.name}`);
+        }
+      }
+
+      // Sincronizar ítems de la orden
+      await supabase.from('order_items').delete().eq('order_id', orderId);
+      const lineItems = order.line_items || [];
+      for (const item of lineItems) {
+        let product = null;
+        let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
+        let mappedSku = skuMap[cleanSku] || cleanSku;
+        let hasEquivalence = !!skuMap[cleanSku];
+
+        // Buscar producto en catálogo
+        let query = supabase.from('products').select('id');
+        if (hasEquivalence) {
+          query = query.eq('sku', mappedSku).eq('comercio', integration.comercio);
+        } else if (item.variant_id) {
+          query = query.eq('shopify_variant_id', item.variant_id.toString());
+        } else {
+          query = query.eq('sku', cleanSku).eq('comercio', integration.comercio);
+        }
+
+        const { data: foundProduct } = await query.maybeSingle();
+        product = foundProduct;
+
+        // Auto-crear producto si no existe
+        if (!product) {
+          const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
+          const { data: newProd, error: prodErr } = await supabase
+            .from('products')
+            .insert([{
+              merchant_id: integration.merchant_id,
+              comercio: integration.comercio,
+              sku: targetSku,
+              name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
+              price: item.price ? parseFloat(item.price) : 0,
+              description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ''),
+              shopify_product_id: item.product_id?.toString() || null,
+              shopify_variant_id: item.variant_id?.toString() || null,
+              shopify_stock: 0,
+              status: 'active'
+            }])
+            .select('id')
+            .single();
+
+          if (!prodErr && newProd) {
+            product = newProd;
+          } else {
+            console.error(`Error auto-creando producto SKU ${targetSku}:`, prodErr ? prodErr.message : 'Error desconocido');
+          }
+        }
+
+        if (product) {
+          const { error: itemErr } = await supabase
+            .from('order_items')
+            .insert([{
+              order_id: orderId,
+              product_id: product.id,
+              warehouse_id: warehouseId,
+              quantity: item.quantity
+            }]);
+
+          if (itemErr) {
+            console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr.message);
+          }
         }
       }
     }
