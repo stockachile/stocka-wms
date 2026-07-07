@@ -165,6 +165,44 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
   const isCancelled = group.status === 'cancelled' || shippingStatus === 'cancelled';
 
+  // Mapear logística y calcular SLA
+  const mapLog: Record<string, string> = {
+    'self_service': 'FLEX ⚡', 
+    'fulfillment': 'Full 📦', 
+    'cross_docking': 'Colecta 🚚', 
+    'drop_off': 'CENTRO DE ENVIOS 🏪',
+    'xd_drop_off': 'CENTRO DE ENVIOS 🏪',
+    'custom': 'Acordar / Retiro',
+    'not_specified': 'Acordar / Retiro'
+  };
+  const baseMethod = mapLog[logisticsType] || logisticsType || 'Acordar / Retiro';
+  let formattedSla = 'N/A';
+  if (expectedDate) {
+    const slaDate = new Date(expectedDate);
+    try {
+      const formatter = new Intl.DateTimeFormat('es-CL', {
+        timeZone: 'America/Santiago',
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const parts = formatter.formatToParts(slaDate);
+      const day = parts.find(p => p.type === 'day').value;
+      const month = parts.find(p => p.type === 'month').value;
+      const year = parts.find(p => p.type === 'year').value;
+      const hour = parts.find(p => p.type === 'hour').value;
+      const minute = parts.find(p => p.type === 'minute').value;
+      formattedSla = `${day}/${month}/${year} ${hour}:${minute}`;
+    } catch (e) {
+      formattedSla = `${slaDate.getDate().toString().padStart(2, '0')}/${(slaDate.getMonth() + 1).toString().padStart(2, '0')}/${slaDate.getFullYear().toString().slice(-2)} ${slaDate.getHours().toString().padStart(2, '0')}:${slaDate.getMinutes().toString().padStart(2, '0')}`;
+    }
+  }
+  const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
+  const targetStatus = mapMeliStatus(shippingStatus);
+
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, comercio')
@@ -185,9 +223,20 @@ async function handleOrderNotification(orderId: string, integration: any, access
         .update({ payment_status: group.status, status: 'cancelado', created_at: group.date_created })
         .eq('id', existingOrder.id);
     } else {
+      const updatePayload: any = {
+        payment_status: group.status,
+        raw_meli_data: group.orders,
+        created_at: group.date_created,
+        shipping_method: shippingMethod
+      };
+      
+      if (existingOrder.status !== 'cancelado') {
+        updatePayload.status = targetStatus;
+      }
+
       await supabase
         .from('orders')
-        .update({ payment_status: group.status, raw_meli_data: group.orders, created_at: group.date_created })
+        .update(updatePayload)
         .eq('id', existingOrder.id);
     }
 
@@ -275,22 +324,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
     const customerPhone = receiverAddress?.receiver_phone || 'No especificado';
 
-    const mapLog: Record<string, string> = {
-      'self_service': 'FLEX ⚡', 
-      'fulfillment': 'Full 📦', 
-      'cross_docking': 'Colecta 🚚', 
-      'drop_off': 'CENTRO DE ENVIOS 🏪',
-      'xd_drop_off': 'CENTRO DE ENVIOS 🏪',
-      'custom': 'Acordar / Retiro',
-      'not_specified': 'Acordar / Retiro'
-    };
-    const baseMethod = mapLog[logisticsType] || logisticsType || 'Acordar / Retiro';
-    let formattedSla = 'N/A';
-    if (expectedDate) {
-      const slaDate = new Date(expectedDate);
-      formattedSla = `${slaDate.getDate().toString().padStart(2, '0')}/${(slaDate.getMonth() + 1).toString().padStart(2, '0')}/${slaDate.getFullYear().toString().slice(-2)} ${slaDate.getHours().toString().padStart(2, '0')}:${slaDate.getMinutes().toString().padStart(2, '0')}`;
-    }
-    const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
+    // Mapeo ya realizado al principio
 
     // Determinar comercio a asignar basado en el catálogo de productos
     const itemComercios = [];
