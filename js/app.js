@@ -1268,6 +1268,8 @@ async function renderOrders() {
 
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const startOfMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+  const todayStr = now.toISOString().split('T')[0];
 
   try {
     const companyList = getCompanyList();
@@ -1502,6 +1504,14 @@ async function renderOrders() {
               <option value="exported">Exportados</option>
             </select>
           </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Desde</label>
+            <input type="date" id="filter-client-date-from" class="form-input" value="${startOfMonthStr}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Hasta</label>
+            <input type="date" id="filter-client-date-to" class="form-input" value="${todayStr}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+          </div>
         </div>
       </div>
 
@@ -1570,6 +1580,8 @@ async function renderOrders() {
     const origenSelect = document.getElementById('filter-client-origen');
     const statusSelect = document.getElementById('filter-client-status');
     const exportStatusSelect = document.getElementById('filter-client-export-status');
+    const dateFromInput = document.getElementById('filter-client-date-from');
+    const dateToInput = document.getElementById('filter-client-date-to');
 
     const triggerFilterUpdate = () => {
       window.clientWmsCurrentPage = 1;
@@ -1580,6 +1592,8 @@ async function renderOrders() {
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
+    if (dateFromInput) dateFromInput.addEventListener('change', triggerFilterUpdate);
+    if (dateToInput) dateToInput.addEventListener('change', triggerFilterUpdate);
 
     // Listeners para acciones por lote (Bulk Actions)
     setTimeout(() => {
@@ -1643,11 +1657,15 @@ window.applyClientWmsFiltersAndRender = function() {
   const origenSelect = document.getElementById('filter-client-origen');
   const statusSelect = document.getElementById('filter-client-status');
   const exportStatusSelect = document.getElementById('filter-client-export-status');
+  const dateFromInput = document.getElementById('filter-client-date-from');
+  const dateToInput = document.getElementById('filter-client-date-to');
 
   const searchText = (searchInput?.value || '').toLowerCase();
   const selectedOrigen = origenSelect?.value || '';
   const selectedStatus = statusSelect?.value || '';
   const selectedExportStatus = exportStatusSelect?.value || '';
+  const dateFrom = dateFromInput?.value || '';
+  const dateTo = dateToInput?.value || '';
 
   const matchesBaseFilters = (order) => {
     const platform = order.origen || order.external_platform || 'Manual';
@@ -1676,7 +1694,21 @@ window.applyClientWmsFiltersAndRender = function() {
       matchesExport = !!order.shopify_exported;
     }
 
-    return matchesSearch && matchesOrigen && matchesStatus && matchesExport;
+    let matchesDate = true;
+    if (order.created_at) {
+      const d = new Date(order.created_at);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const orderDateStr = `${year}-${month}-${day}`;
+      
+      if (dateFrom && orderDateStr < dateFrom) matchesDate = false;
+      if (dateTo && orderDateStr > dateTo) matchesDate = false;
+    } else {
+      if (dateFrom || dateTo) matchesDate = false;
+    }
+
+    return matchesSearch && matchesOrigen && matchesStatus && matchesExport && matchesDate;
   };
 
   // 1. Obtener conteo de pestañas
