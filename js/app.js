@@ -8981,6 +8981,7 @@ async function initClientPeriodSelect() {
 }
 
 window.loadClientBillingData = async function(periodId) {
+  window.currentClientSelectedPeriodId = periodId;
   const tableContainer = document.getElementById('client-billing-table-body');
   const reportsContainer = document.getElementById('client-reports-table-body');
   if (!tableContainer || !periodId) return;
@@ -9142,7 +9143,10 @@ window.loadClientBillingData = async function(periodId) {
             ${window.formatCLP(recordTotal)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
-            ${actionBtn}
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
+              ${actionBtn}
+              ${window.getClientObservationBtnHtml(r)}
+            </div>
           </td>
         </tr>
       `;
@@ -9190,7 +9194,10 @@ window.loadClientBillingData = async function(periodId) {
             ${window.formatCLP(recordTotal)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
-            ${actionBtn}
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
+              ${actionBtn}
+              ${window.getClientObservationBtnHtml(r)}
+            </div>
           </td>
         </tr>
       `;
@@ -11725,4 +11732,152 @@ window.loadClientExtraCharges = async function(periodId) {
     `;
   }
 };
+
+window.getClientObservationBtnHtml = function(r) {
+  let colorStyle = 'color: var(--color-text-muted); border-color: var(--color-border);';
+  let title = 'Solicitar Revisión / Apelación';
+  let text = 'Solicitar Revisión';
+  let icon = 'ri-chat-new-line';
+
+  if (r.observation_status === 'pendiente') {
+    colorStyle = 'color: #d97706; border-color: #d97706; background: rgba(217, 119, 6, 0.05);';
+    title = 'Revisión Pendiente por Administración';
+    text = 'Revisión Pendiente';
+    icon = 'ri-discuss-line';
+  } else if (r.observation_status === 'respondida') {
+    colorStyle = 'color: var(--color-success); border-color: var(--color-success); background: rgba(16, 185, 129, 0.05);';
+    title = 'Revisión Respondida por Administración';
+    text = 'Revisión Respondida';
+    icon = 'ri-chat-check-line';
+  }
+
+  return `
+    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); window.openClientBillingObservationModal('${r.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; width: 100%; border-radius: 4px; ${colorStyle} height: auto; justify-content: center;" title="${title}">
+      <i class="${icon}"></i> ${text}
+    </button>
+  `;
+};
+
+window.openClientBillingObservationModal = async function(recordId) {
+  let modal = document.getElementById('modal-client-observation');
+  if (modal) modal.remove();
+
+  try {
+    const { data: record, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('id', recordId)
+      .single();
+
+    if (error) throw error;
+    if (!record) throw new Error("Registro no encontrado");
+
+    const isPending = record.observation_status === 'pendiente';
+    const hasResponse = record.admin_response && record.admin_response.trim() !== '';
+
+    modal = document.createElement('div');
+    modal.id = 'modal-client-observation';
+    modal.className = 'modal-overlay active';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 500px; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-lg);">
+        <div class="modal-header" style="background: var(--color-surface); padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-chat-voice-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
+            Revisión de Cobros - ${record.comercio}
+          </h3>
+          <button class="modal-close" onclick="document.getElementById('modal-client-observation').remove()" style="background: transparent; border: none; font-size: 1.25rem; color: var(--color-text-muted); cursor: pointer;">&times;</button>
+        </div>
+        
+        <form id="form-client-observation">
+          <div class="modal-body" style="padding: 1.5rem; background: var(--color-surface);">
+            
+            <div style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); padding: 0.85rem; border-radius: 8px; margin-bottom: 1.25rem; display: flex; gap: 0.5rem; align-items: flex-start;">
+              <i class="ri-information-line" style="color: var(--color-primary); font-size: 1.2rem; margin-top: 0.1rem;"></i>
+              <div style="font-size: 0.82rem; color: var(--color-text-muted); line-height: 1.4;">
+                <strong>Nota aclaratoria:</strong> Las apelaciones o solicitudes de revisión serán evaluadas por administración. En caso de ser aprobadas, el ajuste correspondiente se verá reflejado en la facturación del **siguiente período**.
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Detalle de su apelación u observación:</label>
+              <textarea id="obs-client-text" class="form-input" rows="4" placeholder="Indique claramente el cobro a revisar (Fulfillment o Envíame), el motivo de su discrepancia y cualquier detalle de respaldo..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;" ${isPending ? 'disabled' : ''}>${record.client_observation || ''}</textarea>
+            </div>
+
+            ${hasResponse ? `
+              <div class="form-group" style="margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--color-border);">
+                <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-success); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-feedback-line"></i> Respuesta de Administración:
+                </label>
+                <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap;">${record.admin_response}</div>
+              </div>
+            ` : ''}
+
+            ${isPending ? `
+              <div style="text-align: center; color: #d97706; font-size: 0.82rem; font-weight: 600; margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">
+                <i class="ri-time-line"></i> Su solicitud está siendo evaluada por el equipo administrativo.
+              </div>
+            ` : ''}
+
+          </div>
+          <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end; gap: 0.75rem;">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-client-observation').remove()" style="margin: 0; padding: 0.4rem 1rem; font-size: 0.85rem;">Cerrar</button>
+            ${!isPending ? `
+              <button type="submit" class="btn btn-primary" id="btn-submit-obs" style="margin: 0; padding: 0.4rem 1rem; font-size: 0.85rem;">
+                <i class="ri-send-plane-line"></i> Enviar Solicitud
+              </button>
+            ` : ''}
+          </div>
+        </form>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const form = document.getElementById('form-client-observation');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSubmit = document.getElementById('btn-submit-obs');
+        if (btnSubmit) {
+          btnSubmit.disabled = true;
+          btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando...';
+        }
+
+        const clientText = document.getElementById('obs-client-text').value.trim();
+
+        try {
+          const { error: updateErr } = await supabase
+            .from('billing_records')
+            .update({
+              client_observation: clientText,
+              observation_status: 'pendiente',
+              observation_updated_at: new Date().toISOString()
+            })
+            .eq('id', recordId);
+
+          if (updateErr) throw updateErr;
+
+          modal.remove();
+          alert('Su solicitud de revisión ha sido enviada exitosamente a administración.');
+          
+          if (typeof loadClientBillingData === 'function') {
+            loadClientBillingData(window.currentClientSelectedPeriodId);
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Error al enviar la observación: ' + err.message);
+          if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<i class="ri-send-plane-line"></i> Enviar Solicitud';
+          }
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert('Error al cargar la observación: ' + err.message);
+  }
+};
+
 

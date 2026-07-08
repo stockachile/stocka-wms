@@ -94,6 +94,10 @@ ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fecha_pago_recibido_
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fulfillment_link TEXT;
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS fulfillment_pdf_url TEXT;
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS enviame_pdfs JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS client_observation TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS admin_response TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_status TEXT CHECK (observation_status IN ('sin_observacion', 'pendiente', 'respondida')) DEFAULT 'sin_observacion';
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_updated_at TIMESTAMPTZ DEFAULT now();
 
 
 -- 5. Crear la Tabla de Reportes de Pagos (Enviados por Clientes)

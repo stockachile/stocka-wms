@@ -227,6 +227,9 @@ async function init() {
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
+          } else if (view === 'merchants_admin') {
+            viewTitle.textContent = 'Gestionar Comercios';
+            renderMerchantsAdmin();
           } else if (view === 'warehouses_admin') {
             viewTitle.textContent = 'Gestionar Bodegas';
             renderWarehousesAdmin();
@@ -3419,6 +3422,7 @@ const ADMIN_MODULES = [
   { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
   { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
+  { id: 'merchants_admin', label: 'Gestionar Comercios' },
   { id: 'billing_admin', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
   { id: 'documentation_admin', label: 'Documentación Admin' }
@@ -7307,6 +7311,12 @@ async function loadBillingRecords(periodId, bodyElement) {
                       style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url || (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0)) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
                       title="Gestionar Adjuntos y Enlaces">
                 <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" 
+                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${ r.observation_status === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
+                      title="${r.observation_status === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
+                <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
               </button>
               <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
                 <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
@@ -11900,6 +11910,804 @@ window.updateDashboardYearView = function() {
     });
   }
 };
+
+// ==========================================
+// Módulo de Gestión de Comercios (Admin)
+// ==========================================
+
+async function renderMerchantsAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando módulo de comercios...</p>`;
+
+  try {
+    // 1. Cargar comercios de v_comercios_config
+    const { data: rawComercios, error: comerciosError } = await supabase
+      .from('v_comercios_config')
+      .select('*')
+      .order('nombre', { ascending: true });
+
+    if (comerciosError) throw comerciosError;
+
+    // 2. Cargar configuraciones adicionales locales
+    let adicionalConfigs = [];
+    let isMigrationNeeded = false;
+    const { data: configs, error: configErr } = await supabase
+      .from('comercios_adicional_config')
+      .select('*');
+
+    if (configErr) {
+      console.warn("Error al cargar adicional configs:", configErr);
+      if (configErr.code === 'PGRST204' || configErr.status === 404 || (configErr.message && configErr.message.includes('relation "public.comercios_adicional_config" does not exist'))) {
+        isMigrationNeeded = true;
+      }
+    } else {
+      adicionalConfigs = configs || [];
+    }
+
+    // 3. Cargar estados de facturación
+    const { data: billingStatuses, error: billingErr } = await supabase
+      .from('commerce_billing_status')
+      .select('*');
+    
+    if (billingErr) console.warn("Error al cargar estados de facturación:", billingErr);
+    const billingMap = new Map((billingStatuses || []).map(s => [s.comercio, s.al_dia]));
+
+    // 4. Cargar perfiles de usuarios para asociar
+    const { data: profiles, error: profilesErr } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, comercio, role');
+    
+    if (profilesErr) console.warn("Error al cargar perfiles:", profilesErr);
+
+    // 5. Cargar integraciones
+    const { data: integrations, error: integrationsErr } = await supabase
+      .from('merchant_integrations')
+      .select('*');
+    
+    if (integrationsErr) console.warn("Error al cargar integraciones:", integrationsErr);
+
+    const configMap = new Map((adicionalConfigs || []).map(c => [c.comercio, c]));
+
+    const comercios = (rawComercios || []).map(c => {
+      const extra = configMap.get(c.nombre) || {};
+      const alDia = billingMap.has(c.nombre) ? billingMap.get(c.nombre) : true; // Por defecto activo
+
+      // Usuarios asociados: filtramos perfiles de rol client donde el comercio incluya este nombre
+      const associatedUsers = (profiles || []).filter(p => {
+        if (!p.comercio || p.comercio === 'no asignado') return false;
+        return p.comercio.split(',').map(name => name.trim().toUpperCase()).includes(c.nombre.toUpperCase());
+      });
+
+      // Integraciones asociadas: filtramos merchant_integrations donde comercio coincida
+      const assocIntegrations = (integrations || []).filter(i => {
+        if (!i.comercio || i.comercio === 'no asignado') return false;
+        return i.comercio.toUpperCase() === c.nombre.toUpperCase();
+      });
+
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        sigla: c.sigla || 'SIN SIGLA',
+        al_dia: alDia,
+        inventario_seguimiento: extra.inventario_seguimiento || false,
+        pedido_trae_sigla: extra.pedido_trae_sigla || false,
+        associatedUsers,
+        integrations: assocIntegrations
+      };
+    });
+
+    const totalComercios = comercios.length;
+    const activeComercios = comercios.filter(c => c.al_dia).length;
+    const suspendedComercios = totalComercios - activeComercios;
+
+    let migrationBannerHtml = '';
+    if (isMigrationNeeded) {
+      migrationBannerHtml = `
+        <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <i class="ri-alert-line" style="color: var(--color-warning); font-size: 1.5rem;"></i>
+            <div>
+              <strong style="color: var(--color-text-main); display: block; font-size: 0.95rem;">Migración de Base de Datos Requerida</strong>
+              <span style="font-size: 0.85rem; color: var(--color-text-muted);">La tabla local <code>comercios_adicional_config</code> no existe en Supabase. Ejecuta la migración SQL para habilitar las opciones de seguimiento de inventario y sigla de pedidos.</span>
+            </div>
+          </div>
+          <button class="btn btn-warning btn-sm" onclick="window.showMerchantMigrationModal()" style="white-space: nowrap; font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.4rem 0.8rem; border-radius: 4px; border: none; cursor: pointer;">
+            <i class="ri-database-2-line"></i> Ver SQL de Migración
+          </button>
+        </div>
+      `;
+    }
+
+    // Inyectar estilos para el toggle switch si no existen
+    if (!document.getElementById('merchant-module-styles')) {
+      const styles = document.createElement('style');
+      styles.id = 'merchant-module-styles';
+      styles.textContent = `
+        .merchant-switch {
+          position: relative;
+          display: inline-block;
+          width: 42px;
+          height: 22px;
+          margin: 0;
+        }
+        .merchant-switch input {
+          opacity: 0;
+          width: 0;
+          height: 0;
+        }
+        .merchant-slider {
+          position: absolute;
+          cursor: pointer;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background-color: var(--color-border);
+          transition: .25s ease;
+          border-radius: 22px;
+        }
+        .merchant-slider:before {
+          position: absolute;
+          content: "";
+          height: 16px;
+          width: 16px;
+          left: 3px;
+          bottom: 3px;
+          background-color: var(--color-surface);
+          transition: .25s ease;
+          border-radius: 50%;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+        }
+        .merchant-switch input:checked + .merchant-slider {
+          background-color: var(--color-primary);
+        }
+        .merchant-switch input:checked + .merchant-slider:before {
+          transform: translateX(20px);
+        }
+        .merchant-switch input:disabled + .merchant-slider {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .badge-status {
+          padding: 0.25rem 0.5rem;
+          border-radius: 99px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.25rem;
+        }
+        .badge-status.active {
+          background: rgba(16, 185, 129, 0.1);
+          color: var(--color-success);
+        }
+        .badge-status.suspended {
+          background: rgba(239, 68, 68, 0.1);
+          color: var(--color-danger);
+        }
+        .badge-status.enabled {
+          background: rgba(59, 130, 246, 0.1);
+          color: var(--color-info);
+        }
+        .badge-status.disabled {
+          background: rgba(148, 163, 184, 0.1);
+          color: var(--color-text-muted);
+        }
+        .merchant-stat-card {
+          background: var(--color-surface);
+          border: 1px solid var(--color-border);
+          border-radius: var(--radius-md);
+          padding: 1.25rem;
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          box-shadow: var(--shadow-sm);
+        }
+        .merchant-stat-icon {
+          width: 48px;
+          height: 48px;
+          border-radius: var(--radius-md);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.5rem;
+        }
+      `;
+      document.head.appendChild(styles);
+    }
+
+    const statsHtml = `
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="merchant-stat-card">
+          <div class="merchant-stat-icon" style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">
+            <i class="ri-store-3-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${totalComercios}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Total Comercios</div>
+          </div>
+        </div>
+        <div class="merchant-stat-card">
+          <div class="merchant-stat-icon" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success);">
+            <i class="ri-checkbox-circle-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${activeComercios}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Facturación Activos</div>
+          </div>
+        </div>
+        <div class="merchant-stat-card">
+          <div class="merchant-stat-icon" style="background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
+            <i class="ri-close-circle-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--color-text-main);">${suspendedComercios}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Facturación Suspendidos</div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Exponer la lista de comercios globalmente para búsquedas y modales
+    window.cachedAdminMerchants = comercios;
+    window.isMerchantMigrationNeeded = isMigrationNeeded;
+
+    const renderTableRows = (list) => {
+      if (list.length === 0) {
+        return `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+      }
+      
+      return list.map(c => {
+        const billingBadge = c.al_dia 
+          ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Activo</span>`
+          : `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido</span>`;
+        
+        const invBadge = c.inventario_seguimiento
+          ? `<span class="badge-status enabled"><i class="ri-check-line"></i> Activo</span>`
+          : `<span class="badge-status disabled">Inactivo</span>`;
+          
+        const siglaBadge = c.pedido_trae_sigla
+          ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
+          : `<span class="badge-status disabled">No</span>`;
+
+        // Generar lista corta de integraciones activas
+        const activeIntList = c.integrations.filter(i => i.is_active).map(i => i.platform);
+        const intDisplay = activeIntList.length > 0 
+          ? activeIntList.join(', ')
+          : '<span style="color: var(--color-text-muted); font-style: italic;">Ninguna activa</span>';
+
+        return `
+          <tr>
+            <td><strong>${c.nombre}</strong></td>
+            <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
+            <td>${billingBadge}</td>
+            <td>${invBadge}</td>
+            <td>${siglaBadge}</td>
+            <td>
+              <button class="btn btn-outline btn-sm" onclick="window.showMerchantUsersModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                <i class="ri-team-line"></i> ${c.associatedUsers.length} Usuarios
+              </button>
+            </td>
+            <td>
+              <button class="btn btn-outline btn-sm" onclick="window.showMerchantIntegrationsModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                <i class="ri-plug-line"></i> ${c.integrations.length} Integraciones
+              </button>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">${intDisplay}</div>
+            </td>
+            <td>
+              <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">
+                <i class="ri-edit-line"></i> Editar
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    };
+
+    appContent.innerHTML = `
+      ${migrationBannerHtml}
+      ${statsHtml}
+      <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 2rem;">
+        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.2rem;">Configuración de Comercios</h3>
+            <p style="color: var(--color-text-muted); font-size: 0.85rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
+              Administra la parametrización del WMS para cada cliente, incluyendo el estado de facturación, seguimiento de inventarios y siglas de órdenes.
+            </p>
+          </div>
+          <div style="position: relative; width: 280px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+            <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio o sigla..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
+          </div>
+        </div>
+        <div class="card-body table-responsive" style="padding: 0; overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Comercio</th>
+                <th>Sigla</th>
+                <th>Estado Facturación</th>
+                <th>Seguimiento Inventario</th>
+                <th>Pedido trae Sigla</th>
+                <th>Usuarios Asociados</th>
+                <th>Integraciones</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="merchant-table-body">
+              ${renderTableRows(comercios)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // Configurar listener para buscador
+    const searchInput = document.getElementById('merchant-search-input');
+    const tableBody = document.getElementById('merchant-table-body');
+    if (searchInput && tableBody) {
+      searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        const filtered = comercios.filter(c => 
+          c.nombre.toLowerCase().includes(query) || 
+          c.sigla.toLowerCase().includes(query)
+        );
+        tableBody.innerHTML = renderTableRows(filtered);
+      });
+    }
+
+  } catch (err) {
+    console.error("Error al renderizar módulo de comercios:", err);
+    appContent.innerHTML = `
+      <div class="alert alert-danger" style="padding: 1.5rem; background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); border-radius: var(--radius-md); color: var(--color-danger);">
+        <h4 style="margin: 0 0 0.5rem 0; font-size: 1.1rem;"><i class="ri-error-warning-line"></i> Error al cargar comercios</h4>
+        <p style="margin: 0; font-size: 0.9rem;">${err.message || JSON.stringify(err)}</p>
+      </div>
+    `;
+  }
+}
+
+// Modal de Migración SQL
+window.showMerchantMigrationModal = function() {
+  const modalId = 'modal-merchant-migration-info';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 650px; width: 90%;">
+      <div class="modal-header">
+        <h3 style="margin: 0;"><i class="ri-database-2-line"></i> Script de Migración SQL</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 1rem;">
+          Para habilitar el seguimiento de inventario y sigla de origen de pedidos, debes ejecutar este script SQL en el Editor de SQL de Supabase:
+        </p>
+        <pre style="background: var(--color-bg); padding: 1rem; border-radius: 4px; font-size: 0.8rem; overflow: auto; max-height: 250px; border: 1px solid var(--color-border); color: var(--color-text-main); font-family: monospace; white-space: pre-wrap; word-break: break-all;">-- WMS STOCKA - Configuración Adicional de Comercios
+CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
+    comercio TEXT PRIMARY KEY,
+    comercio_id UUID,
+    inventario_seguimiento BOOLEAN NOT NULL DEFAULT false,
+    pedido_trae_sigla BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
+);
+
+ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Todos los usuarios autenticados leen la config de comercios" ON public.comercios_adicional_config;
+CREATE POLICY "Todos los usuarios autenticados leen la config de comercios" ON public.comercios_adicional_config
+    FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Admins gestionan la config de comercios" ON public.comercios_adicional_config;
+CREATE POLICY "Admins gestionan la config de comercios" ON public.comercios_adicional_config
+    FOR ALL USING (
+        EXISTS (
+            SELECT 1 FROM public.profiles
+            WHERE profiles.id = auth.uid() AND profiles.role = 'admin'
+        )
+    );
+
+GRANT ALL ON public.comercios_adicional_config TO postgres, service_role;
+GRANT ALL ON public.comercios_adicional_config TO anon, authenticated;</pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
+        <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(document.querySelector('#${modalId} pre').innerText); alert('¡Script SQL copiado al portapapeles!');" style="background: var(--color-primary); color: #000; font-weight: 600;">
+          <i class="ri-file-copy-line"></i> Copiar SQL
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+// Modal de Usuarios Asociados
+window.showMerchantUsersModal = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  const modalId = 'modal-merchant-users';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  let rowsHtml = '';
+  if (commerce.associatedUsers.length === 0) {
+    rowsHtml = `<tr><td colspan="3" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Ningún usuario asociado a este comercio.</td></tr>`;
+  } else {
+    rowsHtml = commerce.associatedUsers.map(u => `
+      <tr>
+        <td><strong>${u.full_name || 'Sin Nombre'}</strong></td>
+        <td>${u.email || 'Sin Email'}</td>
+        <td><code style="text-transform: capitalize; background: var(--color-surface-hover); padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.8rem;">${u.role === 'admin' ? 'Administrador' : u.role === 'client' ? 'Cliente' : 'Observador'}</code></td>
+      </tr>
+    `).join('');
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 90%;">
+      <div class="modal-header">
+        <h3 style="margin: 0;"><i class="ri-team-line"></i> Usuarios Asociados: ${comercioName}</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 0; overflow-x: auto;">
+        <table class="data-table" style="margin: 0; width: 100%;">
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Email</th>
+              <th>Rol</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="padding: 1rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+// Modal de Integraciones
+window.showMerchantIntegrationsModal = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  const modalId = 'modal-merchant-integrations';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  let rowsHtml = '';
+  if (commerce.integrations.length === 0) {
+    rowsHtml = `<tr><td colspan="4" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Este comercio no posee integraciones registradas.</td></tr>`;
+  } else {
+    rowsHtml = commerce.integrations.map(i => {
+      const activeBadge = i.is_active 
+        ? `<span class="badge-status active"><i class="ri-check-line"></i> Activa</span>`
+        : `<span class="badge-status disabled">Inactiva</span>`;
+      const date = i.created_at ? new Date(i.created_at).toLocaleDateString() : 'N/A';
+      return `
+        <tr>
+          <td><strong>${i.platform}</strong></td>
+          <td style="font-size: 0.8rem; word-break: break-all;">${i.shop_url || 'N/A'}</td>
+          <td>${activeBadge}</td>
+          <td style="font-size: 0.8rem; color: var(--color-text-muted);">${date}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 700px; width: 90%;">
+      <div class="modal-header">
+        <h3 style="margin: 0;"><i class="ri-plug-line"></i> Integraciones: ${comercioName}</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 0; overflow-x: auto;">
+        <table class="data-table" style="margin: 0; width: 100%;">
+          <thead>
+            <tr>
+              <th>Plataforma</th>
+              <th>Tienda URL</th>
+              <th>Estado</th>
+              <th>Fecha de Creación</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="padding: 1rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+// Modal de Edición de Comercio
+window.showMerchantEditModal = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  const modalId = 'modal-edit-merchant';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  const isMigration = window.isMerchantMigrationNeeded;
+  const disabledAttr = isMigration ? 'disabled' : '';
+  const migrationTip = isMigration 
+    ? `<p style="color: var(--color-danger); font-size: 0.75rem; margin: 0.25rem 0 0 0;">⚠️ Requiere migración SQL para habilitarse</p>` 
+    : '';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; width: 90%;">
+      <form id="form-edit-merchant" style="margin: 0;">
+        <div class="modal-header">
+          <h3 style="margin: 0;"><i class="ri-edit-line"></i> Configurar Comercio: ${comercioName}</h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Sigla del Comercio *</label>
+            <input type="text" id="merchant-edit-sigla" class="form-input" value="${commerce.sigla}" placeholder="Ej: BIT" maxlength="10" required style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador corto usado para despachos y reportes (máx 10 letras).</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
+            <select id="merchant-edit-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="activo" ${commerce.al_dia ? 'selected' : ''}>Activo (Servicio habilitado)</option>
+              <option value="suspendido" ${!commerce.al_dia ? 'selected' : ''}>Suspendido (Servicio pausado/bloqueado)</option>
+            </select>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Los comercios suspendidos verán un banner de advertencia y no podrán procesar pedidos.</p>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-inventory" ${commerce.inventario_seguimiento ? 'checked' : ''} ${disabledAttr}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-inventory" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Seguimiento de Inventario</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la sincronización y control automático del stock físico.</p>
+              ${migrationTip}
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-origensigla" ${commerce.pedido_trae_sigla ? 'checked' : ''} ${disabledAttr}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-origensigla" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Pedido trae Sigla de Origen</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Indica si las órdenes de compra ya vienen con la sigla integrada desde la plataforma externa.</p>
+              ${migrationTip}
+            </div>
+          </div>
+
+          <div id="edit-merchant-alert-container" style="margin: 0;"></div>
+
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-merchant-edit" style="background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">Guardar Cambios</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-edit-merchant');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-merchant-edit');
+    const alertContainer = document.getElementById('edit-merchant-alert-container');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Guardando...';
+    alertContainer.innerHTML = '';
+
+    const newSigla = document.getElementById('merchant-edit-sigla').value.trim().toUpperCase();
+    const newBilling = document.getElementById('merchant-edit-billing').value;
+    const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
+    const newOrigenSigla = !isMigration && document.getElementById('merchant-edit-origensigla').checked;
+
+    try {
+      // 1. Guardar la sigla en v_comercios_config
+      const { error: siglaErr } = await supabase
+        .from('v_comercios_config')
+        .update({ sigla: newSigla })
+        .eq('id', commerce.id);
+
+      if (siglaErr) throw siglaErr;
+
+      // 2. Guardar el estado de facturación en commerce_billing_status
+      const { error: billingErr } = await supabase
+        .from('commerce_billing_status')
+        .upsert({
+          comercio: commerce.nombre,
+          al_dia: (newBilling === 'activo')
+        });
+
+      if (billingErr) throw billingErr;
+
+      // 3. Guardar en comercios_adicional_config si la tabla existe
+      if (!isMigration) {
+        const { error: configErr } = await supabase
+          .from('comercios_adicional_config')
+          .upsert({
+            comercio: commerce.nombre,
+            comercio_id: commerce.id,
+            inventario_seguimiento: newInventory,
+            pedido_trae_sigla: newOrigenSigla
+          });
+
+        if (configErr) throw configErr;
+      }
+
+      // Cerrar modal y recargar tabla
+      modal.remove();
+      if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+      
+      alert('¡Comercio actualizado correctamente!');
+
+    } catch (err) {
+      console.error('Error al guardar cambios del comercio:', err);
+      btn.disabled = false;
+      btn.innerHTML = 'Guardar Cambios';
+      alertContainer.innerHTML = `
+        <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-error-warning-line"></i> <span>Error: ${err.message || JSON.stringify(err)}</span>
+        </div>
+      `;
+    }
+  });
+};
+
+window.openAdminBillingObservationModal = async function(recordId, commerceName, periodId) {
+  let modal = document.getElementById('modal-admin-observation');
+  if (modal) modal.remove();
+
+  try {
+    const { data: record, error } = await supabase
+      .from('billing_records')
+      .select('*')
+      .eq('id', recordId)
+      .single();
+
+    if (error) throw error;
+    if (!record) throw new Error("Registro no encontrado");
+
+    const statusOptions = `
+      <option value="sin_observacion" ${record.observation_status === 'sin_observacion' ? 'selected' : ''}>Sin Observación</option>
+      <option value="pendiente" ${record.observation_status === 'pendiente' ? 'selected' : ''}>Pendiente de Respuesta</option>
+      <option value="respondida" ${record.observation_status === 'respondida' ? 'selected' : ''}>Respondida</option>
+    `;
+
+    modal = document.createElement('div');
+    modal.id = 'modal-admin-observation';
+    modal.className = 'modal-overlay active';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 500px; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-lg);">
+        <div class="modal-header" style="background: var(--color-surface); padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-question-answer-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
+            Apelación de Cobro - ${commerceName}
+          </h3>
+          <button class="modal-close" onclick="document.getElementById('modal-admin-observation').remove()" style="background: transparent; border: none; font-size: 1.25rem; color: var(--color-text-muted); cursor: pointer;">&times;</button>
+        </div>
+        
+        <form id="form-admin-observation">
+          <div class="modal-body" style="padding: 1.5rem; background: var(--color-surface);">
+            
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-chat-voice-line"></i> Observación del Cliente:
+              </label>
+              <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${record.client_observation || '<em style="color: var(--color-text-muted);">Sin observación del cliente ingresada.</em>'}</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Su Respuesta / Resolución:</label>
+              <textarea id="obs-admin-response" class="form-input" rows="4" placeholder="Indique la resolución del caso. Escriba aquí las indicaciones de ajuste si corresponde..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;">${record.admin_response || ''}</textarea>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Estado de la Apelación:</label>
+              <select id="obs-admin-status" class="form-input" style="width: 100%;" required>
+                ${statusOptions}
+              </select>
+            </div>
+
+          </div>
+          <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end; gap: 0.75rem;">
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-observation').remove()" style="margin: 0; padding: 0.4rem 1rem; font-size: 0.85rem;">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-admin-obs" style="margin: 0; padding: 0.4rem 1rem; font-size: 0.85rem;">
+              <i class="ri-save-line"></i> Guardar Respuesta
+            </button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const form = document.getElementById('form-admin-observation');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btnSubmit = document.getElementById('btn-submit-admin-obs');
+        if (btnSubmit) {
+          btnSubmit.disabled = true;
+          btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+        }
+
+        const adminResponseText = document.getElementById('obs-admin-response').value.trim();
+        const nextStatus = document.getElementById('obs-admin-status').value;
+
+        try {
+          const { error: updateErr } = await supabase
+            .from('billing_records')
+            .update({
+              admin_response: adminResponseText,
+              observation_status: nextStatus,
+              observation_updated_at: new Date().toISOString()
+            })
+            .eq('id', recordId);
+
+          if (updateErr) throw updateErr;
+
+          modal.remove();
+          showSavingBadge(true);
+          setTimeout(() => showSavingBadge(false), 800);
+
+          const body = document.getElementById(`records-body-${periodId}`);
+          if (body) {
+            await loadBillingRecords(periodId, body);
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Error al guardar respuesta: ' + err.message);
+          if (btnSubmit) {
+            btnSubmit.disabled = false;
+            btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar Respuesta';
+          }
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert('Error al cargar la observación: ' + err.message);
+  }
+};
+
+
 
 
 
