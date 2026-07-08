@@ -186,7 +186,6 @@ async function init() {
     console.log('DEBUG: Sesión activa encontrada para el usuario:', session.user.email);
 
     // Verificación de retorno exitoso de OAuth con Shopify
-    const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('integration') === 'success') {
       alert('¡Tienda Shopify conectada exitosamente!');
       const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
