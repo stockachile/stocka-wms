@@ -92,6 +92,9 @@ serve(async (req) => {
       }
 
       // 3. Asegurar registro de webhooks y ejecutar la sincronización
+      const accessToken = await getValidShopifyToken(integration);
+      integration.access_token = accessToken;
+
       await registerShopifyWebhooks(integration.shop_url, integration.access_token, integration.merchant_id);
       const syncedCount = await syncShopifyProducts(integration);
 
@@ -151,7 +154,7 @@ serve(async (req) => {
         return new Response("Missing merchant_id in state", { status: 400 });
       }
 
-      // 3. Intercambiar el código por un token permanente en Shopify
+      // 3. Intercambiar el código por un token permanente en Shopify con expiring: 1
       const tokenUrl = `https://${shop}/admin/oauth/access_token`;
       const tokenResponse = await fetch(tokenUrl, {
         method: "POST",
@@ -159,7 +162,8 @@ serve(async (req) => {
         body: JSON.stringify({
           client_id: shopifyClientId,
           client_secret: shopifyClientSecret,
-          code: code
+          code: code,
+          expiring: 1
         })
       });
 
@@ -171,6 +175,7 @@ serve(async (req) => {
 
       const tokenData = await tokenResponse.json();
       const accessToken = tokenData.access_token;
+      const refreshToken = tokenData.refresh_token || null;
 
       // 4. Guardar credenciales de integración en la base de datos
       const { error: dbError } = await supabase
@@ -182,7 +187,8 @@ serve(async (req) => {
           access_token: accessToken,
           webhook_secret: shopifyClientSecret,
           is_active: true,
-          comercio: comercio
+          comercio: comercio,
+          refresh_token: refreshToken
         }, { onConflict: "comercio,platform" });
 
       if (dbError) {
@@ -355,5 +361,49 @@ async function registerShopifyWebhooks(shop: string, accessToken: string, mercha
     } catch (e) {
       console.error(`Excepción registrando webhook ${topic}:`, e);
     }
+  }
+}
+
+// Renueva de forma proactiva el token de acceso de Shopify usando el refresh token
+async function getValidShopifyToken(integration: any): Promise<string> {
+  if (!integration.refresh_token) {
+    return integration.access_token;
+  }
+
+  console.log(`[Shopify OAuth] Renovando token de acceso para ${integration.shop_url}...`);
+  const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
+  try {
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: shopifyClientId,
+        client_secret: shopifyClientSecret,
+        grant_type: "refresh_token",
+        refresh_token: integration.refresh_token
+      })
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[Shopify OAuth] Error renovando token: ${res.status} - ${errorText}`);
+      return integration.access_token;
+    }
+
+    const data = await res.json();
+    console.log(`[Shopify OAuth] Token renovado con éxito.`);
+
+    await supabase
+      .from("merchant_integrations")
+      .update({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token
+      })
+      .eq("id", integration.id);
+
+    return data.access_token;
+  } catch (e) {
+    console.error("[Shopify OAuth] Excepción renovando token:", e);
+    return integration.access_token;
   }
 }

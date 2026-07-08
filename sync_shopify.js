@@ -25,12 +25,59 @@ if (fs.existsSync(envPath)) {
 const SUPABASE_URL = env.SUPABASE_URL || process.env.SUPABASE_URL || 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
 const SUPABASE_SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+const SHOPIFY_CLIENT_ID = env.SHOPIFY_CLIENT_ID || process.env.SHOPIFY_CLIENT_ID || '4d04c58f432c53fb870d1fbcad92431c';
+const SHOPIFY_CLIENT_SECRET = env.SHOPIFY_CLIENT_SECRET || process.env.SHOPIFY_CLIENT_SECRET;
+
 if (!SUPABASE_SERVICE_ROLE_KEY) {
   console.error('ERROR: La variable de entorno SUPABASE_SERVICE_ROLE_KEY no está configurada.');
   process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+// Renueva de forma proactiva el token de acceso de Shopify usando el refresh token
+async function getValidShopifyToken(integration) {
+  if (!integration.refresh_token) {
+    return integration.access_token;
+  }
+
+  console.log(`[Shopify Sync] Renovando token de acceso para ${integration.shop_url}...`);
+  const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
+  try {
+    const res = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: SHOPIFY_CLIENT_ID,
+        client_secret: SHOPIFY_CLIENT_SECRET,
+        grant_type: 'refresh_token',
+        refresh_token: integration.refresh_token
+      })
+    });
+
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error(`[Shopify Sync] Error al renovar token de Shopify: ${res.status} - ${errorText}`);
+      return integration.access_token;
+    }
+
+    const data = await res.json();
+    console.log(`[Shopify Sync] Token renovado con éxito.`);
+
+    await supabase
+      .from('merchant_integrations')
+      .update({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token
+      })
+      .eq('id', integration.id);
+
+    return data.access_token;
+  } catch (err) {
+    console.error(`[Shopify Sync] Excepción al renovar token de Shopify:`, err.message);
+    return integration.access_token;
+  }
+}
 
 async function syncShopifyData() {
   console.log('Iniciando sincronización con Shopify...');
@@ -57,6 +104,10 @@ async function syncShopifyData() {
     console.log(`Procesando tienda: ${integration.shop_url}`);
     console.log(`Merchant ID: ${integration.merchant_id}`);
     console.log(`================================`);
+
+    // Renovar token si es necesario
+    const accessToken = await getValidShopifyToken(integration);
+    integration.access_token = accessToken;
 
     // 2. Extraer y Guardar Pedidos (Orders)
     await syncOrders(integration);
