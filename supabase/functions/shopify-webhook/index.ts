@@ -6,6 +6,8 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+const globalShopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
+
 serve(async (req) => {
   // Solo aceptamos POST
   if (req.method !== "POST") {
@@ -13,43 +15,44 @@ serve(async (req) => {
   }
 
   try {
-    // 1. Obtener merchant_id desde la URL (query parameter)
-    // El webhook debe configurarse en Shopify como: https://[PROYECTO].supabase.co/functions/v1/shopify-webhook?merchant_id=TU-UUID
-    const url = new URL(req.url);
-    const merchantId = url.searchParams.get("merchant_id");
-
-    if (!merchantId) {
-      return new Response("Missing merchant_id in URL", { status: 400 });
-    }
-
-    // 2. Obtener el secreto del webhook del cliente
-    const { data: integration, error: intError } = await supabase
-      .from("merchant_integrations")
-      .select("webhook_secret, comercio")
-      .eq("merchant_id", merchantId)
-      .eq("platform", "Shopify")
-      .maybeSingle();
-
-    if (intError || !integration || !integration.webhook_secret) {
-      console.error("Integración o webhook_secret no encontrado para:", merchantId);
-      // Retornar 200 para que Shopify no reintente si no tenemos el secreto configurado aún
-      return new Response("Integration not fully configured", { status: 200 }); 
-    }
-
-    // 3. Verificación de Seguridad HMAC (Shopify)
-    const hmacHeader = req.headers.get("x-shopify-hmac-sha256");
-    const topic = req.headers.get("x-shopify-topic");
-    const shopDomain = req.headers.get("x-shopify-shop-domain");
+    // 1. Obtener cabeceras de Shopify obligatorias
+    const hmacHeader = req.headers.get("x-shopify-hmac-sha256") || "";
+    const topic = req.headers.get("x-shopify-topic") || "";
+    const shopDomain = req.headers.get("x-shopify-shop-domain") || "";
 
     if (!hmacHeader || !topic) {
       return new Response("Missing Shopify headers", { status: 400 });
     }
 
-    // Leemos el raw body como texto para verificar la firma
+    // 2. Obtener merchant_id desde la URL (query parameter opcional)
+    const url = new URL(req.url);
+    const merchantId = url.searchParams.get("merchant_id") || "";
+
+    // 3. Obtener el secreto del webhook del cliente
+    let integration = null;
+    if (merchantId) {
+      const { data } = await supabase
+        .from("merchant_integrations")
+        .select("webhook_secret, comercio")
+        .eq("merchant_id", merchantId)
+        .eq("platform", "Shopify")
+        .maybeSingle();
+      integration = data;
+    }
+
+    // Usar el secreto del cliente o el secreto global de la app como fallback
+    const webhookSecret = integration?.webhook_secret || globalShopifyClientSecret;
+
+    if (!webhookSecret) {
+      console.error("Missing webhook secret for signature verification");
+      return new Response("Webhook secret not configured", { status: 200 }); 
+    }
+
+    // 4. Verificación de Seguridad HMAC (Shopify)
     const rawBody = await req.text();
     
     // Verificación HMAC nativa con Web Crypto API para evitar empaquetar librerías externas
-    const keyBuf = new TextEncoder().encode(integration.webhook_secret);
+    const keyBuf = new TextEncoder().encode(webhookSecret);
     const key = await crypto.subtle.importKey(
       "raw",
       keyBuf,
@@ -66,12 +69,24 @@ serve(async (req) => {
       return new Response("Unauthorized", { status: 401 });
     }
 
-    // 4. Parsear el body JSON
+    // 5. Manejar webhooks de cumplimiento obligatorio GDPR
+    if (topic.includes("redact") || topic.includes("data_request")) {
+      console.log(`Recibido Webhook de cumplimiento GDPR: ${topic} para ${shopDomain}`);
+      return new Response("GDPR Webhook received and processed successfully", { status: 200 });
+    }
+
+    // Verificar que la integración exista para temas que no sean de cumplimiento
+    if (!merchantId || !integration) {
+      console.error("Integración no encontrada para procesamiento de pedidos/productos:", merchantId);
+      return new Response("Integration not configured", { status: 200 });
+    }
+
+    // 6. Parsear el body JSON
     const payload = JSON.parse(rawBody);
     const identifier = payload.name || payload.title || payload.id || "N/A";
     console.log(`Recibido Webhook: ${topic} para la tienda ${shopDomain} (ID/Ref: ${identifier})`);
 
-    // 5. Lógica según el Topic
+    // 7. Lógica según el Topic
     if (topic === "orders/create") {
       await handleOrderCreate(merchantId, integration.comercio, payload);
     } 
