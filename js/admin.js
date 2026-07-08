@@ -1651,9 +1651,6 @@ async function renderIntegrations() {
           <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay integraciones de comercios configuradas.</td>
         </tr>
       `;
-    }r-text-muted);">No hay integraciones de comercios configuradas.</td>
-        </tr>
-      `;
     }
 
     appContent.innerHTML = `
