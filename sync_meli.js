@@ -32,6 +32,35 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ==========================================
+// FUNCIÓN AUXILIAR PARA ALERTAS EN TELEGRAM
+// ==========================================
+async function sendTelegramAlert(text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) {
+    console.log('ℹ️ Telegram credentials not configured. Alert skipped.');
+    return;
+  }
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: text,
+        parse_mode: 'HTML'
+      })
+    });
+    if (!res.ok) {
+      console.error(`⚠️ Failed to send Telegram alert: ${res.status}`);
+    }
+  } catch (err) {
+    console.error('⚠️ Error sending Telegram alert:', err.message);
+  }
+}
+
+// ==========================================
 // MAPEO DE ESTADO LOGÍSTICO MERCADOLIBRE A WMS
 // ==========================================
 function mapMeliStatus(meliShippingStatus) {
@@ -80,8 +109,43 @@ async function syncMeliData() {
       console.log(`🏢 Comercio: ${integration.comercio}`);
       console.log(`========================================`);
 
-      await syncMerchantOrders(integration);
-      await syncMerchantProducts(integration);
+      let syncError = null;
+      try {
+        await syncMerchantOrders(integration);
+      } catch (err) {
+        console.error(`❌ Error al sincronizar pedidos de ${integration.comercio}:`, err.message);
+        syncError = `Pedidos: ${err.message}`;
+      }
+
+      try {
+        await syncMerchantProducts(integration);
+      } catch (err) {
+        console.error(`❌ Error al sincronizar catálogo de ${integration.comercio}:`, err.message);
+        syncError = syncError ? `${syncError} | Catálogo: ${err.message}` : `Catálogo: ${err.message}`;
+      }
+
+      // Escribir estado en la base de datos
+      try {
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            last_sync_at: new Date().toISOString(),
+            last_sync_error: syncError
+          })
+          .eq('id', integration.id);
+        console.log(`✅ Estado de sincronización de ${integration.comercio} actualizado.`);
+
+        if (syncError) {
+          const alertMsg = `⚠️ <b>[WMS STOCKA] ALERTA DE SINCRONIZACIÓN</b>\n\n` +
+                           `• <b>Comercio:</b> ${integration.comercio}\n` +
+                           `• <b>Plataforma:</b> ${integration.platform}\n` +
+                           `• <b>Error:</b> <code>${syncError}</code>\n\n` +
+                           `<i>Por favor revise la integración en el panel de WMS Admin.</i>`;
+          await sendTelegramAlert(alertMsg);
+        }
+      } catch (dbErr) {
+        console.error(`❌ Error al registrar estado de sincronización en DB:`, dbErr.message);
+      }
     }
 
     console.log('\n🎉 Sincronización finalizada.');
@@ -208,8 +272,7 @@ async function syncMerchantOrders(integration) {
   }
 
   if (!warehouseId) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: No hay bodega configurada.`);
-    return;
+    throw new Error("No hay bodega configurada para este comercio");
   }
 
   // Cargar equivalencias de SKU para este comercio
@@ -235,8 +298,7 @@ async function syncMerchantOrders(integration) {
   // B. Obtener credenciales OAuth activas
   const credentials = await getValidAccessToken(integration);
   if (!credentials) {
-    console.error(`❌ No se pudo obtener sesión activa para el comercio ${integration.comercio}. Saltando.`);
-    return;
+    throw new Error("No se pudo obtener sesión activa (token expirado o inválido)");
   }
 
   const { accessToken, userId } = credentials;
@@ -671,6 +733,7 @@ async function syncMerchantOrders(integration) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para el comercio ${integration.comercio}:`, error.message);
+    throw error;
   }
 }
 
@@ -734,8 +797,7 @@ async function syncMerchantProducts(integration) {
   // 2. Obtener credenciales OAuth activas
   const credentials = await getValidAccessToken(integration);
   if (!credentials) {
-    console.error(`❌ No se pudo obtener sesión activa para el comercio ${integration.comercio}. Saltando sync de productos.`);
-    return;
+    throw new Error("No se pudo obtener sesión activa (token expirado o inválido)");
   }
 
   const { accessToken, userId } = credentials;
@@ -853,6 +915,7 @@ async function syncMerchantProducts(integration) {
     }
   } catch (error) {
     console.error(`❌ Error sincronizando catálogo para el comercio ${integration.comercio}:`, error.message);
+    throw error;
   }
 }
 

@@ -1561,6 +1561,8 @@ async function renderIntegrations() {
         is_active,
         comercio,
         created_at,
+        last_sync_at,
+        last_sync_error,
         profiles (
           company_name
         )
@@ -1596,6 +1598,39 @@ async function renderIntegrations() {
           ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Activa</span>' 
           : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Inactiva</span>';
 
+        let syncStatusHtml = '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
+        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Falabella') {
+          const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
+          const now = new Date();
+          const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true; // Más de 1 hora
+          const timeStr = lastSync ? lastSync.toLocaleDateString('es-CL', {
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 'Nunca';
+          
+          if (mi.last_sync_error) {
+            syncStatusHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="${mi.last_sync_error.replace(/"/g, '&quot;')}"><i class="ri-error-warning-line" style="font-size: 0.9rem;"></i> Error (${timeStr})</span>`;
+          } else if (isDelayed) {
+            syncStatusHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;" title="Lleva más de 1 hora inactivo o sin reportar éxitos"><i class="ri-history-line" style="font-size: 0.9rem;"></i> Inactivo (${timeStr})</span>`;
+          } else {
+            syncStatusHtml = `<span class="badge" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-line" style="font-size: 0.9rem;"></i> OK (${timeStr})</span>`;
+          }
+
+          // Botón para forzar sincronización manual (disponible en plataformas mapeadas en Edge Function)
+          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute'].includes(mi.platform);
+          if (supportManualSync && mi.is_active) {
+            syncStatusHtml += `
+              <div style="margin-top: 0.35rem;">
+                <button class="btn-sync-now" data-platform="${mi.platform}" data-comercio="${commerceName.replace(/'/g, "&apos;")}" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; border-radius: 3px; border: 1px solid var(--color-border); background: transparent; color: var(--color-text-muted); cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-refresh-line"></i> Sincronizar
+                </button>
+              </div>
+            `;
+          }
+        }
+
         rowsHtml += `
           <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.2s;">
             <td style="padding: 1rem 0.75rem;">
@@ -1606,13 +1641,17 @@ async function renderIntegrations() {
             <td style="padding: 1rem 0.75rem; font-family: monospace; font-size: 0.85rem; color: var(--color-text-main);">${shopInfo}</td>
             <td style="padding: 1rem 0.75rem; color: var(--color-text-muted); font-size: 0.875rem;">${dateStr}</td>
             <td style="padding: 1rem 0.75rem;">${statusBadge}</td>
+            <td style="padding: 1rem 0.75rem;">${syncStatusHtml}</td>
           </tr>
         `;
       });
     } else {
       rowsHtml = `
         <tr>
-          <td colspan="5" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay integraciones de comercios configuradas.</td>
+          <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay integraciones de comercios configuradas.</td>
+        </tr>
+      `;
+    }r-text-muted);">No hay integraciones de comercios configuradas.</td>
         </tr>
       `;
     }
@@ -1747,6 +1786,7 @@ async function renderIntegrations() {
                   <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Usuario / Tienda URL</th>
                   <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Fecha Conexión</th>
                   <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Estado</th>
+                  <th style="padding: 0.75rem; border-bottom: 2px solid var(--color-border); color: var(--color-text-main);">Sincronización (Cron)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1995,6 +2035,46 @@ async function renderIntegrations() {
         }
       });
     }
+
+    // Listeners para sincronización manual "Sincronizar ahora"
+    document.querySelectorAll('.btn-sync-now').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const platform = btn.getAttribute('data-platform');
+        const comercio = btn.getAttribute('data-comercio');
+        
+        btn.disabled = true;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i>...`;
+        
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No autenticado en el WMS.");
+          
+          const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ platform })
+          });
+          
+          const result = await response.json();
+          if (!response.ok) {
+            throw new Error(result.error || `Error del servidor: ${response.status}`);
+          }
+          
+          alert(`Sincronización manual solicitada para ${comercio} (${platform}). El WMS se actualizará en unos minutos.`);
+        } catch (err) {
+          console.error(err);
+          alert(`Error al sincronizar: ${err.message}`);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
+      });
+    });
 
     // JS Tabs Logic for Admin Integrations
     setTimeout(() => {
