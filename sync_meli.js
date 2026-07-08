@@ -32,31 +32,40 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ==========================================
-// FUNCIÓN AUXILIAR PARA ALERTAS EN TELEGRAM
+// FUNCIÓN AUXILIAR PARA ALERTAS POR CORREO (BREVO)
 // ==========================================
-async function sendTelegramAlert(text) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
-    console.log('ℹ️ Telegram credentials not configured. Alert skipped.');
+async function sendEmailAlert(subject, htmlContent) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const toEmail = 'stockachile@gmail.com';
+  
+  if (!apiKey) {
+    console.log('ℹ️ Brevo API Key (BREVO_API_KEY) not configured. Email alert skipped.');
     return;
   }
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'accept': 'application/json',
+        'api-key': apiKey,
+        'content-type': 'application/json'
+      },
       body: JSON.stringify({
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'HTML'
+        sender: { name: 'Alertas WMS STOCKA', email: 'no-reply@stocka.cl' },
+        to: [{ email: toEmail, name: 'Stocka Chile' }],
+        subject: subject,
+        htmlContent: htmlContent
       })
     });
     if (!res.ok) {
-      console.error(`⚠️ Failed to send Telegram alert: ${res.status}`);
+      const errText = await res.text();
+      console.error(`⚠️ Failed to send Brevo email alert: ${res.status} - ${errText}`);
+    } else {
+      console.log(`✉️ Email alert sent to ${toEmail}`);
     }
   } catch (err) {
-    console.error('⚠️ Error sending Telegram alert:', err.message);
+    console.error('⚠️ Error sending Brevo email alert:', err.message);
   }
 }
 
@@ -136,12 +145,25 @@ async function syncMeliData() {
         console.log(`✅ Estado de sincronización de ${integration.comercio} actualizado.`);
 
         if (syncError) {
-          const alertMsg = `⚠️ <b>[WMS STOCKA] ALERTA DE SINCRONIZACIÓN</b>\n\n` +
-                           `• <b>Comercio:</b> ${integration.comercio}\n` +
-                           `• <b>Plataforma:</b> ${integration.platform}\n` +
-                           `• <b>Error:</b> <code>${syncError}</code>\n\n` +
-                           `<i>Por favor revise la integración en el panel de WMS Admin.</i>`;
-          await sendTelegramAlert(alertMsg);
+          const emailSubject = `⚠️ ALERTA: Fallo de Sincronización - ${integration.comercio}`;
+          const emailBody = `
+            <div style="font-family: sans-serif; padding: 20px; color: #333; max-width: 600px; border: 1px solid #ddd; border-radius: 8px;">
+              <h2 style="color: #b91c1c; margin-top: 0;">Alerta de Sincronización WMS STOCKA</h2>
+              <p>Se ha detectado un problema al sincronizar la integración del comercio en el WMS.</p>
+              <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+              <ul style="list-style: none; padding-left: 0;">
+                <li style="margin-bottom: 10px;"><strong>Comercio:</strong> ${integration.comercio}</li>
+                <li style="margin-bottom: 10px;"><strong>Plataforma:</strong> ${integration.platform}</li>
+                <li style="margin-bottom: 10px;"><strong>Fecha/Hora:</strong> ${new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</li>
+                <li style="margin-bottom: 10px;">
+                  <strong>Detalle del Error:</strong><br>
+                  <pre style="background-color: #fef2f2; color: #991b1b; padding: 10px; border-radius: 4px; border: 1px solid #fee2e2; font-family: monospace; overflow-x: auto; margin-top: 5px;">${syncError}</pre>
+                </li>
+              </ul>
+              <p style="margin-top: 20px; font-size: 0.9rem; color: #666;">Por favor, ingresa al panel de administración del WMS para revisar o re-sincronizar manualmente.</p>
+            </div>
+          `;
+          await sendEmailAlert(emailSubject, emailBody);
         }
       } catch (dbErr) {
         console.error(`❌ Error al registrar estado de sincronización en DB:`, dbErr.message);
