@@ -1,0 +1,21 @@
+# Configuration for STOCKA WMS
+client_id = "4d04c58f432c53fb870d1fbcad92431c"
+name = "STOCKA WMS"
+application_url = "https://stocka-wms.netlify.app/dashboard.html"
+embedded = false
+
+[auth]
+redirect_urls = [
+  "https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth"
+]
+
+[webhooks]
+api_version = "2026-07"
+
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
+uri = "https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-webhook?merchant_id=331a14f5-f2a8-43d8-a1ee-0070e96ced31"
