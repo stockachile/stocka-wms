@@ -78,6 +78,20 @@ serve(async (req) => {
       }
     }
 
+    // 4. Actualizar estado de sincronización en merchant_integrations
+    try {
+      await supabase
+        .from("merchant_integrations")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_error: null
+        })
+        .eq("id", integration.id);
+      console.log(`✅ Estado de sincronización actualizado vía webhook para ${integration.comercio}`);
+    } catch (err) {
+      console.warn("No se pudo actualizar last_sync_at en webhook:", err.message);
+    }
+
     return new Response("Webhook processed successfully", { status: 200 });
 
   } catch (error) {
