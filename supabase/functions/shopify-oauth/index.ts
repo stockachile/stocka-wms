@@ -76,9 +76,10 @@ serve(async (req) => {
         .eq("platform", "Shopify")
         .eq("is_active", true);
 
-      if (isAdmin && targetComercio) {
+      if (targetComercio) {
         query = query.eq("comercio", targetComercio);
-      } else {
+      }
+      if (!isAdmin) {
         query = query.eq("merchant_id", targetMerchantId);
       }
 
@@ -257,26 +258,16 @@ async function syncShopifyProducts(integration: any): Promise<number> {
       }
 
       const productDataToUpsert = {
-        merchant_id: integration.merchant_id,
         comercio: integration.comercio,
+        platform: "Shopify",
         sku: variant.sku || variant.id.toString(),
-        name: `${product.title} ${variant.title !== "Default Title" ? "- " + variant.title : ""}`,
-        description: product.body_html || "",
-        barcode: variant.barcode || null,
-        price: variant.price ? parseFloat(variant.price) : 0.0,
-        weight: variant.weight || null,
-        shopify_product_id: product.id.toString(),
-        shopify_variant_id: variant.id.toString(),
-        image_url: imageUrl || null,
-        shopify_stock: variant.inventory_quantity ?? 0,
-        status: productStatus,
-        raw_shopify_data: variant
+        name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`
       };
 
       // Realizamos upsert con la clave de servicio (bypass RLS)
       const { error: upsertErr } = await supabase
-        .from("products")
-        .upsert(productDataToUpsert, { onConflict: "comercio,sku" });
+        .from("synced_products")
+        .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
 
       if (upsertErr) {
         console.error(`Error insertando/actualizando SKU ${productDataToUpsert.sku}:`, upsertErr);
