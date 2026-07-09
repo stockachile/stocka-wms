@@ -216,6 +216,9 @@ async function init() {
         currentCompany = profile.comercio || null;
         if (currentCompany) {
           checkBillingSuspension(currentCompany);
+          if (!window.activeIntegrationCommerce) {
+            window.activeIntegrationCommerce = currentCompany.split(',')[0].trim();
+          }
         }
       }
     }
@@ -892,137 +895,249 @@ window.setupCalendarListeners_app = function() {
 // Render general catalog of products
 async function renderCatalog() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando catálogo de productos...</p>`;
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando catálogo...</p>`;
 
   try {
-    const companyList = getCompanyList();
-    let query = supabase.from('products').select('*');
+    const assignedComercios = (currentCompany || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== 'no asignado');
 
-    if (companyList.length > 0) {
-      query = query.in('comercio', companyList);
-    } else {
-      query = query.eq('comercio', 'no asignado');
+    const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+    if (!commerce) {
+      appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: var(--color-danger);">Error: No se pudo determinar el comercio actual.</p>`;
+      return;
     }
 
-    const { data: products, error } = await query;
-    if (error) throw error;
+    // 1. Obtener integraciones activas del comercio
+    const { data: integrations, error: intErr } = await supabase
+      .from('merchant_integrations')
+      .select('platform, is_active, is_main')
+      .eq('comercio', commerce);
 
-    let rowsHtml = '';
-    if (!products || products.length === 0) {
-      rowsHtml = `
-        <tr>
-          <td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-            No hay productos registrados en el catálogo.
-          </td>
-        </tr>
-      `;
-    } else {
-      products.forEach(item => {
-        // Thumbnail image
-        const imgHtml = item.image_url 
-          ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
-          : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
+    if (intErr) throw intErr;
 
-        // Dimensions
-        const dimensions = (item.length || item.width || item.height)
-          ? `${item.length || 0} x ${item.width || 0} x ${item.height || 0} cm`
-          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+    const activeIntegrations = (integrations || []).filter(i => i.is_active && i.platform !== 'Optiroute');
+    const mainIntegration = activeIntegrations.find(i => i.is_main);
+    const mainPlatform = mainIntegration ? mainIntegration.platform : '';
+    const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
 
-        // Weight
-        const weight = item.weight 
-          ? `${item.weight} kg` 
-          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+    // 2. Fetch WMS products
+    const { data: products, error: prodErr } = await supabase
+      .from('products')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('name');
 
-        // Origin Badge
-        let originBadge = '<span class="badge" style="background-color: #64748b; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Manual</span>';
-        if (item.shopify_product_id) {
-          originBadge = `<img src="./img/shopify.png" alt="Shopify" title="Shopify" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>Shopify</span>';" />`;
-        } else if (item.raw_meli_data) {
-          originBadge = `<img src="./img/mercadolibre.png" alt="MercadoLibre" title="MercadoLibre" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: #ffe600; color: #2d3277; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 800;\\'>MercadoLibre</span>';" />`;
-        } else if (item.raw_falabella_data) {
-          originBadge = `<img src="./img/falabella.png" alt="Falabella" title="Falabella" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: #ff6000; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>Falabella</span>';" />`;
-        } else if (item.raw_paris_data) {
-          originBadge = `<img src="./img/paris.png" alt="París" title="París" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: #00a8e8; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>París</span>';" />`;
-        }
+    if (prodErr) throw prodErr;
 
-        // Shopify Stock
-        const shopifyStockHtml = item.shopify_product_id 
-          ? `<strong style="color: var(--color-primary);">${item.shopify_stock ?? 0}</strong>` 
-          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">N/A</span>';
+    // Filtrar del catálogo master
+    const masterProducts = products || [];
 
-        // Expiration and Lot
-        const expAndLot = (item.expiration_date || item.lot_number)
-          ? `<div style="font-size: 0.8rem; line-height: 1.2;">
-               ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
-               ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
-             </div>`
-          : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
+    // 3. Fetch synced products from external platforms
+    const { data: syncedProducts, error: syncErr } = await supabase
+      .from('synced_products')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('name');
 
-        // Action button to Edit
-        const isObserver = userRole === 'observer';
-        const actionBtn = isObserver 
-          ? '' 
-          : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>`;
+    if (syncErr) throw syncErr;
 
-        rowsHtml += `
-          <tr data-product-row-id="${item.id}">
-            <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
-            <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
-            <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
-            <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
-            <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
-            <td style="padding: 0.75rem 1.5rem;">${originBadge}</td>
-            <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
-            <td style="padding: 0.75rem 1.5rem;">${weight}</td>
-            <td style="padding: 0.75rem 1.5rem;" class="text-center">${shopifyStockHtml}</td>
-            <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
-            <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
-          </tr>
-        `;
+    // 4. Fetch current mappings
+    const { data: mappings, error: mapErr } = await supabase
+      .from('sku_equivalences')
+      .select('*')
+      .eq('comercio', commerce);
+
+    if (mapErr) throw mapErr;
+
+    const mappingsMap = {};
+    if (mappings) {
+      mappings.forEach(m => {
+        if (!mappingsMap[m.platform]) mappingsMap[m.platform] = {};
+        mappingsMap[m.platform][m.platform_sku] = m.master_sku;
       });
     }
 
-    const isObserver = userRole === 'observer';
-    const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
+    const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
+    const unmappedSynced = (syncedProducts || []).filter(sp => {
+      const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+      return !masterSkusSet.has(cleanSku);
+    });
 
-    appContent.innerHTML = getObserverBanner() + `
-      <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
-        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
-          <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Catálogo General de Productos</h3>
-          ${createBtn}
+    window.currentMasterProducts = masterProducts;
+    window.currentUnmappedSyncedProducts = unmappedSynced;
+
+    const isObserver = userRole === 'observer';
+    const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
+    const importBtn = (mainPlatform && !isObserver)
+      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
+      : '';
+
+    const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
+
+    let commerceSelectorHtml = '';
+    if (assignedComercios.length > 1) {
+      commerceSelectorHtml = `
+        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
+          </label>
+          <select id="catalog-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+            ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
         </div>
-        <div class="table-responsive" style="overflow-x: auto; width: 100%;">
-          <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
-            <thead>
-              <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                <th style="padding: 1rem 1.5rem;">Imagen</th>
-                <th style="padding: 1rem 1.5rem;">SKU</th>
-                <th style="padding: 1rem 1.5rem;">Nombre</th>
-                <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
-                <th style="padding: 1rem 1.5rem;">Precio</th>
-                <th style="padding: 1rem 1.5rem;">Origen</th>
-                <th style="padding: 1rem 1.5rem;">Medidas</th>
-                <th style="padding: 1rem 1.5rem;">Peso</th>
-                <th style="padding: 1rem 1.5rem;" class="text-center">Stock Shopify</th>
-                <th style="padding: 1rem 1.5rem;">Venc. / Lote</th>
-                <th style="padding: 1rem 1.5rem;">Acciones</th>
-              </tr>
-            </thead>
-            <tbody style="font-size: 0.9rem; color: var(--color-text);">
-              ${rowsHtml}
-            </tbody>
-          </table>
+      `;
+    }
+
+    const mainPlatformSelectorHtml = `
+      <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.25rem; color: var(--color-text-main); font-size: 1rem;">
+            <i class="ri-settings-4-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal de Ventas (Catálogo Maestro)
+          </label>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">
+            Establece la plataforma de donde proviene tu catálogo maestro de productos.
+          </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <select id="eq-main-platform-select" class="form-input" style="min-width: 200px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+            <option value="" ${mainPlatform === '' ? 'selected' : ''}>Ninguna (Usar WMS)</option>
+            <option value="Shopify" ${mainPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
+            <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
+            <option value="Falabella" ${mainPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
+            <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
+            <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+            <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+          </select>
+          <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; height: 38px;">
+            <i class="ri-save-line"></i> Guardar
+          </button>
         </div>
       </div>
     `;
 
-    // Hook up Edit button listeners
-    document.querySelectorAll('.btn-edit-product').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const prodId = e.currentTarget.getAttribute('data-id');
-        openEditProductModal(prodId);
+    appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + mainPlatformSelectorHtml + `
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem;">
+        <div class="integration-tabs" style="display: flex; gap: 0.5rem; padding-bottom: 0px; border-bottom: none; margin-bottom: 0;">
+          <button class="integration-tab catalog-tab active" data-tab="tab-catalog-master" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-list-check"></i> Catálogo Master
+          </button>
+          <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-equalizer-line"></i> Equivalencias SKU
+          </button>
+        </div>
+        <button id="btn-catalog-help" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.5rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; cursor: pointer; height: 36px; margin-bottom: -1px; transition: all 0.2s; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
+          <i class="ri-question-line" style="font-size: 1.1rem;"></i> Guía de Uso
+        </button>
+      </div>
+
+      <div class="integration-content">
+        <div id="tab-catalog-master" class="catalog-tab-pane" style="display: block;">
+          <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Catálogo General de Productos (Master)</h3>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Productos físicos almacenados y controlados en el WMS.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="position: relative; margin-right: 0.5rem;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
+                </div>
+                ${importBtn}
+                ${createBtn}
+              </div>
+            </div>
+            <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+              <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                    <th style="padding: 1rem 1.5rem;">Imagen</th>
+                    <th style="padding: 1rem 1.5rem;">SKU</th>
+                    <th style="padding: 1rem 1.5rem;">Nombre</th>
+                    <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
+                    <th style="padding: 1rem 1.5rem;">Precio</th>
+                    <th style="padding: 1rem 1.5rem;">Origen</th>
+                    <th style="padding: 1rem 1.5rem;">Medidas</th>
+                    <th style="padding: 1rem 1.5rem;">Peso</th>
+                    <th style="padding: 1rem 1.5rem;">Venc. / Lote</th>
+                    <th style="padding: 1rem 1.5rem;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-master-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-sku-mappings" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+              <i class="ri-information-line"></i> Instrucciones de Equivalencias de Canales
+            </h4>
+            <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
+              Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. 
+              Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.
+            </p>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-table-2" style="color: var(--color-primary);"></i> Mapeo de Equivalencias
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.</p>
+              </div>
+              <div style="display: flex; gap: 1rem; align-items: center;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar SKU externo..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                </div>
+                ${!isObserver ? `<button id="btn-auto-map-equivalences" class="btn btn-outline" style="border-color: var(--color-success); color: var(--color-success); background: transparent; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 500; height: 38px; display: inline-flex; align-items: center; gap: 0.5rem;"><i class="ri-magic-line"></i> Auto-mapear Coincidencias</button>` : ''}
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS)</th>
+                  </tr>
+                </thead>
+                <tbody id="eq-matrix-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <datalist id="master-skus-list">
+        ${datalistOptionsHtml}
+      </datalist>
+    `;
+
+    renderMasterCatalogRows(masterProducts);
+    renderEquivalencesRows(unmappedSynced, mappingsMap);
+    setupCatalogListeners(commerce, mainPlatform);
+
+    const clientSelect = document.getElementById('catalog-client-select');
+    if (clientSelect) {
+      clientSelect.addEventListener('change', (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        renderCatalog();
       });
-    });
+    }
 
   } catch (err) {
     console.error(err);
@@ -1041,8 +1156,18 @@ async function openEditProductModal(prodId) {
     if (error) throw error;
 
     document.getElementById('edit-prod-id').value = product.id;
-    document.getElementById('edit-prod-sku').value = product.sku;
-    document.getElementById('edit-prod-name').value = product.name;
+    
+    const skuInput = document.getElementById('edit-prod-sku');
+    skuInput.value = product.sku;
+    skuInput.disabled = false;
+    skuInput.style.backgroundColor = '';
+    skuInput.style.color = '';
+
+    const nameInput = document.getElementById('edit-prod-name');
+    nameInput.value = product.name;
+    nameInput.disabled = false;
+    nameInput.style.backgroundColor = '';
+    nameInput.style.color = '';
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
@@ -2419,7 +2544,6 @@ async function renderIntegrations() {
         <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
         <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
         <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
-        <button class="integration-tab" data-tab="tab-sku-mappings"><i class="ri-equalizer-line"></i> Equivalencias SKU</button>
       </div>
 
       <!-- Tab Content Container -->
@@ -2923,118 +3047,6 @@ async function renderIntegrations() {
             </div>
           </div>
         </div>
-
-        <!-- TAB: Equivalencias SKU -->
-        <div id="tab-sku-mappings" class="integration-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
-          <!-- Configuración de Plataforma Principal -->
-          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
-            <div class="card-header" style="background: linear-gradient(90deg, rgba(37,99,235,0.05) 0%, rgba(37,99,235,0) 100%); padding: 1.5rem 2rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-              <div>
-                <h4 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Plataforma Principal de Ventas
-                </h4>
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
-                  Establece la plataforma de donde proviene tu catálogo maestro de productos.
-                </p>
-              </div>
-              <div style="display: flex; align-items: center; gap: 1rem;">
-                <select id="eq-main-platform-select" class="form-input" style="min-width: 200px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-                  <option value="">Ninguna (Usar WMS)</option>
-                  <option value="Shopify">Shopify</option>
-                  <option value="MercadoLibre">MercadoLibre</option>
-                  <option value="Falabella">Falabella</option>
-                  <option value="Paris">París</option>
-                  <option value="WooCommerce">WooCommerce</option>
-                  <option value="Jumpseller">Jumpseller</option>
-                </select>
-                <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; transition: all 0.2s;">
-                  <i class="ri-save-line"></i> Guardar
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Tarjeta de Instrucciones y Descarga de Plantilla -->
-          <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
-            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-              <i class="ri-information-line"></i> Instrucciones de Importación Masiva
-            </h4>
-            <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
-              Sube una planilla Excel o CSV para cargar equivalencias de SKU de forma masiva. Las columnas requeridas son:
-              <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce, Jumpseller o Todas).
-              <br><strong>• SKU Plataforma:</strong> El SKU externo de la plataforma de ventas.
-              <br><strong>• SKU Master:</strong> El SKU maestro de tu catálogo WMS (el producto físico).
-            </p>
-            <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-              <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
-            </button>
-          </div>
-
-          <!-- Matriz / Grid Principal -->
-          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
-            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-              <div>
-                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;" id="eq-matrix-title">
-                  <i class="ri-table-2" style="color: var(--color-primary);"></i> Matriz de Equivalencias
-                </h3>
-                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asigna los SKUs equivalentes para tus plataformas de venta secundarias.</p>
-              </div>
-              <div style="display: flex; gap: 1rem; align-items: center;">
-                <div style="position: relative;">
-                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                  <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar producto..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s;">
-                </div>
-                <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-                <label for="eq-matrix-import-excel" class="btn btn-outline" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); border-color: var(--color-border); background: var(--color-bg); color: var(--color-text-main); padding: 0.5rem 1rem; font-weight: 500; transition: all 0.2s;">
-                  <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Importar Planilla
-                </label>
-              </div>
-            </div>
-            <div class="card-body" style="padding: 0; overflow-x: auto;">
-              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
-                <thead id="eq-matrix-thead">
-                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Producto (Principal)</th>
-                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">SKU Principal</th>
-                  </tr>
-                </thead>
-                <tbody id="eq-matrix-tbody">
-                  <tr>
-                    <td colspan="4" style="text-align: center; padding: 3rem; color: var(--color-text-muted); font-size: 0.95rem;">
-                      <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; color: var(--color-primary);"></i>
-                      Cargando matriz...
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Sección de Chequeo de Consistencia (Errores / Advertencias) -->
-          <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: var(--shadow-sm); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(239, 68, 68, 0.02) 0%, rgba(239, 68, 68, 0.05) 100%); overflow: hidden; margin-bottom: 1.5rem;">
-            <div class="card-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.1); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-              <div>
-                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--color-danger); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-error-warning-line"></i> Chequeo de Consistencia de Canales Secundarios
-                </h3>
-                <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                  Valida que los productos que no se encuentran en la plataforma principal tengan exactamente el mismo SKU asignado en todas las plataformas secundarias de venta.
-                </p>
-              </div>
-              <button id="btn-run-consistency-check" class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.5rem; font-weight: 500; transition: all 0.2s;">
-                <i class="ri-refresh-line"></i> Validar SKUs
-              </button>
-            </div>
-            <div class="card-body" style="padding: 1.5rem 2rem;">
-              <div id="eq-consistency-results" style="font-size: 0.9rem; padding: 1rem; border-radius: var(--radius-md); background: var(--color-surface); border: 1px dashed var(--color-border);">
-                <span style="color: var(--color-text-muted); display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-information-line"></i> Haz clic en "Validar SKUs" para iniciar el análisis.
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
       </div>`;
       // JS Tabs Logic
       setTimeout(() => {
@@ -3049,9 +3061,6 @@ async function renderIntegrations() {
             const targetPane = document.getElementById(tabId);
             if (targetPane) {
               targetPane.style.display = 'block';
-            }
-            if (tabId === 'tab-sku-mappings') {
-              renderSkuMappings();
             }
           });
         });
@@ -3915,6 +3924,8 @@ async function renderIntegrations() {
     btnSubmit.textContent = 'Guardando...';
 
     const prodId = document.getElementById('edit-prod-id').value;
+    const sku = document.getElementById('edit-prod-sku').value;
+    const name = document.getElementById('edit-prod-name').value;
     const barcode = document.getElementById('edit-prod-barcode').value || null;
     const length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
     const width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
@@ -3927,6 +3938,8 @@ async function renderIntegrations() {
       const { error } = await supabase
         .from('products')
         .update({
+          sku,
+          name,
           barcode,
           length,
           width,
@@ -10789,227 +10802,345 @@ window.switchIntegrationTab = function(tabId) {
   });
 };
 
-window.renderSkuMappings = async function() {
-  const tbody = document.getElementById('eq-matrix-tbody');
-  const thead = document.getElementById('eq-matrix-thead');
-  const mainSelect = document.getElementById('eq-main-platform-select');
-  if (!tbody || !thead || !mainSelect) return;
+// ==========================================
+// REDISEÑO: Catálogo Master y Equivalencias SKU
+// ==========================================
 
-  tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando datos de equivalencias...</td></tr>`;
-
-  try {
-    const commerce = window.activeIntegrationCommerce || window.currentUser?.comercio;
-    if (!commerce) {
-      tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-danger);"><i class="ri-error-warning-line"></i> No se pudo determinar el comercio actual.</td></tr>`;
-      return;
-    }
-
-    // 1. Obtener integraciones activas del comercio
-    const { data: integrations, error: intErr } = await supabase
-      .from('merchant_integrations')
-      .select('platform, is_active, is_main')
-      .eq('comercio', commerce);
-
-    if (intErr) throw intErr;
-
-    const activeIntegrations = (integrations || []).filter(i => i.is_active && i.platform !== 'Optiroute');
-    const mainIntegration = activeIntegrations.find(i => i.is_main);
-    const mainPlatform = mainIntegration ? mainIntegration.platform : '';
-
-    // Set select value
-    mainSelect.value = mainPlatform;
-
-    if (!mainPlatform) {
-      thead.innerHTML = `
-        <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-          <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">Producto (Principal)</th>
-          <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU Principal</th>
-        </tr>
-      `;
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="2" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
-            <i class="ri-information-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem; color: var(--color-warning);"></i>
-            Por favor, define una <strong>Plataforma Principal de Ventas</strong> arriba para habilitar la matriz de mapeo.
-          </td>
-        </tr>
-      `;
-      setupSkuMappingsListeners();
-      return;
-    }
-
-    // Secondary platforms are the other active integrations
-    const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
-
-    // Render the header with secondary platforms
-    thead.innerHTML = `
-      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-        <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">Producto (${mainPlatform})</th>
-        <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU Master</th>
-        ${secondaryPlatforms.map(sp => `<th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU en ${sp}</th>`).join('')}
-      </tr>
-    `;
-
-    // 2. Fetch products
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('sku, name')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (prodErr) throw prodErr;
-
-    // 3. Fetch current mappings
-    const { data: mappings, error: mapErr } = await supabase
-      .from('sku_equivalences')
-      .select('*')
-      .eq('comercio', commerce);
-
-    if (mapErr) throw mapErr;
-
-    // Index mappings by master_sku -> platform -> platform_sku
-    const mappingsMap = {};
-    if (mappings) {
-      mappings.forEach(m => {
-        if (!mappingsMap[m.master_sku]) {
-          mappingsMap[m.master_sku] = {};
-        }
-        mappingsMap[m.master_sku][m.platform] = m.platform_sku;
-      });
-    }
-
-    window.currentProductsForMatrix = products || [];
-    window.currentSecondaryPlatforms = secondaryPlatforms;
-    window.currentMappingsMap = mappingsMap;
-
-    renderMatrixRows(products || [], secondaryPlatforms, mappingsMap);
-
-  } catch (err) {
-    console.error('Error cargando la matriz:', err);
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--color-danger);"><i class="ri-error-warning-line"></i> Error al cargar datos: ${err.message}</td></tr>`;
+function showWmsWarningInModal(formId) {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  if (form.querySelector('.wms-sync-warning')) return;
+  
+  const warningDiv = document.createElement('div');
+  warningDiv.className = 'wms-sync-warning';
+  warningDiv.style.margin = '0 1rem 1rem 1rem';
+  warningDiv.style.padding = '0.75rem 1rem';
+  warningDiv.style.background = 'rgba(245, 158, 11, 0.1)';
+  warningDiv.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+  warningDiv.style.borderRadius = '0.375rem';
+  warningDiv.style.color = '#d97706';
+  warningDiv.style.fontSize = '0.85rem';
+  warningDiv.style.lineHeight = '1.4';
+  warningDiv.style.display = 'flex';
+  warningDiv.style.alignItems = 'center';
+  warningDiv.style.gap = '0.5rem';
+  warningDiv.innerHTML = `
+    <i class="ri-alert-line" style="font-size: 1.2rem; flex-shrink: 0;"></i>
+    <div>
+      <strong>Recordatorio:</strong> De momento tus cambios solo se aplican al WMS. Debes ajustar en tu plataforma de ventas los cambios también.
+    </div>
+  `;
+  
+  const modalBody = form.querySelector('.modal-body');
+  if (modalBody) {
+    form.insertBefore(warningDiv, modalBody);
   }
-};
+}
 
-function renderMatrixRows(products, secondaryPlatforms, mappingsMap) {
-  const tbody = document.getElementById('eq-matrix-tbody');
+function renderMasterCatalogRows(products) {
+  const tbody = document.getElementById('catalog-master-tbody');
   if (!tbody) return;
 
   if (products.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${2 + secondaryPlatforms.length}" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay productos en el catálogo de este comercio. Sincroniza tu plataforma principal primero.</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+          No hay productos en el catálogo master.
+        </td>
+      </tr>
+    `;
     return;
   }
 
-  tbody.innerHTML = products.map(p => {
-    const productMappings = mappingsMap[p.sku] || {};
+  tbody.innerHTML = products.map(item => {
+    const imgHtml = item.image_url 
+      ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+      : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
+
+    const dimensions = (item.length || item.width || item.height)
+      ? `${item.length || 0} x ${item.width || 0} x ${item.height || 0} cm`
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+    const weight = item.weight 
+      ? `${item.weight} kg` 
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+    let originBadge = '<span class="badge" style="background-color: #64748b; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Manual</span>';
+    if (item.shopify_product_id) {
+      originBadge = `<span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Shopify</span>`;
+    } else if (item.raw_meli_data) {
+      originBadge = `<span class="badge" style="background-color: #ffe600; color: #2d3277; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 800;">MercadoLibre</span>`;
+    }
+
+    const expAndLot = (item.expiration_date || item.lot_number)
+      ? `<div style="font-size: 0.8rem; line-height: 1.2;">
+           ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
+           ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
+         </div>`
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
+
+    const isObserver = userRole === 'observer';
+    const deleteBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+    
+    const actionBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+
     return `
-      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${p.name || 'Sin Nombre'}</td>
-        <td style="padding: 0.75rem 1rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">${p.sku}</td>
-        ${secondaryPlatforms.map(sp => {
-          const val = productMappings[sp] || '';
-          return `
-            <td style="padding: 0.5rem 1rem;">
-              <input type="text" class="form-input eq-matrix-input" 
-                     data-master-sku="${p.sku}" 
-                     data-platform="${sp}" 
-                     value="${val}" 
-                     placeholder="Igual al master" 
-                     style="margin: 0; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: 4px;">
-            </td>
-          `;
-        }).join('')}
+      <tr data-product-row-id="${item.id}">
+        <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
+        <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
+        <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
+        <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
+        <td style="padding: 0.75rem 1.5rem;">${originBadge}</td>
+        <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
+        <td style="padding: 0.75rem 1.5rem;">${weight}</td>
+        <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
+        <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
       </tr>
     `;
   }).join('');
+}
 
-  // Add event listeners for inputs
-  tbody.querySelectorAll('.eq-matrix-input').forEach(input => {
-    input.addEventListener('change', async (e) => {
-      const masterSku = e.target.getAttribute('data-master-sku');
-      const platform = e.target.getAttribute('data-platform');
-      const value = e.target.value.trim().replace(/\s+/g, '');
-      const commerce = window.activeIntegrationCommerce || window.currentUser?.comercio;
+function renderEquivalencesRows(unmappedProducts, mappingsMap) {
+  const tbody = document.getElementById('eq-matrix-tbody');
+  if (!tbody) return;
 
-      if (!commerce) return;
+  if (unmappedProducts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          No hay productos no mapeados en tus canales sincronizados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
 
-      // Add visual saving indicator
-      e.target.style.borderColor = 'var(--color-primary)';
+  const isObserver = userRole === 'observer';
 
-      try {
-        if (value === '') {
-          // Si el valor está vacío, eliminamos la equivalencia
-          const { error } = await supabase
-            .from('sku_equivalences')
-            .delete()
-            .eq('comercio', commerce)
-            .eq('platform', platform)
-            .eq('master_sku', masterSku);
+  tbody.innerHTML = unmappedProducts.map(sp => {
+    const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
+    return `
+      <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}</td>
+        <td style="padding: 0.75rem 2rem;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
+        </td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${sp.sku}</td>
+        <td style="padding: 0.5rem 2rem;">
+          <input type="text" class="form-input eq-mapping-input" 
+                 list="master-skus-list" 
+                 data-platform-sku="${sp.sku}" 
+                 data-platform="${sp.platform}" 
+                 value="${currentMapping}" 
+                 placeholder="Escribe para buscar o seleccionar..." 
+                 ${isObserver ? 'disabled' : ''}
+                 style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); width: 100%; transition: border-color 0.2s;">
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
 
-          if (error) throw error;
-        } else {
-          // Si tiene valor, hacemos el upsert
-          const { error } = await supabase
-            .from('sku_equivalences')
-            .upsert([{
-              comercio,
-              platform,
-              platform_sku: value,
-              master_sku: masterSku
-            }], { onConflict: 'comercio,platform,platform_sku' });
+function openCatalogHelpDrawer() {
+  let drawer = document.getElementById('catalog-help-drawer');
+  let overlay = document.getElementById('catalog-help-overlay');
 
-          if (error) throw error;
-        }
-        e.target.style.borderColor = '#10b981'; // green for success
-        setTimeout(() => { e.target.style.borderColor = 'var(--color-border)'; }, 1000);
-      } catch (err) {
-        console.error(err);
-        e.target.style.borderColor = 'var(--color-danger)'; // red for error
-        alert(`Error al guardar equivalencia para ${platform}: ${err.message}`);
-      }
+  if (!drawer) {
+    overlay = document.createElement('div');
+    overlay.id = 'catalog-help-overlay';
+    overlay.className = 'catalog-help-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0, 0, 0, 0.4);
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    `;
+    document.body.appendChild(overlay);
+
+    drawer = document.createElement('div');
+    drawer.id = 'catalog-help-drawer';
+    drawer.className = 'catalog-help-drawer';
+    drawer.style.cssText = `
+      position: fixed;
+      top: 0;
+      right: -450px;
+      width: 450px;
+      max-width: 90%;
+      height: 100vh;
+      background-color: var(--color-surface, #1e293b);
+      border-left: 1px solid var(--color-border, #334155);
+      box-shadow: -4px 0 15px rgba(0, 0, 0, 0.3);
+      z-index: 10000;
+      transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      color: var(--color-text-main, #f8fafc);
+    `;
+
+    drawer.innerHTML = `
+      <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border, #334155); display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg, #0f172a);">
+        <h3 style="margin: 0; font-size: 1.2rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary, #3b82f6);">
+          <i class="ri-question-line"></i> Ayuda del Módulo
+        </h3>
+        <button id="close-help-drawer" style="background: transparent; border: none; color: var(--color-text-muted, #94a3b8); cursor: pointer; font-size: 1.25rem; display: flex; align-items: center; justify-content: center; padding: 0.25rem; border-radius: 4px; transition: background 0.2s;">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+      <div style="padding: 1.5rem; overflow-y: auto; flex: 1; font-size: 0.95rem; line-height: 1.6; display: flex; flex-direction: column; gap: 1.25rem;">
+        <p style="margin: 0; font-weight: 500; color: var(--color-text-main, #f8fafc);">
+          ¡Bienvenido al módulo de <strong>Catálogo de Productos</strong>! Este espacio es el corazón de tu operación en WMS STOCKA, ya que es donde centralizas, unificas y controlas todo tu inventario físico, conectándolo con tus diferentes canales de venta en línea.
+        </p>
+        <p style="margin: 0; color: var(--color-text-muted, #94a3b8);">
+          Aquí tienes una guía rápida de todo lo que necesitas saber, cómo funciona el módulo y tus primeros pasos:
+        </p>
+
+        <div style="border-top: 1px solid var(--color-border, #334155); padding-top: 1rem;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; color: var(--color-text-main, #f8fafc); font-weight: 600;">
+            1. ¿Cómo funciona este módulo?
+          </h4>
+          <p style="margin: 0 0 0.75rem 0; color: var(--color-text-muted, #94a3b8); font-size: 0.9rem;">
+            Para evitar discrepancias de stock y sincronizar correctamente tus pedidos, el sistema se divide en dos conceptos clave:
+          </p>
+          <ul style="margin: 0; padding-left: 1.25rem; color: var(--color-text-muted, #94a3b8); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.5rem;">
+            <li>
+              <strong>Catálogo Master (Tu Bodega Real):</strong> Representa los productos físicos que realmente existen y se almacenan en el WMS. Cada producto tiene un único SKU Maestro.
+            </li>
+            <li>
+              <strong>Equivalencias SKU (El Puente con tus Tiendas):</strong> Tus plataformas externas (Shopify, MercadoLibre, Falabella, etc.) a veces usan SKUs diferentes para referirse al mismo producto físico. En la pestaña de Equivalencias SKU puedes decirle al sistema: <em>"Cuando se venda el SKU X en Shopify, descuenta el stock del SKU Maestro Y en el WMS"</em>.
+            </li>
+          </ul>
+        </div>
+
+        <div style="border-top: 1px solid var(--color-border, #334155); padding-top: 1rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; color: var(--color-text-main, #f8fafc); font-weight: 600;">
+            2. ¿Qué debes hacer al entrar por primera vez? (Paso a Paso)
+          </h4>
+          
+          <div style="margin-bottom: 0.75rem;">
+            <strong style="color: var(--color-text-main, #f8fafc); font-size: 0.9rem; display: block; margin-bottom: 0.25rem;">Paso 1: Seleccionar tu Comercio Activo</strong>
+            <p style="margin: 0; color: var(--color-text-muted, #94a3b8); font-size: 0.85rem;">
+              Si tu usuario tiene múltiples tiendas o empresas asociadas en STOCKA, verás el desplegable "Seleccionar Comercio Activo" en la parte superior. Asegúrate de elegir el comercio que deseas configurar.
+            </p>
+          </div>
+
+          <div style="margin-bottom: 0.75rem;">
+            <strong style="color: var(--color-text-main, #f8fafc); font-size: 0.9rem; display: block; margin-bottom: 0.25rem;">Paso 2: Definir tu Plataforma Principal (Catálogo Maestro)</strong>
+            <p style="margin: 0; color: var(--color-text-muted, #94a3b8); font-size: 0.85rem;">
+              En la tarjeta de configuración superior, verás la opción "Plataforma Principal de Ventas":
+              <br>• Si ya tienes una tienda con tus productos cargados (ej: Shopify): Selecciónala como plataforma principal y haz clic en Guardar. Esto le dice al WMS que use tu tienda como la fuente de verdad.
+              <br>• Si vas a gestionar tus productos directamente en el WMS de forma manual: Selecciona "Ninguna (Usar WMS)".
+            </p>
+          </div>
+
+          <div style="margin-bottom: 0.75rem;">
+            <strong style="color: var(--color-text-main, #f8fafc); font-size: 0.9rem; display: block; margin-bottom: 0.25rem;">Paso 3: Cargar tu Catálogo Master</strong>
+            <p style="margin: 0; color: var(--color-text-muted, #94a3b8); font-size: 0.85rem;">
+              Ve a la pestaña Catálogo Master:
+              <br>• Si configuraste una plataforma principal en el paso anterior, verás el botón "Importar de [Plataforma]". Haz clic en él para traer todos tus productos automáticamente al WMS.
+              <br>• Si vas a trabajar de forma manual, utiliza el botón "Nuevo Producto" para crearlos uno a uno.
+            </p>
+          </div>
+
+          <div>
+            <strong style="color: var(--color-text-main, #f8fafc); font-size: 0.9rem; display: block; margin-bottom: 0.25rem;">Paso 4: Mapear Equivalencias de tus Canales Secundarios</strong>
+            <p style="margin: 0; color: var(--color-text-muted, #94a3b8); font-size: 0.85rem;">
+              Si vendes el mismo producto físico en más de una plataforma (ej. vendes en Shopify y también en MercadoLibre):
+              <br>1. Ve a la pestaña de Equivalencias SKU.
+              <br>2. El sistema listará automáticamente todos los productos de tus canales integrados que no coinciden exactamente con un SKU de tu Catálogo Master.
+              <br>3. Mapeo Individual: En la columna "Equivalencia", escribe o selecciona el SKU maestro del WMS correspondiente a cada producto externo. El guardado es automático.
+              <br>4. Auto-mapeo: Si los SKUs externos coinciden con los maestros pero están en minúsculas o tienen espacios, haz clic en "Auto-mapear Coincidencias" para que el sistema los enlace automáticamente.
+              <br>5. Importación Masiva: Si tienes cientos de productos, puedes hacer clic en "Importar Planilla" para subir tus equivalencias en un archivo Excel.
+            </p>
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--color-border, #334155); padding-top: 1rem; background: rgba(59, 130, 246, 0.05); padding: 1rem; border-radius: var(--radius-md); border-left: 3px solid var(--color-primary, #3b82f6);">
+          <strong style="color: var(--color-text-main, #f8fafc); font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.25rem;">
+            💡 Un Consejo Útil
+          </strong>
+          <p style="margin: 0; color: var(--color-text-muted, #94a3b8); font-size: 0.85rem; line-height: 1.5;">
+            Cada vez que realices cambios en tus productos desde el panel administrativo de tus tiendas (como cambiar un SKU en Shopify), el sistema de equivalencias te ayudará a mantener la conexión estable. Puedes hacer clic en "Validar SKUs" en la sección de consistencia al final de la pestaña para verificar que no haya SKUs huérfanos o duplicados.
+          </p>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(drawer);
+
+    const closeBtn = drawer.querySelector('#close-help-drawer');
+    closeBtn.addEventListener('click', closeCatalogHelpDrawer);
+    overlay.addEventListener('click', closeCatalogHelpDrawer);
+  }
+
+  setTimeout(() => {
+    overlay.style.opacity = '1';
+    overlay.style.pointerEvents = 'auto';
+    drawer.style.right = '0';
+  }, 10);
+}
+
+function closeCatalogHelpDrawer() {
+  const drawer = document.getElementById('catalog-help-drawer');
+  const overlay = document.getElementById('catalog-help-overlay');
+  if (drawer && overlay) {
+    overlay.style.opacity = '0';
+    overlay.style.pointerEvents = 'none';
+    drawer.style.right = '-450px';
+  }
+}
+
+function setupCatalogListeners(commerce, mainPlatform) {
+  // 0. Help button trigger
+  const btnHelp = document.getElementById('btn-catalog-help');
+  if (btnHelp) {
+    btnHelp.addEventListener('click', openCatalogHelpDrawer);
+  }
+
+  // 1. Tab switching
+  const tabs = document.querySelectorAll('.catalog-tab');
+  const panes = document.querySelectorAll('.catalog-tab-pane');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => {
+        t.style.borderBottomColor = 'transparent';
+        t.style.color = 'var(--color-text-muted)';
+        t.style.fontWeight = '500';
+        t.classList.remove('active');
+      });
+      panes.forEach(p => p.style.display = 'none');
+
+      tab.classList.add('active');
+      tab.style.borderBottomColor = 'var(--color-primary)';
+      tab.style.color = 'var(--color-text-main)';
+      tab.style.fontWeight = '600';
+
+      const tabId = tab.getAttribute('data-tab');
+      const targetPane = document.getElementById(tabId);
+      if (targetPane) targetPane.style.display = 'block';
     });
   });
 
-  setupSkuMappingsListeners();
-}
-
-function setupSkuMappingsListeners() {
-  // 0. Descargar plantilla
-  const btnDownload = document.getElementById('btn-download-sku-template');
-  if (btnDownload) {
-    const newBtnDownload = btnDownload.cloneNode(true);
-    btnDownload.parentNode.replaceChild(newBtnDownload, btnDownload);
-    newBtnDownload.addEventListener('click', () => {
-      const headers = [['Plataforma', 'SKU Plataforma', 'SKU Master']];
-      const sampleData = [
-        ['Shopify', 'poleraazulxl', 'POL-AZ-XL'],
-        ['MercadoLibre', '12334456', 'POL-AZ-XL'],
-        ['Falabella', 'FAL-POLERA-AZUL', 'POL-AZ-XL'],
-        ['Todas', 'poleraazul-general', 'POL-AZ-XL']
-      ];
-      const wsData = headers.concat(sampleData);
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      XLSX.utils.book_append_sheet(wb, ws, 'Plantilla Equivalencias');
-      XLSX.writeFile(wb, 'plantilla_equivalencias_sku.xlsx');
-    });
-  }
-
-  // 1. Guardar plataforma principal
+  // 1.5. Configuración de Plataforma Principal
   const btnSaveMain = document.getElementById('btn-save-main-platform');
-  const mainSelect = document.getElementById('eq-main-platform-select');
-  if (btnSaveMain && mainSelect) {
-    const newBtn = btnSaveMain.cloneNode(true);
-    btnSaveMain.parentNode.replaceChild(newBtn, btnSaveMain);
-    newBtn.addEventListener('click', async () => {
-      const selected = mainSelect.value;
-      const commerce = window.activeIntegrationCommerce || window.currentUser?.comercio;
-      if (!commerce) return;
-
-      newBtn.disabled = true;
-      newBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
+  if (btnSaveMain) {
+    btnSaveMain.addEventListener('click', async () => {
+      const selected = document.getElementById('eq-main-platform-select').value;
+      
+      btnSaveMain.disabled = true;
+      btnSaveMain.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
 
       try {
-        // Primero quitar is_main de todas las integraciones de este comercio
         const { error: resetErr } = await supabase
           .from('merchant_integrations')
           .update({ is_main: false })
@@ -11018,7 +11149,6 @@ function setupSkuMappingsListeners() {
         if (resetErr) throw resetErr;
 
         if (selected) {
-          // Establecer is_main = true para la seleccionada
           const { error: setErr } = await supabase
             .from('merchant_integrations')
             .update({ is_main: true })
@@ -11029,15 +11159,220 @@ function setupSkuMappingsListeners() {
         }
 
         alert('Plataforma principal actualizada correctamente.');
-        window.renderSkuMappings();
+        renderCatalog();
       } catch (err) {
         alert('Error al actualizar plataforma principal: ' + err.message);
       } finally {
-        newBtn.disabled = false;
-        newBtn.innerHTML = `<i class="ri-save-line"></i> Guardar`;
+        btnSaveMain.disabled = false;
+        btnSaveMain.innerHTML = `<i class="ri-save-line"></i> Guardar`;
       }
     });
   }
+
+  // 2. Search box for Master Catalog
+  const masterSearch = document.getElementById('catalog-master-search');
+  if (masterSearch) {
+    masterSearch.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#catalog-master-tbody tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // 3. Search box for Equivalencias
+  const eqSearch = document.getElementById('eq-matrix-search');
+  if (eqSearch) {
+    eqSearch.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#eq-matrix-tbody tr.eq-row');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // 4. Modal Warning Banners (New & Edit product)
+  const btnNewProd = document.getElementById('btn-new-product');
+  if (btnNewProd) {
+    btnNewProd.addEventListener('click', () => {
+      showWmsWarningInModal('form-new-product');
+    });
+  }
+  document.querySelectorAll('.btn-edit-product').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showWmsWarningInModal('form-edit-product');
+    });
+  });
+
+  // 5. Delete Product handler
+  document.querySelectorAll('.btn-delete-product').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const prodId = e.currentTarget.getAttribute('data-id');
+      if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
+        try {
+          const { error } = await supabase.from('products').delete().eq('id', prodId);
+          if (error) throw error;
+          alert('Producto eliminado correctamente.');
+          renderCatalog();
+        } catch (err) {
+          alert('Error al eliminar producto: ' + err.message);
+        }
+      }
+    });
+  });
+
+  // 6. Import from Main Platform handler
+  const btnImport = document.getElementById('btn-import-from-main');
+  if (btnImport) {
+    btnImport.addEventListener('click', async () => {
+      if (confirm(`¿Deseas importar todos los productos desde tu plataforma principal (${mainPlatform}) al catálogo master de WMS?`)) {
+        btnImport.disabled = true;
+        btnImport.textContent = 'Importando...';
+        try {
+          const { data: syncedProds, error: syncErr } = await supabase
+            .from('synced_products')
+            .select('*')
+            .eq('comercio', commerce)
+            .eq('platform', mainPlatform);
+          
+          if (syncErr) throw syncErr;
+          if (!syncedProds || syncedProds.length === 0) {
+            alert(`No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`);
+            return;
+          }
+
+          const { data: userAuth } = await supabase.auth.getUser();
+          const merchantId = userAuth.user.id;
+
+          const productsToInsert = syncedProds.map(sp => ({
+            merchant_id: merchantId,
+            comercio: commerce,
+            sku: sp.sku,
+            name: sp.name,
+            description: `Importado automáticamente de ${mainPlatform}`
+          }));
+
+          const { error: insErr } = await supabase
+            .from('products')
+            .upsert(productsToInsert, { onConflict: 'comercio,sku' });
+
+          if (insErr) throw insErr;
+
+          alert(`¡Importación completada! Se importaron/actualizaron ${productsToInsert.length} productos en el catálogo master.`);
+          renderCatalog();
+        } catch (err) {
+          alert('Error al importar catálogo: ' + err.message);
+        } finally {
+          btnImport.disabled = false;
+          btnImport.innerHTML = `<i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}`;
+        }
+      }
+    });
+  }
+
+  // 7. Auto-map equivalences
+  const btnAutoMap = document.getElementById('btn-auto-map-equivalences');
+  if (btnAutoMap) {
+    btnAutoMap.addEventListener('click', async () => {
+      const unmapped = window.currentUnmappedSyncedProducts || [];
+      const masterSkusSet = new Set(window.currentMasterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
+      const masterSkusMap = {};
+      window.currentMasterProducts.forEach(p => {
+        masterSkusMap[p.sku.toLowerCase().trim().replace(/\s+/g, '')] = p.sku;
+      });
+
+      const mappingsToInsert = [];
+      unmapped.forEach(sp => {
+        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+        if (masterSkusSet.has(cleanSku)) {
+          mappingsToInsert.push({
+            comercio: commerce,
+            platform: sp.platform,
+            platform_sku: sp.sku,
+            master_sku: masterSkusMap[cleanSku]
+          });
+        }
+      });
+
+      if (mappingsToInsert.length === 0) {
+        alert('No se encontraron coincidencias de SKU exactas no mapeadas entre tus canales y el catálogo master.');
+        return;
+      }
+
+      if (confirm(`Se encontraron ${mappingsToInsert.length} coincidencias exactas de SKU. ¿Deseas mapearlas automáticamente?`)) {
+        btnAutoMap.disabled = true;
+        btnAutoMap.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Procesando...`;
+        try {
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' });
+          
+          if (error) throw error;
+          alert(`¡Éxito! Se mapearon automáticamente ${mappingsToInsert.length} equivalencias.`);
+          renderCatalog();
+        } catch (err) {
+          alert('Error al realizar auto-mapeo: ' + err.message);
+        } finally {
+          btnAutoMap.disabled = false;
+          btnAutoMap.innerHTML = `<i class="ri-magic-line"></i> Auto-mapear Coincidencias`;
+        }
+      }
+    });
+  }
+
+  // 8. Auto-save Equivalences on input change
+  document.querySelectorAll('.eq-mapping-input').forEach(input => {
+    input.addEventListener('change', async (e) => {
+      const platformSku = e.target.getAttribute('data-platform-sku');
+      const platform = e.target.getAttribute('data-platform');
+      const enteredValue = e.target.value.trim();
+
+      e.target.style.borderColor = 'var(--color-primary)';
+
+      try {
+        if (!enteredValue) {
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .delete()
+            .eq('comercio', commerce)
+            .eq('platform', platform)
+            .eq('platform_sku', platformSku);
+
+          if (error) throw error;
+          e.target.style.borderColor = 'var(--color-success)';
+          renderCatalog();
+        } else {
+          const masterSkus = window.currentMasterProducts.map(p => p.sku);
+          if (!masterSkus.includes(enteredValue)) {
+            e.target.style.borderColor = 'var(--color-danger)';
+            alert(`El SKU "${enteredValue}" no existe en el catálogo master. Crea el producto master primero o selecciona uno válido.`);
+            e.target.value = '';
+            return;
+          }
+
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .upsert({
+              comercio: commerce,
+              platform: platform,
+              platform_sku: platformSku,
+              master_sku: enteredValue
+            }, { onConflict: 'comercio,platform,platform_sku' });
+
+          if (error) throw error;
+          e.target.style.borderColor = 'var(--color-success)';
+          renderCatalog();
+        }
+      } catch (err) {
+        e.target.style.borderColor = 'var(--color-danger)';
+        alert('Error al guardar equivalencia: ' + err.message);
+      }
+    });
+  });
 
   // 2. Buscador en la matriz
   const searchInput = document.getElementById('eq-matrix-search');
@@ -11069,7 +11404,7 @@ function setupSkuMappingsListeners() {
       resultsDiv.innerHTML = `<span style="color: var(--color-primary);"><i class="ri-loader-4-line ri-spin"></i> Analizando integraciones activas...</span>`;
       
       try {
-        const commerce = window.activeIntegrationCommerce || window.currentUser?.comercio;
+        const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
         // También podemos obtener productos de 'products' que no tienen 'shopify_product_id' o que pertenecen a las secundarias
         const { data: allProducts, error: prodErr } = await supabase
@@ -11197,7 +11532,7 @@ function setupSkuMappingsListeners() {
             return;
           }
 
-          const commerce = window.activeIntegrationCommerce || window.currentUser?.comercio;
+          const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
 
           // Obtener lista de SKUs válidos del catálogo para validar
           const { data: validProducts } = await supabase
@@ -11322,7 +11657,7 @@ function showImportPreviewModal(previewData) {
       btnConfirm.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Importando...`;
 
       const validRows = previewData.filter(r => r.isValid).map(r => ({
-        comercio: window.activeIntegrationCommerce || window.currentUser?.comercio,
+        comercio: window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : ''),
         platform: r.platform,
         platform_sku: r.platform_sku,
         master_sku: r.master_sku
@@ -11337,7 +11672,7 @@ function showImportPreviewModal(previewData) {
 
         alert(`Se han importado exitosamente ${validRows.length} equivalencias.`);
         modal.classList.remove('active');
-        window.renderSkuMappings();
+        renderCatalog();
       } catch (err) {
         alert('Error al realizar la importación masiva: ' + err.message);
         btnConfirm.disabled = false;

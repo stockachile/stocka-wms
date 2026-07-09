@@ -224,6 +224,9 @@ async function init() {
           } else if (view === 'upload_products_admin') {
             viewTitle.textContent = 'Carga de Planillas';
             renderUploadProducts();
+          } else if (view === 'catalog') {
+            viewTitle.textContent = 'Catálogo & Equivalencias';
+            renderAdminCatalog();
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
@@ -1669,9 +1672,6 @@ async function renderIntegrations() {
         <button class="integration-tab active" data-tab="tab-connections" style="background: none; border: none; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; padding: 0.5rem 1.25rem; cursor: pointer; font-size: 0.95rem;">
           <i class="ri-plug-line"></i> Conexiones
         </button>
-        <button class="integration-tab" data-tab="tab-sku-mappings" style="background: none; border: none; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; padding: 0.5rem 1.25rem; cursor: pointer; font-size: 0.95rem;">
-          <i class="ri-equalizer-line"></i> Equivalencias SKU
-        </button>
       </div>
 
       <div class="integration-content">
@@ -1797,125 +1797,6 @@ async function renderIntegrations() {
         </div>
       </div>
     </div>
-
-    <!-- TAB: Equivalencias SKU -->
-    <div id="tab-sku-mappings" class="integration-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
-      <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-        <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;"><i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)</label>
-        <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-          <option value="">-- Seleccione un Cliente --</option>
-        </select>
-      </div>
-
-      <div id="eq-admin-workspace" style="display: none;">
-        <!-- Configuración de Plataforma Principal -->
-        <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
-          <div class="card-header" style="background: linear-gradient(90deg, rgba(37,99,235,0.05) 0%, rgba(37,99,235,0) 100%); padding: 1.5rem 2rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-            <div>
-              <h4 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Plataforma Principal de Ventas
-              </h4>
-              <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">
-                Establece la plataforma de donde proviene tu catálogo maestro de productos.
-              </p>
-            </div>
-            <div style="display: flex; align-items: center; gap: 1rem;">
-              <select id="eq-main-platform-select" class="form-input" style="min-width: 200px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-                <option value="">Ninguna (Usar WMS)</option>
-                <option value="Shopify">Shopify</option>
-                <option value="MercadoLibre">MercadoLibre</option>
-                <option value="Falabella">Falabella</option>
-                <option value="Paris">París</option>
-                <option value="WooCommerce">WooCommerce</option>
-                <option value="Jumpseller">Jumpseller</option>
-              </select>
-              <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; transition: all 0.2s;">
-                <i class="ri-save-line"></i> Guardar
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tarjeta de Instrucciones y Descarga de Plantilla -->
-        <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
-          <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-            <i class="ri-information-line"></i> Instrucciones de Importación Masiva
-          </h4>
-          <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
-            Sube una planilla Excel o CSV para cargar equivalencias de SKU de forma masiva para el cliente seleccionado. Las columnas requeridas son:
-            <br><strong>• Plataforma:</strong> El nombre de la plataforma (Shopify, MercadoLibre, Falabella, Paris, WooCommerce, Jumpseller o Todas).
-            <br><strong>• SKU Plataforma:</strong> El SKU externo de la plataforma de ventas.
-            <br><strong>• SKU Master:</strong> El SKU maestro de tu catálogo WMS (el producto físico).
-          </p>
-          <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
-            <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
-          </button>
-        </div>
-
-        <!-- Matriz / Grid Principal -->
-        <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
-          <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-            <div>
-              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;" id="eq-matrix-title">
-                <i class="ri-table-2" style="color: var(--color-primary);"></i> Matriz de Equivalencias
-              </h3>
-              <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asigna los SKUs equivalentes para tus plataformas de venta secundarias.</p>
-            </div>
-            <div style="display: flex; gap: 1rem; align-items: center;">
-              <div style="position: relative;">
-                <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-                <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar producto..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s;">
-              </div>
-              <input type="file" id="eq-matrix-import-excel" accept=".xlsx, .xls, .csv" style="display: none;">
-              <label for="eq-matrix-import-excel" class="btn btn-outline" style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); border-color: var(--color-border); background: var(--color-bg); color: var(--color-text-main); padding: 0.5rem 1rem; font-weight: 500; transition: all 0.2s;">
-                <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Importar Planilla
-              </label>
-            </div>
-          </div>
-          <div class="card-body" style="padding: 0; overflow-x: auto;">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
-              <thead id="eq-matrix-thead">
-                <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
-                  <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Producto (Principal)</th>
-                  <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em;">SKU Principal</th>
-                </tr>
-              </thead>
-              <tbody id="eq-matrix-tbody">
-                <tr>
-                  <td colspan="4" style="text-align: center; padding: 3rem; color: var(--color-text-muted); font-size: 0.95rem;">
-                    <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; margin-bottom: 0.5rem; display: block; color: var(--color-primary);"></i>
-                    Cargando matriz...
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- Sección de Chequeo de Consistencia (Errores / Advertencias) -->
-        <div class="card" style="border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: var(--shadow-sm); border-radius: var(--radius-lg); background: linear-gradient(145deg, rgba(239, 68, 68, 0.02) 0%, rgba(239, 68, 68, 0.05) 100%); overflow: hidden; margin-bottom: 1.5rem;">
-          <div class="card-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.1); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-            <div>
-              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 600; color: var(--color-danger); display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-error-warning-line"></i> Chequeo de Consistencia de Canales Secundarios
-              </h3>
-              <p style="margin: 0; color: var(--color-text-muted); font-size: 0.9rem;">
-                Valida que los productos que no se encuentran en la plataforma principal tengan exactamente el mismo SKU asignado en todas las plataformas secundarias de venta.
-              </p>
-            </div>
-            <button id="btn-run-consistency-check" class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.5rem; font-weight: 500; transition: all 0.2s;">
-              <i class="ri-refresh-line"></i> Validar SKUs
-            </button>
-          </div>
-          <div class="card-body" style="padding: 1.5rem 2rem;">
-            <div id="eq-consistency-results" style="font-size: 0.9rem; padding: 1rem; border-radius: var(--radius-md); background: var(--color-surface); border: 1px dashed var(--color-border);">
-              <span style="color: var(--color-text-muted); display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-information-line"></i> Haz clic en "Validar SKUs" para iniciar el análisis.
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
   `;
@@ -2100,250 +1981,406 @@ async function renderIntegrations() {
           if (targetPane) {
             targetPane.style.display = 'block';
           }
-          if (tabId === 'tab-sku-mappings') {
-            window.initAdminSkuMappings();
-          }
         });
       });
     }, 0);
 
   } catch (error) {
     console.error('Error fetching integrations:', error);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
+    appContent.innerHTML = `<p class="text-center text-danger">Error al cargar integraciones: ${error.message}</p>`;
+  }
+}
+// ==========================================
+// REDISEÑO: Catálogo Master y Equivalencias SKU (Admin)
+// ==========================================
+
+function showWmsWarningInModal(formId) {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  if (form.querySelector('.wms-sync-warning')) return;
+  
+  const warningDiv = document.createElement('div');
+  warningDiv.className = 'wms-sync-warning';
+  warningDiv.style.margin = '0 1rem 1rem 1rem';
+  warningDiv.style.padding = '0.75rem 1rem';
+  warningDiv.style.background = 'rgba(245, 158, 11, 0.1)';
+  warningDiv.style.border = '1px solid rgba(245, 158, 11, 0.2)';
+  warningDiv.style.borderRadius = '0.375rem';
+  warningDiv.style.color = '#d97706';
+  warningDiv.style.fontSize = '0.85rem';
+  warningDiv.style.lineHeight = '1.4';
+  warningDiv.style.display = 'flex';
+  warningDiv.style.alignItems = 'center';
+  warningDiv.style.gap = '0.5rem';
+  warningDiv.innerHTML = `
+    <i class="ri-alert-line" style="font-size: 1.2rem; flex-shrink: 0;"></i>
+    <div>
+      <strong>Recordatorio:</strong> De momento tus cambios solo se aplican al WMS. Debes ajustar en tu plataforma de ventas los cambios también.
+    </div>
+  `;
+  
+  const modalBody = form.querySelector('.modal-body');
+  if (modalBody) {
+    form.insertBefore(warningDiv, modalBody);
   }
 }
 
-window.initAdminSkuMappings = async function() {
-  const clientSelect = document.getElementById('eq-admin-client-select');
-  if (!clientSelect) return;
-
-  // Cargar clientes desde v_comercios_config
-  try {
-    const { data: configComercios, error: clientErr } = await supabase
-      .from('v_comercios_config')
-      .select('sigla, nombre')
-      .order('nombre');
-
-    if (clientErr) throw clientErr;
-
-    // Poblar el select (filtrar únicos y no vacíos)
-    const uniqueClients = [];
-    const seen = new Set();
-    if (configComercios) {
-      configComercios.forEach(c => {
-        if (c.sigla && !seen.has(c.sigla)) {
-          seen.add(c.sigla);
-          uniqueClients.push(c);
-        }
-      });
-    }
-
-    clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-      uniqueClients.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('');
-
-    // Agregar evento change
-    clientSelect.addEventListener('change', (e) => {
-      const selectedComercio = e.target.value;
-      const workspace = document.getElementById('eq-admin-workspace');
-      if (selectedComercio) {
-        workspace.style.display = 'block';
-        window.activeAdminComercio = selectedComercio;
-        window.renderAdminSkuMappings();
-      } else {
-        workspace.style.display = 'none';
-        window.activeAdminComercio = null;
-      }
-    });
-
-  } catch (err) {
-    console.error('Error al inicializar equivalencias de admin:', err);
-  }
-};
-
-window.renderAdminSkuMappings = async function() {
-  const tbody = document.getElementById('eq-matrix-tbody');
-  const thead = document.getElementById('eq-matrix-thead');
-  const mainSelect = document.getElementById('eq-main-platform-select');
-  if (!tbody || !thead || !mainSelect) return;
-
-  const commerce = window.activeAdminComercio;
-  if (!commerce) return;
-
-  tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando datos de equivalencias...</td></tr>`;
-
-  try {
-    // 1. Obtener integraciones activas del comercio
-    const { data: integrations, error: intErr } = await supabase
-      .from('merchant_integrations')
-      .select('platform, is_active, is_main')
-      .eq('comercio', commerce);
-
-    if (intErr) throw intErr;
-
-    const activeIntegrations = (integrations || []).filter(i => i.is_active && i.platform !== 'Optiroute');
-    const mainIntegration = activeIntegrations.find(i => i.is_main);
-    const mainPlatform = mainIntegration ? mainIntegration.platform : '';
-
-    // Set select value
-    mainSelect.value = mainPlatform;
-
-    if (!mainPlatform) {
-      thead.innerHTML = `
-        <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-          <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">Producto (Principal)</th>
-          <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU Principal</th>
-        </tr>
-      `;
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="2" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
-            <i class="ri-information-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem; color: var(--color-warning);"></i>
-            Por favor, define una <strong>Plataforma Principal de Ventas</strong> arriba para habilitar la matriz de mapeo.
-          </td>
-        </tr>
-      `;
-      setupAdminSkuMappingsListeners();
-      return;
-    }
-
-    // Secondary platforms are the other active integrations
-    const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
-
-    // Render the header with secondary platforms
-    thead.innerHTML = `
-      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-        <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">Producto (${mainPlatform})</th>
-        <th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU Master</th>
-        ${secondaryPlatforms.map(sp => `<th style="padding: 1rem; text-align: left; font-size: 0.85rem;">SKU en ${sp}</th>`).join('')}
-      </tr>
-    `;
-
-    // 2. Fetch products
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('sku, name')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (prodErr) throw prodErr;
-
-    // 3. Fetch current mappings
-    const { data: mappings, error: mapErr } = await supabase
-      .from('sku_equivalences')
-      .select('*')
-      .eq('comercio', commerce);
-
-    if (mapErr) throw mapErr;
-
-    // Index mappings by master_sku -> platform -> platform_sku
-    const mappingsMap = {};
-    if (mappings) {
-      mappings.forEach(m => {
-        if (!mappingsMap[m.master_sku]) {
-          mappingsMap[m.master_sku] = {};
-        }
-        mappingsMap[m.master_sku][m.platform] = m.platform_sku;
-      });
-    }
-
-    window.currentProductsForMatrix = products || [];
-    window.currentSecondaryPlatforms = secondaryPlatforms;
-    window.currentMappingsMap = mappingsMap;
-
-    renderAdminMatrixRows(products || [], secondaryPlatforms, mappingsMap);
-
-  } catch (err) {
-    console.error('Error cargando la matriz de admin:', err);
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--color-danger);"><i class="ri-error-warning-line"></i> Error al cargar datos: ${err.message}</td></tr>`;
-  }
-};
-
-function renderAdminMatrixRows(products, secondaryPlatforms, mappingsMap) {
-  const tbody = document.getElementById('eq-matrix-tbody');
+function renderMasterCatalogRows(products) {
+  const tbody = document.getElementById('catalog-master-tbody');
   if (!tbody) return;
 
   if (products.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="${2 + secondaryPlatforms.length}" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay productos en el catálogo de este comercio. Sincroniza tu plataforma principal primero.</td></tr>`;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+          No hay productos en el catálogo master.
+        </td>
+      </tr>
+    `;
     return;
   }
 
-  tbody.innerHTML = products.map(p => {
-    const productMappings = mappingsMap[p.sku] || {};
+  tbody.innerHTML = products.map(item => {
+    const imgHtml = item.image_url 
+      ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+      : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
+
+    const dimensions = (item.length || item.width || item.height)
+      ? `${item.length || 0} x ${item.width || 0} x ${item.height || 0} cm`
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+    const weight = item.weight 
+      ? `${item.weight} kg` 
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
+    let originBadge = '<span class="badge" style="background-color: #64748b; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Manual</span>';
+    if (item.shopify_product_id) {
+      originBadge = `<span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Shopify</span>`;
+    } else if (item.raw_meli_data) {
+      originBadge = `<span class="badge" style="background-color: #ffe600; color: #2d3277; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 800;">MercadoLibre</span>`;
+    }
+
+    const expAndLot = (item.expiration_date || item.lot_number)
+      ? `<div style="font-size: 0.8rem; line-height: 1.2;">
+           ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
+           ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
+         </div>`
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
+
+    const isObserver = userRole === 'observer';
+    const deleteBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+    
+    const actionBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+
     return `
-      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 1rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${p.name || 'Sin Nombre'}</td>
-        <td style="padding: 0.75rem 1rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">${p.sku}</td>
-        ${secondaryPlatforms.map(sp => {
-          const val = productMappings[sp] || '';
-          return `
-            <td style="padding: 0.5rem 1rem;">
-              <input type="text" class="form-input eq-matrix-input" 
-                     data-master-sku="${p.sku}" 
-                     data-platform="${sp}" 
-                     value="${val}" 
-                     placeholder="Igual al master" 
-                     style="margin: 0; padding: 0.35rem 0.6rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: 4px;">
-            </td>
-          `;
-        }).join('')}
+      <tr data-product-row-id="${item.id}">
+        <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
+        <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
+        <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
+        <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
+        <td style="padding: 0.75rem 1.5rem;">${originBadge}</td>
+        <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
+        <td style="padding: 0.75rem 1.5rem;">${weight}</td>
+        <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
+        <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
       </tr>
     `;
   }).join('');
+}
 
-  // Add event listeners for inputs
-  tbody.querySelectorAll('.eq-matrix-input').forEach(input => {
+function renderEquivalencesRows(unmappedProducts, mappingsMap) {
+  const tbody = document.getElementById('eq-matrix-tbody');
+  if (!tbody) return;
+
+  if (unmappedProducts.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          No hay productos no mapeados en tus canales sincronizados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const isObserver = userRole === 'observer';
+
+  tbody.innerHTML = unmappedProducts.map(sp => {
+    const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
+    return `
+      <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}</td>
+        <td style="padding: 0.75rem 2rem;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
+        </td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${sp.sku}</td>
+        <td style="padding: 0.5rem 2rem;">
+          <input type="text" class="form-input eq-mapping-input" 
+                 list="master-skus-list" 
+                 data-platform-sku="${sp.sku}" 
+                 data-platform="${sp.platform}" 
+                 value="${currentMapping}" 
+                 placeholder="Escribe para buscar o seleccionar..." 
+                 ${isObserver ? 'disabled' : ''}
+                 style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); width: 100%; transition: border-color 0.2s;">
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function setupCatalogListeners(commerce, mainPlatform) {
+  // 1. Tab switching
+  const tabs = document.querySelectorAll('.catalog-tab');
+  const panes = document.querySelectorAll('.catalog-tab-pane');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => {
+        t.style.borderBottomColor = 'transparent';
+        t.style.color = 'var(--color-text-muted)';
+        t.style.fontWeight = '500';
+        t.classList.remove('active');
+      });
+      panes.forEach(p => p.style.display = 'none');
+
+      tab.classList.add('active');
+      tab.style.borderBottomColor = 'var(--color-primary)';
+      tab.style.color = 'var(--color-text-main)';
+      tab.style.fontWeight = '600';
+
+      const tabId = tab.getAttribute('data-tab');
+      const targetPane = document.getElementById(tabId);
+      if (targetPane) targetPane.style.display = 'block';
+    });
+  });
+
+  // 2. Search box for Master Catalog
+  const masterSearch = document.getElementById('catalog-master-search');
+  if (masterSearch) {
+    masterSearch.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#catalog-master-tbody tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // 3. Search box for Equivalencias
+  const eqSearch = document.getElementById('eq-matrix-search');
+  if (eqSearch) {
+    eqSearch.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#eq-matrix-tbody tr.eq-row');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // 4. Modal Warning Banners (New & Edit product)
+  const btnNewProd = document.getElementById('btn-new-product');
+  if (btnNewProd) {
+    btnNewProd.addEventListener('click', () => {
+      document.getElementById('modal-product').classList.add('active');
+      showWmsWarningInModal('form-new-product');
+    });
+  }
+  document.querySelectorAll('.btn-edit-product').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-id');
+      openEditProductModal(prodId);
+      showWmsWarningInModal('form-edit-product');
+    });
+  });
+
+  // 5. Delete Product handler
+  document.querySelectorAll('.btn-delete-product').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const prodId = e.currentTarget.getAttribute('data-id');
+      if (confirm('¿Estás seguro de que deseas eliminar este producto? Esto también eliminará su inventario asociado en todas las bodegas.')) {
+        try {
+          const { error } = await supabase.from('products').delete().eq('id', prodId);
+          if (error) throw error;
+          alert('Producto eliminado correctamente.');
+          renderAdminCatalogWorkspace(commerce);
+        } catch (err) {
+          alert('Error al eliminar producto: ' + err.message);
+        }
+      }
+    });
+  });
+
+  // 6. Import from Main Platform handler
+  const btnImport = document.getElementById('btn-import-from-main');
+  if (btnImport) {
+    btnImport.addEventListener('click', async () => {
+      if (confirm(`¿Deseas importar todos los productos desde tu plataforma principal (${mainPlatform}) al catálogo master de WMS?`)) {
+        btnImport.disabled = true;
+        btnImport.textContent = 'Importando...';
+        try {
+          const { data: syncedProds, error: syncErr } = await supabase
+            .from('synced_products')
+            .select('*')
+            .eq('comercio', commerce)
+            .eq('platform', mainPlatform);
+          
+          if (syncErr) throw syncErr;
+          if (!syncedProds || syncedProds.length === 0) {
+            alert(`No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`);
+            return;
+          }
+
+          // Obtener profiles del comercio
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('comercio', commerce)
+            .limit(1);
+
+          const merchantId = (profiles && profiles.length > 0) ? profiles[0].id : null;
+          if (!merchantId) {
+            alert('No se pudo encontrar el merchant_id asociado a este comercio.');
+            return;
+          }
+
+          const productsToInsert = syncedProds.map(sp => ({
+            merchant_id: merchantId,
+            comercio: commerce,
+            sku: sp.sku,
+            name: sp.name,
+            description: `Importado automáticamente de ${mainPlatform}`
+          }));
+
+          const { error: insErr } = await supabase
+            .from('products')
+            .upsert(productsToInsert, { onConflict: 'comercio,sku' });
+
+          if (insErr) throw insErr;
+
+          alert(`¡Importación completada! Se importaron/actualizaron ${productsToInsert.length} productos en el catálogo master.`);
+          renderAdminCatalogWorkspace(commerce);
+        } catch (err) {
+          alert('Error al importar catálogo: ' + err.message);
+        } finally {
+          btnImport.disabled = false;
+          btnImport.innerHTML = `<i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}`;
+        }
+      }
+    });
+  }
+
+  // 7. Auto-map equivalences
+  const btnAutoMap = document.getElementById('btn-auto-map-equivalences');
+  if (btnAutoMap) {
+    btnAutoMap.addEventListener('click', async () => {
+      const unmapped = window.currentUnmappedSyncedProducts || [];
+      const masterSkusSet = new Set(window.currentMasterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
+      const masterSkusMap = {};
+      window.currentMasterProducts.forEach(p => {
+        masterSkusMap[p.sku.toLowerCase().trim().replace(/\s+/g, '')] = p.sku;
+      });
+
+      const mappingsToInsert = [];
+      unmapped.forEach(sp => {
+        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+        if (masterSkusSet.has(cleanSku)) {
+          mappingsToInsert.push({
+            comercio: commerce,
+            platform: sp.platform,
+            platform_sku: sp.sku,
+            master_sku: masterSkusMap[cleanSku]
+          });
+        }
+      });
+
+      if (mappingsToInsert.length === 0) {
+        alert('No se encontraron coincidencias de SKU exactas no mapeadas entre tus canales y el catálogo master.');
+        return;
+      }
+
+      if (confirm(`Se encontraron ${mappingsToInsert.length} coincidencias exactas de SKU. ¿Deseas mapearlas automáticamente?`)) {
+        btnAutoMap.disabled = true;
+        btnAutoMap.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Procesando...`;
+        try {
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .upsert(mappingsToInsert, { onConflict: 'comercio,platform,platform_sku' });
+          
+          if (error) throw error;
+          alert(`¡Éxito! Se mapearon automáticamente ${mappingsToInsert.length} equivalencias.`);
+          renderAdminCatalogWorkspace(commerce);
+        } catch (err) {
+          alert('Error al realizar auto-mapeo: ' + err.message);
+        } finally {
+          btnAutoMap.disabled = false;
+          btnAutoMap.innerHTML = `<i class="ri-magic-line"></i> Auto-mapear Coincidencias`;
+        }
+      }
+    });
+  }
+
+  // 8. Auto-save Equivalences on input change
+  document.querySelectorAll('.eq-mapping-input').forEach(input => {
     input.addEventListener('change', async (e) => {
-      const masterSku = e.target.getAttribute('data-master-sku');
+      const platformSku = e.target.getAttribute('data-platform-sku');
       const platform = e.target.getAttribute('data-platform');
-      const value = e.target.value.trim().replace(/\s+/g, '');
-      const commerce = window.activeAdminComercio;
-
-      if (!commerce) return;
+      const enteredValue = e.target.value.trim();
 
       e.target.style.borderColor = 'var(--color-primary)';
 
       try {
-        if (value === '') {
+        if (!enteredValue) {
           const { error } = await supabase
             .from('sku_equivalences')
             .delete()
             .eq('comercio', commerce)
             .eq('platform', platform)
-            .eq('master_sku', masterSku);
+            .eq('platform_sku', platformSku);
 
           if (error) throw error;
+          e.target.style.borderColor = 'var(--color-success)';
+          renderAdminCatalogWorkspace(commerce);
         } else {
+          const masterSkus = window.currentMasterProducts.map(p => p.sku);
+          if (!masterSkus.includes(enteredValue)) {
+            e.target.style.borderColor = 'var(--color-danger)';
+            alert(`El SKU "${enteredValue}" no existe en el catálogo master. Crea el producto master primero o selecciona uno válido.`);
+            e.target.value = '';
+            return;
+          }
+
           const { error } = await supabase
             .from('sku_equivalences')
-            .upsert([{
-              comercio,
-              platform,
-              platform_sku: value,
-              master_sku: masterSku
-            }], { onConflict: 'comercio,platform,platform_sku' });
+            .upsert({
+              comercio: commerce,
+              platform: platform,
+              platform_sku: platformSku,
+              master_sku: enteredValue
+            }, { onConflict: 'comercio,platform,platform_sku' });
 
           if (error) throw error;
+          e.target.style.borderColor = 'var(--color-success)';
+          renderAdminCatalogWorkspace(commerce);
         }
-        e.target.style.borderColor = '#10b981';
-        setTimeout(() => { e.target.style.borderColor = 'var(--color-border)'; }, 1000);
       } catch (err) {
-        console.error(err);
         e.target.style.borderColor = 'var(--color-danger)';
-        alert(`Error al guardar equivalencia para ${platform}: ${err.message}`);
+        alert('Error al guardar equivalencia: ' + err.message);
       }
     });
   });
 
-  setupAdminSkuMappingsListeners();
-}
-
-function setupAdminSkuMappingsListeners() {
-  // 0. Descargar plantilla
+  // 9. Descargar planilla de ejemplo
   const btnDownload = document.getElementById('btn-download-sku-template');
   if (btnDownload) {
-    const newBtnDownload = btnDownload.cloneNode(true);
-    btnDownload.parentNode.replaceChild(newBtnDownload, btnDownload);
-    newBtnDownload.addEventListener('click', () => {
+    btnDownload.addEventListener('click', () => {
       const headers = [['Plataforma', 'SKU Plataforma', 'SKU Master']];
       const sampleData = [
         ['Shopify', 'poleraazulxl', 'POL-AZ-XL'],
@@ -2358,48 +2395,252 @@ function setupAdminSkuMappingsListeners() {
       XLSX.writeFile(wb, 'plantilla_equivalencias_sku.xlsx');
     });
   }
+}
 
-  const btnSaveMain = document.getElementById('btn-save-main-platform');
-  const mainSelect = document.getElementById('eq-main-platform-select');
-  if (btnSaveMain && mainSelect) {
-    const newBtn = btnSaveMain.cloneNode(true);
-    btnSaveMain.parentNode.replaceChild(newBtn, btnSaveMain);
-    newBtn.addEventListener('click', async () => {
-      const selected = mainSelect.value;
-      const commerce = window.activeAdminComercio;
-      if (!commerce) return;
+async function renderAdminCatalog() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `
+    <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+      <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+        <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)
+      </label>
+      <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+        <option value="">-- Seleccione un Cliente --</option>
+      </select>
+    </div>
+    <div id="eq-admin-workspace" style="display: none;">
+    </div>
+  `;
 
-      newBtn.disabled = true;
-      newBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
+  try {
+    const { data: configComercios, error: clientErr } = await supabase
+      .from('v_comercios_config')
+      .select('sigla, nombre')
+      .order('nombre');
 
-      try {
-        const { error: resetErr } = await supabase
-          .from('merchant_integrations')
-          .update({ is_main: false })
-          .eq('comercio', commerce);
+    if (clientErr) throw clientErr;
 
-        if (resetErr) throw resetErr;
-
-        if (selected) {
-          const { error: setErr } = await supabase
-            .from('merchant_integrations')
-            .update({ is_main: true })
-            .eq('comercio', commerce)
-            .eq('platform', selected);
-
-          if (setErr) throw setErr;
+    const uniqueClients = [];
+    const seen = new Set();
+    if (configComercios) {
+      configComercios.forEach(c => {
+        if (c.sigla && !seen.has(c.sigla)) {
+          seen.add(c.sigla);
+          uniqueClients.push(c);
         }
+      });
+    }
 
-        alert('Plataforma principal actualizada correctamente.');
-        window.renderAdminSkuMappings();
-      } catch (err) {
-        alert('Error al actualizar plataforma principal: ' + err.message);
-      } finally {
-        newBtn.disabled = false;
-        newBtn.innerHTML = `<i class="ri-save-line"></i> Guardar`;
+    const clientSelect = document.getElementById('eq-admin-client-select');
+    clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
+      uniqueClients.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('');
+
+    if (window.activeAdminComercio) {
+      clientSelect.value = window.activeAdminComercio;
+      document.getElementById('eq-admin-workspace').style.display = 'block';
+      renderAdminCatalogWorkspace(window.activeAdminComercio);
+    }
+
+    clientSelect.addEventListener('change', (e) => {
+      const selectedComercio = e.target.value;
+      const workspace = document.getElementById('eq-admin-workspace');
+      if (selectedComercio) {
+        workspace.style.display = 'block';
+        window.activeAdminComercio = selectedComercio;
+        renderAdminCatalogWorkspace(selectedComercio);
+      } else {
+        workspace.style.display = 'none';
+        window.activeAdminComercio = '';
       }
     });
+
+    initProductFormListeners();
+
+  } catch (err) {
+    console.error('Error loading admin client select:', err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones.</p>`;
   }
+}
+
+async function renderAdminCatalogWorkspace(commerce) {
+  const workspace = document.getElementById('eq-admin-workspace');
+  workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando catálogo del comercio...</p>`;
+
+  try {
+    const { data: integrations, error: intErr } = await supabase
+      .from('merchant_integrations')
+      .select('platform, is_active, is_main')
+      .eq('comercio', commerce);
+
+    if (intErr) throw intErr;
+
+    const activeIntegrations = (integrations || []).filter(i => i.is_active && i.platform !== 'Optiroute');
+    const mainIntegration = activeIntegrations.find(i => i.is_main);
+    const mainPlatform = mainIntegration ? mainIntegration.platform : '';
+    const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
+
+    const { data: products, error: prodErr } = await supabase
+      .from('products')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('name');
+
+    if (prodErr) throw prodErr;
+
+    const masterProducts = products || [];
+
+    const { data: syncedProducts, error: syncErr } = await supabase
+      .from('synced_products')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('name');
+
+    if (syncErr) throw syncErr;
+
+    const { data: mappings, error: mapErr } = await supabase
+      .from('sku_equivalences')
+      .select('*')
+      .eq('comercio', commerce);
+
+    if (mapErr) throw mapErr;
+
+    const mappingsMap = {};
+    if (mappings) {
+      mappings.forEach(m => {
+        if (!mappingsMap[m.platform]) mappingsMap[m.platform] = {};
+        mappingsMap[m.platform][m.platform_sku] = m.master_sku;
+      });
+    }
+
+    const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
+    const unmappedSynced = (syncedProducts || []).filter(sp => {
+      const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+      return !masterSkusSet.has(cleanSku);
+    });
+
+    window.currentMasterProducts = masterProducts;
+    window.currentUnmappedSyncedProducts = unmappedSynced;
+
+    const createBtn = '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
+    const importBtn = mainPlatform
+      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
+      : '';
+
+    const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
+
+    workspace.innerHTML = `
+      <div class="integration-tabs" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0px;">
+        <button class="integration-tab catalog-tab active" data-tab="tab-catalog-master" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-list-check"></i> Catálogo Master
+        </button>
+        <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-equalizer-line"></i> Equivalencias SKU
+        </button>
+      </div>
+
+      <div class="integration-content">
+        <div id="tab-catalog-master" class="catalog-tab-pane" style="display: block;">
+          <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 class="card-title" style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text);">Catálogo General (Admin: ${commerce})</h3>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Administra el catálogo master del cliente.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div style="position: relative; margin-right: 0.5rem;">
+                  <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
+                </div>
+                ${importBtn}
+                ${createBtn}
+              </div>
+            </div>
+            <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+              <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                    <th style="padding: 1rem 1.5rem;">Imagen</th>
+                    <th style="padding: 1rem 1.5rem;">SKU</th>
+                    <th style="padding: 1rem 1.5rem;">Nombre</th>
+                    <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
+                    <th style="padding: 1rem 1.5rem;">Precio</th>
+                    <th style="padding: 1rem 1.5rem;">Origen</th>
+                    <th style="padding: 1rem 1.5rem;">Medidas</th>
+                    <th style="padding: 1rem 1.5rem;">Peso</th>
+                    <th style="padding: 1rem 1.5rem;">Venc. / Lote</th>
+                    <th style="padding: 1rem 1.5rem;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-master-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-sku-mappings" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: var(--shadow-sm); margin-bottom: 2rem; border-radius: var(--radius-lg); background: rgba(59, 130, 246, 0.02); overflow: hidden; padding: 1.5rem 2rem;">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+              <i class="ri-information-line"></i> Instrucciones de Equivalencias de Canales (Admin)
+            </h4>
+            <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
+              Asocia los SKUs de las tiendas integradas del cliente a sus correspondientes SKUs maestros de WMS.
+            </p>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+                <i class="ri-download-2-line"></i> Descargar Planilla de Ejemplo
+              </button>
+            </div>
+          </div>
+
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-table-2" style="color: var(--color-primary);"></i> Mapeo de Equivalencias
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Asocia los SKUs de tus plataformas a los SKUs maestros de WMS.</p>
+              </div>
+              <div style="display: flex; gap: 1rem; align-items: center;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-matrix-search" class="form-input" placeholder="Buscar SKU externo..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                </div>
+                <button id="btn-auto-map-equivalences" class="btn btn-outline" style="border-color: var(--color-success); color: var(--color-success); background: transparent; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 500; height: 38px; display: inline-flex; align-items: center; gap: 0.5rem;"><i class="ri-magic-line"></i> Auto-mapear Coincidencias</button>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto (Plataforma)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma Origen</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Equivalencia (Catálogo WMS)</th>
+                  </tr>
+                </thead>
+                <tbody id="eq-matrix-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <datalist id="master-skus-list">
+        ${datalistOptionsHtml}
+      </datalist>
+    `;
+
+    renderMasterCatalogRows(masterProducts);
+    renderEquivalencesRows(unmappedSynced, mappingsMap);
+    setupCatalogListeners(commerce, mainPlatform);
+
+  } catch (err) {
+    console.error('Error renderAdminCatalogWorkspace:', err);
+    workspace.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar catálogo: ${err.message}</p>`;
+  }
+}
 
   const searchInput = document.getElementById('eq-matrix-search');
   if (searchInput) {
@@ -2418,286 +2659,6 @@ function setupAdminSkuMappingsListeners() {
     });
   }
 
-  const btnValidate = document.getElementById('btn-run-consistency-check');
-  if (btnValidate) {
-    const newBtn = btnValidate.cloneNode(true);
-    btnValidate.parentNode.replaceChild(newBtn, btnValidate);
-    newBtn.addEventListener('click', async () => {
-      const resultsDiv = document.getElementById('eq-consistency-results');
-      if (!resultsDiv) return;
-
-      resultsDiv.innerHTML = `<span style="color: var(--color-primary);"><i class="ri-loader-4-line ri-spin"></i> Analizando integraciones activas...</span>`;
-      
-      try {
-        const commerce = window.activeAdminComercio;
-
-        const { data: allProducts, error: prodErr } = await supabase
-          .from('products')
-          .select('sku, name, raw_shopify_data')
-          .eq('comercio', commerce);
-
-        if (prodErr) throw prodErr;
-
-        const { data: integrations } = await supabase
-          .from('merchant_integrations')
-          .select('platform, is_main')
-          .eq('comercio', commerce)
-          .eq('is_main', true)
-          .maybeSingle();
-
-        const mainPlatform = integrations ? integrations.platform : null;
-
-        if (!mainPlatform) {
-          resultsDiv.innerHTML = `<span style="color: var(--color-warning);"><i class="ri-alert-line"></i> Debe definir una plataforma principal para realizar la validación.</span>`;
-          return;
-        }
-
-        const skuGroups = {};
-        allProducts.forEach(p => {
-          if (p.sku) {
-            if (!skuGroups[p.sku]) skuGroups[p.sku] = [];
-            skuGroups[p.sku].push(p.name);
-          }
-        });
-
-        const inconsistencies = [];
-        for (const [sku, names] of Object.entries(skuGroups)) {
-          if (names.length > 1) {
-            inconsistencies.push({
-              sku,
-              issue: 'Duplicado en catálogo',
-              detail: `Existen ${names.length} variantes/productos con este mismo SKU en el systema WMS: "${names.join(', ')}"`
-            });
-          }
-        }
-
-        const { data: currentMappings } = await supabase
-          .from('sku_equivalences')
-          .select('platform_sku, master_sku, platform')
-          .eq('comercio', commerce);
-
-        if (currentMappings) {
-          const wmsSkus = new Set(allProducts.map(p => p.sku));
-          currentMappings.forEach(m => {
-            if (!wmsSkus.has(m.master_sku)) {
-              inconsistencies.push({
-                sku: m.master_sku,
-                issue: 'SKU Master huérfano',
-                detail: `La equivalencia para la plataforma ${m.platform} (SKU: ${m.platform_sku}) apunta a un SKU Master que no existe en el catálogo.`
-              });
-            }
-          });
-        }
-
-        if (inconsistencies.length === 0) {
-          resultsDiv.innerHTML = `<div style="color: #10b981; display:flex; align-items:center; gap:0.5rem; font-weight:600;"><i class="ri-checkbox-circle-line" style="font-size:1.25rem;"></i> ¡Todos los SKUs analizados están limpios y consistentes!</div>`;
-        } else {
-          resultsDiv.innerHTML = `
-            <div style="color: var(--color-danger); font-weight:600; margin-bottom: 0.5rem;"><i class="ri-close-circle-line"></i> Se encontraron ${inconsistencies.length} inconsistencias:</div>
-            <ul style="padding-left: 1.25rem; margin: 0; display:flex; flex-direction:column; gap:0.5rem;">
-              ${inconsistencies.map(inc => `
-                <li>
-                  <strong style="font-family:monospace; color: var(--color-text-main);">${inc.sku}</strong>: 
-                  <span style="color: var(--color-danger);">${inc.issue}</span> - <span style="color: var(--color-text-muted); font-size:0.85rem;">${inc.detail}</span>
-                </li>
-              `).join('')}
-            </ul>
-          `;
-        }
-
-      } catch (err) {
-        console.error(err);
-        resultsDiv.innerHTML = `<span style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Error al realizar validación: ${err.message}</span>`;
-      }
-    });
-  }
-
-  const importInput = document.getElementById('eq-matrix-import-excel');
-  if (importInput) {
-    const newImportInput = importInput.cloneNode(true);
-    importInput.parentNode.replaceChild(newImportInput, importInput);
-    newImportInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const rows = XLSX.utils.sheet_to_json(worksheet);
-
-          if (rows.length === 0) {
-            alert('El archivo Excel está vacío.');
-            return;
-          }
-
-          const sample = rows[0];
-          let colPlatform = '';
-          let colPlatformSku = '';
-          let colMasterSku = '';
-
-          for (const key of Object.keys(sample)) {
-            const lower = key.toLowerCase().trim();
-            if (lower === 'plataforma' || lower === 'platform') colPlatform = key;
-            else if (lower === 'sku plataforma' || lower === 'platform_sku' || lower === 'sku_plataforma' || lower === 'sku externo') colPlatformSku = key;
-            else if (lower === 'sku master' || lower === 'master_sku' || lower === 'sku_master' || lower === 'sku wms' || lower === 'sku maestro') colMasterSku = key;
-          }
-
-          if (!colPlatformSku || !colMasterSku) {
-            alert('Error: Columnas no encontradas. Asegúrate de tener "SKU Plataforma" y "SKU Master".');
-            return;
-          }
-
-          const commerce = window.activeAdminComercio;
-
-          const { data: validProducts } = await supabase
-            .from('products')
-            .select('sku')
-            .eq('comercio', commerce);
-          
-          const validSkus = new Set((validProducts || []).map(p => p.sku));
-
-          const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller'];
-
-          rows.forEach((r) => {
-            let platformVal = colPlatform ? r[colPlatform] : 'Todas';
-            if (platformVal) {
-              platformVal = platformVal.toString().trim();
-              const matched = allowedPlatforms.find(ap => ap.toLowerCase() === platformVal.toLowerCase());
-              platformVal = matched || 'Todas';
-            } else {
-              platformVal = 'Todas';
-            }
-
-            const platformSkuVal = r[colPlatformSku] ? r[colPlatformSku].toString().trim().replace(/\s+/g, '') : '';
-            const masterSkuVal = r[colMasterSku] ? r[colMasterSku].toString().trim() : '';
-
-            let status = 'Válido';
-            let statusColor = '#10b981';
-            let isValid = true;
-
-            if (!platformSkuVal || !masterSkuVal) {
-              status = 'Faltan datos (SKU)';
-              statusColor = '#f59e0b';
-              isValid = false;
-            } else if (!validSkus.has(masterSkuVal)) {
-              status = 'SKU Master no existe en Catálogo WMS';
-              statusColor = '#ef4444';
-              isValid = false;
-            }
-
-            previewData.push({
-              platform: platformVal,
-              platform_sku: platformSkuVal,
-              master_sku: masterSkuVal,
-              status,
-              statusColor,
-              isValid
-            });
-          });
-
-          showImportPreviewModal(previewData);
-
-        } catch (error) {
-          console.error(error);
-          alert('Error al leer el archivo Excel: ' + error.message);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    });
-  }
-}
-
-function showImportPreviewModal(previewData) {
-  let modal = document.getElementById('modal-eq-preview');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'modal-eq-preview';
-    modal.className = 'modal-overlay';
-    document.body.appendChild(modal);
-  }
-
-  modal.innerHTML = `
-    <div class="modal-content" style="max-width: 850px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; background: var(--color-surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);">
-      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background-color: var(--color-bg); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
-        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">
-          <i class="ri-file-excel-2-line" style="color: #10b981; margin-right: 0.5rem;"></i> Vista Previa de Importación
-        </h3>
-        <button class="modal-close" onclick="document.getElementById('modal-eq-preview').classList.remove('active')" style="background:none; border:none; font-size: 1.5rem; cursor:pointer; color: var(--color-text-muted);">&times;</button>
-      </div>
-      <div class="modal-body" style="flex: 1; padding: 1.5rem; overflow-y: auto;">
-        <p style="margin-top: 0; margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-muted);">
-          Se procesaron <strong>${previewData.length}</strong> registros de tu planilla. Revisa el estado antes de confirmar.
-        </p>
-        <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left;">
-          <thead>
-            <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
-              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Plataforma</th>
-              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Plataforma</th>
-              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">SKU Master</th>
-              <th style="padding: 0.75rem; font-size: 0.85rem; color: var(--color-text-main);">Estado / Diagnóstico</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${previewData.map(row => `
-              <tr style="border-bottom: 1px solid var(--color-border);">
-                <td style="padding: 0.75rem; font-size: 0.875rem;">${row.platform}</td>
-                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem;">${row.platform_sku || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-family: monospace; font-size: 0.875rem; font-weight: 600; color: var(--color-primary);">${row.master_sku || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-size: 0.875rem; font-weight: 500; color: ${row.statusColor};">
-                  ${row.status === 'Válido' ? '<i class="ri-checkbox-circle-line"></i> Válido' : `<i class="ri-error-warning-line"></i> ${row.status}`}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 1rem; background-color: var(--color-bg); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
-        <button class="btn btn-outline" onclick="document.getElementById('modal-eq-preview').classList.remove('active')" style="margin:0;">Cancelar</button>
-        <button id="btn-confirm-eq-import" class="btn btn-primary" style="margin:0;" ${previewData.some(r => r.isValid) ? '' : 'disabled'}>
-          Confirmar e Importar (${previewData.filter(r => r.isValid).length} válidos)
-        </button>
-      </div>
-    </div>
-  `;
-
-  modal.classList.add('active');
-
-  const btnConfirm = document.getElementById('btn-confirm-eq-import');
-  if (btnConfirm) {
-    btnConfirm.addEventListener('click', async () => {
-      btnConfirm.disabled = true;
-      btnConfirm.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Importando...`;
-
-      const validRows = previewData.filter(r => r.isValid).map(r => ({
-        comercio: window.activeAdminComercio,
-        platform: r.platform,
-        platform_sku: r.platform_sku,
-        master_sku: r.master_sku
-      }));
-
-      try {
-        const { error } = await supabase
-          .from('sku_equivalences')
-          .upsert(validRows, { onConflict: 'comercio,platform,platform_sku' });
-
-        if (error) throw error;
-
-        alert(`Se han importado exitosamente ${validRows.length} equivalencias.`);
-        modal.classList.remove('active');
-        window.renderAdminSkuMappings();
-      } catch (err) {
-        alert('Error al realizar la importación masiva: ' + err.message);
-        btnConfirm.disabled = false;
-        btnConfirm.innerHTML = `Confirmar e Importar`;
-      }
-    });
-  }
-}
 
 async function renderConsolidatedShipments() {
   const appContent = document.getElementById('app-content');
@@ -12212,9 +12173,14 @@ async function renderMerchantsAdmin() {
               Administra la parametrización del WMS para cada cliente, incluyendo el estado de facturación, seguimiento de inventarios y siglas de órdenes.
             </p>
           </div>
-          <div style="position: relative; width: 280px;">
-            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-            <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio o sigla..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #000; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
+              <i class="ri-add-line"></i> Crear Comercio
+            </button>
+            <div style="position: relative; width: 220px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+              <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio o sigla..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
+            </div>
           </div>
         </div>
         <div class="card-body table-responsive" style="padding: 0; overflow-x: auto;">
@@ -12436,6 +12402,179 @@ window.showMerchantIntegrationsModal = function(comercioName) {
     </div>
   `;
   document.body.appendChild(modal);
+};
+
+// Modal de Creación de Comercio
+window.showMerchantCreateModal = function() {
+  const modalId = 'modal-create-merchant';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  const isMigration = window.isMerchantMigrationNeeded;
+  const disabledAttr = isMigration ? 'disabled' : '';
+  const migrationTip = isMigration 
+    ? `<p style="color: var(--color-danger); font-size: 0.75rem; margin: 0.25rem 0 0 0;">⚠️ Requiere migración SQL para habilitarse</p>` 
+    : '';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; width: 90%;">
+      <form id="form-create-merchant" style="margin: 0;">
+        <div class="modal-header">
+          <h3 style="margin: 0;"><i class="ri-add-circle-line"></i> Crear Nuevo Comercio</h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Nombre del Comercio *</label>
+            <input type="text" id="merchant-create-nombre" class="form-input" placeholder="Ej: MI COMERCIO" required style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Nombre oficial del comercio (se guardará en mayúsculas).</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Sigla del Comercio *</label>
+            <input type="text" id="merchant-create-sigla" class="form-input" placeholder="Ej: MIC" maxlength="10" required style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador corto usado para despachos y reportes (máx 10 letras).</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
+            <select id="merchant-create-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="activo" selected>Activo (Servicio habilitado)</option>
+              <option value="suspendido">Suspendido (Servicio pausado/bloqueado)</option>
+            </select>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Los comercios suspendidos verán un banner de advertencia y no podrán procesar pedidos.</p>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-create-inventory" ${disabledAttr}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-create-inventory" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Seguimiento de Inventario</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la sincronización y control automático del stock físico.</p>
+              ${migrationTip}
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-create-origensigla" ${disabledAttr}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-create-origensigla" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Pedido trae Sigla de Origen</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Indica si las órdenes de compra ya vienen con la sigla integrada desde la plataforma externa.</p>
+              ${migrationTip}
+            </div>
+          </div>
+
+          <div id="create-merchant-alert-container" style="margin: 0;"></div>
+
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-merchant-create" style="background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">Crear Comercio</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-create-merchant');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-merchant-create');
+    const alertContainer = document.getElementById('create-merchant-alert-container');
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Creando...';
+    alertContainer.innerHTML = '';
+
+    const nombre = document.getElementById('merchant-create-nombre').value.trim().toUpperCase();
+    const sigla = document.getElementById('merchant-create-sigla').value.trim().toUpperCase();
+    const billing = document.getElementById('merchant-create-billing').value;
+    const inventory = !isMigration && document.getElementById('merchant-create-inventory').checked;
+    const origensigla = !isMigration && document.getElementById('merchant-create-origensigla').checked;
+
+    // Validar nombre duplicado
+    const exists = window.cachedAdminMerchants.some(c => c.nombre.toUpperCase() === nombre);
+    if (exists) {
+      btn.disabled = false;
+      btn.innerHTML = 'Crear Comercio';
+      alertContainer.innerHTML = `
+        <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-error-warning-line"></i> <span>Ya existe un comercio registrado con el nombre "${nombre}".</span>
+        </div>
+      `;
+      return;
+    }
+
+    try {
+      // 1. Generar UUID para id del comercio
+      const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+
+      // 2. Insertar comercio en v_comercios_config
+      const { error: insertErr } = await supabase
+        .from('v_comercios_config')
+        .insert([{ id, nombre, sigla }]);
+
+      if (insertErr) throw insertErr;
+
+      // 3. Crear estado de cobranza en commerce_billing_status
+      const { error: billingErr } = await supabase
+        .from('commerce_billing_status')
+        .upsert({
+          comercio: nombre,
+          al_dia: (billing === 'activo')
+        });
+
+      if (billingErr) throw billingErr;
+
+      // 4. Crear configuración adicional en comercios_adicional_config si la tabla existe
+      if (!isMigration) {
+        const { error: configErr } = await supabase
+          .from('comercios_adicional_config')
+          .upsert({
+            comercio: nombre,
+            comercio_id: id,
+            inventario_seguimiento: inventory,
+            pedido_trae_sigla: origensigla
+          });
+
+        if (configErr) throw configErr;
+      }
+
+      // Cerrar modal y recargar tabla
+      modal.remove();
+      if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+      
+      alert('¡Comercio creado con éxito en ambos sistemas (WMS y Picker)!');
+
+    } catch (err) {
+      console.error('Error al crear el comercio:', err);
+      btn.disabled = false;
+      btn.innerHTML = 'Crear Comercio';
+      alertContainer.innerHTML = `
+        <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-error-warning-line"></i> <span>Error: ${err.message || JSON.stringify(err)}</span>
+        </div>
+      `;
+    }
+  });
 };
 
 // Modal de Edición de Comercio
@@ -12706,6 +12845,178 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
     alert('Error al cargar la observación: ' + err.message);
   }
 };
+
+async function openEditProductModal(prodId) {
+  try {
+    const { data: product, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', prodId)
+      .single();
+
+    if (error) throw error;
+
+    document.getElementById('edit-prod-id').value = product.id;
+    document.getElementById('edit-prod-sku').value = product.sku;
+    document.getElementById('edit-prod-name').value = product.name;
+    document.getElementById('edit-prod-barcode').value = product.barcode || '';
+    document.getElementById('edit-prod-length').value = product.length || '';
+    document.getElementById('edit-prod-width').value = product.width || '';
+    document.getElementById('edit-prod-height').value = product.height || '';
+    document.getElementById('edit-prod-weight').value = product.weight || '';
+    document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
+    document.getElementById('edit-prod-lot').value = product.lot_number || '';
+
+    document.getElementById('modal-edit-product').classList.add('active');
+  } catch (err) {
+    console.error(err);
+    alert('Error al cargar datos del producto: ' + err.message);
+  }
+}
+
+let productFormListenersInitialized = false;
+function initProductFormListeners() {
+  if (productFormListenersInitialized) return;
+  productFormListenersInitialized = true;
+
+  const formNew = document.getElementById('form-new-product');
+  if (formNew) {
+    formNew.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const commerce = window.activeAdminComercio;
+      if (!commerce) {
+        alert('Por favor selecciona un comercio primero.');
+        return;
+      }
+
+      const btnSubmit = e.target.querySelector('button[type="submit"]');
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Guardando...';
+
+      const sku = document.getElementById('prod-sku').value;
+      const name = document.getElementById('prod-name').value;
+      const desc = document.getElementById('prod-desc').value;
+      const stock = parseInt(document.getElementById('prod-stock').value, 10);
+
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('comercio', commerce)
+          .limit(1);
+
+        const merchantId = (profiles && profiles.length > 0) ? profiles[0].id : null;
+        if (!merchantId) {
+          throw new Error('No se pudo encontrar el merchant_id asociado a este comercio.');
+        }
+
+        const { data: newProd, error: errProd } = await supabase
+          .from('products')
+          .insert([{
+            merchant_id: merchantId,
+            comercio: commerce,
+            sku: sku,
+            name: name,
+            description: desc
+          }])
+          .select()
+          .single();
+        
+        if (errProd) throw errProd;
+
+        if (stock > 0) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+          
+          if (bodegaCentral) {
+            await supabase.from('inventory').insert([{
+              product_id: newProd.id,
+              warehouse_id: bodegaCentral.id,
+              quantity: stock
+            }]);
+            
+            await supabase.from('movements').insert([{
+              product_id: newProd.id,
+              warehouse_id: bodegaCentral.id,
+              type: 'in',
+              quantity: stock,
+              reference_doc: 'Stock Inicial'
+            }]);
+          }
+        }
+
+        alert('Producto creado exitosamente!');
+        document.getElementById('modal-product').classList.remove('active');
+        e.target.reset();
+        renderAdminCatalogWorkspace(commerce);
+      } catch (error) {
+        console.error(error);
+        alert('Error al crear producto: ' + error.message);
+      } finally {
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Guardar Producto';
+      }
+    });
+  }
+
+  const formEdit = document.getElementById('form-edit-product');
+  if (formEdit) {
+    formEdit.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const commerce = window.activeAdminComercio;
+      if (!commerce) return;
+
+      const btnSubmit = e.target.querySelector('button[type="submit"]');
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Guardando...';
+
+      const prodId = document.getElementById('edit-prod-id').value;
+      const sku = document.getElementById('edit-prod-sku').value;
+      const name = document.getElementById('edit-prod-name').value;
+      const barcode = document.getElementById('edit-prod-barcode').value || null;
+      const length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
+      const width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
+      const height = document.getElementById('edit-prod-height').value ? parseFloat(document.getElementById('edit-prod-height').value) : null;
+      const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
+      const expiration = document.getElementById('edit-prod-expiration').value || null;
+      const lot = document.getElementById('edit-prod-lot').value || null;
+
+      try {
+        const { error } = await supabase
+          .from('products')
+          .update({
+            sku,
+            name,
+            barcode,
+            length,
+            width,
+            height,
+            weight,
+            expiration_date: expiration,
+            lot_number: lot
+          })
+          .eq('id', prodId);
+
+        if (error) throw error;
+
+        alert('Parámetros del producto actualizados exitosamente!');
+        document.getElementById('modal-edit-product').classList.remove('active');
+        e.target.reset();
+        renderAdminCatalogWorkspace(commerce);
+      } catch (error) {
+        console.error(error);
+        alert('Error al actualizar producto: ' + error.message);
+      } finally {
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Guardar Cambios';
+      }
+    });
+  }
+}
 
 
 
