@@ -2195,30 +2195,48 @@ window.applyClientWmsFiltersAndRender = function() {
     const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
     const foundPacks = [];
 
-    const checkRawItems = (items) => {
+    const checkRawItems = (items, platform = '') => {
       if (!Array.isArray(items)) return;
       items.forEach(item => {
-        const sku = (item.sku || item.variant_sku || '').toLowerCase();
+        let sku = '';
+        let qty = 1;
+
+        if (platform === 'meli') {
+          sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
+          if (!sku && item.item?.variation_attributes) {
+            const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
+            if (vSkuAttr) sku = vSkuAttr.value_name || '';
+          }
+          qty = item.quantity || 1;
+        } else {
+          sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
+          qty = item.quantity || item.qty || 1;
+        }
+
+        sku = (sku || '').trim().toLowerCase();
         if (sku && packSkus.has(sku)) {
-          const name = item.name || item.title || item.sku || 'Pack';
-          const qty = item.quantity || item.qty || 1;
           foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
         }
       });
     };
 
     if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
-      checkRawItems(order.raw_shopify_data.line_items);
+      checkRawItems(order.raw_shopify_data.line_items, 'shopify');
     } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
-      checkRawItems(order.raw_woocommerce_data.line_items);
-    } else if (order.raw_meli_data && order.raw_meli_data.order_items) {
-      checkRawItems(order.raw_meli_data.order_items);
+      checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
+    } else if (order.raw_meli_data) {
+      const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
+      meliOrders.forEach(mo => {
+        if (mo && mo.order_items) {
+          checkRawItems(mo.order_items, 'meli');
+        }
+      });
     } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
-      checkRawItems(order.raw_jumpseller_data.products);
+      checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
     } else if (order.raw_paris_data && order.raw_paris_data.items) {
-      checkRawItems(order.raw_paris_data.items);
+      checkRawItems(order.raw_paris_data.items, 'paris');
     } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
-      checkRawItems(order.raw_falabella_data.items);
+      checkRawItems(order.raw_falabella_data.items, 'falabella');
     }
 
     if (foundPacks.length > 0) {
