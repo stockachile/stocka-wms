@@ -1039,6 +1039,73 @@ window.applyWmsFiltersAndRender = function() {
       (order.external_order_number && s.pedido_referencia === order.external_order_number)
     );
 
+    // Detectar packs originales desde el canal de integración
+    let originalPacksHtml = '';
+    let packBadgeHtml = '';
+    const masterProducts = window.currentMasterProducts || [];
+    const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    const foundPacks = [];
+
+    const checkRawItems = (items, platform = '') => {
+      if (!Array.isArray(items)) return;
+      items.forEach(item => {
+        let sku = '';
+        let qty = 1;
+
+        if (platform === 'meli') {
+          sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
+          if (!sku && item.item?.variation_attributes) {
+            const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
+            if (vSkuAttr) sku = vSkuAttr.value_name || '';
+          }
+          qty = item.quantity || 1;
+        } else {
+          sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
+          qty = item.quantity || item.qty || 1;
+        }
+
+        sku = (sku || '').trim().toLowerCase();
+        if (sku && packSkus.has(sku)) {
+          foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
+        }
+      });
+    };
+
+    if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
+      checkRawItems(order.raw_shopify_data.line_items, 'shopify');
+    } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
+      checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
+    } else if (order.raw_meli_data) {
+      const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
+      meliOrders.forEach(mo => {
+        if (mo && mo.order_items) {
+          checkRawItems(mo.order_items, 'meli');
+        }
+      });
+    } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
+      checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
+    } else if (order.raw_paris_data && order.raw_paris_data.items) {
+      checkRawItems(order.raw_paris_data.items, 'paris');
+    } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
+      checkRawItems(order.raw_falabella_data.items, 'falabella');
+    }
+
+    if (foundPacks.length > 0) {
+      originalPacksHtml = `
+        <div style="margin-top: 1rem; padding: 0.5rem 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-stack-line" style="font-size: 1.1rem;"></i>
+          <div>
+            <strong>Contenía los packs:</strong> ${foundPacks.join(', ')}
+          </div>
+        </div>
+      `;
+      packBadgeHtml = `
+        <span class="badge" style="background-color: rgba(139, 92, 246, 0.12); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem;">
+          <i class="ri-stack-line"></i> Con Packs
+        </span>
+      `;
+    }
+
     const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
       ? orderShipments[0].created_at 
       : order.created_at;
@@ -1082,8 +1149,8 @@ window.applyWmsFiltersAndRender = function() {
       : '';
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span>${exportBadgeHtml}</div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span>${exportBadgeHtml}</div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}</div></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}</div></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -1163,66 +1230,7 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
-    // Detectar packs originales desde el canal de integración
-    let originalPacksHtml = '';
-    const masterProducts = window.currentMasterProducts || [];
-    const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
-    const foundPacks = [];
-
-    const checkRawItems = (items, platform = '') => {
-      if (!Array.isArray(items)) return;
-      items.forEach(item => {
-        let sku = '';
-        let qty = 1;
-
-        if (platform === 'meli') {
-          sku = item.item?.seller_sku || item.item?.seller_custom_field || '';
-          if (!sku && item.item?.variation_attributes) {
-            const vSkuAttr = item.item.variation_attributes.find(a => a.id === 'SELLER_SKU');
-            if (vSkuAttr) sku = vSkuAttr.value_name || '';
-          }
-          qty = item.quantity || 1;
-        } else {
-          sku = item.sku || item.variant_sku || item.seller_sku || item.platform_sku || '';
-          qty = item.quantity || item.qty || 1;
-        }
-
-        sku = (sku || '').trim().toLowerCase();
-        if (sku && packSkus.has(sku)) {
-          foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
-        }
-      });
-    };
-
-    if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
-      checkRawItems(order.raw_shopify_data.line_items, 'shopify');
-    } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
-      checkRawItems(order.raw_woocommerce_data.line_items, 'woocommerce');
-    } else if (order.raw_meli_data) {
-      const meliOrders = Array.isArray(order.raw_meli_data) ? order.raw_meli_data : [order.raw_meli_data];
-      meliOrders.forEach(mo => {
-        if (mo && mo.order_items) {
-          checkRawItems(mo.order_items, 'meli');
-        }
-      });
-    } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
-      checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
-    } else if (order.raw_paris_data && order.raw_paris_data.items) {
-      checkRawItems(order.raw_paris_data.items, 'paris');
-    } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
-      checkRawItems(order.raw_falabella_data.items, 'falabella');
-    }
-
-    if (foundPacks.length > 0) {
-      originalPacksHtml = `
-        <div style="margin-top: 1rem; padding: 0.5rem 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-stack-line" style="font-size: 1.1rem;"></i>
-          <div>
-            <strong>Contenía los packs:</strong> ${foundPacks.join(', ')}
-          </div>
-        </div>
-      `;
-    }
+    // (Packs detection was moved to the top of the loop to support order row badges)
 
     let rawData = null;
     if (order.raw_woocommerce_data) rawData = order.raw_woocommerce_data;
