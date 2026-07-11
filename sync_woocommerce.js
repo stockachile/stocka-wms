@@ -192,46 +192,20 @@ async function saveProductToDb(integration, product, variation) {
     : product.name;
 
   const productDataToSave = {
-    merchant_id: integration.merchant_id,
+    comercio: integration.comercio,
+    platform: 'WooCommerce',
     sku: cleanSku,
-    name: productName,
-    description: product.description ? product.description.replace(/<[^>]*>?/gm, '') : '', // Quitar HTML
-    price: Number(isVariation ? variation.price : product.price) || 0,
-    weight: Number(isVariation ? variation.weight : product.weight) || null,
-    woocommerce_product_id: product.id.toString(),
-    woocommerce_variation_id: isVariation ? variation.id.toString() : null,
-    raw_woocommerce_data: isVariation ? variation : product
+    name: productName
   };
 
-  // Buscar si el producto ya existe en la BD
-  const { data: existingProduct } = await supabase
-    .from('products')
-    .select('id')
-    .eq('merchant_id', integration.merchant_id)
-    .eq('sku', cleanSku)
-    .maybeSingle();
+  const { error: insErr } = await supabase
+    .from('synced_products')
+    .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
 
-  if (existingProduct) {
-    const { error: updErr } = await supabase
-      .from('products')
-      .update(productDataToSave)
-      .eq('id', existingProduct.id);
-
-    if (updErr) {
-      console.error(`   ❌ Error al actualizar SKU ${cleanSku}:`, updErr.message);
-    } else {
-      console.log(`   📝 Actualizado SKU ${cleanSku}`);
-    }
+  if (insErr) {
+    console.error(`   ❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
   } else {
-    const { error: insErr } = await supabase
-      .from('products')
-      .insert([productDataToSave]);
-
-    if (insErr) {
-      console.error(`   ❌ Error al insertar SKU ${cleanSku}:`, insErr.message);
-    } else {
-      console.log(`   📥 Insertado nuevo SKU ${cleanSku}`);
-    }
+    console.log(`   📥 Sincronizado SKU ${cleanSku} en synced_products`);
   }
 }
 
@@ -390,8 +364,8 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           let { data: product } = await supabase
             .from('products')
             .select('id')
-            .eq('merchant_id', integration.merchant_id)
             .eq('sku', sku)
+            .eq('comercio', integration.comercio)
             .maybeSingle();
 
           if (!product) {
@@ -411,13 +385,11 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
               .from('products')
               .insert([{
                 merchant_id: integration.merchant_id,
+                comercio: integration.comercio,
                 sku: sku,
                 name: productName,
                 price: productPrice,
-                description: 'Creado automáticamente desde integración de WooCommerce (al procesar pedido)',
-                woocommerce_product_id: itemDetail ? itemDetail.product_id.toString() : null,
-                woocommerce_variation_id: itemDetail && itemDetail.variation_id ? itemDetail.variation_id.toString() : null,
-                raw_woocommerce_data: itemDetail || null
+                description: 'Creado automáticamente desde integración de WooCommerce (al procesar pedido)'
               }])
               .select('id')
               .single();

@@ -1116,20 +1116,34 @@ window.applyWmsFiltersAndRender = function() {
         : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</span>`;
     }
 
-    // Items table breakdown
+    // Items table breakdown (Agrupando repetidos)
     let itemsRowsHtml = '';
     if (order.order_items && order.order_items.length > 0) {
+      const grouped = {};
       order.order_items.forEach(oi => {
         const pSku = oi.products?.sku || order.sku || 'Sin SKU';
         const pName = oi.products?.name || order.item || 'Sin Nombre';
         const pQty = oi.quantity || 0;
-        const pPrice = Number(oi.products?.price) || (pQty > 0 ? (Number(order.total_value) / pQty) : 0) || 0;
-        const subtotal = pQty * pPrice;
+        
+        if (!grouped[pSku]) {
+          grouped[pSku] = {
+            sku: pSku,
+            name: pName,
+            quantity: 0,
+            price: Number(oi.products?.price) || 0
+          };
+        }
+        grouped[pSku].quantity += pQty;
+      });
+
+      Object.values(grouped).forEach(item => {
+        const pPrice = item.price || (item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0) || 0;
+        const subtotal = item.quantity * pPrice;
         itemsRowsHtml += `
           <tr style="border-bottom: 1px solid var(--color-border);">
-            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${pSku}</td>
-            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${pName}</td>
-            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+            <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
+            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</td>
+            <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
           </tr>
@@ -1146,6 +1160,49 @@ window.applyWmsFiltersAndRender = function() {
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
         </tr>
+      `;
+    }
+
+    // Detectar packs originales desde el canal de integración
+    let originalPacksHtml = '';
+    const masterProducts = window.currentMasterProducts || [];
+    const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    const foundPacks = [];
+
+    const checkRawItems = (items) => {
+      if (!Array.isArray(items)) return;
+      items.forEach(item => {
+        const sku = (item.sku || item.variant_sku || '').toLowerCase();
+        if (sku && packSkus.has(sku)) {
+          const name = item.name || item.title || item.sku || 'Pack';
+          const qty = item.quantity || item.qty || 1;
+          foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
+        }
+      });
+    };
+
+    if (order.raw_shopify_data && order.raw_shopify_data.line_items) {
+      checkRawItems(order.raw_shopify_data.line_items);
+    } else if (order.raw_woocommerce_data && order.raw_woocommerce_data.line_items) {
+      checkRawItems(order.raw_woocommerce_data.line_items);
+    } else if (order.raw_meli_data && order.raw_meli_data.order_items) {
+      checkRawItems(order.raw_meli_data.order_items);
+    } else if (order.raw_jumpseller_data && order.raw_jumpseller_data.products) {
+      checkRawItems(order.raw_jumpseller_data.products);
+    } else if (order.raw_paris_data && order.raw_paris_data.items) {
+      checkRawItems(order.raw_paris_data.items);
+    } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
+      checkRawItems(order.raw_falabella_data.items);
+    }
+
+    if (foundPacks.length > 0) {
+      originalPacksHtml = `
+        <div style="margin-top: 1rem; padding: 0.5rem 0.75rem; background: rgba(139, 92, 246, 0.08); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: var(--radius-sm); font-size: 0.8rem; color: #7c3aed; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-stack-line" style="font-size: 1.1rem;"></i>
+          <div>
+            <strong>Contenía los packs:</strong> ${foundPacks.join(', ')}
+          </div>
+        </div>
       `;
     }
 
@@ -1250,6 +1307,7 @@ window.applyWmsFiltersAndRender = function() {
                   </tbody>
                 </table>
               </div>
+              ${originalPacksHtml}
             </div>
 
             <!-- Col 3: Integración y Logística -->
@@ -2025,6 +2083,165 @@ function showWmsWarningInModal(formId) {
   }
 }
 
+function initProductPackDomElements(isAdmin = false) {
+  const checkbox = document.getElementById('prod-is-pack');
+  const stockInput = document.getElementById('prod-stock');
+  if (checkbox && stockInput && !checkbox.dataset.hasListener) {
+    checkbox.dataset.hasListener = 'true';
+    checkbox.addEventListener('change', () => {
+      if (checkbox.checked) {
+        stockInput.value = '0';
+        stockInput.disabled = true;
+        stockInput.style.backgroundColor = 'var(--color-gray-dark)';
+        stockInput.style.color = 'var(--color-text-muted)';
+      } else {
+        stockInput.disabled = false;
+        stockInput.style.backgroundColor = '';
+        stockInput.style.color = '';
+      }
+    });
+  }
+
+  const editCheckbox = document.getElementById('edit-prod-is-pack');
+  const packSection = document.getElementById('edit-prod-pack-section');
+  if (editCheckbox && packSection && !editCheckbox.dataset.hasListener) {
+    editCheckbox.dataset.hasListener = 'true';
+    editCheckbox.addEventListener('change', () => {
+      packSection.style.display = editCheckbox.checked ? 'block' : 'none';
+    });
+  }
+
+  const btnAddComp = document.getElementById('btn-add-pack-component');
+  if (btnAddComp && !btnAddComp.dataset.hasListener) {
+    btnAddComp.dataset.hasListener = 'true';
+    btnAddComp.addEventListener('click', () => {
+      const hiddenSelect = document.getElementById('edit-pack-component-select');
+      const selectedId = hiddenSelect ? hiddenSelect.value : '';
+      if (!selectedId) return;
+
+      const prod = (window._packSelectProducts || []).find(p => p.id === selectedId);
+      if (!prod) return;
+      const sku = prod.sku;
+      const name = prod.name;
+      const qtyInput = document.getElementById('edit-pack-component-qty');
+      const qty = parseInt(qtyInput.value, 10) || 1;
+
+      const existing = window.currentPackItems.find(item => item.id === selectedId);
+      if (existing) {
+        existing.quantity += qty;
+      } else {
+        window.currentPackItems.push({
+          id: selectedId,
+          sku,
+          name,
+          quantity: qty
+        });
+      }
+
+      renderPackComponentsTable();
+      qtyInput.value = '1';
+      // Clear searchable select
+      const searchInput = document.getElementById('edit-pack-component-search');
+      if (searchInput) searchInput.value = '';
+      if (hiddenSelect) hiddenSelect.value = '';
+    });
+  }
+}
+
+function initSearchableComponentSelect(products) {
+  const searchInput = document.getElementById('edit-pack-component-search');
+  const dropdown = document.getElementById('edit-pack-component-dropdown');
+  const hiddenInput = document.getElementById('edit-pack-component-select');
+  if (!searchInput || !dropdown || !hiddenInput) return;
+
+  searchInput.value = '';
+  hiddenInput.value = '';
+  dropdown.innerHTML = '';
+  dropdown.classList.remove('open');
+
+  const renderOptions = (filter) => {
+    const q = (filter || '').toLowerCase();
+    const filtered = products.filter(p => {
+      const text = `${p.name} ${p.sku}`.toLowerCase();
+      return text.includes(q);
+    }).slice(0, 50);
+
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">Sin resultados</div>';
+    } else {
+      dropdown.innerHTML = filtered.map(p =>
+        `<div class="searchable-select-option" data-id="${p.id}" data-sku="${p.sku}" data-name="${p.name}">
+          ${p.name} <span class="sku-hint">(${p.sku})</span>
+        </div>`
+      ).join('');
+    }
+    dropdown.classList.add('open');
+
+    dropdown.querySelectorAll('.searchable-select-option').forEach(opt => {
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        hiddenInput.value = opt.getAttribute('data-id');
+        newSearch.value = `${opt.getAttribute('data-name')} (${opt.getAttribute('data-sku')})`;
+        dropdown.classList.remove('open');
+      });
+    });
+  };
+
+  const newSearch = searchInput.cloneNode(true);
+  searchInput.parentNode.replaceChild(newSearch, searchInput);
+
+  newSearch.addEventListener('input', () => {
+    renderOptions(newSearch.value);
+    hiddenInput.value = '';
+  });
+
+  newSearch.addEventListener('focus', () => {
+    renderOptions(newSearch.value);
+  });
+
+  newSearch.addEventListener('blur', () => {
+    setTimeout(() => dropdown.classList.remove('open'), 150);
+  });
+}
+
+function renderPackComponentsTable() {
+  const tbody = document.getElementById('edit-pack-components-tbody');
+  if (!tbody) return;
+
+  const items = window.currentPackItems || [];
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">
+          No hay componentes definidos aún.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => `
+    <tr style="border-bottom: 1px solid var(--color-border);">
+      <td style="padding: 0.5rem; color: var(--color-text-main); font-weight: 500;">${item.name}</td>
+      <td style="padding: 0.5rem; font-family: monospace;">${item.sku}</td>
+      <td style="padding: 0.5rem; text-align: center; font-weight: bold;">${item.quantity}</td>
+      <td style="padding: 0.5rem; text-align: center;">
+        <button type="button" class="btn-remove-pack-component" data-id="${item.id}" style="background: transparent; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem; display: inline-flex; align-items: center; justify-content: center; padding: 0.25rem;">
+          <i class="ri-delete-bin-line"></i>
+        </button>
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('.btn-remove-pack-component').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.currentTarget.getAttribute('data-id');
+      window.currentPackItems = window.currentPackItems.filter(item => item.id !== id);
+      renderPackComponentsTable();
+    });
+  });
+}
+
 function renderMasterCatalogRows(products) {
   const tbody = document.getElementById('catalog-master-tbody');
   if (!tbody) return;
@@ -2053,11 +2270,27 @@ function renderMasterCatalogRows(products) {
       ? `${item.weight} kg` 
       : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
 
-    let originBadge = '<span class="badge" style="background-color: #64748b; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Manual</span>';
+    let platformName = 'Manual';
+    let platformColor = '#64748b';
     if (item.shopify_product_id) {
-      originBadge = `<span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">Shopify</span>`;
+      platformName = 'Shopify'; platformColor = '#96bf48';
     } else if (item.raw_meli_data) {
-      originBadge = `<span class="badge" style="background-color: #ffe600; color: #2d3277; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 800;">MercadoLibre</span>`;
+      platformName = 'MercadoLibre'; platformColor = '#f59e0b';
+    } else if (item.raw_falabella_data) {
+      platformName = 'Falabella'; platformColor = '#84cc16';
+    } else if (item.raw_paris_data) {
+      platformName = 'Paris'; platformColor = '#e11d48';
+    } else if (item.raw_woocommerce_data) {
+      platformName = 'WooCommerce'; platformColor = '#96588a';
+    } else if (item.raw_jumpseller_data) {
+      platformName = 'Jumpseller'; platformColor = '#0284c7';
+    }
+    const platformLower = platformName.toLowerCase();
+    const originBadge = `<img src="./img/${platformLower}.png" alt="${platformName}" title="${platformName}" style="height: 32px; max-width: 100px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>${platformName}</span>';" />`;
+
+    let packBadge = '';
+    if (item.is_pack) {
+      packBadge = ` <span class="badge" style="background-color: #8b5cf6; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-stack-line"></i> Pack</span>`;
     }
 
     const expAndLot = (item.expiration_date || item.lot_number)
@@ -2083,7 +2316,7 @@ function renderMasterCatalogRows(products) {
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
         <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
-        <td style="padding: 0.75rem 1.5rem;">${originBadge}</td>
+        <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
         <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
         <td style="padding: 0.75rem 1.5rem;">${weight}</td>
         <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
@@ -2091,6 +2324,119 @@ function renderMasterCatalogRows(products) {
       </tr>
     `;
   }).join('');
+}
+
+async function renderPacksTab() {
+  const tbody = document.getElementById('catalog-packs-tbody');
+  if (!tbody) return;
+
+  const packs = (window.currentMasterProducts || []).filter(p => p.is_pack);
+
+  if (packs.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+          No tienes ningún pack o combo configurado.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem;"></i>
+        Cargando composición de los packs...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const packIds = packs.map(p => p.id);
+    const { data: relations, error } = await supabase
+      .from('product_pack_items')
+      .select('pack_product_id, quantity, products:member_product_id(sku, name)')
+      .in('pack_product_id', packIds);
+
+    if (error) throw error;
+
+    const relationsMap = {};
+    if (relations) {
+      relations.forEach(rel => {
+        if (!relationsMap[rel.pack_product_id]) {
+          relationsMap[rel.pack_product_id] = [];
+        }
+        relationsMap[rel.pack_product_id].push(rel);
+      });
+    }
+
+    tbody.innerHTML = packs.map(item => {
+      const imgHtml = item.image_url 
+        ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+        : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
+
+      const comps = relationsMap[item.id] || [];
+      const compsHtml = comps.length > 0
+        ? comps.map(c => `<div style="margin-bottom: 0.25rem;"><strong>${c.products?.sku || 'Sin SKU'}</strong>: ${c.products?.name || 'Desconocido'} <span style="color: var(--color-primary); font-weight: bold;">x${c.quantity}</span></div>`).join('')
+        : '<span style="color: var(--color-danger); font-style: italic;">Sin componentes configurados</span>';
+
+      const isObserver = userRole === 'observer';
+      const deleteBtn = isObserver 
+        ? '' 
+        : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+      
+      const actionBtn = isObserver 
+        ? '' 
+        : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+
+      return `
+        <tr data-product-row-id="${item.id}">
+          <td style="padding: 0.75rem 2rem;">${imgHtml}</td>
+          <td style="padding: 0.75rem 2rem;"><strong>${item.sku}</strong></td>
+          <td style="padding: 0.75rem 2rem;">${item.name}</td>
+          <td style="padding: 0.75rem 2rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
+          <td style="padding: 0.75rem 2rem; line-height: 1.4;">${compsHtml}</td>
+          <td style="padding: 0.75rem 2rem;">${actionBtn}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Re-bind listeners
+    tbody.querySelectorAll('.btn-edit-product').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const prodId = e.currentTarget.getAttribute('data-id');
+        openEditProductModal(prodId);
+        showWmsWarningInModal('form-edit-product');
+      });
+    });
+
+    tbody.querySelectorAll('.btn-delete-product').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const prodId = e.currentTarget.getAttribute('data-id');
+        if (confirm('¿Estás seguro de que deseas eliminar este combo/pack?')) {
+          try {
+            const { error } = await supabase.from('products').delete().eq('id', prodId);
+            if (error) throw error;
+            alert('Pack eliminado correctamente.');
+            renderCatalog();
+          } catch (err) {
+            alert('Error al eliminar pack: ' + err.message);
+          }
+        }
+      });
+    });
+
+  } catch (err) {
+    console.error("Error loading packs:", err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          Error al cargar composición de packs: ${err.message}
+        </td>
+      </tr>
+    `;
+  }
 }
 
 function renderEquivalencesRows(unmappedProducts, mappingsMap) {
@@ -2156,6 +2502,10 @@ function setupCatalogListeners(commerce, mainPlatform) {
       const tabId = tab.getAttribute('data-tab');
       const targetPane = document.getElementById(tabId);
       if (targetPane) targetPane.style.display = 'block';
+
+      if (tabId === 'tab-catalog-packs') {
+        renderPacksTab();
+      }
     });
   });
 
@@ -2165,6 +2515,19 @@ function setupCatalogListeners(commerce, mainPlatform) {
     masterSearch.addEventListener('input', (e) => {
       const q = e.target.value.toLowerCase().trim();
       const rows = document.querySelectorAll('#catalog-master-tbody tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
+  // 2.5. Search box for Packs Tab
+  const packsSearch = document.getElementById('catalog-packs-search');
+  if (packsSearch) {
+    packsSearch.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#catalog-packs-tbody tr');
       rows.forEach(row => {
         const text = row.textContent.toLowerCase();
         row.style.display = text.includes(q) ? '' : 'none';
@@ -2536,6 +2899,9 @@ async function renderAdminCatalogWorkspace(commerce) {
         <button class="integration-tab catalog-tab" data-tab="tab-sku-mappings" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-equalizer-line"></i> Equivalencias SKU
         </button>
+        <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-stack-line"></i> Packs / Combos
+        </button>
       </div>
 
       <div class="integration-content">
@@ -2625,6 +2991,42 @@ async function renderAdminCatalogWorkspace(commerce) {
             </div>
           </div>
         </div>
+
+        <div id="tab-catalog-packs" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-stack-line" style="color: var(--color-primary);"></i> Packs y Combos
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Productos compuestos configurados en tu Catálogo WMS.</p>
+              </div>
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="catalog-packs-search" class="form-input" placeholder="Buscar pack..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 80px;">Imagen</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Pack</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Nombre del Pack</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Precio Combo</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Componentes / Composición</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 200px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-packs-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando packs...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <datalist id="master-skus-list">
@@ -2634,6 +3036,7 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     renderMasterCatalogRows(masterProducts);
     renderEquivalencesRows(unmappedSynced, mappingsMap);
+    initProductPackDomElements(true);
     setupCatalogListeners(commerce, mainPlatform);
 
   } catch (err) {
@@ -3360,6 +3763,7 @@ window.openUserComerciosModal = function(userId, assignedDataStr) {
 
 const CLIENT_MODULES = [
   { id: 'inventory', label: 'Inventario' },
+  { id: 'catalog', label: 'Catálogo' },
   { id: 'declarations', label: 'Ingresos de Stock' },
   { id: 'orders', label: 'Pedidos' },
   { id: 'shipments', label: 'Despachos' },
@@ -3371,6 +3775,7 @@ const CLIENT_MODULES = [
   { id: 'sales', label: 'Punto de Ventas' },
   { id: 'billing', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
+  { id: 'tickets', label: 'Soporte y Tickets' },
   { id: 'documentation', label: 'Documentación' },
   { id: 'profile', label: 'Mi Perfil' }
 ];
@@ -3382,10 +3787,14 @@ const ADMIN_MODULES = [
   { id: 'manual_in_admin', label: 'Ingreso Manual' },
   { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
   { id: 'upload_products_admin', label: 'Carga de Planillas' },
+  { id: 'catalog', label: 'Catálogo' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
   { id: 'merchants_admin', label: 'Gestionar Comercios' },
+  { id: 'warehouses_admin', label: 'Gestionar Bodegas' },
+  { id: 'visibility_rules_admin', label: 'Reglas de Visibilidad' },
   { id: 'billing_admin', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
+  { id: 'tickets_admin', label: 'Gestión de Tickets' },
   { id: 'documentation_admin', label: 'Documentación Admin' }
 ];
 
@@ -12867,6 +13276,41 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
 
+    // Setup pack checkbox and section visibility
+    initProductPackDomElements(true);
+    
+    const editIsPack = document.getElementById('edit-prod-is-pack');
+    const editPackSection = document.getElementById('edit-prod-pack-section');
+    
+    if (editIsPack && editPackSection) {
+      editIsPack.checked = !!product.is_pack;
+      editPackSection.style.display = product.is_pack ? 'block' : 'none';
+    }
+
+    // Fetch component items if it is a pack
+    window.currentPackItems = [];
+    if (product.is_pack) {
+      const { data: packItems, error: packErr } = await supabase
+        .from('product_pack_items')
+        .select('member_product_id, quantity, products:member_product_id(sku, name)')
+        .eq('pack_product_id', prodId);
+      
+      if (!packErr && packItems) {
+        window.currentPackItems = packItems.map(item => ({
+          id: item.member_product_id,
+          sku: item.products?.sku || '',
+          name: item.products?.name || '',
+          quantity: item.quantity
+        }));
+      }
+    }
+    renderPackComponentsTable();
+
+    // Populate component options
+    const otherProducts = (window.currentMasterProducts || []).filter(p => p.id !== prodId && !p.is_pack);
+    window._packSelectProducts = otherProducts;
+    initSearchableComponentSelect(otherProducts);
+
     document.getElementById('modal-edit-product').classList.add('active');
   } catch (err) {
     console.error(err);
@@ -12910,6 +13354,8 @@ function initProductFormListeners() {
           throw new Error('No se pudo encontrar el merchant_id asociado a este comercio.');
         }
 
+        const isPack = document.getElementById('prod-is-pack')?.checked || false;
+
         const { data: newProd, error: errProd } = await supabase
           .from('products')
           .insert([{
@@ -12917,14 +13363,15 @@ function initProductFormListeners() {
             comercio: commerce,
             sku: sku,
             name: name,
-            description: desc
+            description: desc,
+            is_pack: isPack
           }])
           .select()
           .single();
         
         if (errProd) throw errProd;
 
-        if (stock > 0) {
+        if (stock > 0 && !isPack) {
           const { data: bodegaCentral } = await supabase
             .from('warehouses')
             .select('id')
@@ -12949,9 +13396,18 @@ function initProductFormListeners() {
           }
         }
 
-        alert('Producto creado exitosamente!');
+        alert(isPack ? 'Combo/Pack creado exitosamente! Edítalo para agregar sus componentes.' : 'Producto creado exitosamente!');
         document.getElementById('modal-product').classList.remove('active');
         e.target.reset();
+        
+        // Reiniciar estado del input de stock deshabilitado
+        const stockInput = document.getElementById('prod-stock');
+        if (stockInput) {
+          stockInput.disabled = false;
+          stockInput.style.backgroundColor = '';
+          stockInput.style.color = '';
+        }
+
         renderAdminCatalogWorkspace(commerce);
       } catch (error) {
         console.error(error);
@@ -12986,6 +13442,8 @@ function initProductFormListeners() {
       const lot = document.getElementById('edit-prod-lot').value || null;
 
       try {
+        const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
+
         const { error } = await supabase
           .from('products')
           .update({
@@ -12997,11 +13455,34 @@ function initProductFormListeners() {
             height,
             weight,
             expiration_date: expiration,
-            lot_number: lot
+            lot_number: lot,
+            is_pack: isPack
           })
           .eq('id', prodId);
 
         if (error) throw error;
+
+        // Guardar componentes de packs
+        const { error: delErr } = await supabase
+          .from('product_pack_items')
+          .delete()
+          .eq('pack_product_id', prodId);
+        
+        if (delErr) throw delErr;
+
+        if (isPack && window.currentPackItems && window.currentPackItems.length > 0) {
+          const rowsToInsert = window.currentPackItems.map(item => ({
+            pack_product_id: prodId,
+            member_product_id: item.id,
+            quantity: item.quantity
+          }));
+
+          const { error: insErr } = await supabase
+            .from('product_pack_items')
+            .insert(rowsToInsert);
+
+          if (insErr) throw insErr;
+        }
 
         alert('Parámetros del producto actualizados exitosamente!');
         document.getElementById('modal-edit-product').classList.remove('active');

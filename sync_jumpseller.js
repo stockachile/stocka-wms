@@ -167,69 +167,40 @@ async function syncProducts(integration, headers) {
       if (!p.variants || p.variants.length === 0) {
         let variantSku = p.sku || `JS-${p.id}`;
         let cleanSku = variantSku.trim().replace(/\s+/g, '');
-        let mappedSku = skuMap[cleanSku] || cleanSku;
-
-        const { data: existingProduct } = await supabase
-          .from('products')
-          .select('id')
-          .eq('merchant_id', integration.merchant_id)
-          .eq('sku', mappedSku)
-          .maybeSingle();
 
         const productDataToSave = {
-          merchant_id: integration.merchant_id,
           comercio: integration.comercio,
-          sku: mappedSku,
-          name: p.name,
-          description: p.description,
-          price: p.price || 0,
-          jumpseller_product_id: p.id.toString(),
-          jumpseller_variant_id: null,
-          raw_jumpseller_data: p
+          platform: 'Jumpseller',
+          sku: cleanSku,
+          name: p.name
         };
 
-        if (existingProduct) {
-          await supabase.from('products').update(productDataToSave).eq('id', existingProduct.id);
-          console.log(`✅ Actualizado SKU ${productDataToSave.sku} (Simple)`);
-        } else {
-          const { error: insErr } = await supabase.from('products').insert([productDataToSave]);
-          if (insErr) console.error(`❌ Error al insertar SKU ${productDataToSave.sku}:`, insErr.message);
-          else console.log(`📥 Insertado nuevo SKU ${productDataToSave.sku} (Simple)`);
-        }
+        const { error: insErr } = await supabase
+          .from('synced_products')
+          .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
+
+        if (insErr) console.error(`❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
+        else console.log(`📥 Sincronizado SKU ${cleanSku} (Simple) en synced_products`);
       } else {
         // Si tiene variantes
         for (const variantWrapper of p.variants) {
           const v = variantWrapper.variant;
           let variantSku = v.sku || `JS-${p.id}-${v.id}`;
           let cleanSku = variantSku.trim().replace(/\s+/g, '');
-          let mappedSku = skuMap[cleanSku] || cleanSku;
-
-          const { data: existingProduct } = await supabase
-            .from('products')
-            .select('id')
-            .eq('merchant_id', integration.merchant_id)
-            .eq('sku', mappedSku)
-            .maybeSingle();
 
           const productDataToSave = {
-            merchant_id: integration.merchant_id,
             comercio: integration.comercio,
-            sku: mappedSku,
-            name: `${p.name} - Variante ${v.id}`,
-            price: v.price || p.price || 0,
-            jumpseller_product_id: p.id.toString(),
-            jumpseller_variant_id: v.id.toString(),
-            raw_jumpseller_data: v
+            platform: 'Jumpseller',
+            sku: cleanSku,
+            name: `${p.name} - Variante ${v.id}`
           };
 
-          if (existingProduct) {
-            await supabase.from('products').update(productDataToSave).eq('id', existingProduct.id);
-            console.log(`✅ Actualizado SKU ${productDataToSave.sku} (Variante)`);
-          } else {
-            const { error: insErr } = await supabase.from('products').insert([productDataToSave]);
-            if (insErr) console.error(`❌ Error al insertar SKU ${productDataToSave.sku}:`, insErr.message);
-            else console.log(`📥 Insertado nuevo SKU ${productDataToSave.sku} (Variante)`);
-          }
+          const { error: insErr } = await supabase
+            .from('synced_products')
+            .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
+
+          if (insErr) console.error(`❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
+          else console.log(`📥 Sincronizado SKU ${cleanSku} (Variante) en synced_products`);
         }
       }
     }
@@ -384,8 +355,8 @@ async function syncOrders(integration, headers, warehouseId) {
           let { data: product } = await supabase
             .from('products')
             .select('id')
-            .eq('merchant_id', integration.merchant_id)
             .eq('sku', sku)
+            .eq('comercio', integration.comercio)
             .maybeSingle();
 
           if (!product) {
@@ -409,10 +380,7 @@ async function syncOrders(integration, headers, warehouseId) {
                 sku: sku,
                 name: productName,
                 price: productPrice,
-                description: 'Creado automáticamente desde integración de Jumpseller (al procesar pedido)',
-                jumpseller_product_id: itemDetail ? itemDetail.product_id.toString() : null,
-                jumpseller_variant_id: itemDetail && itemDetail.variant_id ? itemDetail.variant_id.toString() : null,
-                raw_jumpseller_data: itemDetail || null
+                description: 'Creado automáticamente desde integración de Jumpseller (al procesar pedido)'
               }])
               .select('id')
               .single();

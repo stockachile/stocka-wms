@@ -643,19 +643,10 @@ async function syncMerchantOrders(integration) {
             // Buscar producto por SKU
             let { data: product } = await supabase
               .from('products')
-              .select('id, comercio')
-              .eq('merchant_id', integration.merchant_id)
+              .select('id')
               .eq('sku', sku)
+              .eq('comercio', integration.comercio)
               .maybeSingle();
-
-            if (product && product.comercio !== integration.comercio) {
-              // Actualizar el comercio para mantenerlo al día con la integración
-              await supabase
-                .from('products')
-                .update({ comercio: integration.comercio })
-                .eq('id', product.id);
-              product.comercio = integration.comercio;
-            }
 
             if (!product) {
               // Buscar información y barcode (GTIN) en la API de MercadoLibre
@@ -702,10 +693,7 @@ async function syncMerchantOrders(integration) {
                   name: name,
                   barcode: barcode,
                   price: price,
-                  description: 'Creado automáticamente desde integración de MercadoLibre',
-                  meli_item_id: meliItemId,
-                  meli_variation_id: meliVariationId,
-                  raw_meli_data: rawItemData
+                  description: 'Creado automáticamente desde integración de MercadoLibre'
                 }])
                 .select('id')
                 .single();
@@ -882,7 +870,6 @@ async function syncMerchantProducts(integration) {
           for (const variation of itemDetail.variations) {
             let rawSku = getMeliSku(variation, variation.id.toString());
             let cleanSku = rawSku.trim().replace(/\s+/g, '');
-            let mappedSku = skuMap[cleanSku] || cleanSku;
 
             // Nombre descriptivo de la variación
             let variantName = itemDetail.title;
@@ -891,20 +878,11 @@ async function syncMerchantProducts(integration) {
               if (combos) variantName += ` - ${combos}`;
             }
 
-            const barcode = getBarcodeFromAttributes(variation.attributes, cleanSku);
-            const price = variation.price || itemDetail.price || 0;
-
             const productDataToSave = {
-              merchant_id: integration.merchant_id,
               comercio: integration.comercio,
-              sku: mappedSku,
-              name: variantName,
-              description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id} - Variación ${variation.id}`,
-              barcode: barcode,
-              price: price,
-              meli_item_id: itemDetail.id,
-              meli_variation_id: variation.id.toString(),
-              raw_meli_data: { ...variation, base_item_title: itemDetail.title, base_item_id: itemDetail.id }
+              platform: 'MercadoLibre',
+              sku: cleanSku,
+              name: variantName
             };
 
             await saveOrUpdateProduct(productDataToSave);
@@ -913,22 +891,12 @@ async function syncMerchantProducts(integration) {
           // Publicación sin variaciones
           let rawSku = getMeliSku(itemDetail, itemDetail.id);
           let cleanSku = rawSku.trim().replace(/\s+/g, '');
-          let mappedSku = skuMap[cleanSku] || cleanSku;
-
-          const barcode = getBarcodeFromAttributes(itemDetail.attributes, cleanSku);
-          const price = itemDetail.price || 0;
 
           const productDataToSave = {
-            merchant_id: integration.merchant_id,
             comercio: integration.comercio,
-            sku: mappedSku,
-            name: itemDetail.title,
-            description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id}`,
-            barcode: barcode,
-            price: price,
-            meli_item_id: itemDetail.id,
-            meli_variation_id: null,
-            raw_meli_data: itemDetail
+            platform: 'MercadoLibre',
+            sku: cleanSku,
+            name: itemDetail.title
           };
 
           await saveOrUpdateProduct(productDataToSave);
@@ -944,34 +912,14 @@ async function syncMerchantProducts(integration) {
 // Helper para guardar o actualizar producto
 async function saveOrUpdateProduct(productData) {
   try {
-    const { data: existingProduct } = await supabase
-      .from('products')
-      .select('id')
-      .eq('merchant_id', productData.merchant_id)
-      .eq('sku', productData.sku)
-      .maybeSingle();
+    const { error } = await supabase
+      .from('synced_products')
+      .upsert([productData], { onConflict: 'comercio,platform,sku' });
 
-    if (existingProduct) {
-      const { error: updErr } = await supabase
-        .from('products')
-        .update(productData)
-        .eq('id', existingProduct.id);
-      
-      if (updErr) {
-        console.error(`   ❌ Error al actualizar SKU ${productData.sku}:`, updErr.message);
-      } else {
-        console.log(`   📝 Actualizado producto SKU ${productData.sku}`);
-      }
+    if (error) {
+      console.error(`   ❌ Error al sincronizar SKU ${productData.sku} en synced_products:`, error.message);
     } else {
-      const { error: insErr } = await supabase
-        .from('products')
-        .insert([productData]);
-
-      if (insErr) {
-        console.error(`   ❌ Error al insertar SKU ${productData.sku}:`, insErr.message);
-      } else {
-        console.log(`   📥 Insertado nuevo producto SKU ${productData.sku}`);
-      }
+      console.log(`   📥 Sincronizado SKU ${productData.sku} en synced_products`);
     }
   } catch (err) {
     console.error(`   ❌ Error general al procesar SKU ${productData.sku}:`, err.message);

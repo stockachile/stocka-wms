@@ -599,11 +599,14 @@ td.col-group-env {
   background: var(--color-surface);
   width: 100%;
   max-width: 500px;
+  max-height: 90vh;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   transform: translateY(20px) scale(0.95);
   transition: all 0.3s ease;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-overlay.active .modal-content {
@@ -631,8 +634,17 @@ td.col-group-env {
   color: var(--color-text-muted);
 }
 
+.modal-content > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
 .modal-body {
   padding: 1.5rem;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .modal-footer {
@@ -642,6 +654,92 @@ td.col-group-env {
   display: flex;
   justify-content: flex-end;
   gap: 1rem;
+  flex-shrink: 0;
+}
+
+/* Wider modal for edit product */
+#modal-edit-product .modal-content {
+  max-width: 750px;
+}
+
+/* Searchable dropdown */
+.searchable-select-wrapper {
+  position: relative;
+  flex: 1;
+}
+
+.searchable-select-wrapper input.searchable-select-input {
+  width: 100%;
+  height: 38px;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.searchable-select-wrapper input.searchable-select-input:focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+
+.searchable-select-wrapper .searchable-select-arrow {
+  position: absolute;
+  right: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--color-text-muted);
+  font-size: 1rem;
+}
+
+.searchable-select-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-primary);
+  border-top: none;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+}
+
+.searchable-select-dropdown.open {
+  display: block;
+}
+
+.searchable-select-option {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--color-text-main);
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.searchable-select-option:last-child {
+  border-bottom: none;
+}
+
+.searchable-select-option:hover,
+.searchable-select-option.highlighted {
+  background: rgba(59,130,246,0.1);
+  color: var(--color-primary);
+}
+
+.searchable-select-option .sku-hint {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: 0.25rem;
 }
 
 /* Table Action Menu (Hover Dropdown) */

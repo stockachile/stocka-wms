@@ -233,14 +233,10 @@ async function syncOrders(integration) {
         let hasEquivalence = !!skuMap[cleanSku];
 
         // Buscar producto en catálogo
-        let query = supabase.from('products').select('id');
-        if (hasEquivalence) {
-          query = query.eq('sku', mappedSku).eq('comercio', integration.comercio);
-        } else if (item.variant_id) {
-          query = query.eq('shopify_variant_id', item.variant_id.toString());
-        } else {
-          query = query.eq('sku', cleanSku).eq('comercio', integration.comercio);
-        }
+        let query = supabase.from('products')
+          .select('id')
+          .eq('sku', mappedSku)
+          .eq('comercio', integration.comercio);
 
         const { data: foundProduct } = await query.maybeSingle();
         product = foundProduct;
@@ -257,9 +253,6 @@ async function syncOrders(integration) {
               name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
               price: item.price ? parseFloat(item.price) : 0,
               description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ''),
-              shopify_product_id: item.product_id?.toString() || null,
-              shopify_variant_id: item.variant_id?.toString() || null,
-              shopify_stock: 0,
               status: 'active'
             }])
             .select('id')
@@ -296,26 +289,6 @@ async function syncOrders(integration) {
 async function syncProducts(integration) {
   console.log('--> Extrayendo productos...');
 
-  // Cargar equivalencias de SKU para este comercio
-  const skuMap = {};
-  try {
-    const { data: equivalences } = await supabase
-      .from('sku_equivalences')
-      .select('platform_sku, master_sku, platform')
-      .eq('comercio', integration.comercio);
-    
-    if (equivalences) {
-      equivalences.filter(e => e.platform === 'Todas').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
-      });
-      equivalences.filter(e => e.platform === 'Shopify').forEach(e => {
-        if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
-      });
-    }
-  } catch (err) {
-    console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
-  }
-
   const url = `https://${integration.shop_url}/admin/api/2024-04/products.json`;
 
   try {
@@ -335,46 +308,31 @@ async function syncProducts(integration) {
     const products = data.products;
     console.log(`Se encontraron ${products.length} productos base.`);
 
+    const productsToUpsert = [];
     for (const product of products) {
-        // Iteramos por las variantes (ya que en Shopify las variantes son los SKUs reales)
-        for (const variant of product.variants) {
-            let variantSku = variant.sku || variant.id.toString();
-            let cleanSku = variantSku.trim().replace(/\s+/g, '');
-            // Aplicar equivalencia de SKU si existe
-            let mappedSku = skuMap[cleanSku] || cleanSku;
-            
-            // Verificamos si la variante (SKU) ya existe de forma global por merchant_id
-            const { data: existingProduct } = await supabase
-                .from('products')
-                .select('id')
-                .eq('merchant_id', integration.merchant_id)
-                .eq('sku', mappedSku)
-                .maybeSingle();
+      for (const variant of product.variants) {
+        let variantSku = variant.sku || variant.id.toString();
+        let cleanSku = variantSku.trim();
+        if (!cleanSku) continue;
 
-            const productDataToSave = {
-                merchant_id: integration.merchant_id,
-                comercio: integration.comercio,
-                sku: mappedSku, // Si no tiene SKU, usamos el ID como fallback
-                name: `${product.title} ${variant.title !== 'Default Title' ? '- ' + variant.title : ''}`,
-                description: product.body_html,
-                barcode: variant.barcode,
-                price: variant.price,
-                weight: variant.weight,
-                shopify_product_id: product.id.toString(),
-                shopify_variant_id: variant.id.toString(),
-                raw_shopify_data: variant // GUARDAMOS TODO PARA DESCARTAR DESPUES
-            };
-
-            if (existingProduct) {
-                await supabase.from('products').update(productDataToSave).eq('id', existingProduct.id);
-                console.log(`Actualizado SKU ${productDataToSave.sku}`);
-            } else {
-                const { error: insErr } = await supabase.from('products').insert([productDataToSave]);
-                if(insErr) console.error(`Error al insertar SKU ${productDataToSave.sku}:`, insErr);
-                else console.log(`Insertado nuevo SKU ${productDataToSave.sku}`);
-            }
-        }
+        productsToUpsert.push({
+          comercio: integration.comercio,
+          platform: 'Shopify',
+          sku: cleanSku,
+          name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`
+        });
+      }
     }
+
+    if (productsToUpsert.length > 0) {
+      const { error: upsertErr } = await supabase
+        .from('synced_products')
+        .upsert(productsToUpsert, { onConflict: 'comercio,platform,sku' });
+
+      if (upsertErr) throw upsertErr;
+      console.log(`Se han sincronizado ${productsToUpsert.length} variantes en synced_products.`);
+    }
+
   } catch (error) {
     console.error(`Error sincronizando productos para ${integration.shop_url}:`, error.message);
   }

@@ -182,24 +182,18 @@ async function syncMeliProducts(integration: any): Promise<number> {
           const price = variation.price || itemDetail.price || 0;
 
           const productDataToUpsert = {
-            merchant_id: integration.merchant_id,
             comercio: integration.comercio,
-            sku: mappedSku,
-            name: variantName,
-            description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id} - Variación ${variation.id}`,
-            barcode: barcode,
-            price: price,
-            meli_item_id: itemDetail.id,
-            meli_variation_id: variation.id.toString(),
-            raw_meli_data: { ...variation, base_item_title: itemDetail.title, base_item_id: itemDetail.id }
+            platform: "MercadoLibre",
+            sku: cleanSku,
+            name: variantName
           };
 
           const { error: upsertErr } = await supabase
-            .from("products")
-            .upsert(productDataToUpsert, { onConflict: "merchant_id,sku" });
+            .from("synced_products")
+            .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
 
           if (upsertErr) {
-            console.error(`Error al guardar variación SKU ${mappedSku}:`, upsertErr.message);
+            console.error(`Error al guardar variación SKU ${cleanSku}:`, upsertErr.message);
           } else {
             count++;
           }
@@ -208,30 +202,20 @@ async function syncMeliProducts(integration: any): Promise<number> {
         // Handle items without variations
         const rawSku = getMeliSku(itemDetail, itemDetail.id);
         const cleanSku = rawSku.trim().replace(/\s+/g, '');
-        const mappedSku = skuMap[cleanSku] || cleanSku;
-
-        const barcode = getBarcodeFromAttributes(itemDetail.attributes, cleanSku);
-        const price = itemDetail.price || 0;
 
         const productDataToUpsert = {
-          merchant_id: integration.merchant_id,
           comercio: integration.comercio,
-          sku: mappedSku,
-          name: itemDetail.title,
-          description: itemDetail.description || `Publicación MercadoLibre ${itemDetail.id}`,
-          barcode: barcode,
-          price: price,
-          meli_item_id: itemDetail.id,
-          meli_variation_id: null,
-          raw_meli_data: itemDetail
+          platform: "MercadoLibre",
+          sku: cleanSku,
+          name: itemDetail.title
         };
 
         const { error: upsertErr } = await supabase
-          .from("products")
-          .upsert(productDataToUpsert, { onConflict: "merchant_id,sku" });
+          .from("synced_products")
+          .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
 
         if (upsertErr) {
-          console.error(`Error al guardar producto SKU ${mappedSku}:`, upsertErr.message);
+          console.error(`Error al guardar producto SKU ${cleanSku}:`, upsertErr.message);
         } else {
           count++;
         }
