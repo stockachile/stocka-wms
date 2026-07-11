@@ -1507,6 +1507,26 @@ async function renderOrders() {
 
   try {
     const companyList = getCompanyList();
+
+    // Cargar todos los packs del comercio para trazabilidad de pedidos
+    let packSkusList = [];
+    try {
+      let packsQuery = supabase
+        .from('products')
+        .select('sku')
+        .eq('is_pack', true);
+      if (companyList.length > 0) {
+        packsQuery = packsQuery.in('comercio', companyList);
+      }
+      const { data: packsData } = await packsQuery;
+      if (packsData) {
+        packSkusList = packsData.map(p => p.sku.toLowerCase());
+      }
+    } catch (e) {
+      console.error('Error fetching pack SKUs:', e);
+    }
+    window.currentPackSkusList = packSkusList;
+
     let query = supabase
       .from('orders')
       .select(`
@@ -2049,7 +2069,10 @@ window.applyClientWmsFiltersAndRender = function() {
     let originalPacksHtml = '';
     let packBadgeHtml = '';
     const masterProducts = window.currentMasterProducts || [];
-    const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    let packSkus = new Set(window.currentPackSkusList || []);
+    if (packSkus.size === 0) {
+      packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    }
     const foundPacks = [];
 
     const checkRawItems = (items, platform = '') => {

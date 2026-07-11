@@ -531,6 +531,21 @@ async function renderAdminOrders() {
   const todayStr = now.toISOString().split('T')[0];
 
   try {
+    // Cargar todos los packs de todos los comercios para trazabilidad en Admin
+    let packSkusList = [];
+    try {
+      const { data: packsData } = await supabase
+        .from('products')
+        .select('sku')
+        .eq('is_pack', true);
+      if (packsData) {
+        packSkusList = packsData.map(p => p.sku.toLowerCase());
+      }
+    } catch (e) {
+      console.error('Error fetching pack SKUs for admin:', e);
+    }
+    window.currentPackSkusList = packSkusList;
+
     const { data: orders, error } = await supabase
       .from('orders')
       .select(`
@@ -1043,7 +1058,10 @@ window.applyWmsFiltersAndRender = function() {
     let originalPacksHtml = '';
     let packBadgeHtml = '';
     const masterProducts = window.currentMasterProducts || [];
-    const packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    let packSkus = new Set(window.currentPackSkusList || []);
+    if (packSkus.size === 0) {
+      packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
+    }
     const foundPacks = [];
 
     const checkRawItems = (items, platform = '') => {
