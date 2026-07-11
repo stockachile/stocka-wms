@@ -3545,6 +3545,8 @@ async function renderUsersAdmin() {
 
     if (profilesError) throw profilesError;
 
+    window.adminUsersList = profiles; // Exponer perfiles a nivel global para acceder en el detalle
+
     // Obtener los comercios configurados desde la vista segura v_comercios_config
     let comercios = [];
     let loadErrorMsg = null;
@@ -3567,11 +3569,18 @@ async function renderUsersAdmin() {
 
     let rowsHtml = '';
     if (!profiles || profiles.length === 0) {
-      rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
+      rowsHtml = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
     } else {
-      profiles.forEach(user => {
+      profiles.forEach((user, index) => {
         const dateObj = user.created_at ? new Date(user.created_at) : null;
         const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+
+        // Determinar si está en línea (últimos 15 minutos)
+        const lastSeenDate = user.last_seen ? new Date(user.last_seen) : null;
+        const isOnline = lastSeenDate && (new Date() - lastSeenDate) < 15 * 60 * 1000;
+        const onlineIndicator = isOnline
+          ? `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-success); border-radius: 50%; margin-left: 0.5rem;" title="En línea ahora"></span>`
+          : `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-text-muted); border-radius: 50%; margin-left: 0.5rem; opacity: 0.4;" title="Desconectado"></span>`;
 
         // Selector de Roles
         const roleSelect = `
@@ -3609,7 +3618,7 @@ async function renderUsersAdmin() {
 
         rowsHtml += `
           <tr>
-            <td><strong>${user.full_name || 'Sin nombre'}</strong></td>
+            <td><strong>${user.full_name || 'Sin nombre'}</strong>${onlineIndicator}</td>
             <td>${user.company_name || 'Sin empresa'}</td>
             <td>${user.email || 'Sin email'}</td>
             <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
@@ -3620,14 +3629,21 @@ async function renderUsersAdmin() {
               </div>
             </td>
             <td>
-              <button class="btn btn-outline btn-manage-modules" 
-                      data-user-id="${user.id}" 
-                      data-user-name="${user.full_name || 'Sin nombre'}" 
-                      data-user-role="${user.role}" 
-                      data-allowed-modules="${user.allowed_modules || 'all'}" 
-                      style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
-                <i class="ri-settings-5-line"></i> Módulos
-              </button>
+              <div style="display: flex; gap: 0.35rem;">
+                <button class="btn btn-outline btn-user-detail" 
+                        data-user-index="${index}" 
+                        style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                  <i class="ri-information-line"></i> Detalle
+                </button>
+                <button class="btn btn-outline btn-manage-modules" 
+                        data-user-id="${user.id}" 
+                        data-user-name="${user.full_name || 'Sin nombre'}" 
+                        data-user-role="${user.role}" 
+                        data-allowed-modules="${user.allowed_modules || 'all'}" 
+                        style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                  <i class="ri-settings-5-line"></i> Módulos
+                </button>
+              </div>
             </td>
           </tr>
         `;
@@ -3655,7 +3671,7 @@ async function renderUsersAdmin() {
                 <th>Fecha de Registro</th>
                 <th>Rol</th>
                 <th>Comercios Asignados (Solo Clientes)</th>
-                <th>Permisos</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -3841,6 +3857,196 @@ const ADMIN_MODULES = [
   { id: 'tickets_admin', label: 'Gestión de Tickets' },
   { id: 'documentation_admin', label: 'Documentación Admin' }
 ];
+
+// Modal para visualizar información detallada del usuario
+window.openUserDetailModal = function(index) {
+  const users = window.adminUsersList || [];
+  const user = users[index];
+  if (!user) return;
+
+  let modal = document.getElementById('modal-user-detail');
+  if (modal) modal.remove();
+
+  // Iniciales para el avatar circular
+  const nameParts = (user.full_name || 'Sin Nombre').split(' ');
+  const avatarInitials = nameParts.length > 1
+    ? (nameParts[0][0] + nameParts[1][0]).toUpperCase()
+    : (nameParts[0][0] || '?').toUpperCase();
+
+  // Estilo del badge de Rol
+  let roleLabel = 'Observador';
+  let roleBadgeStyle = 'background: rgba(148, 163, 184, 0.15); color: var(--color-text-muted); border: 1px solid rgba(148, 163, 184, 0.3);';
+  if (user.role === 'client') {
+    roleLabel = 'Cliente';
+    roleBadgeStyle = 'background: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);';
+  } else if (user.role === 'admin') {
+    roleLabel = 'Administrador';
+    roleBadgeStyle = 'background: rgba(94, 23, 235, 0.1); color: var(--color-accent); border: 1px solid rgba(94, 23, 235, 0.2);';
+  }
+
+  // Fechas formateadas
+  const createdObj = user.created_at ? new Date(user.created_at) : null;
+  const createdStr = createdObj ? createdObj.toLocaleString() : 'N/A';
+
+  const lastSeenObj = user.last_seen ? new Date(user.last_seen) : null;
+  const lastSeenStr = lastSeenObj ? lastSeenObj.toLocaleString() : 'Nunca';
+
+  // Badge de verificación de email
+  const emailVerifiedObj = user.email_confirmed_at ? new Date(user.email_confirmed_at) : null;
+  const emailVerifiedBadge = emailVerifiedObj
+    ? `<span style="background: rgba(16, 185, 129, 0.1); color: var(--color-success); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-checkbox-circle-fill"></i> Confirmado (${emailVerifiedObj.toLocaleDateString()})</span>`
+    : `<span style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-error-warning-fill"></i> Pendiente</span>`;
+
+  // Badge de Estado de Conexión (En línea / Desconectado)
+  const isOnline = lastSeenObj && (new Date() - lastSeenObj) < 15 * 60 * 1000;
+  const onlineBadge = isOnline
+    ? `<span style="background: rgba(16, 185, 129, 0.15); color: var(--color-success); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 6px; height: 6px; background-color: var(--color-success); border-radius: 50%;"></span> En línea</span>`
+    : `<span style="background: rgba(148, 163, 184, 0.15); color: var(--color-text-muted); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem;"><span style="width: 6px; height: 6px; background-color: var(--color-text-muted); border-radius: 50%; opacity: 0.6;"></span> Desconectado</span>`;
+
+  // Módulos Asignados
+  const targetModules = (user.role === 'admin') ? ADMIN_MODULES : CLIENT_MODULES;
+  const allowedModulesStr = user.allowed_modules || 'all';
+  let allowedModulesList = [];
+  if (allowedModulesStr === 'all') {
+    allowedModulesList = targetModules.map(m => m.label);
+  } else if (allowedModulesStr === '') {
+    allowedModulesList = [];
+  } else {
+    const ids = allowedModulesStr.split(',').map(m => m.trim());
+    allowedModulesList = targetModules.filter(m => ids.includes(m.id)).map(m => m.label);
+  }
+
+  let modulesChips = '';
+  if (allowedModulesList.length === 0) {
+    modulesChips = `<span style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Ninguno (Sin permisos de navegación)</span>`;
+  } else {
+    allowedModulesList.forEach(mName => {
+      modulesChips += `<span style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-md); font-weight: 500;">${mName}</span>`;
+    });
+  }
+
+  // Sección de comercios asignados (solo para clientes)
+  let comerciosSection = '';
+  if (user.role === 'client') {
+    const userComercios = user.comercio && user.comercio !== 'no asignado'
+      ? user.comercio.split(',').map(c => c.trim())
+      : [];
+    let comerciosListHtml = '';
+    if (userComercios.length === 0) {
+      comerciosListHtml = `<span style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Ninguno asignado</span>`;
+    } else {
+      userComercios.forEach(com => {
+        comerciosListHtml += `<span style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.15); color: var(--color-primary); font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-md); font-weight: 600;">${com}</span>`;
+      });
+    }
+    comerciosSection = `
+      <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem;">
+        <h4 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">Comercios Asociados</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem;">
+          ${comerciosListHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'modal-user-detail';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 580px; display: flex; flex-direction: column; max-height: 85vh; padding: 0; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
+      <div class="modal-header" style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: bold; text-transform: uppercase; box-shadow: var(--shadow-sm);">
+            ${avatarInitials}
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+              ${user.full_name || 'Sin nombre'}
+            </h3>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem;">
+              <span class="badge" style="display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); text-transform: uppercase; ${roleBadgeStyle}">
+                ${roleLabel}
+              </span>
+              ${onlineBadge}
+            </div>
+          </div>
+        </div>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="font-size: 1.5rem; background: none; border: none; color: var(--color-text-muted); cursor: pointer;">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.5rem; background: var(--color-bg); display: flex; flex-direction: column; gap: 1.25rem;">
+        <!-- Grilla de dos columnas -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <!-- Col 1: Datos de Contacto -->
+          <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem;">
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 0.85rem; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">Contacto</h4>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500;">Email Principal</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; word-break: break-all; margin-top: 0.15rem;">${user.email || 'N/A'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500;">Empresa</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; margin-top: 0.15rem;">${user.company_name || 'N/A'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500;">Teléfono</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; margin-top: 0.15rem;">${user.phone || 'No registrado'}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500;">Email de Contacto</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; word-break: break-all; margin-top: 0.15rem;">${user.contact_email || 'No registrado'}</div>
+            </div>
+          </div>
+          <!-- Col 2: Actividad -->
+          <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem;">
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 0.85rem; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">Actividad</h4>
+            <div>
+              <div style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">Última Conexión</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; margin-top: 0.15rem;">${lastSeenStr}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500;">Fecha de Registro</div>
+              <div style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500; margin-top: 0.15rem;">${createdStr}</div>
+            </div>
+            <div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 500; margin-bottom: 0.25rem;">Estado del Correo</div>
+              <div>${emailVerifiedBadge}</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Módulos Permitidos -->
+        <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem;">
+          <h4 style="margin: 0; font-size: 0.85rem; color: var(--color-primary); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">Módulos Permisos</h4>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem;">
+            ${modulesChips}
+          </div>
+        </div>
+
+        <!-- Comercios Asociados -->
+        ${comerciosSection}
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end;">
+        <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
+};
+
+// Event listener delegado para abrir el modal de detalles del usuario
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.btn-user-detail');
+  if (btn) {
+    e.preventDefault();
+    const index = parseInt(btn.getAttribute('data-user-index'), 10);
+    window.openUserDetailModal(index);
+  }
+});
 
 // Abrir y cerrar el modal de creación de usuario
 document.addEventListener('click', (e) => {
@@ -11762,7 +11968,7 @@ window.deleteExtraCharge = async function(chargeId) {
   }
 };
 
-window.exportAdminShopifyOrdersCsv = function() {
+window.exportAdminShopifyOrdersCsv = async function() {
   const selectedOrderIds = Array.from(window.wmsSelectedOrderIds || []);
   if (selectedOrderIds.length === 0) {
     alert("No hay pedidos seleccionados.");
@@ -11779,6 +11985,46 @@ window.exportAdminShopifyOrdersCsv = function() {
   
   // Ordenar de forma cronológica ascendente (el más antiguo primero)
   selectedOrders.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  // Cargar mapa de componentes de packs
+  const packSkuToComponentsMap = {};
+  try {
+    const { data: allPacksData } = await supabase
+      .from('products')
+      .select('id, sku')
+      .eq('is_pack', true);
+      
+    if (allPacksData && allPacksData.length > 0) {
+      const packIds = allPacksData.map(p => p.id);
+      const { data: relations } = await supabase
+        .from('product_pack_items')
+        .select('pack_product_id, quantity, products:member_product_id(sku, name)')
+        .in('pack_product_id', packIds);
+        
+      if (relations) {
+        const packIdToSku = {};
+        allPacksData.forEach(p => {
+          if (p.sku) packIdToSku[p.id] = p.sku.toLowerCase().trim();
+        });
+        
+        relations.forEach(rel => {
+          const packSku = packIdToSku[rel.pack_product_id];
+          if (packSku) {
+            if (!packSkuToComponentsMap[packSku]) {
+              packSkuToComponentsMap[packSku] = [];
+            }
+            packSkuToComponentsMap[packSku].push({
+              sku: rel.products?.sku || '',
+              name: rel.products?.name || '',
+              quantity: rel.quantity || 1
+            });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Error al cargar componentes de packs para exportación:", err);
+  }
   
   const shopifyHeaders = [
     "Name", "Email", "Financial Status", "Paid at", "Fulfillment Status", "Fulfilled at", 
@@ -11808,7 +12054,30 @@ window.exportAdminShopifyOrdersCsv = function() {
     // Determinar line items
     let lineItems = [];
     if (raw.line_items && raw.line_items.length > 0) {
-      lineItems = raw.line_items;
+      raw.line_items.forEach(item => {
+        const itemSku = (item.sku || '').toLowerCase().trim();
+        const components = packSkuToComponentsMap[itemSku];
+        if (components && components.length > 0) {
+          // Si el item es un pack, expandir sus componentes en el CSV
+          components.forEach((comp, compIdx) => {
+            lineItems.push({
+              quantity: (item.quantity || 1) * comp.quantity,
+              title: `${comp.name}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
+              price: compIdx === 0 ? item.price : "0.00",
+              sku: comp.sku,
+              requires_shipping: item.requires_shipping !== false,
+              taxable: item.taxable !== false,
+              fulfillment_status: item.fulfillment_status || null,
+              vendor: item.vendor || "WMS STOCKA",
+              gift_card: item.gift_card,
+              grams: item.grams,
+              total_discount: compIdx === 0 ? item.total_discount : "0.00"
+            });
+          });
+        } else {
+          lineItems.push(item);
+        }
+      });
     } else if (order.order_items && order.order_items.length > 0) {
       lineItems = order.order_items.map(oi => ({
         quantity: oi.quantity || 1,
