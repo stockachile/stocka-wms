@@ -20,13 +20,28 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function checkTriggers() {
-  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'order_items' });
-  if (error) {
-    console.error('Error fetching triggers:', error);
-  } else {
-    console.log('Triggers on table "order_items":', triggers);
+async function run() {
+  const { data: columns } = await supabase.from('orders').select('*').limit(1);
+  if (columns && columns.length > 0) {
+    const keys = Object.keys(columns[0]);
+    console.log('Available columns in orders table:', keys);
+    
+    // Search in all columns that are strings
+    for (const key of keys) {
+      const { data } = await supabase
+        .from('orders')
+        .select('*')
+        .eq(key, '2000013912975267')
+        .limit(1);
+      
+      if (data && data.length > 0) {
+        console.log(`FOUND ORDER IN COLUMN "${key}":`);
+        console.log(JSON.stringify(data[0], null, 2));
+        return;
+      }
+    }
+    console.log('Order 2000013912975267 not found in any column of orders table.');
   }
 }
 
-checkTriggers();
+run();

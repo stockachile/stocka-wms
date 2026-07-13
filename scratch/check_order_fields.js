@@ -20,13 +20,22 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function checkTriggers() {
-  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'order_items' });
+async function check() {
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('id, sku, item, raw_shopify_data')
+    .eq('external_order_number', 'MAG5585')
+    .maybeSingle();
+
   if (error) {
-    console.error('Error fetching triggers:', error);
+    console.error(error);
   } else {
-    console.log('Triggers on table "order_items":', triggers);
+    console.log('Order SKU:', order.sku);
+    console.log('Order Item:', order.item);
+    if (order.raw_shopify_data) {
+      console.log('Shopify Order Number:', order.raw_shopify_data.name);
+      console.log('Shopify line items skus:', order.raw_shopify_data.line_items.map(li => li.sku));
+    }
   }
 }
-
-checkTriggers();
+check();

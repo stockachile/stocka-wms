@@ -880,3 +880,129 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
   transform: translateX(0);
 }
 
+/* ============================================= */
+/* SweetAlert2 Dark Mode Overrides               */
+/* ============================================= */
+
+.swal2-popup {
+  background: var(--color-surface) !important;
+  color: var(--color-text-main) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.swal2-title {
+  color: var(--color-text-main) !important;
+  font-size: 1.25rem !important;
+  font-weight: 700 !important;
+}
+
+.swal2-html-container {
+  color: var(--color-text) !important;
+}
+
+.swal2-close {
+  color: var(--color-text-muted) !important;
+  transition: color 0.2s !important;
+}
+
+.swal2-close:hover {
+  color: var(--color-danger) !important;
+}
+
+/* Inputs inside SweetAlert */
+.swal2-input,
+.swal2-textarea,
+.swal2-select,
+.swal2-popup input.swal2-input {
+  background: var(--color-bg) !important;
+  color: var(--color-text-main) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  font-size: 0.9rem !important;
+}
+
+.swal2-input::placeholder,
+.swal2-textarea::placeholder {
+  color: var(--color-text-muted) !important;
+}
+
+.swal2-input:focus,
+.swal2-textarea:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15) !important;
+  outline: none !important;
+}
+
+/* Buttons */
+.swal2-confirm.swal2-styled {
+  background: var(--color-primary) !important;
+  color: white !important;
+  border: none !important;
+  border-radius: var(--radius-md) !important;
+  font-weight: 600 !important;
+  transition: opacity 0.2s !important;
+}
+
+.swal2-confirm.swal2-styled:hover {
+  opacity: 0.9 !important;
+}
+
+.swal2-cancel.swal2-styled {
+  background: var(--color-surface-hover) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--radius-md) !important;
+  font-weight: 500 !important;
+}
+
+.swal2-deny.swal2-styled {
+  background: var(--color-danger) !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Content items inside popups (list rows) */
+.swal2-html-container div[style*="background:rgba(0,0,0,0.05)"] {
+  background: var(--color-bg) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+/* Scrollable list containers inside Swal */
+.swal2-html-container div[style*="border: 1px solid var(--color-border)"] {
+  background: var(--color-bg) !important;
+}
+
+/* SweetAlert2 backdrop */
+.swal2-container {
+  backdrop-filter: blur(4px) !important;
+}
+
+.swal2-backdrop-show {
+  background: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Icons */
+.swal2-icon.swal2-success {
+  border-color: #22c55e !important;
+  color: #22c55e !important;
+}
+
+.swal2-icon.swal2-error {
+  border-color: var(--color-danger) !important;
+}
+
+.swal2-icon.swal2-warning {
+  border-color: #f59e0b !important;
+  color: #f59e0b !important;
+}
+
+.swal2-icon.swal2-info {
+  border-color: var(--color-primary) !important;
+  color: var(--color-primary) !important;
+}
+
+/* Timer bar */
+.swal2-timer-progress-bar {
+  background: var(--color-primary) !important;
+}

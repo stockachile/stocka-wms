@@ -190,6 +190,10 @@
             <label class="form-label">Stock Inicial (se asignará a Bodega Central temporalmente)</label>
             <input type="number" id="prod-stock" class="form-input" value="0" min="0" required>
           </div>
+          <div class="form-group">
+            <label class="form-label">Stock Crítico</label>
+            <input type="number" id="prod-stock-critico" class="form-input" value="0" min="0" required placeholder="Ej: 5">
+          </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>
@@ -250,6 +254,10 @@
           <div class="form-group">
             <label class="form-label">Lote</label>
             <input type="text" id="edit-prod-lot" class="form-input" placeholder="Número de lote">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stock Crítico</label>
+            <input type="number" id="edit-prod-stock-critico" class="form-input" value="0" min="0" required placeholder="Ej: 5">
           </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="edit-prod-is-pack" style="width: auto; cursor: pointer;">

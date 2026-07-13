@@ -20,13 +20,18 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function checkTriggers() {
-  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'order_items' });
+async function check() {
+  console.log('=== CHECKING MAPPINGS FOR MAGIC MAKEUP ===');
+  const { data: mappings, error } = await supabase
+    .from('sku_equivalences')
+    .select('*')
+    .eq('comercio', 'MAGIC MAKEUP')
+    .in('platform_sku', ['MAGIC046', 'MAGIC050', 'MAGIC041']);
+
   if (error) {
-    console.error('Error fetching triggers:', error);
+    console.error(error);
   } else {
-    console.log('Triggers on table "order_items":', triggers);
+    console.log('Mappings:', mappings);
   }
 }
-
-checkTriggers();
+check();

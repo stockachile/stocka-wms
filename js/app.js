@@ -1215,6 +1215,7 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-weight').value = product.weight || '';
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
+    document.getElementById('edit-prod-stock-critico').value = product.stock_critico || 0;
 
     // Configurar visibilidad del checkbox y sección de packs
     initProductPackDomElements(false);
@@ -1263,110 +1264,594 @@ async function renderInventory() {
   appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando inventario...</p>`;
 
   try {
-    const companyList = getCompanyList();
+    const assignedComercios = (currentCompany || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+    const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+
+    // Hacemos la consulta principal sobre products y hacemos un LEFT JOIN a inventory
     let query = supabase
-      .from('inventory')
+      .from('products')
       .select(`
-        quantity,
-        committed_quantity,
-        products!inner (sku, name, comercio),
-        warehouses (name)
+        id,
+        sku,
+        name,
+        comercio,
+        stock_critico,
+        inventory (
+          quantity,
+          committed_quantity,
+          warehouses (name)
+        )
       `);
 
-    if (companyList.length > 0) {
-      query = query.in('products.comercio', companyList);
+    if (commerce) {
+      query = query.eq('comercio', commerce);
     } else {
-      query = query.eq('products.comercio', 'no asignado');
+      query = query.eq('comercio', 'no asignado');
     }
 
-    const { data: inventory, error } = await query;
+    const { data: products, error } = await query;
 
     if (error) throw error;
 
-    let rowsHtml = '';
-    if (!inventory || inventory.length === 0) {
-      rowsHtml = `
-        <tr>
-          <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-            No hay inventario registrado.
-          </td>
-        </tr>
-      `;
-    } else {
-      inventory.forEach(item => {
-        let badge = '';
-        const available = item.quantity - item.committed_quantity;
-        if (available > 50) badge = '<span class="badge badge-success">En Stock</span>';
-        else if (available > 0) badge = '<span class="badge badge-warning">Bajo Stock</span>';
-        else badge = '<span class="badge badge-danger">Agotado</span>';
+    // Cachear los productos e inventarios obtenidos para buscador y ordenamiento rápido en memoria
+    window.cachedInventoryProducts = products || [];
 
-        rowsHtml += `
-          <tr>
-            <td>${item.products?.sku || 'N/A'}</td>
-            <td>${item.products?.name || 'N/A'}</td>
-            <td>${item.warehouses?.name || 'N/A'}</td>
-            <td><strong>${item.quantity}</strong></td>
-            <td style="color: var(--color-accent); font-weight: 500;">${item.committed_quantity}</td>
-            <td style="color: var(--color-primary); font-weight: 600;">${available}</td>
-            <td>${badge}</td>
-          </tr>
-        `;
-      });
+    let commerceSelectorHtml = '';
+    if (assignedComercios.length > 1) {
+      commerceSelectorHtml = `
+        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
+          </label>
+          <select id="inventory-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+            ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+        </div>
+      `;
     }
 
     const isObserver = userRole === 'observer';
     const actionBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product">Nuevo Producto</button>';
 
-    appContent.innerHTML = getObserverBanner() + `
+    appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + `
       <div class="card">
-        <div class="card-header flex justify-between items-center">
-          <h3>Stock Actual</h3>
-          ${actionBtn}
+        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Stock Actual</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualización, control de alertas y movimientos físicos de stock.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="inventory-search" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 240px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.inventorySearchQuery || ''}">
+            </div>
+            <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-download-2-line"></i> Exportar CSV
+            </button>
+            ${actionBtn}
+          </div>
         </div>
-        <div class="card-body">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th>Producto</th>
-                <th>Bodega</th>
-                <th>Físico</th>
-                <th>Comprometido</th>
-                <th>Disponible</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
+        <div class="card-body" style="padding: 0;">
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th class="inventory-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="physical" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Físico <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="totalAvailable" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Total) <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="stock_critico" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Crítico <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="inventory-sortable" data-sort="status" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="sort-indicator"></span></span>
+                  </th>
+                  <th style="text-align: center; width: 100px; padding: 1rem 1.5rem; white-space: nowrap;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+                <!-- Carga dinámica -->
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     `;
+
+    // Asignar listener para el selector de comercio
+    const clientSelect = document.getElementById('inventory-client-select');
+    if (clientSelect) {
+      clientSelect.addEventListener('change', async (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        await renderInventory();
+      });
+    }
+
+    // Inicializar listener de búsqueda
+    const searchInput = document.getElementById('inventory-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        window.inventorySearchQuery = e.target.value;
+        renderInventoryTableBody();
+      });
+    }
+
+    // Inicializar listener de exportación CSV
+    const exportBtn = document.getElementById('btn-export-inventory');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', exportInventoryToCsv);
+    }
+
+    // Inicializar ordenamiento en headers
+    document.querySelectorAll('.inventory-sortable').forEach(th => {
+      th.addEventListener('click', (e) => {
+        const col = e.currentTarget.getAttribute('data-sort');
+        if (window.inventorySortColumn === col) {
+          window.inventorySortAsc = !window.inventorySortAsc;
+        } else {
+          window.inventorySortColumn = col;
+          window.inventorySortAsc = true;
+        }
+        
+        updateInventorySortingIndicators();
+        renderInventoryTableBody();
+      });
+    });
+
+    // Valores por defecto de ordenamiento si no existen
+    if (!window.inventorySortColumn) {
+      window.inventorySortColumn = 'name';
+      window.inventorySortAsc = true;
+    }
+    
+    updateInventorySortingIndicators();
+    renderInventoryTableBody();
+
   } catch (error) {
     console.error('Error fetching inventory:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el inventario: ${error.message}</p>`;
   }
 }
 
-async function renderMovements() {
-  const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando movimientos...</p>`;
+// ----------------------------------------------------
+// FUNCIONES AUXILIARES: BUSCADOR, ORDENAMIENTO Y EXPORTACIÓN
+// ----------------------------------------------------
+
+function applyInventoryFiltersAndSort() {
+  const products = window.cachedInventoryProducts || [];
+  const search = (window.inventorySearchQuery || '').toLowerCase().trim();
+  
+  let rows = [];
+  products.forEach(prod => {
+    const invList = prod.inventory || [];
+    
+    // Calcular el stock disponible total de este producto sumando todas sus bodegas
+    let totalAvailable = 0;
+    invList.forEach(inv => {
+      totalAvailable += ((inv.quantity || 0) - (inv.committed_quantity || 0));
+    });
+
+    const statusStr = totalAvailable <= 0 
+      ? 'Agotado' 
+      : (totalAvailable <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
+
+    if (invList.length === 0) {
+      rows.push({
+        id: prod.id,
+        sku: prod.sku || '',
+        name: prod.name || '',
+        warehouse: 'Sin asignar',
+        physical: 0,
+        committed: 0,
+        available: 0,
+        totalAvailable: totalAvailable,
+        stock_critico: prod.stock_critico || 0,
+        status: statusStr
+      });
+    } else {
+      invList.forEach(inv => {
+        const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+        rows.push({
+          id: prod.id,
+          sku: prod.sku || '',
+          name: prod.name || '',
+          warehouse: inv.warehouses?.name || 'N/A',
+          physical: inv.quantity || 0,
+          committed: inv.committed_quantity || 0,
+          available: available,
+          totalAvailable: totalAvailable,
+          stock_critico: prod.stock_critico || 0,
+          status: statusStr
+        });
+      });
+    }
+  });
+
+  // Filtrado
+  if (search) {
+    rows = rows.filter(r => 
+      r.sku.toLowerCase().includes(search) || 
+      r.name.toLowerCase().includes(search)
+    );
+  }
+
+  // Ordenamiento
+  const col = window.inventorySortColumn || 'name';
+  const asc = window.inventorySortAsc !== false;
+
+  rows.sort((a, b) => {
+    let valA = a[col];
+    let valB = b[col];
+
+    if (typeof valA === 'string') {
+      valA = valA.toLowerCase();
+      valB = (valB || '').toLowerCase();
+    }
+
+    if (valA < valB) return asc ? -1 : 1;
+    if (valA > valB) return asc ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
+}
+
+function renderInventoryTableBody() {
+  const tbody = document.getElementById('inventory-tbody');
+  if (!tbody) return;
+
+  const rows = applyInventoryFiltersAndSort();
+  const isObserver = userRole === 'observer';
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+          No se encontraron productos coincidentes.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    let badge = '';
+    if (r.status === 'Agotado') {
+      badge = '<span class="badge badge-danger">Agotado</span>';
+    } else if (r.status === 'Bajo Stock') {
+      badge = '<span class="badge badge-warning">Bajo Stock</span>';
+    } else {
+      badge = '<span class="badge badge-success">En Stock</span>';
+    }
+
+    const actionBtnHtml = `
+      <button class="btn btn-outline btn-sm btn-view-movements" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.25rem; height: 28px; cursor: pointer; border-radius: var(--radius-sm);">
+        <i class="ri-history-line"></i> Movs
+      </button>
+    `;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
+        <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
+        <td style="padding: 0.75rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${r.committed}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;">
+          <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 70px; text-align: center; padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500;" ${isObserver ? 'disabled' : ''} />
+        </td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;">${badge}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;">${actionBtnHtml}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Re-bind listeners para inputs de stock crítico inline
+  if (!isObserver) {
+    tbody.querySelectorAll('.stock-critico-inline').forEach(input => {
+      input.addEventListener('change', async (e) => {
+        const prodId = e.target.getAttribute('data-prod-id');
+        const newVal = parseInt(e.target.value, 10);
+        
+        if (isNaN(newVal) || newVal < 0) {
+          alert('El valor de stock crítico debe ser un número mayor o igual a 0.');
+          e.target.value = e.target.defaultValue;
+          return;
+        }
+
+        e.target.style.borderColor = 'var(--color-primary)';
+        
+        try {
+          const { error } = await supabase
+            .from('products')
+            .update({ stock_critico: newVal })
+            .eq('id', prodId);
+
+          if (error) throw error;
+          
+          e.target.style.borderColor = 'var(--color-success)';
+          e.target.defaultValue = newVal;
+          setTimeout(() => {
+            e.target.style.borderColor = '';
+          }, 1000);
+          
+          // Actualizar en el caché local en memoria para no requerir otra consulta
+          if (window.cachedInventoryProducts) {
+            const cachedP = window.cachedInventoryProducts.find(p => p.id === prodId);
+            if (cachedP) cachedP.stock_critico = newVal;
+          }
+          
+          // Re-renderizar para actualizar badges y estados
+          renderInventoryTableBody();
+          
+        } catch (err) {
+          console.error('Error al actualizar stock crítico:', err);
+          e.target.style.borderColor = 'var(--color-danger)';
+          alert('Error al guardar el stock crítico: ' + err.message);
+        }
+      });
+    });
+  }
+
+  // Enlazar listeners para botón de movimientos
+  tbody.querySelectorAll('.btn-view-movements').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-prod-id');
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      openProductMovementsModal(prodId, sku, name);
+    });
+  });
+}
+
+function updateInventorySortingIndicators() {
+  document.querySelectorAll('.inventory-sortable').forEach(th => {
+    const col = th.getAttribute('data-sort');
+    const indicator = th.querySelector('.sort-indicator');
+    if (!indicator) return;
+    
+    if (window.inventorySortColumn === col) {
+      indicator.innerHTML = window.inventorySortAsc 
+        ? '<i class="ri-arrow-up-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>' 
+        : '<i class="ri-arrow-down-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>';
+      th.style.color = 'var(--color-primary)';
+    } else {
+      indicator.innerHTML = '<i class="ri-arrow-up-down-line" style="color: var(--color-text-muted); opacity: 0.35; font-size: 0.85rem; vertical-align: middle;"></i>';
+      th.style.color = '';
+    }
+  });
+}
+
+function exportInventoryToCsv() {
+  const rows = applyInventoryFiltersAndSort();
+  if (rows.length === 0) {
+    alert('No hay registros de inventario para exportar.');
+    return;
+  }
+
+  const csvHeaders = [
+    'SKU',
+    'Producto',
+    'Bodega',
+    'Stock Fisico',
+    'Stock Comprometido',
+    'Disponible Bodega',
+    'Disponible Total',
+    'Stock Critico',
+    'Estado'
+  ];
+
+  const csvRows = [csvHeaders.join(',')];
+
+  rows.forEach(r => {
+    const rowData = [
+      r.sku,
+      r.name,
+      r.warehouse,
+      r.physical,
+      r.committed,
+      r.available,
+      r.totalAvailable,
+      r.stock_critico,
+      r.status
+    ];
+
+    const csvRow = rowData.map(val => {
+      const str = val !== undefined ? String(val) : '';
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    }).join(',');
+
+    csvRows.push(csvRow);
+  });
+
+  const csvContent = '\ufeff' + csvRows.join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const commerce = window.activeIntegrationCommerce || 'comercio';
+  link.setAttribute('href', url);
+  link.setAttribute('download', `inventario_${commerce.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+async function openProductMovementsModal(productId, sku, name) {
+  const modalId = 'modal-inventory-movements';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Movimientos
+          </h3>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+            ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong>
+          </p>
+        </div>
+        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="movements-modal-body">
+        <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
+          <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
 
   try {
-    const companyList = getCompanyList();
+    const { data: movements, error } = await supabase
+      .from('movements')
+      .select(`
+        date,
+        type,
+        quantity,
+        reference_doc,
+        warehouses (name)
+      `)
+      .eq('product_id', productId)
+      .order('date', { ascending: false });
+
+    if (error) throw error;
+
+    const modalBody = document.getElementById('movements-modal-body');
+    if (!modalBody) return;
+
+    if (!movements || movements.length === 0) {
+      modalBody.innerHTML = `
+        <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
+          <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos de stock registrados para este producto.</p>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">Los ingresos y salidas aparecerán aquí una vez que comiencen a procesarse.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let rowsHtml = movements.map(m => {
+      const isIngreso = m.type === 'in';
+      const typeBadge = isIngreso
+        ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+        : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+      
+      const formattedDate = m.date 
+        ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+        : '-';
+
+      const qtyStyle = isIngreso 
+        ? 'color: var(--color-success); font-weight: 700;' 
+        : 'color: var(--color-danger); font-weight: 700;';
+
+      const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
+          <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
+          <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
+          <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
+          <td style="padding: 0.85rem 0.5rem; color: var(--color-text-muted); font-size: 0.85rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${m.reference_doc || ''}">${m.reference_doc || '-'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    modalBody.innerHTML = `
+      <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+            <th style="padding: 0.6rem 0.5rem;">Fecha / Hora</th>
+            <th style="padding: 0.6rem 0.5rem;">Bodega</th>
+            <th style="padding: 0.6rem 0.5rem;">Tipo</th>
+            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
+            <th style="padding: 0.6rem 0.5rem;">Referencia</th>
+          </tr>
+        </thead>
+        <tbody style="color: var(--color-text-main);">
+          ${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+  } catch (err) {
+    console.error('Error al cargar movimientos:', err);
+    const modalBody = document.getElementById('movements-modal-body');
+    if (modalBody) {
+      modalBody.innerHTML = `
+        <div class="text-center" style="color: var(--color-danger); padding: 3rem 1rem;">
+          <i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem;"></i>
+          <p style="margin: 0; font-weight: 500;">Error al cargar el historial de movimientos.</p>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">${err.message}</p>
+        </div>
+      `;
+    }
+  }
+}
+
+async function renderMovements() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando historial de movimientos...</p>`;
+
+  try {
+    const assignedComercios = (currentCompany || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+    const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+
+    // 1. Obtener la lista de movimientos para el comercio activo
     let query = supabase
       .from('movements')
       .select(`
         date,
         type,
         quantity,
-        products!inner (sku, comercio),
+        reference_doc,
+        products!inner (id, sku, name, comercio),
         warehouses (name)
       `);
 
-    if (companyList.length > 0) {
-      query = query.in('products.comercio', companyList);
+    if (commerce) {
+      query = query.eq('products.comercio', commerce);
     } else {
       query = query.eq('products.comercio', 'no asignado');
     }
@@ -1374,59 +1859,595 @@ async function renderMovements() {
     query = query.order('date', { ascending: false });
 
     const { data: movements, error } = await query;
-
     if (error) throw error;
 
-    let rowsHtml = '';
-    if (!movements || movements.length === 0) {
-      rowsHtml = `<tr><td colspan="5" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay movimientos registrados.</td></tr>`;
-    } else {
-      movements.forEach(mov => {
-        const dateObj = new Date(mov.date);
-        const formattedDate = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        const isEntry = mov.type === 'in';
-        const typeStyle = isEntry ? `color: var(--color-primary); font-weight: bold;` : `color: var(--color-accent); font-weight: bold;`;
-        const typeText = isEntry ? '+ Ingreso' : '- Salida';
+    window.cachedMovements = movements || [];
 
-        rowsHtml += `
-          <tr>
-            <td>${formattedDate}</td>
-            <td><span style="${typeStyle}">${typeText}</span></td>
-            <td>${mov.products.sku}</td>
-            <td>${mov.warehouses.name}</td>
-            <td>${mov.quantity}</td>
-          </tr>
-        `;
+    // 2. Obtener órdenes del comercio para mapear plataforma de origen y números amigables de pedido
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id, origen, external_platform, external_order_number')
+      .eq('comercio', commerce);
+
+    const orderInfoMap = {};
+    if (orders) {
+      orders.forEach(o => {
+        orderInfoMap[o.id] = {
+          platform: o.origen || o.external_platform || 'Manual',
+          orderNumber: o.external_order_number || o.id.split('-')[0]
+        };
       });
     }
+    window.movementOrderInfoMap = orderInfoMap;
 
-    appContent.innerHTML = getObserverBanner() + `
-      <div class="card">
-        <div class="card-header flex justify-between items-center">
-          <h3>Historial de Movimientos</h3>
+    // 3. Obtener todos los productos del catálogo del comercio activo para el selector autocomplete
+    const { data: activeProducts } = await supabase
+      .from('products')
+      .select('id, sku, name')
+      .eq('comercio', commerce);
+
+    window.cachedActiveProducts = activeProducts || [];
+
+    // Selector de comercio si el usuario tiene más de uno
+    let commerceSelectorHtml = '';
+    if (assignedComercios.length > 1) {
+      commerceSelectorHtml = `
+        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+            <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
+          </label>
+          <select id="movements-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+            ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
         </div>
-        <div class="card-body">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>SKU</th>
-                <th>Bodega</th>
-                <th>Cantidad</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
+      `;
+    }
+
+    // Renderizado del contenedor principal y los filtros
+    appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + `
+      <div class="card">
+        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">Historial de Movimientos</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Registro completo de ingresos y salidas de stock del comercio.</p>
+          </div>
+          <div>
+            <button id="btn-export-movements" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-download-2-line"></i> Exportar CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Filtros del Historial -->
+        <div class="card-body" style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); background: rgba(0,0,0,0.02); display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+          <div style="flex: 1.2; min-width: 220px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Filtrar por Producto</label>
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input list="movements-products-list" id="movs-product-filter" class="form-input" placeholder="Escribe SKU o nombre de producto..." style="width: 100%; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsFilterProductId ? (window.cachedActiveProducts?.find(p => p.id === window.movementsFilterProductId) ? `${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).sku} - ${window.cachedActiveProducts.find(p => p.id === window.movementsFilterProductId).name}` : '') : ''}">
+              <datalist id="movements-products-list">
+                ${window.cachedActiveProducts.map(p => `<option value="${p.sku} - ${p.name}"></option>`).join('')}
+              </datalist>
+            </div>
+          </div>
+
+          <div style="flex: 0.8; min-width: 150px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Buscar SKU/Referencia</label>
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="movs-search" class="form-input" placeholder="Filtro libre..." style="width: 100%; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.movementsSearchQuery || ''}">
+            </div>
+          </div>
+          
+          <div style="width: 130px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Plataforma</label>
+            <select id="movs-filter-platform" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;">
+              <option value="">Todas</option>
+              <option value="Manual" ${window.movementsFilterPlatform === 'Manual' ? 'selected' : ''}>Manual</option>
+              <option value="Shopify" ${window.movementsFilterPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
+              <option value="MercadoLibre" ${window.movementsFilterPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
+              <option value="Falabella" ${window.movementsFilterPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
+              <option value="Paris" ${window.movementsFilterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
+              <option value="WooCommerce" ${window.movementsFilterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+              <option value="Jumpseller" ${window.movementsFilterPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+            </select>
+          </div>
+
+          <div style="width: 150px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Fecha Desde</label>
+            <input type="date" id="movs-filter-start" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterStartDate || ''}">
+          </div>
+
+          <div style="width: 150px;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-muted); display: block; margin-bottom: 0.4rem;">Fecha Hasta</label>
+            <input type="date" id="movs-filter-end" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0 0.5rem;" value="${window.movementsFilterEndDate || ''}">
+          </div>
+
+          <button id="btn-clear-movs-filters" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; justify-content: center; padding: 0 1rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-muted); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+            Limpiar Filtros
+          </button>
+        </div>
+
+        <div class="card-body" style="padding: 0;">
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th class="movements-sortable" data-sort="date" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Fecha / Hora <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="type" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="platform" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Origen <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="quantity" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Cantidad <span class="sort-indicator"></span></span>
+                  </th>
+                  <th class="movements-sortable" data-sort="reference_doc" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Referencia <span class="sort-indicator"></span></span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="movements-tbody" style="font-size: 0.9rem; color: var(--color-text);">
+                <!-- Carga dinámica -->
+              </tbody>
+            </table>
+          </div>
+          <div id="movements-pagination-container">
+            <!-- Controles de paginación -->
+          </div>
         </div>
       </div>
     `;
+
+    // Asignar listener para el selector de comercio
+    const clientSelect = document.getElementById('movements-client-select');
+    if (clientSelect) {
+      clientSelect.addEventListener('change', async (e) => {
+        window.activeIntegrationCommerce = e.target.value;
+        // Limpiar filtros específicos al cambiar comercio
+        window.movementsFilterProductId = '';
+        await renderMovements();
+      });
+    }
+
+    // Inicializar listener de producto autocomplete
+    document.getElementById('movs-product-filter')?.addEventListener('input', (e) => {
+      const inputVal = e.target.value.trim();
+      const matched = window.cachedActiveProducts?.find(p => 
+        `${p.sku} - ${p.name}` === inputVal || 
+        p.sku === inputVal ||
+        p.name === inputVal
+      );
+      window.movementsFilterProductId = matched ? matched.id : '';
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    // Inicializar listeners de filtros
+    document.getElementById('movs-search')?.addEventListener('input', (e) => {
+      window.movementsSearchQuery = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-platform')?.addEventListener('change', (e) => {
+      window.movementsFilterPlatform = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-start')?.addEventListener('change', (e) => {
+      window.movementsFilterStartDate = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('movs-filter-end')?.addEventListener('change', (e) => {
+      window.movementsFilterEndDate = e.target.value;
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('btn-clear-movs-filters')?.addEventListener('click', () => {
+      window.movementsSearchQuery = '';
+      window.movementsFilterPlatform = '';
+      window.movementsFilterStartDate = '';
+      window.movementsFilterEndDate = '';
+      window.movementsFilterProductId = '';
+      
+      const search = document.getElementById('movs-search');
+      if (search) search.value = '';
+      const platform = document.getElementById('movs-filter-platform');
+      if (platform) platform.value = '';
+      const start = document.getElementById('movs-filter-start');
+      if (start) start.value = '';
+      const end = document.getElementById('movs-filter-end');
+      if (end) end.value = '';
+      const prodFilter = document.getElementById('movs-product-filter');
+      if (prodFilter) prodFilter.value = '';
+
+      window.movementsCurrentPage = 1;
+      renderMovementsTableBody();
+    });
+
+    document.getElementById('btn-export-movements')?.addEventListener('click', exportMovementsToCsv);
+
+    // Inicializar ordenamiento en headers
+    document.querySelectorAll('.movements-sortable').forEach(th => {
+      th.addEventListener('click', (e) => {
+        const col = e.currentTarget.getAttribute('data-sort');
+        if (window.movementsSortColumn === col) {
+          window.movementsSortAsc = !window.movementsSortAsc;
+        } else {
+          window.movementsSortColumn = col;
+          window.movementsSortAsc = true;
+        }
+        
+        updateMovementsSortingIndicators();
+        renderMovementsTableBody();
+      });
+    });
+
+    // Valores por defecto
+    if (!window.movementsSortColumn) {
+      window.movementsSortColumn = 'date';
+      window.movementsSortAsc = false; // Descendente por defecto
+    }
+    
+    updateMovementsSortingIndicators();
+    renderMovementsTableBody();
+
   } catch (error) {
     console.error('Error fetching movements:', error);
-    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los movimientos.</p>`;
+    appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar los movimientos: ${error.message}</p>`;
   }
+}
+
+// ----------------------------------------------------
+// FUNCIONES AUXILIARES PARA EL HISTORIAL COMPLETO DE MOVIMIENTOS
+// ----------------------------------------------------
+
+function applyMovementsFiltersAndSort() {
+  const movements = window.cachedMovements || [];
+  const search = (window.movementsSearchQuery || '').toLowerCase().trim();
+  const platform = window.movementsFilterPlatform || '';
+  const start = window.movementsFilterStartDate || '';
+  const end = window.movementsFilterEndDate || '';
+  const filterProductId = window.movementsFilterProductId || '';
+
+  let rows = movements.map(mov => {
+    let originPlat = 'Manual';
+    if (mov.reference_doc && mov.reference_doc.startsWith('Pedido ')) {
+      const orderId = mov.reference_doc.replace('Pedido ', '').trim();
+      originPlat = window.movementOrderInfoMap?.[orderId]?.platform || 'Manual';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('shopify')) {
+      originPlat = 'Shopify';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('mercadolibre')) {
+      originPlat = 'MercadoLibre';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('falabella')) {
+      originPlat = 'Falabella';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('paris')) {
+      originPlat = 'Paris';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('woocommerce')) {
+      originPlat = 'WooCommerce';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('jumpseller')) {
+      originPlat = 'Jumpseller';
+    }
+
+    return {
+      productId: mov.products?.id || '',
+      date: mov.date ? new Date(mov.date) : new Date(0),
+      dateStr: mov.date || '',
+      type: mov.type || 'in',
+      sku: mov.products?.sku || 'N/A',
+      name: mov.products?.name || 'N/A',
+      warehouse: mov.warehouses?.name || 'N/A',
+      quantity: mov.quantity || 0,
+      reference_doc: mov.reference_doc || '',
+      platform: originPlat
+    };
+  });
+
+  // 1. Filtro específico por ID de producto (del autocomplete)
+  if (filterProductId) {
+    rows = rows.filter(r => r.productId === filterProductId);
+  }
+
+  // 2. Buscador libre
+  if (search) {
+    rows = rows.filter(r => 
+      r.sku.toLowerCase().includes(search) || 
+      r.name.toLowerCase().includes(search) ||
+      r.reference_doc.toLowerCase().includes(search)
+    );
+  }
+
+  // 3. Filtro de Plataforma
+  if (platform) {
+    rows = rows.filter(r => r.platform.toLowerCase() === platform.toLowerCase());
+  }
+
+  // 4. Filtro de Fechas
+  if (start) {
+    const startDate = new Date(start);
+    startDate.setHours(0, 0, 0, 0);
+    rows = rows.filter(r => r.date >= startDate);
+  }
+  if (end) {
+    const endDate = new Date(end);
+    endDate.setHours(23, 59, 59, 999);
+    rows = rows.filter(r => r.date <= endDate);
+  }
+
+  // 5. Ordenamiento
+  const col = window.movementsSortColumn || 'date';
+  const asc = window.movementsSortAsc !== false;
+
+  rows.sort((a, b) => {
+    let valA = a[col];
+    let valB = b[col];
+
+    if (typeof valA === 'string') {
+      valA = valA.toLowerCase();
+      valB = (valB || '').toLowerCase();
+    }
+
+    if (valA < valB) return asc ? -1 : 1;
+    if (valA > valB) return asc ? 1 : -1;
+    return 0;
+  });
+
+  return rows;
+}
+
+function renderMovementsTableBody() {
+  const tbody = document.getElementById('movements-tbody');
+  const pagContainer = document.getElementById('movements-pagination-container');
+  if (!tbody) return;
+
+  const rows = applyMovementsFiltersAndSort();
+  const totalRows = rows.length;
+  const pageSize = window.movementsPageSize || 20;
+  const totalPages = Math.ceil(totalRows / pageSize);
+
+  // Validar página actual
+  if (window.movementsCurrentPage > totalPages) {
+    window.movementsCurrentPage = Math.max(totalPages, 1);
+  }
+  const currentPage = window.movementsCurrentPage || 1;
+
+  if (totalRows === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-exchange-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; opacity: 0.5;"></i>
+          No se encontraron movimientos con los filtros aplicados.
+        </td>
+      </tr>
+    `;
+    if (pagContainer) pagContainer.innerHTML = '';
+    return;
+  }
+
+  // Paginación
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalRows);
+  const pageRows = rows.slice(startIndex, endIndex);
+
+  tbody.innerHTML = pageRows.map(r => {
+    const isIngreso = r.type === 'in';
+    const typeBadge = isIngreso
+      ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+      : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+
+    const formattedDate = r.dateStr 
+      ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+      : '-';
+
+    const qtyStyle = isIngreso 
+      ? 'color: var(--color-success); font-weight: 700;' 
+      : 'color: var(--color-danger); font-weight: 700;';
+
+    const qtyText = isIngreso ? `+${r.quantity}` : `-${r.quantity}`;
+
+    const platformColor = r.platform === 'Paris' ? '#e11d48' : (r.platform === 'Shopify' ? '#96bf48' : (r.platform === 'Falabella' ? '#84cc16' : (r.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+    const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${r.platform}</span>`;
+
+    // Obtener número de pedido amigable en lugar de UUID
+    let operationDoc = r.reference_doc || '-';
+    if (r.reference_doc && r.reference_doc.startsWith('Pedido ')) {
+      const orderId = r.reference_doc.replace('Pedido ', '').trim();
+      const orderInfo = window.movementOrderInfoMap?.[orderId];
+      if (orderInfo && orderInfo.orderNumber) {
+        operationDoc = `Pedido #${orderInfo.orderNumber}`;
+      }
+    }
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.85rem 1.5rem;">${formattedDate}</td>
+        <td style="padding: 0.85rem 1.5rem;">${typeBadge}</td>
+        <td style="padding: 0.85rem 1.5rem;"><strong>${r.sku}</strong></td>
+        <td style="padding: 0.85rem 1.5rem;">${r.name}</td>
+        <td style="padding: 0.85rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
+        <td style="padding: 0.85rem 1.5rem;">${platformHtml}</td>
+        <td style="padding: 0.85rem 1.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
+        <td style="padding: 0.85rem 1.5rem; font-weight: 500; color: var(--color-text-main);" title="${r.reference_doc}">${operationDoc}</td>
+      </tr>
+    `;
+  }).join('');
+
+  // Renderizar controles de paginación
+  if (pagContainer) {
+    if (totalPages <= 1) {
+      pagContainer.innerHTML = '';
+      return;
+    }
+
+    const fromRow = startIndex + 1;
+    const toRow = endIndex;
+
+    pagContainer.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background-color: var(--color-bg-card); border-top: 1px solid var(--color-border); border-bottom-left-radius: var(--radius-lg); border-bottom-right-radius: var(--radius-lg); flex-wrap: wrap; gap: 1rem;">
+        <span style="font-size: 0.875rem; color: var(--color-text-muted);">
+          Mostrando <strong style="color: var(--color-text-main);">${fromRow}</strong> a 
+          <strong style="color: var(--color-text-main);">${toRow}</strong> de 
+          <strong style="color: var(--color-text-main);">${totalRows}</strong> movimientos
+        </span>
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button id="movs-prev-page" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem; height: 34px; cursor: pointer; border-radius: var(--radius-md);" ${currentPage === 1 ? 'disabled' : ''}>
+            <i class="ri-arrow-left-s-line"></i> Anterior
+          </button>
+          
+          <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.875rem; color: var(--color-text-muted);">
+            Pág. 
+            <input type="number" id="movs-goto-page" class="form-input" min="1" max="${totalPages}" value="${currentPage}" style="width: 55px; height: 34px; text-align: center; padding: 0; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);"> 
+            de <strong>${totalPages}</strong>
+          </div>
+
+          <button id="movs-next-page" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem; height: 34px; cursor: pointer; border-radius: var(--radius-md);" ${currentPage >= totalPages ? 'disabled' : ''}>
+            Siguiente <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Event listeners
+    const btnPrev = document.getElementById('movs-prev-page');
+    const btnNext = document.getElementById('movs-next-page');
+    const gotoInput = document.getElementById('movs-goto-page');
+
+    if (btnPrev && currentPage > 1) {
+      btnPrev.addEventListener('click', () => {
+        window.movementsCurrentPage--;
+        renderMovementsTableBody();
+      });
+    }
+
+    if (btnNext && currentPage < totalPages) {
+      btnNext.addEventListener('click', () => {
+        window.movementsCurrentPage++;
+        renderMovementsTableBody();
+      });
+    }
+
+    if (gotoInput) {
+      const handleGoto = () => {
+        let val = parseInt(gotoInput.value, 10);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > totalPages) val = totalPages;
+        if (val !== currentPage) {
+          window.movementsCurrentPage = val;
+          renderMovementsTableBody();
+        }
+      };
+
+      gotoInput.addEventListener('change', handleGoto);
+      gotoInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          handleGoto();
+        }
+      });
+    }
+  }
+}
+
+function updateMovementsSortingIndicators() {
+  document.querySelectorAll('.movements-sortable').forEach(th => {
+    const col = th.getAttribute('data-sort');
+    const indicator = th.querySelector('.sort-indicator');
+    if (!indicator) return;
+    
+    if (window.movementsSortColumn === col) {
+      indicator.innerHTML = window.movementsSortAsc 
+        ? '<i class="ri-arrow-up-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>' 
+        : '<i class="ri-arrow-down-s-fill" style="color: var(--color-primary); font-size: 0.95rem; vertical-align: middle;"></i>';
+      th.style.color = 'var(--color-primary)';
+    } else {
+      indicator.innerHTML = '<i class="ri-arrow-up-down-line" style="color: var(--color-text-muted); opacity: 0.35; font-size: 0.85rem; vertical-align: middle;"></i>';
+      th.style.color = '';
+    }
+  });
+}
+
+function exportMovementsToCsv() {
+  const rows = applyMovementsFiltersAndSort();
+  if (rows.length === 0) {
+    alert('No hay movimientos para exportar.');
+    return;
+  }
+
+  const csvHeaders = [
+    'Fecha',
+    'Tipo',
+    'SKU',
+    'Producto',
+    'Bodega',
+    'Plataforma Origen',
+    'Cantidad',
+    'Referencia'
+  ];
+
+  const csvRows = [csvHeaders.join(',')];
+
+  rows.forEach(r => {
+    const formattedDate = r.dateStr 
+      ? new Date(r.dateStr).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+      : '-';
+
+    let operationDoc = r.reference_doc || '-';
+    if (r.reference_doc && r.reference_doc.startsWith('Pedido ')) {
+      const orderId = r.reference_doc.replace('Pedido ', '').trim();
+      const orderInfo = window.movementOrderInfoMap?.[orderId];
+      if (orderInfo && orderInfo.orderNumber) {
+        operationDoc = `Pedido #${orderInfo.orderNumber}`;
+      }
+    }
+
+    const rowData = [
+      formattedDate,
+      r.type === 'in' ? 'Ingreso' : 'Salida',
+      r.sku,
+      r.name,
+      r.warehouse,
+      r.platform,
+      r.quantity,
+      operationDoc
+    ];
+
+    const csvRow = rowData.map(val => {
+      const str = val !== undefined ? String(val) : '';
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    }).join(',');
+
+    csvRows.push(csvRow);
+  });
+
+  const csvContent = '\ufeff' + csvRows.join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const commerce = window.activeIntegrationCommerce || 'comercio';
+  link.setAttribute('href', url);
+  link.setAttribute('download', `historial_movimientos_${commerce.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 async function renderWarehouses() {
@@ -1562,6 +2583,9 @@ async function renderOrders() {
         raw_paris_data,
         raw_shopify_data,
         shopify_exported,
+        agenda,
+        operador,
+        fecha_procesamiento,
         order_items (quantity, products(sku, name))
       `)
       .gte('created_at', startOfMonth);
@@ -1637,6 +2661,9 @@ async function renderOrders() {
             raw_paris_data,
             raw_shopify_data,
             shopify_exported,
+            agenda,
+            operador,
+            fecha_procesamiento,
             order_items (quantity, products(sku, name))
           `)
           .lt('created_at', startOfMonth);
@@ -2401,6 +3428,9 @@ window.applyClientWmsFiltersAndRender = function() {
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Fecha Procesamiento:</strong> ${order.fecha_procesamiento || '-'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Agenda Picking:</strong> ${order.agenda || '-'}</p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Operador:</strong> ${order.operador || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
               ${rawJsonBtnHtml}
             </div>
@@ -4035,6 +5065,7 @@ async function renderIntegrations() {
     const name = document.getElementById('prod-name').value;
     const desc = document.getElementById('prod-desc').value;
     const stock = parseInt(document.getElementById('prod-stock').value, 10);
+    const stockCritico = parseInt(document.getElementById('prod-stock-critico').value, 10) || 0;
 
     try {
       const { data: userAuth } = await supabase.auth.getUser();
@@ -4047,11 +5078,12 @@ async function renderIntegrations() {
         .from('products')
         .insert([{
           merchant_id: merchantId,
-          comercio: currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA',
+          comercio: window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
           sku: sku,
           name: name,
           description: desc,
-          is_pack: isPack
+          is_pack: isPack,
+          stock_critico: stockCritico
         }])
         .select()
         .single();
@@ -4133,6 +5165,7 @@ async function renderIntegrations() {
     const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
     const expiration = document.getElementById('edit-prod-expiration').value || null;
     const lot = document.getElementById('edit-prod-lot').value || null;
+    const stockCritico = parseInt(document.getElementById('edit-prod-stock-critico').value, 10) || 0;
 
     try {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
@@ -4149,7 +5182,8 @@ async function renderIntegrations() {
           weight,
           expiration_date: expiration,
           lot_number: lot,
-          is_pack: isPack
+          is_pack: isPack,
+          stock_critico: stockCritico
         })
         .eq('id', prodId);
 

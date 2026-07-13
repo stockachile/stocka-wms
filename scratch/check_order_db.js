@@ -20,13 +20,27 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-async function checkTriggers() {
-  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'order_items' });
-  if (error) {
-    console.error('Error fetching triggers:', error);
-  } else {
-    console.log('Triggers on table "order_items":', triggers);
+async function run() {
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', '2000013912975267')
+    .maybeSingle();
+
+  if (error || !order) {
+    console.error('Order not found in DB:', error);
+    return;
   }
+
+  console.log('ORDER IN DATABASE:');
+  console.log(`ID: ${order.id}`);
+  console.log(`Comercio: ${order.comercio}`);
+  console.log(`Origen: ${order.origen}`);
+  console.log(`Date Created: ${order.date_created}`);
+  console.log(`Created At: ${order.created_at}`);
+  console.log(`SLA (expected_date): ${order.expected_date}`);
+  console.log(`Status: ${order.status}`);
+  console.log(`Raw data:`, JSON.stringify(order.raw_data, null, 2));
 }
 
-checkTriggers();
+run();

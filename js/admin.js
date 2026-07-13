@@ -3,6 +3,217 @@ import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 
 
+window.pickerOperatorsMap = window.pickerOperatorsMap || {};
+
+window.fetchPickerOperators = async function(ordersList) {
+  if (!ordersList || ordersList.length === 0) return;
+  const client = window.supabase ? window.supabase.createClient(
+    'https://hpomymtecmxujbjxqawu.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ'
+  ) : null;
+  if (!client) return;
+
+  try {
+    const orderNumbers = ordersList.map(o => String(o.external_order_number || o.id));
+    const chunkSize = 200;
+    for (let i = 0; i < orderNumbers.length; i += chunkSize) {
+      const chunk = orderNumbers.slice(i, i + chunkSize);
+      
+      const { data: activeOps, error: activeOpsErr } = await client
+        .from('active_orders')
+        .select('order_number, operator')
+        .in('order_number', chunk);
+      
+      if (!activeOpsErr && activeOps) {
+        activeOps.forEach(item => {
+          if (item.operator) {
+            window.pickerOperatorsMap[item.order_number] = item.operator;
+          }
+        });
+      }
+      
+      const { data: histOps, error: histOpsErr } = await client
+        .from('history_logs')
+        .select('pedido, picker')
+        .in('pedido', chunk);
+        
+      if (!histOpsErr && histOps) {
+        histOps.forEach(item => {
+          if (item.picker && item.picker !== '-') {
+            window.pickerOperatorsMap[item.pedido] = item.picker;
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('[Picker Operators Sync] Error fetching operators:', err);
+  }
+};
+
+window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
+
+window.loadConfigOptions = async function() {
+  try {
+    const { data: dbOptions, error } = await supabase
+      .from('wms_config_options')
+      .select('type, value');
+    if (!error && dbOptions) {
+      const agendas = dbOptions.filter(o => o.type === 'agenda').map(o => o.value);
+      const operadores = dbOptions.filter(o => o.type === 'operador').map(o => o.value);
+      if (agendas.length > 0) window.agendaOptions = [...new Set(agendas)];
+      if (operadores.length > 0) window.operadorOptions = [...new Set(operadores)];
+    }
+  } catch (err) {
+    console.warn("Could not load custom options from DB (table wms_config_options might not exist yet):", err.message);
+  }
+};
+
+window.manageWmsConfigOptions = async function() {
+  const agendaListHtml = (window.agendaOptions || []).map(opt => `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.9rem; background:var(--color-bg); padding:0.4rem 0.75rem; border-radius:var(--radius-md); border:1px solid var(--color-border); color:var(--color-text-main);">
+      <span>${opt}</span>
+      <button onclick="window.deleteWmsConfigOption('agenda', '${opt}')" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0.2rem;" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
+    </div>
+  `).join('');
+
+  const operadorListHtml = (window.operadorOptions || []).map(opt => `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.9rem; background:var(--color-bg); padding:0.4rem 0.75rem; border-radius:var(--radius-md); border:1px solid var(--color-border); color:var(--color-text-main);">
+      <span>${opt}</span>
+      <button onclick="window.deleteWmsConfigOption('operador', '${opt}')" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0.2rem;" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
+    </div>
+  `).join('');
+
+  Swal.fire({
+    title: 'Gestionar Opciones de Agenda y Operador',
+    html: `
+      <div style="text-align: left; max-height: 400px; overflow-y: auto;">
+        <div style="margin-bottom: 1.5rem;">
+          <h4 style="margin-bottom: 0.5rem; color: var(--color-primary); font-weight: 600;">Agendas</h4>
+          <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+            <input id="new-agenda-val" class="swal2-input" placeholder="Nueva agenda" style="margin: 0; flex: 1; height: auto; padding: 0.4rem 0.6rem;">
+            <button onclick="window.addWmsConfigOption('agenda')" class="swal2-confirm swal2-styled" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.9rem;">+ Agregar</button>
+          </div>
+          <div style="max-height: 120px; overflow-y: auto; border: 1px solid var(--color-border); padding: 0.5rem; border-radius: var(--radius-md); background: var(--color-surface);">
+            ${agendaListHtml || '<span style="color:var(--color-text-muted);">Sin opciones custom.</span>'}
+          </div>
+        </div>
+        <div>
+          <h4 style="margin-bottom: 0.5rem; color: var(--color-primary); font-weight: 600;">Operadores</h4>
+          <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+            <input id="new-operador-val" class="swal2-input" placeholder="Nuevo operador" style="margin: 0; flex: 1; height: auto; padding: 0.4rem 0.6rem;">
+            <button onclick="window.addWmsConfigOption('operador')" class="swal2-confirm swal2-styled" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.9rem;">+ Agregar</button>
+          </div>
+          <div style="max-height: 120px; overflow-y: auto; border: 1px solid var(--color-border); padding: 0.5rem; border-radius: var(--radius-md); background: var(--color-surface);">
+            ${operadorListHtml || '<span style="color:var(--color-text-muted);">Sin opciones custom.</span>'}
+          </div>
+        </div>
+      </div>
+    `,
+    showConfirmButton: false,
+    showCloseButton: true
+  });
+};
+
+window.addWmsConfigOption = async function(type) {
+  const inputId = type === 'agenda' ? 'new-agenda-val' : 'new-operador-val';
+  const val = document.getElementById(inputId)?.value?.trim()?.toUpperCase();
+  if (!val) return;
+
+  try {
+    const { error } = await supabase
+      .from('wms_config_options')
+      .insert([{ type, value: val }]);
+    
+    if (error && error.code !== '23505') { // Ignore unique constraint violation
+      throw error;
+    }
+
+    if (type === 'agenda') {
+      if (!window.agendaOptions.includes(val)) window.agendaOptions.push(val);
+    } else {
+      if (!window.operadorOptions.includes(val)) window.operadorOptions.push(val);
+    }
+    
+    window.manageWmsConfigOptions();
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error("Error adding option:", err);
+    Swal.fire('Error', 'No se pudo guardar la opción (asegúrate de haber ejecutado la migración de base de datos): ' + err.message, 'error');
+  }
+};
+
+window.deleteWmsConfigOption = async function(type, val) {
+  try {
+    const { error } = await supabase
+      .from('wms_config_options')
+      .delete()
+      .eq('type', type)
+      .eq('value', val);
+      
+    if (error) throw error;
+
+    if (type === 'agenda') {
+      window.agendaOptions = window.agendaOptions.filter(o => o !== val);
+    } else {
+      window.operadorOptions = window.operadorOptions.filter(o => o !== val);
+    }
+
+    window.manageWmsConfigOptions();
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error("Error deleting option:", err);
+    Swal.fire('Error', 'No se pudo eliminar la opción: ' + err.message, 'error');
+  }
+};
+
+window.updateWmsOrderField = async function(orderId, field, value) {
+  if (field === 'fecha_procesamiento' && value) {
+    const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
+    if (!regex.test(value)) {
+      Swal.fire('Formato Inválido', 'La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07).', 'warning');
+      applyWmsFiltersAndRender();
+      return;
+    }
+  }
+
+  try {
+    const updatePayload = {};
+    updatePayload[field] = value || null;
+
+    const { error } = await supabase
+      .from('orders')
+      .update(updatePayload)
+      .eq('id', orderId);
+
+    if (error) throw error;
+
+    const order = window.loadedOrders.find(o => o.id === orderId);
+    if (order) {
+      order[field] = value;
+      if ((field === 'agenda' || field === 'sucursal_pickeo') && order.estado_wms === 'En preparación') {
+        await window.propagateOrderUpdateToPicker(order);
+      }
+    }
+
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true
+    });
+    toast.fire({
+      icon: 'success',
+      title: 'Campo actualizado'
+    });
+  } catch (err) {
+    console.error("Error updating order field:", err);
+    Swal.fire('Error', 'No se pudo actualizar el campo: ' + err.message, 'error');
+    applyWmsFiltersAndRender();
+  }
+};
+
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
   try {
@@ -525,6 +736,8 @@ async function renderAdminOrders() {
   window.wmsCurrentPage = window.wmsCurrentPage || 1;
   window.wmsSelectedOrderIds = window.wmsSelectedOrderIds || new Set();
 
+  await window.loadConfigOptions();
+
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const startOfMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
@@ -582,7 +795,11 @@ async function renderAdminOrders() {
         raw_shopify_data,
         shopify_exported,
         comercio,
-        order_items (quantity, products(sku, name, price))
+        agenda,
+        operador,
+        fecha_procesamiento,
+        sucursal_pickeo,
+        order_items (quantity, products(sku, name, price, image_url, options))
       `)
       .gte('created_at', startOfMonth)
       .order('created_at', { ascending: false });
@@ -608,6 +825,11 @@ async function renderAdminOrders() {
       }
     }
     window.loadedShipments = shipments;
+
+    window.pickerOperatorsMap = {};
+    if (window.fetchPickerOperators) {
+      await window.fetchPickerOperators(window.loadedOrders);
+    }
 
     // Obtener las opciones únicas de Comercios/Clientes para el filtro
     const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
@@ -664,7 +886,11 @@ async function renderAdminOrders() {
             raw_shopify_data,
             shopify_exported,
             comercio,
-            order_items (quantity, products(sku, name, price))
+            agenda,
+            operador,
+            fecha_procesamiento,
+            sucursal_pickeo,
+            order_items (quantity, products(sku, name, price, image_url, options))
           `)
           .lt('created_at', startOfMonth)
           .order('created_at', { ascending: false });
@@ -686,6 +912,10 @@ async function renderAdminOrders() {
 
           if (!shipError && shipData) {
             window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
+          }
+
+          if (window.fetchPickerOperators) {
+            await window.fetchPickerOperators(histOrders);
           }
 
           updateMerchantFilterOptions();
@@ -817,8 +1047,11 @@ async function renderAdminOrders() {
 
       <!-- Tabla de Pedidos -->
       <div class="card">
-        <div class="card-header">
-          <h3>Panel de Control de Pedidos</h3>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
+          <button onclick="window.manageWmsConfigOptions()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
+            <i class="ri-settings-3-line"></i> Gestionar Opciones
+          </button>
         </div>
         <div class="card-body" style="overflow-x: auto;">
           <table class="data-table">
@@ -832,11 +1065,10 @@ async function renderAdminOrders() {
                 <th>Comercio</th>
                 <th>Origen</th>
                 <th>Fecha</th>
-                <th>SKU</th>
-                <th>Nombre Producto</th>
-                <th>Cantidad</th>
-                <th style="text-align:right;">Valor Total</th>
-                <th>Seguimiento</th>
+                <th>Fecha proc.</th>
+                <th>Agenda</th>
+                <th>Operador</th>
+                <th>Total unid.</th>
                 <th>Estado Origen</th>
                 <th>Estado WMS</th>
               </tr>
@@ -1033,7 +1265,7 @@ window.applyWmsFiltersAndRender = function() {
   if (paginatedOrders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="14" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="11" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           No se encontraron pedidos con los criterios de búsqueda actuales.
         </td>
       </tr>
@@ -1129,7 +1361,8 @@ window.applyWmsFiltersAndRender = function() {
       : order.created_at;
 
     const dateObj = new Date(dateSource);
-    const dateStr = dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    const datePart = dateObj.toLocaleDateString('es-CL');
+    const timePart = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
     
     let badgeBg = 'var(--color-gray)';
     let badgeTextColor = '#1a1a1a';
@@ -1277,6 +1510,42 @@ window.applyWmsFiltersAndRender = function() {
     else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
+    const currentAgenda = order.agenda || '';
+    const currentOperador = order.operador || window.pickerOperatorsMap[order.external_order_number || order.id] || '';
+    
+    let tempAgendas = [...(window.agendaOptions || [])];
+    if (currentAgenda && !tempAgendas.includes(currentAgenda)) {
+      tempAgendas.push(currentAgenda);
+    }
+    
+    let tempOperadores = [...(window.operadorOptions || [])];
+    if (currentOperador && !tempOperadores.includes(currentOperador)) {
+      tempOperadores.push(currentOperador);
+    }
+
+    const agendaSelectHtml = `
+      <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
+        <option value="">-</option>
+        ${tempAgendas.map(opt => `<option value="${opt}" ${currentAgenda === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+      </select>
+    `;
+
+    const operadorSelectHtml = `
+      <select onchange="window.updateWmsOrderField('${order.id}', 'operador', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
+        <option value="">-</option>
+        ${tempOperadores.map(opt => `<option value="${opt}" ${currentOperador === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+      </select>
+    `;
+
+    const fechaProcHtml = `
+      <input type="text" 
+             placeholder="DD-MM" 
+             value="${order.fecha_procesamiento || ''}" 
+             onchange="window.updateWmsOrderField('${order.id}', 'fecha_procesamiento', this.value)" 
+             style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 60px; text-align: center; background: var(--color-surface); color: var(--color-text-main);" 
+             maxlength="5" />
+    `;
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
@@ -1288,14 +1557,16 @@ window.applyWmsFiltersAndRender = function() {
         <td>${orderDisplayId}</td>
         <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></td>
         <td>${originHtml}</td>
-        <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
-        <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600;">${skuStr}</span></td>
-        <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${nameStr}">${nameStr}</td>
-        <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
-        <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
-          ${window.formatCLP(order.total_value)}
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.8rem; white-space:nowrap; font-weight:500;">
+            <span>📅 ${datePart}</span>
+            <span style="color: var(--color-text-muted);">⏰ ${timePart}</span>
+          </div>
         </td>
-        <td>${trackingHtml}</td>
+        <td>${fechaProcHtml}</td>
+        <td>${agendaSelectHtml}</td>
+        <td>${operadorSelectHtml}</td>
+        <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
         <td>
           <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
@@ -1310,7 +1581,7 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="13" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
@@ -1327,7 +1598,15 @@ window.applyWmsFiltersAndRender = function() {
               </p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || comuna_destino || 'No registrada'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-              <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+              
+              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
+                <span><strong>Agenda Picking:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
+                <button onclick="window.editWmsOrderPickingInfo('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; width: fit-content; margin-top: 0.25rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                  <i class="ri-edit-line"></i> Editar Picking
+                </button>
+              </div>
             </div>
 
             <!-- Col 2: Desglose de Productos -->
@@ -1524,6 +1803,9 @@ function renderWmsBulkActionsBar() {
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: #ffffff; color: var(--color-primary); font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem;">
+          <button onclick="window.bulkSetWmsOrderPickingInfo()" class="btn" style="background: #ff9800; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-edit-line"></i> Asignar Agenda / Sucursal
+          </button>
           <button onclick="window.exportAdminShopifyOrdersCsv()" class="btn" style="background: #96bf48; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-download-2-line"></i> Exportar Shopify (CSV)
           </button>
@@ -1540,70 +1822,268 @@ window.applyBulkWmsStatus = async function() {
   const newStatus = document.getElementById('bulk-wms-status').value;
   const ids = Array.from(window.wmsSelectedOrderIds);
   if (ids.length === 0) return;
-  
-  if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
-    return;
-  }
-  
-  try {
-    const updateData = { estado_wms: newStatus };
-    if (newStatus === 'Despachado') {
-      updateData.status = 'despachado';
-    }
-    const { error } = await supabase
-      .from('orders')
-      .update(updateData)
-      .in('id', ids);
-      
-    if (error) throw error;
-    alert(`Se actualizaron con éxito ${ids.length} pedidos a "${newStatus}".`);
-    
-    // Actualizar localmente
-    if (window.loadedOrders) {
-      ids.forEach(id => {
-        const order = window.loadedOrders.find(o => o.id === id);
-        if (order) {
-          order.estado_wms = newStatus;
-          if (newStatus === 'Despachado') order.status = 'despachado';
+
+  if (newStatus === 'En preparación') {
+    // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda y Fecha Procesamiento
+    const { value: formValues } = await Swal.fire({
+      title: 'Asignación Masiva: Sucursal, Agenda y Procesamiento',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Los ${ids.length} pedidos seleccionados se enviarán al Picker.</p>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
+          <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina">Sucursal La Reina</option>
+            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
+            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
+          </select>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
+          <input id="swal-bulk-agenda" class="swal2-input" type="text" value="STK" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
+          <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+        </div>
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: 'Enviar al Picker',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => {
+        const sucursal = document.getElementById('swal-bulk-sucursal').value;
+        const agenda = document.getElementById('swal-bulk-agenda').value.trim();
+        const fechaProcInput = document.getElementById('swal-bulk-fecha-proc').value.trim();
+
+        if (!agenda) {
+          Swal.showValidationMessage('La agenda de preparación no puede estar vacía');
+          return false;
         }
+
+        if (fechaProcInput) {
+          const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
+          if (!regex.test(fechaProcInput)) {
+            Swal.showValidationMessage('La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07)');
+            return false;
+          }
+        } else {
+          // Check if all selected orders have a fecha_procesamiento already
+          const missingDate = ids.some(id => {
+            const order = window.loadedOrders.find(o => o.id === id);
+            return !order || !order.fecha_procesamiento;
+          });
+          if (missingDate) {
+            Swal.showValidationMessage('Algunos pedidos seleccionados no tienen Fecha de Procesamiento. Por favor especifícala.');
+            return false;
+          }
+        }
+
+        return { sucursal, agenda, fechaProc: fechaProcInput };
+      }
+    });
+
+    if (!formValues) return;
+
+    try {
+      Swal.fire({
+        title: 'Enviando pedidos al Picker...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
       });
+
+      // 1. Actualizar en WMS
+      const updatePayload = {
+        estado_wms: 'En preparación',
+        sucursal_pickeo: formValues.sucursal,
+        agenda: formValues.agenda
+      };
+      if (formValues.fechaProc) {
+        updatePayload.fecha_procesamiento = formValues.fechaProc;
+      }
+
+      const { error: wmsErr } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .in('id', ids);
+
+      if (wmsErr) throw wmsErr;
+
+      // 2. Enviar a Picker de forma masiva
+      const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+      for (const order of selectedOrders) {
+        order.estado_wms = 'En preparación';
+        order.sucursal_pickeo = formValues.sucursal;
+        order.agenda = formValues.agenda;
+        if (formValues.fechaProc) {
+          order.fecha_procesamiento = formValues.fechaProc;
+        }
+        await window.sendSingleOrderToPicker(order);
+      }
+
+      Swal.fire('¡Éxito!', `Se enviaron ${ids.length} pedidos al Picker correctamente.`, 'success');
+      window.wmsSelectedOrderIds.clear();
+      const cbAll = document.getElementById('wms-select-all');
+      if (cbAll) cbAll.checked = false;
+      applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Error', 'No se pudieron enviar los pedidos: ' + err.message, 'error');
+      applyWmsFiltersAndRender();
     }
-    
-    window.wmsSelectedOrderIds.clear();
-    const cbAll = document.getElementById('wms-select-all');
-    if (cbAll) cbAll.checked = false;
-    
-    applyWmsFiltersAndRender();
-  } catch (err) {
-    console.error(err);
-    alert('Error en la actualización masiva: ' + err.message);
+  } else {
+    if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
+      return;
+    }
+    try {
+      const updateData = { estado_wms: newStatus };
+      if (newStatus === 'Despachado') {
+        updateData.status = 'despachado';
+      }
+      const { error } = await supabase
+        .from('orders')
+        .update(updateData)
+        .in('id', ids);
+        
+      if (error) throw error;
+      alert(`Se actualizaron con éxito ${ids.length} pedidos a "${newStatus}".`);
+      
+      if (window.loadedOrders) {
+        ids.forEach(id => {
+          const order = window.loadedOrders.find(o => o.id === id);
+          if (order) {
+            order.estado_wms = newStatus;
+            if (newStatus === 'Despachado') order.status = 'despachado';
+          }
+        });
+      }
+      
+      window.wmsSelectedOrderIds.clear();
+      const cbAll = document.getElementById('wms-select-all');
+      if (cbAll) cbAll.checked = false;
+      applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error(err);
+      alert('Error en la actualización masiva: ' + err.message);
+    }
   }
 };
 
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
-  try {
-    const updateData = { estado_wms: newWmsStatus };
-    if (newWmsStatus === 'Despachado') {
-      updateData.status = 'despachado';
+  const order = window.loadedOrders.find(o => o.id === orderId);
+  if (!order) return;
+
+  if (newWmsStatus === 'En preparación') {
+    const currentSucursal = order.sucursal_pickeo || '';
+    const currentAgenda = order.agenda || '';
+    const currentFechaProc = order.fecha_procesamiento || '';
+
+    const { value: formValues } = await Swal.fire({
+      title: 'Preparación de Pedido: Datos requeridos',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">El pedido se enviará al sistema Picker para su preparación. Se requiere especificar la agenda y la fecha de procesamiento.</p>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
+          <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+            <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+            <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+            <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+          </select>
+          
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
+          <input id="swal-agenda" class="swal2-input" type="text" value="${currentAgenda}" placeholder="Ej: STK, RM, etc." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+
+          <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
+          <input id="swal-fecha-proc" class="swal2-input" type="text" value="${currentFechaProc}" placeholder="DD-MM" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+        </div>
+      `,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: 'Enviar al Picker',
+      cancelButtonText: 'Cancelar',
+      preConfirm: () => {
+        const sucursal = document.getElementById('swal-sucursal').value;
+        const agenda = document.getElementById('swal-agenda').value.trim();
+        const fechaProc = document.getElementById('swal-fecha-proc').value.trim();
+
+        if (!agenda) {
+          Swal.showValidationMessage('La agenda de preparación no puede estar vacía');
+          return false;
+        }
+        if (!fechaProc) {
+          Swal.showValidationMessage('La fecha de procesamiento no puede estar vacía');
+          return false;
+        }
+        const regex = /^(0[1-9]|[12][0-9]|3[01])-(0[1-9]|1[0-2])$/;
+        if (!regex.test(fechaProc)) {
+          Swal.showValidationMessage('La fecha de procesamiento debe tener el formato DD-MM (ej: 12-07)');
+          return false;
+        }
+
+        return { sucursal, agenda, fechaProc };
+      }
+    });
+
+    if (!formValues) {
+      applyWmsFiltersAndRender();
+      return;
     }
-    const { error } = await supabase
-      .from('orders')
-      .update(updateData)
-      .eq('id', orderId);
+
+    try {
+      Swal.fire({
+        title: 'Enviando al Picker...',
+        allowOutsideClick: false,
+        didOpen: () => { Swal.showLoading(); }
+      });
+
+      // 1. Guardar en WMS
+      const { error: wmsErr } = await supabase
+        .from('orders')
+        .update({
+          estado_wms: 'En preparación',
+          sucursal_pickeo: formValues.sucursal,
+          agenda: formValues.agenda,
+          fecha_procesamiento: formValues.fechaProc
+        })
+        .eq('id', orderId);
+
+      if (wmsErr) throw wmsErr;
+
+      // Actualizar memoria local
+      order.estado_wms = 'En preparación';
+      order.sucursal_pickeo = formValues.sucursal;
+      order.agenda = formValues.agenda;
+      order.fecha_procesamiento = formValues.fechaProc;
+
+      // 2. Insertar en Picker active_orders
+      await window.sendSingleOrderToPicker(order);
+
+      Swal.fire('¡Éxito!', 'Pedido enviado al Picker correctamente.', 'success');
+      applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Error', 'No se pudo enviar el pedido al Picker: ' + err.message, 'error');
+      applyWmsFiltersAndRender();
+    }
+  } else {
+    try {
+      const updateData = { estado_wms: newWmsStatus };
+      if (newWmsStatus === 'Despachado') {
+        updateData.status = 'despachado';
+      }
+      const { error } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', orderId);
+        
+      if (error) throw error;
       
-    if (error) throw error;
-    
-    // Actualizar localmente
-    const order = window.loadedOrders.find(o => o.id === orderId);
-    if (order) {
       order.estado_wms = newWmsStatus;
       if (newWmsStatus === 'Despachado') order.status = 'despachado';
+      
+      applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error(err);
+      alert('Error al actualizar estado WMS: ' + err.message);
     }
-    
-    applyWmsFiltersAndRender();
-  } catch (err) {
-    console.error(err);
-    alert('Error al actualizar estado WMS: ' + err.message);
   }
 };
 
@@ -7535,6 +8015,7 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn active" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
       <button class="billing-tab-btn" id="tab-status-btn" onclick="switchBillingAdminTab('status')"><i class="ri-toggle-line"></i> Estados de Comercio</button>
       <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')"><i class="ri-add-circle-line"></i> Cobros Adicionales</button>
+      <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
     </div>
     
     <div id="tab-control-content" style="display: none;">
@@ -7589,6 +8070,14 @@ window.renderBillingAdmin = async function() {
         </div>
       </div>
     </div>
+    
+    <div id="tab-contacts-content" style="display: none;">
+      <div class="card">
+        <div id="contacts-list-container">
+          <!-- Cargado dinámicamente -->
+        </div>
+      </div>
+    </div>
   `;
   
   await updatePendingReportsBadge();
@@ -7596,7 +8085,7 @@ window.renderBillingAdmin = async function() {
 };
 
 window.switchBillingAdminTab = function(tabName) {
-  const tabs = ['control', 'reports', 'metrics', 'status', 'extra'];
+  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
     const content = document.getElementById(`tab-${t}-content`);
@@ -7621,6 +8110,8 @@ window.switchBillingAdminTab = function(tabName) {
     loadCommerceStatusTab();
   } else if (tabName === 'extra') {
     loadExtraChargesTab();
+  } else if (tabName === 'contacts') {
+    loadBillingContactsTab();
   }
 };
 
@@ -7807,6 +8298,8 @@ async function loadBillingRecords(periodId, bodyElement) {
       });
     }
     
+    const activeTab = (window.activeBillingTabs && window.activeBillingTabs[periodId]) || 'fulf';
+    
     if (!records || records.length === 0) {
       bodyElement.innerHTML = `
         <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
@@ -7819,23 +8312,34 @@ async function loadBillingRecords(periodId, bodyElement) {
       return;
     }
     
-    let tableRows = '';
+    let tableRowsFulf = '';
+    let tableRowsEnv = '';
     records.forEach(r => {
-      const total = (r.total_fulfillment || 0) + (r.enviame || 0);
       const alDia = statusMap[r.comercio] !== false; // Default true
       
-      tableRows += `
-        <tr id="row-${r.id}" class="billing-record-row" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
+      const lastNotified = r.last_notified_at ? new Date(r.last_notified_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+      const emailBtnStyle = lastNotified 
+        ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' 
+        : 'border-color: var(--color-primary); color: var(--color-primary);';
+      const emailBtnTitle = lastNotified 
+        ? `Notificado el ${lastNotified}. Click para reenviar.` 
+        : 'Enviar Notificación por Correo (Brevo)';
+      
+      // 1. Build Fulfillment row
+      tableRowsFulf += `
+        <tr id="row-fulf-${r.id}" class="billing-record-row-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
+          <td style="vertical-align: middle; text-align: center;">
+            <input type="checkbox" class="row-select-fulf-${periodId}" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+          </td>
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
           </td>
           
-          <!-- Fulfillment -->
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="date" value="${r.fecha_limite || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite', this.value)" style="width: 125px;">
             ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.desglose_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'desglose_fulfillment')">
               <option value="Por Generar" ${r.desglose_fulfillment === 'Por Generar' ? 'selected' : ''}>Por Generar</option>
               <option value="Enviado" ${r.desglose_fulfillment === 'Enviado' ? 'selected' : ''}>Enviado</option>
@@ -7844,13 +8348,13 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.desglose_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
               <option value="Por solicitar" ${r.pago_fulfillment === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
               <option value="Recibido" ${r.pago_fulfillment === 'Recibido' ? 'selected' : ''}>Recibido</option>
@@ -7867,7 +8371,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               </div>
             ` : ''}
           </td>
-          <td class="col-group-fulf" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'factura_fulfillment')">
               <option value="Esperando" ${r.factura_fulfillment === 'Esperando' ? 'selected' : ''}>Esperando</option>
               <option value="No se factura" ${r.factura_fulfillment === 'No se factura' ? 'selected' : ''}>No se factura</option>
@@ -7876,22 +8380,58 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.factura_fulfillment === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td class="col-group-fulf col-group-divider" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="number" value="${r.num_factura || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
           </td>
+          <td style="vertical-align: middle; text-align: center;">
+            <div style="display: inline-flex; gap: 0.25rem;">
+              <button class="btn btn-outline btn-sm" 
+                      onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
+                      title="Gestionar Adjuntos y Enlaces">
+                <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" 
+                      onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" 
+                      title="${emailBtnTitle}">
+                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" 
+                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${ r.observation_status === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
+                      title="${r.observation_status === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
+                <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
+                <i class="ri-delete-bin-line" style="font-size: 0.9rem;"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+      
+      // 2. Build Envíame row
+      tableRowsEnv += `
+        <tr id="row-env-${r.id}" class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
+          <td style="vertical-align: middle; text-align: center;">
+            <input type="checkbox" class="row-select-env-${periodId}" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+          </td>
+          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
+            ${r.comercio}
+          </td>
           
-          <!-- Envíame -->
-          <td class="col-group-env" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="date" value="${r.fecha_limite_enviame || ''}" class="billing-input" onchange="saveField('${r.id}', 'fecha_limite_enviame', this.value)" style="width: 125px;">
             ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
           </td>
-          <td class="col-group-env" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td class="col-group-env" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
           </td>
-          <td class="col-group-env" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
               <option value="Por solicitar" ${r.pago_enviame === 'Por solicitar' ? 'selected' : ''}>Por solicitar</option>
               <option value="Recibido" ${r.pago_enviame === 'Recibido' ? 'selected' : ''}>Recibido</option>
@@ -7908,7 +8448,7 @@ async function loadBillingRecords(periodId, bodyElement) {
               </div>
             ` : ''}
           </td>
-          <td class="col-group-env" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.factura_enviame)}" onchange="updateSelectField(this, '${r.id}', 'factura_enviame')">
               <option value="Esperando" ${r.factura_enviame === 'Esperando' ? 'selected' : ''}>Esperando</option>
               <option value="No se factura" ${r.factura_enviame === 'No se factura' ? 'selected' : ''}>No se factura</option>
@@ -7917,20 +8457,22 @@ async function loadBillingRecords(periodId, bodyElement) {
               <option value="Sin movimientos" ${r.factura_enviame === 'Sin movimientos' ? 'selected' : ''}>Sin movimientos</option>
             </select>
           </td>
-          <td class="col-group-env col-group-divider" style="vertical-align: middle;">
+          <td style="vertical-align: middle;">
             <input type="number" value="${r.num_factura_enviame || ''}" placeholder="-" class="billing-input" onblur="saveNumberField('${r.id}', 'num_factura_enviame', this.value, true)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 70px;">
-          </td>
-          
-          <td id="total-${r.id}" class="col-group-divider" style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
-            ${formatCLP(total)}
           </td>
           <td style="vertical-align: middle; text-align: center;">
             <div style="display: inline-flex; gap: 0.25rem;">
               <button class="btn btn-outline btn-sm" 
                       onclick="openBillingAttachmentsModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${ (r.fulfillment_link || r.fulfillment_pdf_url || (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0)) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
+                      style="padding: 0.15rem 0.35rem; ${ (r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);' }" 
                       title="Gestionar Adjuntos y Enlaces">
                 <i class="ri-attachment-line" style="font-size: 0.9rem;"></i>
+              </button>
+              <button class="btn btn-outline btn-sm" 
+                      onclick="window.openSendBillingEmailModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      style="padding: 0.15rem 0.35rem; ${emailBtnStyle}" 
+                      title="${emailBtnTitle}">
+                <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
               </button>
               <button class="btn btn-outline btn-sm" 
                       onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
@@ -7947,86 +8489,117 @@ async function loadBillingRecords(periodId, bodyElement) {
       `;
     });
     
-window.generateBillingMultiSelect = function(label, filterClass, periodId, options) {
-  let html = `
-    <div style="display: flex; align-items: center; gap: 0.35rem;">
-      <label style="font-size: 0.75rem; color: var(--color-text-muted);">${label}</label>
-      <div class="ms-container" style="position: relative; display: inline-block;">
-        <div class="form-input ms-header" onclick="toggleBillingMultiSelect(this)" style="cursor: pointer; padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; min-width: 140px; display: flex; justify-content: space-between; align-items: center; user-select: none; background: var(--color-surface);">
-          <span class="ms-label" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;">Todos</span>
-          <i class="ri-arrow-down-s-line"></i>
+    window.generateBillingMultiSelect = function(label, filterClass, periodId, options) {
+      let html = `
+        <div style="display: flex; align-items: center; gap: 0.35rem;">
+          <label style="font-size: 0.75rem; color: var(--color-text-muted);">${label}</label>
+          <div class="ms-container" style="position: relative; display: inline-block;">
+            <div class="form-input ms-header" onclick="toggleBillingMultiSelect(this)" style="cursor: pointer; padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; min-width: 140px; display: flex; justify-content: space-between; align-items: center; user-select: none; background: var(--color-surface);">
+              <span class="ms-label" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px;">Todos</span>
+              <i class="ri-arrow-down-s-line"></i>
+            </div>
+            <div class="ms-dropdown" style="display: none; position: absolute; top: 100%; left: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); z-index: 100; max-height: 250px; overflow-y: auto; padding: 0.25rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 100%; margin-top: 0.25rem;">
+              <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
+                <input type="checkbox" value="" class="${filterClass}-all" checked onchange="toggleBillingMultiSelectAll(this, '${filterClass}', '${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> Todos
+              </label>
+      `;
+      
+      options.forEach(opt => {
+        html += `
+              <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
+                <input type="checkbox" value="${opt}" class="${filterClass}" checked onchange="updateBillingMultiSelectLabel('${filterClass}', this.closest('.ms-container')); filterBillingRows('${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> ${opt}
+              </label>
+        `;
+      });
+      
+      html += `
+            </div>
+          </div>
         </div>
-        <div class="ms-dropdown" style="display: none; position: absolute; top: 100%; left: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); z-index: 100; max-height: 250px; overflow-y: auto; padding: 0.25rem 0; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 100%; margin-top: 0.25rem;">
-          <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
-            <input type="checkbox" value="" class="${filterClass}-all" checked onchange="toggleBillingMultiSelectAll(this, '${filterClass}', '${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> Todos
-          </label>
-  `;
-  
-  options.forEach(opt => {
-    html += `
-          <label style="display: flex; align-items: center; padding: 0.35rem 0.75rem; cursor: pointer; font-size: 0.75rem; transition: background 0.2s;" onmouseover="this.style.background='var(--color-bg)'" onmouseout="this.style.background='transparent'">
-            <input type="checkbox" value="${opt}" class="${filterClass}" checked onchange="updateBillingMultiSelectLabel('${filterClass}', this.closest('.ms-container')); filterBillingRows('${periodId}')" style="margin-right: 0.5rem; width: 14px; height: 14px; accent-color: var(--color-primary);"> ${opt}
-          </label>
-    `;
-  });
-  
-  html += `
-        </div>
-      </div>
-    </div>
-  `;
-  return html;
-};
-
+      `;
+      return html;
+    };
+    
     bodyElement.innerHTML = `
+        <div class="billing-period-tabs" style="display: flex; gap: 0.75rem; padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
+          <button class="billing-period-tab-btn" id="btn-tab-fulf-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'fulf')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'fulf' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
+            <i class="ri-bill-line" style="font-size: 1rem;"></i> Fulfillment
+          </button>
+          <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'env' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
+            <i class="ri-truck-line" style="font-size: 1rem;"></i> Envíame
+          </button>
+        </div>
+
         <!-- Filtros rápidos -->
         <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
           <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros:</span>
           
-          ${generateBillingMultiSelect('Pago Fulf:', 'filter-pago-fulf', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
+          <div class="filter-group-fulf-${periodId}" style="display: ${activeTab === 'fulf' ? 'flex' : 'none'}; gap: 1rem; align-items: center;">
+            ${generateBillingMultiSelect('Pago Fulf:', 'filter-pago-fulf', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
+            ${generateBillingMultiSelect('Factura Fulf:', 'filter-fact-fulf', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
+          </div>
           
-          ${generateBillingMultiSelect('Factura Fulf:', 'filter-fact-fulf', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
-          
-          ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
-          
-          ${generateBillingMultiSelect('Factura Env:', 'filter-fact-env', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
+          <div class="filter-group-env-${periodId}" style="display: ${activeTab === 'env' ? 'flex' : 'none'}; gap: 1rem; align-items: center;">
+            ${generateBillingMultiSelect('Pago Env:', 'filter-pago-env', periodId, ['Por solicitar', 'Recibido', 'En espera', 'Atrasado', 'abono', 'aprobado', 'incobrable', 'Sin movimientos'])}
+            ${generateBillingMultiSelect('Factura Env:', 'filter-fact-env', periodId, ['Esperando', 'No se factura', 'Emitida', 'Facturar', 'Sin movimientos'])}
+          </div>
         </div>
 
-        <table class="data-table billing-table" style="min-width: 1600px; font-size: 0.825rem; border-collapse: collapse;">
-          <thead>
-            <tr>
-              <th rowspan="2" style="min-width: 150px; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Comercio</th>
-              <th colspan="7" class="th-group-fulf col-group-divider" style="text-align: center; font-weight: 700;">Fulfillment</th>
-              <th colspan="6" class="th-group-env col-group-divider" style="text-align: center; font-weight: 700;">Envíame</th>
-              <th rowspan="2" class="col-group-divider" style="min-width: 120px; text-align: right; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Total Mes</th>
-              <th rowspan="2" style="width: 50px; text-align: center; vertical-align: middle; border-bottom: 2px solid var(--color-border);">Acción</th>
-            </tr>
-            <tr>
-              <!-- Fulfillment fields -->
-              <th class="col-group-fulf" style="min-width: 125px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th class="col-group-fulf" style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Desglose</th>
-              <th class="col-group-fulf" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
-              <th class="col-group-fulf" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
-              <th class="col-group-fulf" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
-              <th class="col-group-fulf" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
-              <th class="col-group-fulf col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
-              
-              <!-- Envíame fields -->
-              <th class="col-group-env" style="min-width: 125px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th class="col-group-env" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
-              <th class="col-group-env" style="min-width: 100px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
-              <th class="col-group-env" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
-              <th class="col-group-env" style="min-width: 130px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
-              <th class="col-group-env col-group-divider" style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRows}
-          </tbody>
-          <tfoot id="tfoot-${periodId}" style="background: var(--color-surface); font-weight: 700; position: sticky; bottom: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 10;">
-            <!-- Generated dynamically -->
-          </tfoot>
-        </table>
+        <!-- Tab Fulfillment -->
+        <div id="billing-tab-content-fulf-${periodId}" class="table-responsive" style="display: ${activeTab === 'fulf' ? 'block' : 'none'};">
+          <table class="data-table billing-table" style="min-width: 1000px; font-size: 0.825rem; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
+                  <input type="checkbox" class="bulk-select-all-fulf-${periodId}" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'fulf', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+                </th>
+                <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
+                <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
+                <th style="min-width: 120px; border-bottom: 2px solid var(--color-border);">Desglose</th>
+                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Total Fulf</th>
+                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Abono Fulf</th>
+                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Pago Fulf</th>
+                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Factura Fulf</th>
+                <th style="min-width: 70px; border-bottom: 2px solid var(--color-border);">N°Fact</th>
+                <th style="width: 140px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsFulf}
+            </tbody>
+            <tfoot id="tfoot-fulf-${periodId}" style="background: var(--color-surface); font-weight: 700; position: sticky; bottom: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 10;">
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Tab Envíame -->
+        <div id="billing-tab-content-env-${periodId}" class="table-responsive" style="display: ${activeTab === 'env' ? 'block' : 'none'};">
+          <table class="data-table billing-table" style="min-width: 1000px; font-size: 0.825rem; border-collapse: collapse;">
+            <thead>
+              <tr>
+                <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
+                  <input type="checkbox" class="bulk-select-all-env-${periodId}" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'env', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+                </th>
+                <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
+                <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
+                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Total Env</th>
+                <th style="min-width: 100px; text-align: right; border-bottom: 2px solid var(--color-border);">Abono Env</th>
+                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Pago Env</th>
+                <th style="min-width: 130px; border-bottom: 2px solid var(--color-border);">Factura Env</th>
+                <th style="min-width: 70px; border-bottom: 2px solid var(--color-border);">N°Fact Env</th>
+                <th style="width: 140px; text-align: center; border-bottom: 2px solid var(--color-border);">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsEnv}
+            </tbody>
+            <tfoot id="tfoot-env-${periodId}" style="background: var(--color-surface); font-weight: 700; position: sticky; bottom: 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 10;">
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- Bulk Action Bar Container -->
+        <div id="bulk-action-bar-container-${periodId}" style="margin-top: 1rem;"></div>
     `;
     
     // Update the tfoot dynamically
@@ -8090,16 +8663,12 @@ window.updateBillingFooterTotals = function(periodId) {
   const container = document.getElementById(`period-body-${periodId}`);
   if (!container) return;
   
-  const rows = container.querySelectorAll('.billing-record-row');
+  const rowsFulf = container.querySelectorAll('.billing-record-row-fulf');
   let sumTotalFulf = 0;
   let sumAbonoFulf = 0;
-  let sumTotalEnv = 0;
-  let sumAbonoEnv = 0;
-  let sumTotalMes = 0;
   
-  rows.forEach(row => {
+  rowsFulf.forEach(row => {
     if (row.style.display === 'none') return;
-    
     const getVal = (nameContains) => {
       const input = row.querySelector(`input[onblur*="${nameContains}"]`);
       if (input) {
@@ -8108,32 +8677,48 @@ window.updateBillingFooterTotals = function(periodId) {
       }
       return 0;
     };
-    
-    const tFulf = getVal('total_fulfillment');
-    const aFulf = getVal('abono_fulfillment');
-    const tEnv = getVal('enviame');
-    const aEnv = getVal('abono_enviame');
-    
-    sumTotalFulf += tFulf;
-    sumAbonoFulf += aFulf;
-    sumTotalEnv += tEnv;
-    sumAbonoEnv += aEnv;
-    sumTotalMes += (tFulf + tEnv);
+    sumTotalFulf += getVal('total_fulfillment');
+    sumAbonoFulf += getVal('abono_fulfillment');
+  });
+
+  const rowsEnv = container.querySelectorAll('.billing-record-row-env');
+  let sumTotalEnv = 0;
+  let sumAbonoEnv = 0;
+  
+  rowsEnv.forEach(row => {
+    if (row.style.display === 'none') return;
+    const getVal = (nameContains) => {
+      const input = row.querySelector(`input[onblur*="${nameContains}"]`);
+      if (input) {
+        const valStr = (input.value || '0').replace(/[^\d-]/g, '');
+        return parseInt(valStr, 10) || 0;
+      }
+      return 0;
+    };
+    sumTotalEnv += getVal('enviame');
+    sumAbonoEnv += getVal('abono_enviame');
   });
   
-  const tfoot = document.getElementById(`tfoot-${periodId}`);
-  if (tfoot) {
-    tfoot.innerHTML = `
+  const tfootFulf = document.getElementById(`tfoot-fulf-${periodId}`);
+  if (tfootFulf) {
+    tfootFulf.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: right; padding: 1rem;">TOTALES (filtrados):</td>
+        <td style="text-align: right; padding: 1rem;">${formatCLP(sumTotalFulf)}</td>
+        <td style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoFulf)}</td>
+        <td colspan="4"></td>
+      </tr>
+    `;
+  }
+
+  const tfootEnv = document.getElementById(`tfoot-env-${periodId}`);
+  if (tfootEnv) {
+    tfootEnv.innerHTML = `
       <tr>
         <td colspan="3" style="text-align: right; padding: 1rem;">TOTALES (filtrados):</td>
-        <td class="col-group-fulf" style="text-align: right; padding: 1rem;">${formatCLP(sumTotalFulf)}</td>
-        <td class="col-group-fulf" style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoFulf)}</td>
-        <td colspan="4" class="col-group-divider"></td>
-        <td class="col-group-env" style="text-align: right; padding: 1rem;">${formatCLP(sumTotalEnv)}</td>
-        <td class="col-group-env" style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoEnv)}</td>
-        <td colspan="3" class="col-group-divider"></td>
-        <td class="col-group-divider" style="text-align: right; padding: 1rem; color: var(--color-primary); font-size: 0.95rem;">${formatCLP(sumTotalMes)}</td>
-        <td></td>
+        <td style="text-align: right; padding: 1rem;">${formatCLP(sumTotalEnv)}</td>
+        <td style="text-align: right; padding: 1rem;">${formatCLP(sumAbonoEnv)}</td>
+        <td colspan="4"></td>
       </tr>
     `;
   }
@@ -8156,19 +8741,28 @@ window.filterBillingRows = function(periodId) {
   const filterPagoEnv = getSelected('filter-pago-env');
   const filterFactEnv = getSelected('filter-fact-env');
   
-  const rows = container.querySelectorAll('.billing-record-row');
-  rows.forEach(row => {
+  const rowsFulf = container.querySelectorAll('.billing-record-row-fulf');
+  rowsFulf.forEach(row => {
     const pagoFulf = row.getAttribute('data-pago-fulf') || '';
     const factFulf = row.getAttribute('data-fact-fulf') || '';
+    const matchPago = !filterPagoFulf || filterPagoFulf.includes(pagoFulf);
+    const matchFact = !filterFactFulf || filterFactFulf.includes(factFulf);
+    
+    if (matchPago && matchFact) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+
+  const rowsEnv = container.querySelectorAll('.billing-record-row-env');
+  rowsEnv.forEach(row => {
     const pagoEnv = row.getAttribute('data-pago-env') || '';
     const factEnv = row.getAttribute('data-fact-env') || '';
+    const matchPago = !filterPagoEnv || filterPagoEnv.includes(pagoEnv);
+    const matchFact = !filterFactEnv || filterFactEnv.includes(factEnv);
     
-    const matchPagoFulf = !filterPagoFulf || filterPagoFulf.includes(pagoFulf);
-    const matchFactFulf = !filterFactFulf || filterFactFulf.includes(factFulf);
-    const matchPagoEnv = !filterPagoEnv || filterPagoEnv.includes(pagoEnv);
-    const matchFactEnv = !filterFactEnv || filterFactEnv.includes(factEnv);
-    
-    if (matchPagoFulf && matchFactFulf && matchPagoEnv && matchFactEnv) {
+    if (matchPago && matchFact) {
       row.style.display = '';
     } else {
       row.style.display = 'none';
@@ -8178,11 +8772,60 @@ window.filterBillingRows = function(periodId) {
   window.updateBillingFooterTotals(periodId);
 };
 
+window.switchBillingPeriodTab = function(periodId, tabName) {
+  window.activeBillingTabs = window.activeBillingTabs || {};
+  window.activeBillingTabs[periodId] = tabName;
+
+  const btnFulf = document.getElementById(`btn-tab-fulf-${periodId}`);
+  const btnEnv = document.getElementById(`btn-tab-env-${periodId}`);
+  
+  const contentFulf = document.getElementById(`billing-tab-content-fulf-${periodId}`);
+  const contentEnv = document.getElementById(`billing-tab-content-env-${periodId}`);
+  
+  const filterGroupFulf = document.querySelectorAll(`.filter-group-fulf-${periodId}`);
+  const filterGroupEnv = document.querySelectorAll(`.filter-group-env-${periodId}`);
+
+  if (tabName === 'fulf') {
+    if (btnFulf) {
+      btnFulf.style.background = 'var(--color-bg)';
+      btnFulf.style.borderColor = 'var(--color-border)';
+      btnFulf.style.color = 'var(--color-text-main)';
+    }
+    if (btnEnv) {
+      btnEnv.style.background = 'transparent';
+      btnEnv.style.borderColor = 'transparent';
+      btnEnv.style.color = 'var(--color-text-muted)';
+    }
+    if (contentFulf) contentFulf.style.display = 'block';
+    if (contentEnv) contentEnv.style.display = 'none';
+    filterGroupFulf.forEach(el => el.style.display = 'flex');
+    filterGroupEnv.forEach(el => el.style.display = 'none');
+  } else {
+    if (btnFulf) {
+      btnFulf.style.background = 'transparent';
+      btnFulf.style.borderColor = 'transparent';
+      btnFulf.style.color = 'var(--color-text-muted)';
+    }
+    if (btnEnv) {
+      btnEnv.style.background = 'var(--color-bg)';
+      btnEnv.style.borderColor = 'var(--color-border)';
+      btnEnv.style.color = 'var(--color-text-main)';
+    }
+    if (contentFulf) contentFulf.style.display = 'none';
+    if (contentEnv) contentEnv.style.display = 'block';
+    filterGroupFulf.forEach(el => el.style.display = 'none');
+    filterGroupEnv.forEach(el => el.style.display = 'flex');
+  }
+};
+
 window.updateSelectField = function(selectEl, recordId, fieldName) {
   const val = selectEl.value;
   selectEl.className = 'billing-select ' + getStatusClass(val);
   
-  const row = document.getElementById(`row-${recordId}`);
+  const row = ['enviame', 'abono_enviame', 'pago_enviame', 'factura_enviame', 'num_factura_enviame', 'fecha_limite_enviame'].includes(fieldName)
+    ? document.getElementById(`row-env-${recordId}`)
+    : document.getElementById(`row-fulf-${recordId}`);
+    
   if (row) {
     row.setAttribute(`data-${fieldName.replace('_', '-')}`, val);
     
@@ -8272,24 +8915,10 @@ window.saveField = async function(recordId, fieldName, fieldValue) {
       
     if (error) throw error;
     
-    // Si cambió total_fulfillment o enviame, recalcular el TOTAL local de la fila
-    if (fieldName === 'total_fulfillment' || fieldName === 'enviame') {
-      const row = document.getElementById(`row-${recordId}`);
-      if (row) {
-        const totalFulfInput = row.querySelector(`input[onblur*="total_fulfillment"]`);
-        const enviameInput = row.querySelector(`input[onblur*="enviame"]`);
-        const totalCell = document.getElementById(`total-${recordId}`);
-        
-        if (totalFulfInput && enviameInput && totalCell) {
-          const tf = parseInt(totalFulfInput.value.replace(/[^\d-]/g, ''), 10) || 0;
-          const env = parseInt(enviameInput.value.replace(/[^\d-]/g, ''), 10) || 0;
-          totalCell.textContent = formatCLP(tf + env);
-        }
-      }
-    }
-    
     if (['total_fulfillment', 'enviame', 'abono_fulfillment', 'abono_enviame'].includes(fieldName)) {
-      const row = document.getElementById(`row-${recordId}`);
+      const row = ['enviame', 'abono_enviame', 'pago_enviame', 'factura_enviame', 'num_factura_enviame', 'fecha_limite_enviame'].includes(fieldName)
+        ? document.getElementById(`row-env-${recordId}`)
+        : document.getElementById(`row-fulf-${recordId}`);
       if (row) {
         const container = row.closest('div[id^="period-body-"]');
         if (container) {
@@ -12674,6 +13303,7 @@ async function renderMerchantsAdmin() {
         al_dia: alDia,
         inventario_seguimiento: extra.inventario_seguimiento || false,
         pedido_trae_sigla: extra.pedido_trae_sigla || false,
+        inventario_inicio_pedidos: extra.inventario_inicio_pedidos || {},
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -13356,6 +13986,40 @@ window.showMerchantEditModal = function(comercioName) {
             </div>
           </div>
 
+          <!-- Configuración de Inicio de Inventario por Canal -->
+          <div id="merchant-edit-inventory-start-container" style="display: ${commerce.inventario_seguimiento ? 'block' : 'none'}; margin-top: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; background: var(--color-bg);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Pedido Inicial para Descuento de Stock</h4>
+            <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0; line-height: 1.3;">Ingresa el número o ID de orden desde el cual este comercio comenzará a descontar stock. Si se deja en blanco, descontará todos.</p>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;" id="merchant-edit-inventory-start-fields">
+              ${(() => {
+                const activeInts = (commerce.integrations || []).filter(i => i.is_active);
+                const startObj = commerce.inventario_inicio_pedidos || {};
+                let html = '';
+                
+                // Input para Manual siempre visible
+                const manualVal = startObj.Manual?.external_order_number || '';
+                html += `
+                  <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">Manual / WMS:</span>
+                    <input type="text" class="form-input start-order-input" data-platform="Manual" value="${manualVal}" placeholder="Ej: 1000" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; height: 32px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+                  </div>
+                `;
+
+                activeInts.forEach(i => {
+                  const platform = i.platform;
+                  const val = startObj[platform]?.external_order_number || '';
+                  html += `
+                    <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
+                      <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">${platform}:</span>
+                      <input type="text" class="form-input start-order-input" data-platform="${platform}" value="${val}" placeholder="Ej: 1024 o ID" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; height: 32px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+                    </div>
+                  `;
+                });
+                return html;
+              })()}
+            </div>
+          </div>
+
           <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
             <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
               <input type="checkbox" id="merchant-edit-origensigla" ${commerce.pedido_trae_sigla ? 'checked' : ''} ${disabledAttr}>
@@ -13381,6 +14045,17 @@ window.showMerchantEditModal = function(comercioName) {
 
   document.body.appendChild(modal);
 
+  // Escuchar cambios en checkbox de seguimiento para mostrar/ocultar los inputs de inicio
+  const inventoryCheckbox = document.getElementById('merchant-edit-inventory');
+  if (inventoryCheckbox) {
+    inventoryCheckbox.addEventListener('change', (e) => {
+      const container = document.getElementById('merchant-edit-inventory-start-container');
+      if (container) {
+        container.style.display = e.target.checked ? 'block' : 'none';
+      }
+    });
+  }
+
   const form = document.getElementById('form-edit-merchant');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -13395,6 +14070,19 @@ window.showMerchantEditModal = function(comercioName) {
     const newBilling = document.getElementById('merchant-edit-billing').value;
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
     const newOrigenSigla = !isMigration && document.getElementById('merchant-edit-origensigla').checked;
+
+    // Obtener los límites iniciales de pedidos por canal
+    const startOrderInputs = document.querySelectorAll('.start-order-input');
+    const startOrdersObj = {};
+    startOrderInputs.forEach(input => {
+      const platform = input.getAttribute('data-platform');
+      const val = input.value.trim();
+      if (val) {
+        startOrdersObj[platform] = {
+          external_order_number: val
+        };
+      }
+    });
 
     try {
       // 1. Guardar la sigla en v_comercios_config
@@ -13423,7 +14111,8 @@ window.showMerchantEditModal = function(comercioName) {
             comercio: commerce.nombre,
             comercio_id: commerce.id,
             inventario_seguimiento: newInventory,
-            pedido_trae_sigla: newOrigenSigla
+            pedido_trae_sigla: newOrigenSigla,
+            inventario_inicio_pedidos: startOrdersObj
           });
 
         if (configErr) throw configErr;
@@ -13811,6 +14500,1099 @@ function initProductFormListeners() {
     });
   }
 }
+
+// === INTEGRACIÓN SISTEMA PICKER ===
+const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+
+const pickerSupabase = window.supabase ? window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY) : null;
+
+window.editWmsOrderPickingInfo = async function(orderId) {
+  const order = window.loadedOrders.find(o => o.id === orderId);
+  if (!order) {
+    Swal.fire('Error', 'No se encontró el pedido en memoria.', 'error');
+    return;
+  }
+
+  const currentSucursal = order.sucursal_pickeo || '';
+  const currentAgenda = order.agenda || 'STK';
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Editar Datos de Picking (WMS -> Picker)',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Pickeo</label>
+        <select id="swal-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <option value="Sucursal Ñuñoa" ${currentSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+          <option value="Sucursal La Reina" ${currentSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+          <option value="Sucursal Recoleta" ${currentSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+          <option value="Sucursal Virtual (Hub)" ${currentSucursal === 'Sucursal Virtual (Hub)' || !currentSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
+        </select>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
+        <input id="swal-agenda" class="swal2-input" type="text" value="${currentAgenda}" style="width: 100%; margin: 0; box-sizing: border-box;" placeholder="Ej: RETIRO, DESPACHO, STK">
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      return {
+        sucursal: document.getElementById('swal-sucursal').value,
+        agenda: document.getElementById('swal-agenda').value.trim()
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Guardando...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error: wmsErr } = await supabase
+      .from('orders')
+      .update({
+        sucursal_pickeo: formValues.sucursal,
+        agenda: formValues.agenda
+      })
+      .eq('id', orderId);
+
+    if (wmsErr) throw wmsErr;
+
+    order.sucursal_pickeo = formValues.sucursal;
+    order.agenda = formValues.agenda;
+
+    if (order.estado_wms === 'En preparación') {
+      await window.propagateOrderUpdateToPicker(order);
+    }
+
+    Swal.fire('¡Éxito!', 'Datos de picking actualizados correctamente.', 'success');
+    window.applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los datos: ' + err.message, 'error');
+  }
+};
+
+window.propagateOrderUpdateToPicker = async function(order) {
+  if (!pickerSupabase) return;
+
+  const orderNumber = String(order.external_order_number || order.id);
+
+  const { data: existingItems, error: getErr } = await pickerSupabase
+    .from('active_orders')
+    .select('id')
+    .eq('order_number', orderNumber)
+    .limit(1);
+
+  if (getErr) {
+    console.error("Error verificando pedido en Picker:", getErr);
+    return;
+  }
+
+  if (!existingItems || existingItems.length === 0) {
+    return;
+  }
+
+  const { error: delErr } = await pickerSupabase
+    .from('active_orders')
+    .delete()
+    .eq('order_number', orderNumber);
+
+  if (delErr) {
+    console.error("Error eliminando ítems en Picker:", delErr);
+    return;
+  }
+
+  const items = order.order_items || [];
+  const payloads = [];
+  const now = new Date();
+  const shortDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  for (const item of items) {
+    const prod = item.products || {};
+    const opt = prod.options || {};
+    payloads.push({
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      order_number: orderNumber,
+      agenda: order.agenda || 'STK',
+      quantity: parseInt(item.quantity, 10) || 1,
+      sku: prod.sku || order.sku || 'SKU-TEMP',
+      name: prod.name || order.item || 'Producto WMS',
+      color: opt.color || null,
+      talla: opt.talla || opt.size || null,
+      manga: opt.manga || null,
+      cuello: opt.cuello || null,
+      client_name: order.customer_name || 'Sin nombre',
+      tracking: order.tracking_number || '',
+      operator: '',
+      totu: 0,
+      sheet_status: 'Pendiente (Obs)',
+      observation: `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`,
+      contact_data_q: order.customer_email || '',
+      contact_data_r: order.customer_phone || '',
+      contact_data_s: order.shipping_address || '',
+      contact_data_t: order.shipping_city || '',
+      contact_data_u: order.shipping_complement || '',
+      extra_col_v: prod.image_url || '',
+      comercio: order.comercio || 'MAGIC MAKEUP',
+      created_by: 'Sistema WMS'
+    });
+  }
+
+  if (payloads.length > 0) {
+    const { error: insErr } = await pickerSupabase
+      .from('active_orders')
+      .insert(payloads);
+    if (insErr) {
+      console.error("Error insertando ítems actualizados en Picker:", insErr);
+    }
+  }
+};
+
+window.sendSingleOrderToPicker = async function(order) {
+  if (!pickerSupabase) return;
+
+  const orderNumber = String(order.external_order_number || order.id);
+
+  await pickerSupabase
+    .from('active_orders')
+    .delete()
+    .eq('order_number', orderNumber);
+
+  const items = order.order_items || [];
+  const payloads = [];
+
+  for (const item of items) {
+    const prod = item.products || {};
+    const opt = prod.options || {};
+    payloads.push({
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      order_number: orderNumber,
+      agenda: order.agenda || 'STK',
+      quantity: parseInt(item.quantity, 10) || 1,
+      sku: prod.sku || order.sku || 'SKU-TEMP',
+      name: prod.name || order.item || 'Producto WMS',
+      color: opt.color || null,
+      talla: opt.talla || opt.size || null,
+      manga: opt.manga || null,
+      cuello: opt.cuello || null,
+      client_name: order.customer_name || 'Sin nombre',
+      tracking: order.tracking_number || '',
+      operator: '',
+      totu: 0,
+      sheet_status: 'EN PREPARACIÓN',
+      observation: order.observation || prod.description || '',
+      contact_data_q: order.customer_email || '',
+      contact_data_r: order.customer_phone || '',
+      contact_data_s: order.shipping_address || '',
+      contact_data_t: order.shipping_city || '',
+      contact_data_u: order.shipping_complement || '',
+      extra_col_v: prod.image_url || '',
+      comercio: order.comercio || 'MAGIC MAKEUP',
+      created_by: 'Sistema WMS'
+    });
+  }
+
+  if (payloads.length > 0) {
+    const { error: insErr } = await pickerSupabase
+      .from('active_orders')
+      .insert(payloads);
+    if (insErr) throw insErr;
+  }
+};
+
+window.bulkSetWmsOrderPickingInfo = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) return;
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Asignación Masiva: Agenda y Sucursal de Picking',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Define la agenda y sucursal para los ${ids.length} pedidos seleccionados.</p>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
+        <select id="swal-bulk-set-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
+          <option value="Sucursal La Reina">Sucursal La Reina</option>
+          <option value="Sucursal Recoleta">Sucursal Recoleta</option>
+          <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
+        </select>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
+        <input id="swal-bulk-set-agenda" class="swal2-input" type="text" value="STK" style="width: 100%; margin: 0; box-sizing: border-box;">
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      return {
+        sucursal: document.getElementById('swal-bulk-set-sucursal').value,
+        agenda: document.getElementById('swal-bulk-set-agenda').value.trim()
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Actualizando pedidos...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        sucursal_pickeo: formValues.sucursal,
+        agenda: formValues.agenda
+      })
+      .in('id', ids);
+
+    if (error) throw error;
+
+    for (const id of ids) {
+      const order = window.loadedOrders.find(o => o.id === id);
+      if (order) {
+        order.sucursal_pickeo = formValues.sucursal;
+        order.agenda = formValues.agenda;
+        if (order.estado_wms === 'En preparación') {
+          await window.propagateOrderUpdateToPicker(order);
+        }
+      }
+    }
+
+    Swal.fire('¡Éxito!', `Se asignó la sucursal y agenda a los ${ids.length} pedidos.`, 'success');
+    window.wmsSelectedOrderIds.clear();
+    const cbAll = document.getElementById('wms-select-all');
+    if (cbAll) cbAll.checked = false;
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+  }
+};
+
+window.syncPickerStatusToWms = async function() {
+  if (!pickerSupabase || !window.loadedOrders) return;
+
+  const prepOrders = window.loadedOrders.filter(o => o.estado_wms === 'En preparación');
+  if (prepOrders.length === 0) return;
+
+  const orderNumbers = prepOrders.map(o => String(o.external_order_number || o.id));
+
+  try {
+    const { data: logs, error } = await pickerSupabase
+      .from('history_logs')
+      .select('pedido, estado')
+      .in('pedido', orderNumbers)
+      .in('estado', ['Completado', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO']);
+
+    if (error) {
+      console.warn("[Picker Status Sync] Error querying history_logs:", error.message);
+      return;
+    }
+
+    if (logs && logs.length > 0) {
+      const completedOrderNumbers = logs.map(l => String(l.pedido).trim().toUpperCase());
+      const ordersToUpdate = prepOrders.filter(o => {
+        const num = String(o.external_order_number || o.id).trim().toUpperCase();
+        return completedOrderNumbers.includes(num);
+      });
+
+      if (ordersToUpdate.length > 0) {
+        const ids = ordersToUpdate.map(o => o.id);
+        
+        const { error: wmsErr } = await supabase
+          .from('orders')
+          .update({ estado_wms: 'Pickeado' })
+          .in('id', ids);
+
+        if (wmsErr) throw wmsErr;
+
+        ordersToUpdate.forEach(o => {
+          o.estado_wms = 'Pickeado';
+        });
+
+        const toast = Swal.mixin({
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 4000,
+          timerProgressBar: true
+        });
+        toast.fire({
+          icon: 'success',
+          title: `¡${ordersToUpdate.length} pedido(s) finalizados desde el Picker!`
+        });
+
+        applyWmsFiltersAndRender();
+      }
+    }
+  } catch (err) {
+    console.error("[Picker Status Sync] Error during sync check:", err);
+  }
+};
+
+if (!window.pickerStatusSyncInterval) {
+  window.pickerStatusSyncInterval = setInterval(window.syncPickerStatusToWms, 60000);
+}
+
+// === MÓDULO DE CONTACTOS DE FACTURACIÓN Y ENVÍO POR BREVO ===
+
+window.loadBillingContactsTab = async function() {
+  const container = document.getElementById('contacts-list-container');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Cargando contactos de facturación...
+    </div>
+  `;
+  
+  try {
+    const { data: contacts, error: contactsError } = await supabase
+      .from('billing_contacts')
+      .select('*')
+      .order('comercio', { ascending: true });
+      
+    if (contactsError) throw contactsError;
+    
+    // Obtener comercios únicos desde profiles de tipo client o de la base para poblar select
+    const { data: profiles, error: profError } = await supabase
+      .from('profiles')
+      .select('comercio')
+      .eq('role', 'client');
+      
+    const commerceOptions = new Set();
+    if (!profError && profiles) {
+      profiles.forEach(p => {
+        if (p.comercio && p.comercio !== 'all') {
+          p.comercio.split(',').forEach(c => commerceOptions.add(c.trim()));
+        }
+      });
+    }
+    const commerceList = Array.from(commerceOptions).sort();
+    
+    let html = `
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-contacts-book-line"></i> Contactos de Facturación</h3>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Gestiona los correos de finanzas por comercio para notificaciones vía Brevo</p>
+        </div>
+        <div>
+          <button class="btn btn-primary" onclick="window.openAddContactModal(${JSON.stringify(commerceList).replace(/"/g, '&quot;')})">
+            <i class="ri-add-line"></i> Agregar Contacto
+          </button>
+        </div>
+      </div>
+      <div class="card-body table-responsive" style="padding: 0;">
+    `;
+    
+    if (!contacts || contacts.length === 0) {
+      html += `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          No hay contactos de facturación registrados.
+        </div>
+      `;
+    } else {
+      let tableRows = '';
+      contacts.forEach(c => {
+        tableRows += `
+          <tr>
+            <td style="font-weight: 600; color: var(--color-text-main); padding: 0.75rem 1.25rem;">${c.comercio}</td>
+            <td style="padding: 0.75rem 1.25rem;">${c.nombre}</td>
+            <td style="padding: 0.75rem 1.25rem;"><a href="mailto:${c.email}">${c.email}</a></td>
+            <td style="padding: 0.75rem 1.25rem;">${c.rol || 'finanzas'}</td>
+            <td style="padding: 0.75rem 1.25rem; text-align: center;">
+              <span class="badge ${c.activo ? 'status-green' : 'status-red'}" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">${c.activo ? 'Activo' : 'Inactivo'}</span>
+            </td>
+            <td style="padding: 0.75rem 1.25rem; text-align: center;">
+              <div style="display: inline-flex; gap: 0.5rem;">
+                <button class="btn btn-outline btn-sm" onclick="window.openEditContactModal('${c.id}', '${c.comercio.replace(/'/g, "\\'")}', '${c.nombre.replace(/'/g, "\\'")}', '${c.email.replace(/'/g, "\\'")}', '${c.rol.replace(/'/g, "\\'")}', ${c.activo}, ${JSON.stringify(commerceList).replace(/"/g, '&quot;')})" style="padding: 0.15rem 0.35rem;" title="Editar Contacto">
+                  <i class="ri-edit-line"></i>
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="window.deleteContact('${c.id}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Contacto">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+      
+      html += `
+        <table class="data-table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; padding: 0.75rem 1.25rem;">Comercio</th>
+              <th style="text-align: left; padding: 0.75rem 1.25rem;">Nombre</th>
+              <th style="text-align: left; padding: 0.75rem 1.25rem;">Email</th>
+              <th style="text-align: left; padding: 0.75rem 1.25rem;">Rol</th>
+              <th style="text-align: center; padding: 0.75rem 1.25rem; width: 100px;">Estado</th>
+              <th style="text-align: center; padding: 0.75rem 1.25rem; width: 120px;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      `;
+    }
+    
+    html += `</div>`;
+    container.innerHTML = html;
+  } catch (err) {
+    console.error("Error loading contacts tab:", err);
+    container.innerHTML = `
+      <div style="padding: 2rem; color: var(--color-danger); text-align: center;">
+        Error al cargar los contactos: ${err.message}
+      </div>
+    `;
+  }
+};
+
+window.openAddContactModal = function(commerceList) {
+  let modal = document.getElementById('modal-billing-contact-add');
+  if (modal) modal.remove();
+  
+  const datalistOptionsHtml = commerceList.map(c => `<option value="${c}"></option>`).join('');
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-billing-contact-add';
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i class="ri-user-add-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Agregar Contacto de Cobro</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        <form id="form-billing-contact-add" onsubmit="window.saveNewContact(event)">
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Comercio</label>
+            <input type="text" id="contact-comercio" list="commerce-datalist-add" class="form-input" required placeholder="Escriba o seleccione comercio..." style="width: 100%;">
+            <datalist id="commerce-datalist-add">
+              ${datalistOptionsHtml}
+            </datalist>
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Nombre del Contacto</label>
+            <input type="text" id="contact-nombre" class="form-input" required placeholder="Juan Pérez" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Email de Finanzas</label>
+            <input type="email" id="contact-email" class="form-input" required placeholder="finanzas@comercio.cl" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Rol</label>
+            <input type="text" id="contact-rol" class="form-input" placeholder="finanzas" value="finanzas" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="contact-activo" checked style="width: 16px; height: 16px; margin: 0;">
+            <label for="contact-activo" style="font-weight: 600; margin: 0; cursor: pointer;">Contacto Activo</label>
+          </div>
+          <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+            <button type="submit" class="btn btn-primary"><i class="ri-save-line"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+window.saveNewContact = async function(e) {
+  e.preventDefault();
+  const comercio = document.getElementById('contact-comercio').value.trim();
+  const nombre = document.getElementById('contact-nombre').value.trim();
+  const email = document.getElementById('contact-email').value.trim();
+  const rol = document.getElementById('contact-rol').value || 'finanzas';
+  const activo = document.getElementById('contact-activo').checked;
+  
+  if (!comercio) {
+    alert('Por favor seleccione o escriba un comercio');
+    return;
+  }
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_contacts')
+      .insert({ comercio, nombre, email, rol, activo });
+      
+    if (error) throw error;
+    
+    document.getElementById('modal-billing-contact-add').remove();
+    await window.loadBillingContactsTab();
+  } catch (err) {
+    console.error("Error saving new contact:", err);
+    alert("Error al guardar contacto: " + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.openEditContactModal = function(id, commerce, name, email, role, active, commerceList) {
+  let modal = document.getElementById('modal-billing-contact-edit');
+  if (modal) modal.remove();
+  
+  const datalistOptionsHtml = commerceList.map(c => `<option value="${c}"></option>`).join('');
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-billing-contact-edit';
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3><i class="ri-edit-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Editar Contacto de Cobro</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        <form id="form-billing-contact-edit" onsubmit="window.saveEditContact('${id}', event)">
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Comercio</label>
+            <input type="text" id="edit-contact-comercio" list="commerce-datalist-edit" class="form-input" required value="${commerce}" placeholder="Escriba o seleccione comercio..." style="width: 100%;">
+            <datalist id="commerce-datalist-edit">
+              ${datalistOptionsHtml}
+            </datalist>
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Nombre del Contacto</label>
+            <input type="text" id="edit-contact-nombre" class="form-input" required value="${name}" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Email de Finanzas</label>
+            <input type="email" id="edit-contact-email" class="form-input" required value="${email}" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 600;">Rol</label>
+            <input type="text" id="edit-contact-rol" class="form-input" value="${role}" style="width: 100%;">
+          </div>
+          <div class="form-group" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="edit-contact-activo" ${active ? 'checked' : ''} style="width: 16px; height: 16px; margin: 0;">
+            <label for="edit-contact-activo" style="font-weight: 600; margin: 0; cursor: pointer;">Contacto Activo</label>
+          </div>
+          <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+            <button type="submit" class="btn btn-primary"><i class="ri-save-line"></i> Guardar Cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+};
+
+window.saveEditContact = async function(id, e) {
+  e.preventDefault();
+  const comercio = document.getElementById('edit-contact-comercio').value.trim();
+  const nombre = document.getElementById('edit-contact-nombre').value.trim();
+  const email = document.getElementById('edit-contact-email').value.trim();
+  const rol = document.getElementById('edit-contact-rol').value || 'finanzas';
+  const activo = document.getElementById('edit-contact-activo').checked;
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_contacts')
+      .update({ comercio, nombre, email, rol, activo })
+      .eq('id', id);
+      
+    if (error) throw error;
+    
+    document.getElementById('modal-billing-contact-edit').remove();
+    await window.loadBillingContactsTab();
+  } catch (err) {
+    console.error("Error updating contact:", err);
+    alert("Error al actualizar contacto: " + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.deleteContact = async function(id) {
+  if (!confirm("¿Está seguro de que desea eliminar este contacto de facturación?")) return;
+  
+  showSavingBadge(true);
+  try {
+    const { error } = await supabase
+      .from('billing_contacts')
+      .delete()
+      .eq('id', id);
+      
+    if (error) throw error;
+    
+    await window.loadBillingContactsTab();
+  } catch (err) {
+    console.error("Error deleting contact:", err);
+    alert("Error al eliminar contacto: " + err.message);
+  } finally {
+    showSavingBadge(false);
+  }
+};
+
+window.openSendBillingEmailModal = async function(recordId, commerceName, periodId) {
+  let modal = document.getElementById('modal-send-billing-email');
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-send-billing-email';
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h3><i class="ri-mail-send-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Enviar Desglose por Email</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" id="send-billing-email-body" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando contactos y detalles de facturación...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  try {
+    // 1. Obtener los contactos activos de cobro de este comercio
+    const { data: contacts, error: contactsErr } = await supabase
+      .from('billing_contacts')
+      .select('*')
+      .eq('comercio', commerceName)
+      .eq('activo', true);
+      
+    if (contactsErr) throw contactsErr;
+    
+    // 2. Obtener el registro para saber qué servicios tienen datos
+    const { data: rec, error: recErr } = await supabase
+      .from('billing_records')
+      .select('total_fulfillment, enviame')
+      .eq('id', recordId)
+      .single();
+      
+    if (recErr) throw recErr;
+    
+    const bodyEl = document.getElementById('send-billing-email-body');
+    bodyEl.removeAttribute('style');
+    bodyEl.style.padding = '1.25rem';
+    
+    let contactsHtml = '';
+    if (!contacts || contacts.length === 0) {
+      contactsHtml = `
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); font-style: italic; padding: 0.5rem; background: var(--color-surface-hover); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+          No hay contactos de cobranza activos registrados.
+        </div>
+      `;
+    } else {
+      contactsHtml = contacts.map(c => `
+        <label style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface-hover); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.4rem; cursor: pointer;">
+          <input type="checkbox" name="email-recipient" value="${c.email}" checked style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary);">
+          <div style="font-size: 0.8rem; line-height: 1.3;">
+            <strong style="color: var(--color-text-main); display: block;">${c.nombre}</strong>
+            <span style="color: var(--color-text-muted);">${c.email}</span>
+          </div>
+        </label>
+      `).join('');
+    }
+    
+    // Determinar qué servicios pre-seleccionar
+    const hasFulf = (rec.total_fulfillment || 0) > 0;
+    const hasEnv = (rec.enviame || 0) > 0;
+    let serviceSelectHtml = '';
+    
+    if (hasFulf && hasEnv) {
+      serviceSelectHtml = `
+        <select id="email-service-type" class="form-input" style="width: 100%;">
+          <option value="both" selected>Ambos Servicios (Fulfillment y Envíame)</option>
+          <option value="fulfillment">Solo Fulfillment</option>
+          <option value="enviame">Solo Envíame</option>
+        </select>
+      `;
+    } else if (hasEnv) {
+      serviceSelectHtml = `
+        <select id="email-service-type" class="form-input" style="width: 100%;">
+          <option value="enviame" selected>Solo Envíame</option>
+          <option value="fulfillment">Solo Fulfillment</option>
+        </select>
+      `;
+    } else {
+      serviceSelectHtml = `
+        <select id="email-service-type" class="form-input" style="width: 100%;">
+          <option value="fulfillment" selected>Solo Fulfillment</option>
+          <option value="enviame">Solo Envíame</option>
+        </select>
+      `;
+    }
+    
+    bodyEl.innerHTML = `
+      <form id="form-send-billing-email" onsubmit="window.executeSendBillingEmail('${recordId}', '${periodId}', event)">
+        <div style="font-size: 0.85rem; background: rgba(37, 99, 235, 0.05); color: var(--color-primary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.15); margin-bottom: 1rem; line-height: 1.4;">
+          Se enviará un correo con formato profesional desde <strong>finanzas@stocka.cl</strong> incluyendo el detalle de montos, fechas de vencimiento y enlaces a los documentos PDF adjuntos.
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">1. Destinatarios del Correo</label>
+          <div style="max-height: 120px; overflow-y: auto; padding-right: 0.25rem; margin-bottom: 0.5rem;">
+            ${contactsHtml}
+          </div>
+          <!-- Custom Email Input -->
+          <div style="display: flex; gap: 0.35rem; align-items: center;">
+            <i class="ri-mail-add-line" style="color: var(--color-text-muted); font-size: 1.15rem;" title="Agregar correo manual"></i>
+            <input type="email" id="email-recipient-custom" class="form-input" placeholder="Escribir correo adicional..." style="flex-grow: 1; font-size: 0.8rem; margin: 0; padding: 0.35rem 0.5rem; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main);">
+          </div>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">2. Tipo de Servicio a Informar</label>
+          ${serviceSelectHtml}
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">3. Tipo de Correo a Enviar</label>
+          <select id="email-type-select" class="form-input" style="width: 100%;">
+            <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
+            <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
+          </select>
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">4. Mensaje Personalizado Adicional (Opcional)</label>
+          <textarea id="email-custom-message" class="form-input" placeholder="Ej: Estimado cliente, recordamos que este cobro incluye el descuento de la promoción..." style="width: 100%; height: 80px; font-size: 0.8rem; resize: vertical;"></textarea>
+        </div>
+        
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-send-billing-email').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-send-email"><i class="ri-mail-send-line"></i> Enviar Correo</button>
+        </div>
+      </form>
+    `;
+  } catch (err) {
+    console.error("Error setting up send email modal:", err);
+    bodyEl.innerHTML = `
+      <div style="color: var(--color-danger); text-align: center;">
+        Error al preparar el envío: ${err.message}
+      </div>
+    `;
+  }
+};
+
+window.executeSendBillingEmail = async function(recordId, periodId, e) {
+  e.preventDefault();
+  
+  const recipientCheckboxes = document.querySelectorAll('input[name="email-recipient"]:checked');
+  const emails = Array.from(recipientCheckboxes).map(cb => cb.value);
+  
+  const customEmail = document.getElementById('email-recipient-custom').value.trim();
+  if (customEmail) {
+    if (!customEmail.includes('@') || !customEmail.includes('.')) {
+      alert("Por favor, ingrese un correo manual válido.");
+      return;
+    }
+    emails.push(customEmail);
+  }
+  
+  if (emails.length === 0) {
+    alert("Debe seleccionar o escribir al menos un correo de contacto.");
+    return;
+  }
+  
+  const serviceType = document.getElementById('email-service-type').value;
+  const emailType = document.getElementById('email-type-select').value;
+  const customMessage = document.getElementById('email-custom-message').value || '';
+  
+  const btn = document.getElementById('btn-submit-send-email');
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Enviando...`;
+  btn.disabled = true;
+  
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No autenticado en el WMS.");
+    
+    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ recordId, serviceType, emails, customMessage, emailType })
+    });
+    
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+    
+    // Guardar fecha de última notificación en base de datos local
+    const now = new Date().toISOString();
+    await supabase
+      .from('billing_records')
+      .update({ last_notified_at: now })
+      .eq('id', recordId);
+
+    document.getElementById('modal-send-billing-email').remove();
+    
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 4000,
+      timerProgressBar: true
+    });
+    toast.fire({
+      icon: 'success',
+      title: '¡Correo enviado exitosamente vía Brevo!'
+    });
+    
+    // Recargar tabla de facturación inmediatamente para mostrar el estado actualizado
+    const tabReportsContent = document.getElementById('tab-reports-content');
+    if (tabReportsContent && periodId) {
+      loadBillingRecords(periodId, tabReportsContent);
+    }
+    
+  } catch (err) {
+    console.error("Error sending billing email:", err);
+    alert(`Error al enviar correo: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.innerHTML = originalHtml;
+      btn.disabled = false;
+    }
+  }
+};
+
+window.toggleSelectAllPeriodRows = function(periodId, tabName, headerCheckbox) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const isChecked = headerCheckbox.checked;
+  const rowsSelector = tabName === 'fulf' ? '.billing-record-row-fulf' : '.billing-record-row-env';
+  const checkboxSelector = tabName === 'fulf' ? `.row-select-fulf-${periodId}` : `.row-select-env-${periodId}`;
+
+  const rows = container.querySelectorAll(rowsSelector);
+  rows.forEach(row => {
+    if (row.style.display !== 'none') {
+      const cb = row.querySelector(checkboxSelector);
+      if (cb) cb.checked = isChecked;
+    }
+  });
+
+  window.updateBulkActionBar(periodId);
+};
+
+window.clearBulkSelection = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+  container.querySelectorAll(`.row-select-fulf-${periodId}, .row-select-env-${periodId}`).forEach(cb => cb.checked = false);
+  window.updateBulkActionBar(periodId);
+};
+
+window.updateBulkActionBar = function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const activeTab = (window.activeBillingTabs && window.activeBillingTabs[periodId]) || 'fulf';
+  const selector = activeTab === 'fulf' ? `.row-select-fulf-${periodId}:checked` : `.row-select-env-${periodId}:checked`;
+  const checkedCbs = container.querySelectorAll(selector);
+  const selectedCount = checkedCbs.length;
+
+  const barContainer = document.getElementById(`bulk-action-bar-container-${periodId}`);
+  if (!barContainer) return;
+
+  // Sync header select all checkbox
+  const headerCbSelector = activeTab === 'fulf' ? `.bulk-select-all-fulf-${periodId}` : `.bulk-select-all-env-${periodId}`;
+  const headerCb = container.querySelector(headerCbSelector);
+  if (headerCb && selectedCount === 0) {
+    headerCb.checked = false;
+  }
+
+  if (selectedCount === 0) {
+    barContainer.innerHTML = '';
+    return;
+  }
+
+  barContainer.innerHTML = `
+    <div style="background: var(--color-bg); border: 1px dashed var(--color-primary); padding: 0.75rem 1.25rem; border-radius: 8px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 1rem; box-shadow: var(--shadow-sm);">
+      <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
+        <i class="ri-checkbox-multiple-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>
+        ${selectedCount} comercios seleccionados
+      </div>
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+        ${ activeTab === 'fulf' ? `
+          <div style="display: flex; align-items: center; gap: 0.25rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Fulf:</label>
+            <select id="bulk-pago-fulf-${periodId}" class="billing-select" style="width: 120px; font-size: 0.75rem; padding: 0.25rem; height: auto;">
+              <option value="">(Sin cambios)</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.25rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Fulf:</label>
+            <select id="bulk-fact-fulf-${periodId}" class="billing-select" style="width: 120px; font-size: 0.75rem; padding: 0.25rem; height: auto;">
+              <option value="">(Sin cambios)</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.25rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Desglose:</label>
+            <select id="bulk-desglose-fulf-${periodId}" class="billing-select" style="width: 120px; font-size: 0.75rem; padding: 0.25rem; height: auto;">
+              <option value="">(Sin cambios)</option>
+              <option value="Por Generar">Por Generar</option>
+              <option value="Enviado">Enviado</option>
+              <option value="Aprobado">Aprobado</option>
+              <option value="Creado">Creado</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+        ` : `
+          <div style="display: flex; align-items: center; gap: 0.25rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago Env:</label>
+            <select id="bulk-pago-env-${periodId}" class="billing-select" style="width: 120px; font-size: 0.75rem; padding: 0.25rem; height: auto;">
+              <option value="">(Sin cambios)</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.25rem;">
+            <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura Env:</label>
+            <select id="bulk-fact-env-${periodId}" class="billing-select" style="width: 120px; font-size: 0.75rem; padding: 0.25rem; height: auto;">
+              <option value="">(Sin cambios)</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+        ` }
+        <button class="btn btn-primary btn-sm" onclick="window.applyBulkStatusUpdates('${periodId}')" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; margin: 0; font-weight: 600;">
+          <i class="ri-check-line"></i> Aplicar Cambios
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="window.clearBulkSelection('${periodId}')" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; margin: 0; border-color: var(--color-border); color: var(--color-text-muted);">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.applyBulkStatusUpdates = async function(periodId) {
+  const container = document.getElementById(`period-body-${periodId}`);
+  if (!container) return;
+
+  const activeTab = (window.activeBillingTabs && window.activeBillingTabs[periodId]) || 'fulf';
+  const selector = activeTab === 'fulf' ? `.row-select-fulf-${periodId}:checked` : `.row-select-env-${periodId}:checked`;
+  const checkedCbs = container.querySelectorAll(selector);
+  const selectedIds = Array.from(checkedCbs).map(cb => cb.value);
+
+  if (selectedIds.length === 0) {
+    alert("Por favor, seleccione al menos un comercio.");
+    return;
+  }
+
+  const updateFields = {};
+
+  if (activeTab === 'fulf') {
+    const pago = document.getElementById(`bulk-pago-fulf-${periodId}`).value;
+    const factura = document.getElementById(`bulk-fact-fulf-${periodId}`).value;
+    const desglose = document.getElementById(`bulk-desglose-fulf-${periodId}`).value;
+
+    if (pago) {
+      updateFields.pago_fulfillment = pago;
+      if (pago === 'Recibido') {
+        updateFields.fecha_pago_recibido_fulfillment = new Date().toLocaleDateString('sv-SE');
+      }
+    }
+    if (factura) updateFields.factura_fulfillment = factura;
+    if (desglose) updateFields.desglose_fulfillment = desglose;
+  } else {
+    const pago = document.getElementById(`bulk-pago-env-${periodId}`).value;
+    const factura = document.getElementById(`bulk-fact-env-${periodId}`).value;
+
+    if (pago) {
+      updateFields.pago_enviame = pago;
+      if (pago === 'Recibido') {
+        updateFields.fecha_pago_recibido_enviame = new Date().toLocaleDateString('sv-SE');
+      }
+    }
+    if (factura) updateFields.factura_enviame = factura;
+  }
+
+  if (Object.keys(updateFields).length === 0) {
+    alert("Por favor, seleccione al menos un estado para cambiar.");
+    return;
+  }
+
+  if (!confirm(`¿Está seguro de que desea aplicar estos cambios a los ${selectedIds.length} comercios seleccionados?`)) {
+    return;
+  }
+
+  showSavingBadge(true);
+
+  try {
+    const { data: currentRecords, error: fetchErr } = await supabase
+      .from('billing_records')
+      .select('id, total_fulfillment, enviame')
+      .in('id', selectedIds);
+
+    if (fetchErr) throw fetchErr;
+
+    const promises = currentRecords.map(rec => {
+      const recordPayload = { ...updateFields };
+      if (activeTab === 'fulf' && updateFields.pago_fulfillment === 'Recibido') {
+        recordPayload.abono_fulfillment = rec.total_fulfillment || 0;
+      } else if (activeTab === 'env' && updateFields.pago_enviame === 'Recibido') {
+        recordPayload.abono_enviame = rec.enviame || 0;
+      }
+      return supabase
+        .from('billing_records')
+        .update(recordPayload)
+        .eq('id', rec.id);
+    });
+
+    const results = await Promise.all(promises);
+    const firstErr = results.find(res => res.error);
+    if (firstErr) throw firstErr.error;
+
+    showSavingBadge(false);
+    
+    // Refresh records
+    const body = document.getElementById(`period-body-${periodId}`);
+    if (body) {
+      await loadBillingRecords(periodId, body);
+    }
+  } catch (err) {
+    console.error('Error in bulk status updates:', err);
+    alert('Error al aplicar cambios masivos: ' + err.message);
+    showSavingBadge(false);
+  }
+};
+
 
 
 
