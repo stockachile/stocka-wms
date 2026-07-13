@@ -282,6 +282,40 @@ serve(async (req) => {
          </div>`
       : '';
 
+    const paymentDetailsHtml = `
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin: 20px 0; font-family: sans-serif;">
+        <div style="font-size: 13px; font-weight: 700; color: #1e293b; margin-bottom: 8px; border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;">
+          Datos para Transferencia Bancaria
+        </div>
+        <table style="width: 100%; font-size: 12px; border-collapse: collapse; line-height: 1.5;">
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; width: 120px; font-weight: 500;">Razón Social:</td>
+            <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">STOCKA SPA</td>
+          </tr>
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; font-weight: 500;">RUT:</td>
+            <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">77.524.557-3</td>
+          </tr>
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Banco:</td>
+            <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">SCOTIABANK (SUD AMERICANO)</td>
+          </tr>
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Tipo de Cuenta:</td>
+            <td style="color: #1e293b; padding: 3px 0; font-weight: 600;">CTA CORRIENTE</td>
+          </tr>
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; font-weight: 500;">N° de Cuenta:</td>
+            <td style="color: #1e293b; padding: 3px 0; font-weight: 600; font-family: monospace; font-size: 12.5px;">992369965</td>
+          </tr>
+          <tr>
+            <td style="color: #64748b; padding: 3px 0; font-weight: 500;">Email de Envío:</td>
+            <td style="color: #2563eb; padding: 3px 0; font-weight: 600;"><a href="mailto:finanzas@stocka.cl" style="color:#2563eb; text-decoration:none;">finanzas@stocka.cl</a></td>
+          </tr>
+        </table>
+      </div>
+    `;
+
     if (emailType === 'payment_overdue') {
       emailSubject = `[URGENTE] Plazo de pago vencido - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #ea580c, #c2410c)';
@@ -301,6 +335,8 @@ serve(async (req) => {
         </div>
 
         ${appealDeadlineNote}
+
+        ${paymentDetailsHtml}
 
         <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
           <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo registrar tu pago en el WMS?</strong>
@@ -331,9 +367,8 @@ serve(async (req) => {
           Nos comunicamos para informarte que tu cuenta presenta un retraso crítico en el pago de los servicios pendientes de <strong>${periodName}</strong>.
         </div>
 
-        <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #991b1b; line-height: 1.5;">
-          <strong>¡ATENCIÓN!</strong><br>
-          De no regularizarse tu saldo a la brevedad, <strong>tu servicio de WMS y despachos será pausado temporalmente en los próximos días</strong>.
+        <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #991b1b; line-height: 1.5; font-weight: 600;">
+          ¡ATENCIÓN! De no regularizarse tu saldo a la brevedad, tu servicio de WMS y despachos será pausado temporalmente en los próximos días.
         </div>
         
         ${servicesHtml}
@@ -344,6 +379,8 @@ serve(async (req) => {
         </div>
 
         ${appealDeadlineNote}
+
+        ${paymentDetailsHtml}
       `;
 
       mainNoticeHtml = `
@@ -388,6 +425,8 @@ serve(async (req) => {
         </div>
         
         ${pendingAmountText}
+
+        ${paymentDetailsHtml}
       `;
 
       mainNoticeHtml = `
@@ -454,6 +493,8 @@ serve(async (req) => {
         </div>
 
         ${appealDeadlineNote}
+
+        ${paymentDetailsHtml}
       `;
 
       mainNoticeHtml = `

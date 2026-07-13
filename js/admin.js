@@ -7398,7 +7398,24 @@ function injectBillingStyles() {
     [data-theme="dark"] .status-teal { background-color: rgba(20, 184, 166, 0.18) !important; color: #5eead4 !important; border-color: rgba(20, 184, 166, 0.35) !important; }
     [data-theme="dark"] .status-cyan { background-color: rgba(6, 182, 212, 0.18) !important; color: #67e8f9 !important; border-color: rgba(6, 182, 212, 0.35) !important; }
 
-    
+    /* Dark mode for billing selects and inputs */
+    .billing-select option {
+      background: var(--color-surface);
+      color: var(--color-text-main);
+      padding: 0.35rem 0.5rem;
+    }
+    [data-theme="dark"] .billing-select {
+      color-scheme: dark;
+    }
+    [data-theme="dark"] .billing-input {
+      color-scheme: dark;
+    }
+    [data-theme="dark"] .billing-input[type="date"],
+    [data-theme="dark"] .billing-input[type="number"] {
+      color-scheme: dark;
+    }
+
+
     .billing-period-card {
       background: var(--color-surface);
       border: 1px solid var(--color-border);
@@ -8329,7 +8346,7 @@ async function loadBillingRecords(periodId, bodyElement) {
       tableRowsFulf += `
         <tr id="row-fulf-${r.id}" class="billing-record-row-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
           <td style="vertical-align: middle; text-align: center;">
-            <input type="checkbox" class="row-select-fulf-${periodId}" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+            <input type="checkbox" class="row-select-fulf" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
           </td>
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
@@ -8415,7 +8432,7 @@ async function loadBillingRecords(periodId, bodyElement) {
       tableRowsEnv += `
         <tr id="row-env-${r.id}" class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
           <td style="vertical-align: middle; text-align: center;">
-            <input type="checkbox" class="row-select-env-${periodId}" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+            <input type="checkbox" class="row-select-env" value="${r.id}" onchange="window.updateBulkActionBar('${periodId}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
           </td>
           <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
             ${r.comercio}
@@ -8551,7 +8568,7 @@ async function loadBillingRecords(periodId, bodyElement) {
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
-                  <input type="checkbox" class="bulk-select-all-fulf-${periodId}" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'fulf', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+                  <input type="checkbox" class="bulk-select-all-fulf" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'fulf', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
                 <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
                 <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
@@ -8578,7 +8595,7 @@ async function loadBillingRecords(periodId, bodyElement) {
             <thead>
               <tr>
                 <th style="width: 40px; text-align: center; border-bottom: 2px solid var(--color-border);">
-                  <input type="checkbox" class="bulk-select-all-env-${periodId}" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'env', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+                  <input type="checkbox" class="bulk-select-all-env" onchange="window.toggleSelectAllPeriodRows('${periodId}', 'env', this)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
                 </th>
                 <th style="min-width: 150px; text-align: left; border-bottom: 2px solid var(--color-border);">Comercio</th>
                 <th style="min-width: 125px; border-bottom: 2px solid var(--color-border);">Límite</th>
@@ -12855,7 +12872,10 @@ window.exportAdminShopifyOrdersCsv = async function() {
       };
       
       const csvRow = shopifyHeaders.map(h => {
-        const val = rowData[h] !== undefined ? String(rowData[h]) : "";
+        let val = rowData[h] !== undefined ? String(rowData[h]) : "";
+        if (h === "Name" && val && /^\d+$/.test(val)) {
+          val = `'${val}`;
+        }
         if (val.includes(",") || val.includes('"') || val.includes("\n")) {
           return `"${val.replace(/"/g, '""')}"`;
         }
@@ -15375,7 +15395,7 @@ window.toggleSelectAllPeriodRows = function(periodId, tabName, headerCheckbox) {
 
   const isChecked = headerCheckbox.checked;
   const rowsSelector = tabName === 'fulf' ? '.billing-record-row-fulf' : '.billing-record-row-env';
-  const checkboxSelector = tabName === 'fulf' ? `.row-select-fulf-${periodId}` : `.row-select-env-${periodId}`;
+  const checkboxSelector = tabName === 'fulf' ? '.row-select-fulf' : '.row-select-env';
 
   const rows = container.querySelectorAll(rowsSelector);
   rows.forEach(row => {
@@ -15391,7 +15411,7 @@ window.toggleSelectAllPeriodRows = function(periodId, tabName, headerCheckbox) {
 window.clearBulkSelection = function(periodId) {
   const container = document.getElementById(`period-body-${periodId}`);
   if (!container) return;
-  container.querySelectorAll(`.row-select-fulf-${periodId}, .row-select-env-${periodId}`).forEach(cb => cb.checked = false);
+  container.querySelectorAll('.row-select-fulf, .row-select-env').forEach(cb => cb.checked = false);
   window.updateBulkActionBar(periodId);
 };
 
@@ -15400,7 +15420,7 @@ window.updateBulkActionBar = function(periodId) {
   if (!container) return;
 
   const activeTab = (window.activeBillingTabs && window.activeBillingTabs[periodId]) || 'fulf';
-  const selector = activeTab === 'fulf' ? `.row-select-fulf-${periodId}:checked` : `.row-select-env-${periodId}:checked`;
+  const selector = activeTab === 'fulf' ? '.row-select-fulf:checked' : '.row-select-env:checked';
   const checkedCbs = container.querySelectorAll(selector);
   const selectedCount = checkedCbs.length;
 
@@ -15408,10 +15428,17 @@ window.updateBulkActionBar = function(periodId) {
   if (!barContainer) return;
 
   // Sync header select all checkbox
-  const headerCbSelector = activeTab === 'fulf' ? `.bulk-select-all-fulf-${periodId}` : `.bulk-select-all-env-${periodId}`;
+  const headerCbSelector = activeTab === 'fulf' ? '.bulk-select-all-fulf' : '.bulk-select-all-env';
   const headerCb = container.querySelector(headerCbSelector);
-  if (headerCb && selectedCount === 0) {
-    headerCb.checked = false;
+  if (headerCb) {
+    const rowsSelector = activeTab === 'fulf' ? '.billing-record-row-fulf' : '.billing-record-row-env';
+    const checkboxSelector = activeTab === 'fulf' ? '.row-select-fulf' : '.row-select-env';
+    const visibleRows = Array.from(container.querySelectorAll(rowsSelector)).filter(row => row.style.display !== 'none');
+    const checkedVisibleCount = visibleRows.filter(row => {
+      const cb = row.querySelector(checkboxSelector);
+      return cb && cb.checked;
+    }).length;
+    headerCb.checked = visibleRows.length > 0 && checkedVisibleCount === visibleRows.length;
   }
 
   if (selectedCount === 0) {
@@ -15506,7 +15533,7 @@ window.applyBulkStatusUpdates = async function(periodId) {
   if (!container) return;
 
   const activeTab = (window.activeBillingTabs && window.activeBillingTabs[periodId]) || 'fulf';
-  const selector = activeTab === 'fulf' ? `.row-select-fulf-${periodId}:checked` : `.row-select-env-${periodId}:checked`;
+  const selector = activeTab === 'fulf' ? '.row-select-fulf:checked' : '.row-select-env:checked';
   const checkedCbs = container.querySelectorAll(selector);
   const selectedIds = Array.from(checkedCbs).map(cb => cb.value);
 

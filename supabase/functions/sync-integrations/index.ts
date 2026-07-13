@@ -13,7 +13,7 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     const authHeader = req.headers.get('Authorization')
 
     if (!authHeader) {
@@ -23,11 +23,10 @@ serve(async (req) => {
       })
     }
 
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } }
-    })
+    const token = authHeader.replace('Bearer ', '')
+    const supabaseClient = createClient(supabaseUrl, supabaseServiceKey)
 
-    const { data: { user }, error: authErr } = await supabaseClient.auth.getUser()
+    const { data: { user }, error: authErr } = await supabaseClient.auth.getUser(token)
     if (authErr || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
@@ -35,21 +34,48 @@ serve(async (req) => {
       })
     }
 
-    // Verificar si el usuario es administrador
+    // Parse platform from request body early
+    const { platform } = await req.json()
+
+    // Verificar el rol del usuario
     const { data: profile, error: profErr } = await supabaseClient
       .from('profiles')
       .select('role')
       .eq('id', user.id)
       .maybeSingle()
 
-    if (profErr || !profile || (profile.role !== 'admin' && profile.role !== 'all')) {
-      return new Response(JSON.stringify({ error: 'Forbidden: Admins only' }), {
+    if (profErr || !profile) {
+      return new Response(JSON.stringify({ error: 'Profile not found' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
     }
 
-    const { platform } = await req.json()
+    const isAdmin = profile.role === 'admin' || profile.role === 'all'
+    let isAuthorized = isAdmin
+
+    if (!isAuthorized && profile.role === 'client') {
+      // Verificar si el cliente tiene una integración activa para esta plataforma
+      const { data: integration, error: intErr } = await supabaseClient
+        .from('merchant_integrations')
+        .select('id')
+        .eq('platform', platform)
+        .eq('merchant_id', user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .maybeSingle()
+
+      if (!intErr && integration) {
+        isAuthorized = true
+      }
+    }
+
+    if (!isAuthorized) {
+      return new Response(JSON.stringify({ error: 'Forbidden: Unauthorized for platform sync' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
 
     // Mapear plataformas a sus respectivos workflows en GitHub Actions
     const workflowMap: Record<string, string> = {

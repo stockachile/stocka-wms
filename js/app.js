@@ -3698,7 +3698,8 @@ async function renderIntegrations() {
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasFalabella 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Falabella API</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>');
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-falabella" style="background-color: #84cc16; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Pedidos y Productos</button>');
 
     const meliButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -4597,6 +4598,49 @@ async function renderIntegrations() {
              console.error(err);
              alert('Error al desconectar: ' + err.message);
           }
+        }
+      });
+
+      document.getElementById('btn-sync-falabella').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        
+        const btnSync = document.getElementById('btn-sync-falabella');
+        btnSync.disabled = true;
+        const originalText = btnSync.textContent;
+        btnSync.textContent = 'Sincronizando...';
+
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No hay sesión activa");
+
+          const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({
+              platform: 'Falabella',
+              comercio: window.activeIntegrationCommerce
+            })
+          });
+
+          const result = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(result.error || 'Error al sincronizar');
+          }
+
+          alert(`Sincronización de pedidos y productos iniciada exitosamente para ${window.activeIntegrationCommerce}. El WMS se actualizará en unos minutos.`);
+        } catch (err) {
+          console.error(err);
+          alert('Error en la sincronización: ' + err.message);
+        } finally {
+          btnSync.disabled = false;
+          btnSync.textContent = originalText;
         }
       });
     }
@@ -10180,6 +10224,46 @@ window.renderBillingClient = async function() {
       <div class="billing-summary-card">
         <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-alert-line"></i> Saldo Pendiente</span>
         <span class="billing-summary-value" id="summary-saldo-pendiente" style="color: var(--color-warning);">$0</span>
+      </div>
+    </div>
+    
+    <!-- Información para Pago / Datos de Transferencia -->
+    <div class="card" style="margin-top: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-body" style="padding: 1.25rem 1.5rem;">
+        <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+          <i class="ri-bank-line" style="color: var(--color-primary); font-size: 1.2rem;"></i>
+          Datos para Pago y Transferencia Bancaria
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Razón Social</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">STOCKA SPA</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">RUT</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">77.524.557-3</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Banco</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">Scotiabank (Sud Americano)</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Tipo de Cuenta</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">Cuenta Corriente</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Número de Cuenta</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">992369965</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Correo Electrónico</span>
+            <strong style="color: var(--color-text-main); font-size: 0.85rem;">finanzas@stocka.cl</strong>
+          </div>
+        </div>
+        <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-information-line" style="color: var(--color-primary);"></i>
+          Por favor, envíe el comprobante de transferencia al correo indicado o infórmelo directamente en los botones de acción de su período de facturación.
+        </p>
       </div>
     </div>
     

@@ -1006,3 +1006,25 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
 .swal2-timer-progress-bar {
   background: var(--color-primary) !important;
 }
+
+/* ============================================= */
+/* Global Dark Mode for Native Selects & Inputs  */
+/* ============================================= */
+
+[data-theme="dark"] select,
+[data-theme="dark"] select option {
+  background-color: var(--color-surface);
+  color: var(--color-text-main);
+  color-scheme: dark;
+}
+
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="time"],
+[data-theme="dark"] input[type="datetime-local"] {
+  color-scheme: dark;
+}
+
+[data-theme="dark"] select:focus,
+[data-theme="dark"] input:focus {
+  outline-color: var(--color-primary);
+}
