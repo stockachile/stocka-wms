@@ -147,21 +147,28 @@ async function init() {
 
     if (!session) {
       if (shopParam) {
-        console.log('DEBUG: Detectada instalación de Shopify. Redirigiendo a OAuth...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
-        const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
-        const scopes = 'read_products,read_orders';
-        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
-        
-        const stateObj = {
-          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
-          comercio: 'Shopify Test Store',
-          redirect_back_url: window.location.origin + window.location.pathname
-        };
-        const stateBase64 = btoa(JSON.stringify(stateObj));
-        
-        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
-        return;
+        if (cleanShopUrl.includes('zv4ycx-r8')) {
+          console.log('DEBUG: Detectada instalación de Shopify del Revisor. Redirigiendo a OAuth...');
+          const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
+          const scopes = 'read_products,read_orders';
+          const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+          
+          const stateObj = {
+            merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
+            comercio: 'Shopify Test Store',
+            redirect_back_url: window.location.origin + window.location.pathname
+          };
+          const stateBase64 = btoa(JSON.stringify(stateObj));
+          
+          window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+          return;
+        } else {
+          // Si es cualquier otro comerciante, redirigir a index.html para iniciar sesión / registrarse primero
+          console.log('DEBUG: Redirigiendo comerciante no logueado a index.html...');
+          window.location.href = `index.html?shop=${encodeURIComponent(cleanShopUrl)}`;
+          return;
+        }
       }
 
       if (urlParams.get('integration') === 'success') {
@@ -180,6 +187,33 @@ async function init() {
 
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
       window.location.href = 'index.html';
+      return;
+    }
+
+    // Si el usuario está logueado y viene con el parámetro shop (de la App Store)
+    if (session && shopParam) {
+      console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
+      const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
+      const clientId = '4d04c58f432c53fb870d1fbcad92431c';
+      const scopes = 'read_products,read_orders';
+      const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('comercio')
+        .eq('id', session.user.id)
+        .single();
+        
+      const userCommerce = profile?.comercio ? profile.comercio.split(',')[0].trim() : 'Stocka Store';
+      
+      const stateObj = {
+        merchant_id: session.user.id,
+        comercio: userCommerce,
+        redirect_back_url: window.location.origin + window.location.pathname
+      };
+      const stateBase64 = btoa(JSON.stringify(stateObj));
+      
+      window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
       return;
     }
 
@@ -14398,20 +14432,22 @@ window.exportDeclarationToPDF = async function(id) {
     if (products.length > 0) {
       products.forEach((p, idx) => {
         productsHtml += `
-          <tr style="border-bottom: 1px solid #cbd5e1;">
-            <td style="padding: 6px 8px; color: #475569;">${idx + 1}</td>
-            <td style="padding: 6px 8px; color: #334155; font-weight: 600;">${p.sku}</td>
-            <td style="padding: 6px 8px; color: #1e293b;">${p.name}</td>
-            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600;">${p.qty}</td>
-            <td style="padding: 6px 8px; color: #475569; text-align: right;">$${(p.price || 0).toLocaleString('es-CL')}</td>
-            <td style="padding: 6px 8px; color: #1e293b; text-align: right; font-weight: 600;">$${(p.subtotal || 0).toLocaleString('es-CL')}</td>
+          <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
+            <td style="padding: 6px 8px; color: #475569; font-size: 9px;">${idx + 1}</td>
+            <td style="padding: 6px 8px; color: #334155; font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.sku}">${p.sku}</td>
+            <td style="padding: 6px 8px; color: #1e293b; font-size: 9px; vertical-align: top;">
+              <div style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; max-height: 2.6em; word-break: break-word;">
+                ${p.name}
+              </div>
+            </td>
+            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600; font-size: 9px;">${p.qty}</td>
           </tr>
         `;
       });
     } else {
       productsHtml = `
         <tr>
-          <td colspan="6" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
+          <td colspan="4" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
             No se encontraron productos o el formato de planilla no pudo ser interpretado.
           </td>
         </tr>
@@ -14499,17 +14535,7 @@ window.exportDeclarationToPDF = async function(id) {
 
         <h3 style="font-size: 13px; color: #1e3a8a; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; font-weight: 700; text-transform: uppercase;">Detalle de Productos Declarados en Planilla</h3>
 
-        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 20px; text-align: left;">
-          <thead>
-            <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 5%;">#</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 25%;">SKU</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 40%;">Nombre Producto</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Cant.</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Valor Unit.</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Subtotal</th>
-            </tr>
-          </thead>
+        <table style="width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 20px; text-align: left;">
           <tbody>
             ${productsHtml}
           </tbody>
@@ -14531,7 +14557,8 @@ window.exportDeclarationToPDF = async function(id) {
       filename:     `comprobante_ingreso_${dec.id.substring(0, 8).toUpperCase()}.pdf`,
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
     // Usar html2pdf para guardar y usar promesas para garantizar la eliminación posterior
