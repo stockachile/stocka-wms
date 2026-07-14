@@ -3,6 +3,8 @@ import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 
 let userRole = 'admin';
+window.catalogQuickEditMode = false;
+window.adminDeclarationTab = 'active';
 
 
 window.wmsColumnFilters = window.wmsColumnFilters || {};
@@ -1346,10 +1348,10 @@ window.applyWmsFiltersAndRender = function() {
   const ordersInPrep = filtered.filter(o => o.estado_wms === 'En preparación').length;
   const totalSales = filtered.filter(o => o.estado_wms !== 'Incidencia' && o.status !== 'cancelado').reduce((sum, o) => sum + (Number(o.total_value) || 0), 0);
 
-  document.getElementById('kpi-total-orders').textContent = totalOrders;
-  document.getElementById('kpi-to-process').textContent = ordersToProcess;
-  document.getElementById('kpi-in-prep').textContent = ordersInPrep;
-  document.getElementById('kpi-total-sales').textContent = window.formatCLP(totalSales);
+  const _kpi1 = document.getElementById('kpi-total-orders'); if (_kpi1) _kpi1.textContent = totalOrders;
+  const _kpi2 = document.getElementById('kpi-to-process'); if (_kpi2) _kpi2.textContent = ordersToProcess;
+  const _kpi3 = document.getElementById('kpi-in-prep'); if (_kpi3) _kpi3.textContent = ordersInPrep;
+  const _kpi4 = document.getElementById('kpi-total-sales'); if (_kpi4) _kpi4.textContent = window.formatCLP(totalSales);
 
   // 3. Paginación
   const totalResults = filtered.length;
@@ -2971,16 +2973,35 @@ function renderMasterCatalogRows(products) {
 
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
 
+    const initialStockCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.5rem 1rem; text-align: center;">
+           <input type="number" class="quick-edit-stock form-input" data-id="${item.id}" data-old="${initialStock}" value="${initialStock}" style="width: 75px; text-align: center; padding: 0.25rem 0.5rem; height: 32px; font-size: 0.85rem; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+         </td>`
+      : `<td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>`;
+
+    const dimensionsCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.5rem 1rem;">
+           <div style="display: flex; gap: 0.25rem; align-items: center; font-size: 0.8rem;">
+             <span style="color: var(--color-text-muted);">L:</span>
+             <input type="number" step="any" class="quick-edit-length form-input" data-id="${item.id}" data-old="${item.length || ''}" value="${item.length || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <span style="color: var(--color-text-muted);">An:</span>
+             <input type="number" step="any" class="quick-edit-width form-input" data-id="${item.id}" data-old="${item.width || ''}" value="${item.width || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <span style="color: var(--color-text-muted);">Al:</span>
+             <input type="number" step="any" class="quick-edit-height form-input" data-id="${item.id}" data-old="${item.height || ''}" value="${item.height || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+           </div>
+         </td>`
+      : `<td style="padding: 0.75rem 1.5rem;">${dimensions}</td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
         <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>
+        ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
-        <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
+        ${dimensionsCell}
         <td style="padding: 0.75rem 1.5rem;">${weight}</td>
         <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
         <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
@@ -3599,6 +3620,171 @@ function setupCatalogListeners(commerce, mainPlatform) {
       e.target.value = '';
     });
   }
+
+  // 6.6. Toggle Quick Edit mode / Save Quick Changes
+  const btnToggleQuickEdit = document.getElementById('btn-toggle-quick-edit');
+  if (btnToggleQuickEdit) {
+    btnToggleQuickEdit.addEventListener('click', async () => {
+      if (!window.catalogQuickEditMode) {
+        // Habilitar edición rápida
+        window.catalogQuickEditMode = true;
+        // Re-renderizar la vista para que muestre los inputs
+        renderMasterCatalogRows(window.currentMasterProducts);
+        
+        btnToggleQuickEdit.style.backgroundColor = 'var(--color-success)';
+        btnToggleQuickEdit.style.color = 'white';
+        btnToggleQuickEdit.style.borderColor = 'var(--color-success)';
+        btnToggleQuickEdit.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios Rápidos`;
+      } else {
+        // Guardar cambios
+        const stockInputs = document.querySelectorAll('.quick-edit-stock');
+        const changes = [];
+
+        stockInputs.forEach(input => {
+          const prodId = input.getAttribute('data-id');
+          const oldStock = parseInt(input.getAttribute('data-old') || '0', 10);
+          const newStock = parseInt(input.value || '0', 10);
+
+          const lenInput = document.querySelector(`.quick-edit-length[data-id="${prodId}"]`);
+          const widInput = document.querySelector(`.quick-edit-width[data-id="${prodId}"]`);
+          const heiInput = document.querySelector(`.quick-edit-height[data-id="${prodId}"]`);
+
+          const oldLength = lenInput ? parseFloat(lenInput.getAttribute('data-old') || '0') : 0;
+          const newLength = lenInput ? parseFloat(lenInput.value || '0') : 0;
+
+          const oldWidth = widInput ? parseFloat(widInput.getAttribute('data-old') || '0') : 0;
+          const newWidth = widInput ? parseFloat(widInput.value || '0') : 0;
+
+          const oldHeight = heiInput ? parseFloat(heiInput.getAttribute('data-old') || '0') : 0;
+          const newHeight = heiInput ? parseFloat(heiInput.value || '0') : 0;
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight) {
+            changes.push({
+              prodId,
+              oldStock,
+              newStock,
+              oldLength,
+              newLength,
+              oldWidth,
+              newWidth,
+              oldHeight,
+              newHeight
+            });
+          }
+        });
+
+        if (changes.length === 0) {
+          // No hay cambios, desactivar edición rápida
+          window.catalogQuickEditMode = false;
+          renderAdminCatalogWorkspace(commerce);
+          return;
+        }
+
+        if (!confirm(`¿Estás seguro que deseas aplicar los cambios a los ${changes.length} productos modificados?`)) {
+          return;
+        }
+
+        btnToggleQuickEdit.disabled = true;
+        btnToggleQuickEdit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
+
+        try {
+          // Obtener la Bodega Central
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+
+          if (!bodegaCentral) {
+            throw new Error('No se encontró la Bodega Central en el sistema.');
+          }
+
+          // Ejecutar actualizaciones en paralelo
+          const updatePromises = changes.map(async (ch) => {
+            // 1. Actualizar dimensiones en products
+            const { error: prodErr } = await supabase
+              .from('products')
+              .update({
+                length: ch.newLength || null,
+                width: ch.newWidth || null,
+                height: ch.newHeight || null
+              })
+              .eq('id', ch.prodId);
+
+            if (prodErr) throw prodErr;
+
+            // 2. Si el stock inicial cambió, actualizar inventario y movimiento histórico
+            if (ch.oldStock !== ch.newStock) {
+              const diff = ch.newStock - ch.oldStock;
+
+              // Actualizar o insertar inventario en Bodega Central
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', ch.prodId)
+                .eq('warehouse_id', bodegaCentral.id)
+                .maybeSingle();
+
+              if (invRecord) {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                  .eq('id', invRecord.id);
+                if (invErr) throw invErr;
+              } else {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: ch.prodId,
+                    warehouse_id: bodegaCentral.id,
+                    quantity: ch.newStock
+                  }]);
+                if (invErr) throw invErr;
+              }
+
+              // Actualizar o insertar movimiento de "Stock Inicial"
+              const { data: movRecord } = await supabase
+                .from('movements')
+                .select('id')
+                .eq('product_id', ch.prodId)
+                .eq('reference_doc', 'Stock Inicial')
+                .limit(1)
+                .maybeSingle();
+
+              if (movRecord) {
+                const { error: movErr } = await supabase
+                  .from('movements')
+                  .update({ quantity: ch.newStock })
+                  .eq('id', movRecord.id);
+                if (movErr) throw movErr;
+              } else {
+                const { error: movErr } = await supabase
+                  .from('movements')
+                  .insert([{
+                    product_id: ch.prodId,
+                    warehouse_id: bodegaCentral.id,
+                    type: 'in',
+                    quantity: ch.newStock,
+                    reference_doc: 'Stock Inicial'
+                  }]);
+                if (movErr) throw movErr;
+              }
+            }
+          });
+
+          await Promise.all(updatePromises);
+          alert('¡Cambios rápidos guardados exitosamente!');
+        } catch (err) {
+          console.error(err);
+          alert('Error al guardar cambios rápidos: ' + err.message);
+        } finally {
+          window.catalogQuickEditMode = false;
+          renderAdminCatalogWorkspace(commerce);
+        }
+      }
+    });
+  }
 }
 
 async function renderAdminCatalog() {
@@ -3667,6 +3853,7 @@ async function renderAdminCatalog() {
 }
 
 async function renderAdminCatalogWorkspace(commerce) {
+  window.catalogQuickEditMode = false;
   const workspace = document.getElementById('eq-admin-workspace');
   workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando catálogo del comercio...</p>`;
 
@@ -3753,6 +3940,17 @@ async function renderAdminCatalogWorkspace(commerce) {
       </div>
     `;
 
+    const quickEditBtnStyle = window.catalogQuickEditMode
+      ? 'background-color: var(--color-success); color: white; border-color: var(--color-success); font-weight: 600;'
+      : 'border-color: var(--color-primary); color: var(--color-primary); background: transparent;';
+
+    const quickEditBtnHtml = `
+      <button class="btn" id="btn-toggle-quick-edit" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.2s; ${quickEditBtnStyle}">
+        <i class="${window.catalogQuickEditMode ? 'ri-save-line' : 'ri-edit-2-line'}"></i> 
+        ${window.catalogQuickEditMode ? 'Guardar Cambios Rápidos' : 'Edición Rápida'}
+      </button>
+    `;
+
     const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
     workspace.innerHTML = `
@@ -3783,6 +3981,7 @@ async function renderAdminCatalogWorkspace(commerce) {
                 </div>
                 ${importBtn}
                 ${importStockBtn}
+                ${quickEditBtnHtml}
                 ${createBtn}
               </div>
             </div>
@@ -6813,11 +7012,21 @@ window.renderDeclarationsAdmin = async function() {
 
     if (error) throw error;
 
+    // Filter declarations based on tab
+    const filteredDeclarations = (declarations || []).filter(dec => {
+      const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+      if (window.adminDeclarationTab === 'completed') {
+        return isCompleted;
+      } else {
+        return !isCompleted;
+      }
+    });
+
     let rowsHtml = '';
-    if (!declarations || declarations.length === 0) {
-      rowsHtml = '<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos registradas.</td></tr>';
+    if (filteredDeclarations.length === 0) {
+      rowsHtml = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay declaraciones de ingresos ${window.adminDeclarationTab === 'completed' ? 'completadas' : 'activas'}.</td></tr>`;
     } else {
-      declarations.forEach(dec => {
+      filteredDeclarations.forEach(dec => {
         let statusBadge = '';
         switch (dec.status) {
           case 'Creada':
@@ -6924,7 +7133,7 @@ window.renderDeclarationsAdmin = async function() {
 
     appContent.innerHTML = `
       <div class="card">
-        <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+        <div class="card-header" style="border-bottom: none; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
           <div>
             <h3>Gestión de Ingresos de Stock</h3>
             <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Controla, clasifica y recepciona los ingresos declarados por los clientes.</p>
@@ -6933,6 +7142,16 @@ window.renderDeclarationsAdmin = async function() {
             <i class="ri-refresh-line"></i> Actualizar
           </button>
         </div>
+        
+        <div class="tabs-container" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); padding: 0 1.5rem; margin-bottom: 0.5rem;">
+          <button class="tab-btn ${window.adminDeclarationTab === 'active' ? 'active' : ''}" id="tab-admin-active-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${window.adminDeclarationTab === 'active' ? 'var(--color-primary)' : 'transparent'}; color: ${window.adminDeclarationTab === 'active' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${window.adminDeclarationTab === 'active' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <i class="ri-loader-4-line"></i> Ingresos Activos
+          </button>
+          <button class="tab-btn ${window.adminDeclarationTab === 'completed' ? 'active' : ''}" id="tab-admin-completed-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${window.adminDeclarationTab === 'completed' ? 'var(--color-primary)' : 'transparent'}; color: ${window.adminDeclarationTab === 'completed' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${window.adminDeclarationTab === 'completed' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+            <i class="ri-checkbox-circle-line"></i> Historial Completado
+          </button>
+        </div>
+
         <div class="card-body table-responsive">
           <table class="data-table">
             <thead>
@@ -6956,6 +7175,34 @@ window.renderDeclarationsAdmin = async function() {
         </div>
       </div>
     `;
+
+    // Tab buttons event listeners
+    const activeTabBtn = document.getElementById('tab-admin-active-declarations');
+    const completedTabBtn = document.getElementById('tab-admin-completed-declarations');
+    if (activeTabBtn && completedTabBtn) {
+      activeTabBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.adminDeclarationTab = 'active';
+        activeTabBtn.style.borderBottom = '2px solid var(--color-primary)';
+        activeTabBtn.style.color = 'var(--color-primary)';
+        activeTabBtn.style.fontWeight = '600';
+        completedTabBtn.style.borderBottom = '2px solid transparent';
+        completedTabBtn.style.color = 'var(--color-text-muted)';
+        completedTabBtn.style.fontWeight = '500';
+        renderDeclarationsAdmin();
+      });
+      completedTabBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.adminDeclarationTab = 'completed';
+        completedTabBtn.style.borderBottom = '2px solid var(--color-primary)';
+        completedTabBtn.style.color = 'var(--color-primary)';
+        completedTabBtn.style.fontWeight = '600';
+        activeTabBtn.style.borderBottom = '2px solid transparent';
+        activeTabBtn.style.color = 'var(--color-text-muted)';
+        activeTabBtn.style.fontWeight = '500';
+        renderDeclarationsAdmin();
+      });
+    }
 
     // Refresh Handler
     const refreshBtn = document.getElementById('btn-refresh-admin-declarations');
@@ -17000,20 +17247,22 @@ window.exportDeclarationToPDF = async function(id) {
     if (products.length > 0) {
       products.forEach((p, idx) => {
         productsHtml += `
-          <tr style="border-bottom: 1px solid #cbd5e1;">
-            <td style="padding: 6px 8px; color: #475569;">${idx + 1}</td>
-            <td style="padding: 6px 8px; color: #334155; font-weight: 600;">${p.sku}</td>
-            <td style="padding: 6px 8px; color: #1e293b;">${p.name}</td>
-            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600;">${p.qty}</td>
-            <td style="padding: 6px 8px; color: #475569; text-align: right;">$${(p.price || 0).toLocaleString('es-CL')}</td>
-            <td style="padding: 6px 8px; color: #1e293b; text-align: right; font-weight: 600;">$${(p.subtotal || 0).toLocaleString('es-CL')}</td>
+          <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
+            <td style="padding: 6px 8px; color: #475569; font-size: 9px;">${idx + 1}</td>
+            <td style="padding: 6px 8px; color: #334155; font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.sku}">${p.sku}</td>
+            <td style="padding: 6px 8px; color: #1e293b; font-size: 9px; vertical-align: top;">
+              <div style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; max-height: 2.6em; word-break: break-word;">
+                ${p.name}
+              </div>
+            </td>
+            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600; font-size: 9px;">${p.qty}</td>
           </tr>
         `;
       });
     } else {
       productsHtml = `
         <tr>
-          <td colspan="6" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
+          <td colspan="4" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
             No se encontraron productos o el formato de planilla no pudo ser interpretado.
           </td>
         </tr>
@@ -17101,17 +17350,7 @@ window.exportDeclarationToPDF = async function(id) {
 
         <h3 style="font-size: 13px; color: #1e3a8a; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; font-weight: 700; text-transform: uppercase;">Detalle de Productos Declarados en Planilla</h3>
 
-        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 20px; text-align: left;">
-          <thead>
-            <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 5%;">#</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 25%;">SKU</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 40%;">Nombre Producto</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Cant.</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Valor Unit.</th>
-              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Subtotal</th>
-            </tr>
-          </thead>
+        <table style="width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 20px; text-align: left;">
           <tbody>
             ${productsHtml}
           </tbody>
@@ -17133,7 +17372,8 @@ window.exportDeclarationToPDF = async function(id) {
       filename:     `comprobante_ingreso_${dec.id.substring(0, 8).toUpperCase()}.pdf`,
       image:        { type: 'jpeg', quality: 0.98 },
       html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
     };
 
     // Usar html2pdf para guardar y usar promesas para garantizar la eliminación posterior
