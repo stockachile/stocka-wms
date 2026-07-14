@@ -436,6 +436,89 @@ serve(async (req) => {
         </div>
       `;
     } 
+    else if (emailType === 'invoice_uploaded') {
+      emailSubject = `[Factura Disponible] Factura de servicios cargada - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #10b981, #059669)'; // Emerald Green
+      emailTitle = 'Factura de Servicios Disponible';
+
+      let invoiceButtonsHtml = '';
+      if (record) {
+        if (record.factura_fulfillment_pdf_url) {
+          invoiceButtonsHtml += `<a href="${record.factura_fulfillment_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Fulfillment</a>`;
+        }
+        if (record.factura_enviame_pdf_url) {
+          invoiceButtonsHtml += `<a href="${record.factura_enviame_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Envíame</a>`;
+        }
+      }
+
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Le informamos que se ha cargado en la plataforma del WMS Stocka la factura correspondiente a sus servicios del periodo <strong>${periodName}</strong>.
+        </div>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center;">
+          FACTURA DISPONIBLE EN EL PORTAL
+        </div>
+
+        ${invoiceButtonsHtml ? `
+          <div style="margin: 20px 0; text-align: center;">
+            ${invoiceButtonsHtml}
+          </div>
+        ` : ''}
+
+        ${servicesHtml}
+        
+        <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Período:</span>
+          <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+        </div>
+
+        ${paymentDetailsHtml}
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Acceso a Facturas Históricas:</strong><br>
+          Le recordamos que puede revisar e informar el pago de esta y otras facturas pasadas directamente desde el portal de facturación en su cuenta del WMS.
+        </div>
+      `;
+    }
+    else if (emailType === 'payment_received') {
+      if (resolvedServiceType === 'fulfillment') {
+        emailSubject = `[Confirmación] Pago recibido por servicios Fulfillment - ${commerceName}`;
+      } else if (resolvedServiceType === 'enviame') {
+        emailSubject = `[Confirmación] Pago recibido por despachos Enviame - ${commerceName}`;
+      } else {
+        emailSubject = `[Confirmación] Pago recibido por servicios - ${commerceName}`;
+      }
+      headerGradient = 'linear-gradient(135deg, #0d9488, #0f766e)'; // Turquesa / Teal
+      emailTitle = 'Confirmación de Pago';
+
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Confirmamos que hemos recibido con éxito tu pago correspondiente a los servicios de <strong>${periodName}</strong>.
+        </div>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center; text-transform: uppercase;">
+          PAGO CONFIRMADO Y REGISTRADO
+        </div>
+
+        ${servicesHtml}
+        
+        <div style="margin-top: 25px; padding: 15px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 15px; font-weight: 700; color: #166534;">Monto Registrado:</span>
+          <span style="font-size: 20px; font-weight: 800; color: #166534;">${formatCLP(totalMonto)}</span>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 30px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Comprobante de Pago WMS:</strong><br>
+          Tu pago ya se encuentra acreditado y registrado en el módulo de Facturación del sistema WMS Stocka. Puedes ingresar en cualquier momento para descargar tu comprobante o revisar el historial de transacciones.
+        </div>
+      `;
+    }
     else if (emailType === 'service_restored') {
       emailSubject = `[SERVICIO RESTABLECIDO] Cuenta reactivada - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #16a34a, #15803d)'; // Verde

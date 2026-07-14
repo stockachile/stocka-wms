@@ -2,6 +2,22 @@ import supabase from './supabase.js';
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 
+let userRole = 'admin';
+
+
+window.wmsColumnFilters = window.wmsColumnFilters || {};
+
+window.getPeriodColor = function(period) {
+  if (!period) return { bg: '#e5e7eb', text: '#374151' };
+  let hash = 0;
+  for (let i = 0; i < period.length; i++) {
+    hash = period.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash % 360);
+  const bg = `hsl(${hue}, 65%, 85%)`;
+  const text = `hsl(${hue}, 70%, 25%)`;
+  return { bg, text };
+};
 
 window.pickerOperatorsMap = window.pickerOperatorsMap || {};
 
@@ -336,6 +352,8 @@ async function init() {
       window.location.href = 'dashboard.html';
       return;
     }
+
+    userRole = profile.role || 'admin';
 
     // Auto-update admin profile if missing integrations or documentation_admin
     if (profile.allowed_modules && profile.allowed_modules !== 'all') {
@@ -799,6 +817,7 @@ async function renderAdminOrders() {
         operador,
         fecha_procesamiento,
         sucursal_pickeo,
+        periodo_facturacion,
         order_items (quantity, products(sku, name, price, image_url, options))
       `)
       .gte('created_at', startOfMonth)
@@ -890,6 +909,7 @@ async function renderAdminOrders() {
             operador,
             fecha_procesamiento,
             sucursal_pickeo,
+            periodo_facturacion,
             order_items (quantity, products(sku, name, price, image_url, options))
           `)
           .lt('created_at', startOfMonth)
@@ -1062,15 +1082,57 @@ async function renderAdminOrders() {
                 </th>
                 <th style="width: 40px; text-align: center;"></th>
                 <th>ID</th>
-                <th>Comercio</th>
-                <th>Origen</th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Comercio</span>
+                    <i id="wms-filter-icon-comercio" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'comercio', 'Comercio')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Origen</span>
+                    <i id="wms-filter-icon-origen" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'origen', 'Origen')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
                 <th>Fecha</th>
                 <th>Fecha proc.</th>
-                <th>Agenda</th>
-                <th>Operador</th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Agenda</span>
+                    <i id="wms-filter-icon-agenda" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'agenda', 'Agenda')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Operador</span>
+                    <i id="wms-filter-icon-operador" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'operador', 'Operador')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Envío</span>
+                    <i id="wms-filter-icon-shipping_method" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'shipping_method', 'Envío')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Facturación</span>
+                    <i id="wms-filter-icon-periodo_facturacion" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'periodo_facturacion', 'Facturación')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
                 <th>Total unid.</th>
-                <th>Estado Origen</th>
-                <th>Estado WMS</th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Estado Origen</span>
+                    <i id="wms-filter-icon-status" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'status', 'Estado Origen')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Estado WMS</span>
+                    <i id="wms-filter-icon-estado_wms" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'estado_wms', 'Estado WMS')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody id="orders-tbody">
@@ -1195,26 +1257,25 @@ window.applyWmsFiltersAndRender = function() {
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
     const count = getTabCount(tab);
-    let badgeBg = 'var(--color-bg)';
-    let badgeColor = 'var(--color-text-muted)';
+    let badgeClass = 'status-gray';
     if (tab === 'Incidencia') {
-      badgeBg = '#fee2e2';
-      badgeColor = '#ef4444';
+      badgeClass = 'status-red';
     } else if (tab === 'Pickeado' || tab === 'Despachado') {
-      badgeBg = '#dcfce7';
-      badgeColor = '#22c55e';
+      badgeClass = 'status-green';
     } else if (tab === 'En preparación') {
-      badgeBg = '#fef3c7';
-      badgeColor = '#d97706';
+      badgeClass = 'status-yellow';
     } else if (tab === 'En procesamiento') {
-      badgeBg = '#e0f2fe';
-      badgeColor = '#0284c7';
+      badgeClass = 'status-blue';
     }
+
+    // When the tab is active, we use inline styling to contrast with the primary background
+    const activeSpanStyle = `background: rgba(255,255,255,0.2); color: #ffffff; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700; border: none;`;
+    const inactiveSpanStyle = `padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;`;
 
     return `
       <button onclick="window.setWmsTab('${tab}')" style="background: ${isActive ? 'var(--color-primary)' : 'transparent'}; color: ${isActive ? '#ffffff' : 'var(--color-text-main)'}; border: ${isActive ? 'none' : '1px solid var(--color-border)'}; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-weight: 600; font-size: 0.825rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
         ${tab}
-        <span style="background: ${isActive ? 'rgba(255,255,255,0.2)' : badgeBg}; color: ${isActive ? '#ffffff' : badgeColor}; padding: 0.15rem 0.45rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 700;">${count}</span>
+        <span class="${isActive ? '' : badgeClass}" style="${isActive ? activeSpanStyle : inactiveSpanStyle}">${count}</span>
       </button>
     `;
   }).join('');
@@ -1232,7 +1293,46 @@ window.applyWmsFiltersAndRender = function() {
   const filtered = orders.filter(o => {
     const matchBase = matchesBaseFilters(o);
     const matchTab = window.wmsActiveTab === 'Todos' || o.estado_wms === window.wmsActiveTab;
-    return matchBase && matchTab;
+    
+    // Filtros de columnas tipo Excel (AND logic)
+    let matchColFilters = true;
+    for (const [colKey, selectedVals] of Object.entries(window.wmsColumnFilters || {})) {
+      if (!selectedVals || selectedVals.length === 0) continue;
+      
+      let val = '';
+      if (colKey === 'comercio') val = o.comercio;
+      else if (colKey === 'origen') val = o.origen || o.external_platform || 'Manual';
+      else if (colKey === 'agenda') val = o.agenda;
+      else if (colKey === 'operador') val = o.operador || window.pickerOperatorsMap[o.external_order_number || o.id] || '';
+      else if (colKey === 'shipping_method') val = o.shipping_method;
+      else if (colKey === 'periodo_facturacion') val = o.periodo_facturacion;
+      else if (colKey === 'status') val = o.status;
+      else if (colKey === 'estado_wms') val = o.estado_wms;
+      
+      val = val === null || val === undefined ? '' : String(val).trim();
+      if (!selectedVals.includes(val)) {
+        matchColFilters = false;
+        break;
+      }
+    }
+    
+    return matchBase && matchTab && matchColFilters;
+  });
+
+  // Actualizar estado visual de los iconos de filtros en cabeceras
+  const colKeys = ['comercio', 'origen', 'agenda', 'operador', 'shipping_method', 'periodo_facturacion', 'status', 'estado_wms'];
+  colKeys.forEach(colKey => {
+    const iconEl = document.getElementById(`wms-filter-icon-${colKey}`);
+    if (iconEl) {
+      const isActive = !!(window.wmsColumnFilters[colKey] && window.wmsColumnFilters[colKey].length > 0);
+      if (isActive) {
+        iconEl.className = 'ri-filter-3-fill';
+        iconEl.style.color = '#3b82f6'; // color azul para filtro activo
+      } else {
+        iconEl.className = 'ri-filter-3-line';
+        iconEl.style.color = 'var(--color-text-muted)';
+      }
+    }
   });
 
   // Actualizar KPIs de forma local con la pestaña activa
@@ -1265,7 +1365,7 @@ window.applyWmsFiltersAndRender = function() {
   if (paginatedOrders.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="11" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="14" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           No se encontraron pedidos con los criterios de búsqueda actuales.
         </td>
       </tr>
@@ -1546,6 +1646,11 @@ window.applyWmsFiltersAndRender = function() {
              maxlength="5" />
     `;
 
+    const pColor = window.getPeriodColor(order.periodo_facturacion);
+    const periodHtml = order.periodo_facturacion 
+      ? `<span onclick="window.changeOrderBillingPeriod('${order.id}', '${order.periodo_facturacion}')" style="background-color: ${pColor.bg}; color: ${pColor.text}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; cursor: pointer; border: 1px solid ${pColor.text}33; display: inline-block; transition: all 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" title="Editar periodo de facturación">${order.periodo_facturacion}</span>`
+      : `<button onclick="window.changeOrderBillingPeriod('${order.id}', '')" style="background: transparent; border: 1px dashed var(--color-border); color: var(--color-text-muted); padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 500; cursor: pointer; transition: all 0.2s; outline: none;" onmouseover="this.style.borderColor='var(--color-primary)'; this.style.color='var(--color-primary)';" onmouseout="this.style.borderColor='var(--color-border)'; this.style.color='var(--color-text-muted)';">+ Asignar</button>`;
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
@@ -1559,13 +1664,15 @@ window.applyWmsFiltersAndRender = function() {
         <td>${originHtml}</td>
         <td>
           <div style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.8rem; white-space:nowrap; font-weight:500;">
-            <span>📅 ${datePart}</span>
-            <span style="color: var(--color-text-muted);">⏰ ${timePart}</span>
+            <span style="display: flex; align-items: center; gap: 0.25rem;"><i class="ri-calendar-todo-line" style="color: var(--color-primary); font-size: 0.9rem;"></i> ${datePart}</span>
+            <span style="display: flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);"><i class="ri-alarm-line" style="color: var(--color-danger); font-size: 0.9rem;"></i> ${timePart}</span>
           </div>
         </td>
         <td>${fechaProcHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
+        <td><span style="font-size:0.8rem; font-weight:600; color:var(--color-text-main); white-space:nowrap;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span></td>
+        <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
         <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
         <td>
           <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
@@ -1581,7 +1688,7 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
@@ -1793,18 +1900,24 @@ function renderWmsBulkActionsBar() {
       </div>
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
         <label style="font-size: 0.8rem; font-weight: 500;">Cambiar estado WMS a:</label>
-        <select id="bulk-wms-status" class="form-input" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto; margin: 0; background: #ffffff; color: #111827; border: 1px solid rgba(0,0,0,0.1);">
+        <select id="bulk-wms-status" class="form-input" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.8rem; height: auto; margin: 0; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
           <option value="En procesamiento">En procesamiento</option>
           <option value="En preparación">En preparación</option>
           <option value="Pickeado">Pickeado</option>
           <option value="Despachado">Despachado</option>
           <option value="Incidencia">Incidencia</option>
         </select>
-        <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: #ffffff; color: var(--color-primary); font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
+        <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
         <div style="display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid rgba(255,255,255,0.2); padding-left: 0.5rem; margin-left: 0.5rem;">
           <button onclick="window.bulkSetWmsOrderPickingInfo()" class="btn" style="background: #ff9800; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-edit-line"></i> Asignar Agenda / Sucursal
+          </button>
+          <button onclick="window.bulkSetWmsOrderOperador()" class="btn" style="background: #00bcd4; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-truck-line"></i> Asignar Operador
+          </button>
+          <button onclick="window.bulkSetWmsOrderBillingPeriod()" class="btn" style="background: #9c27b0; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-price-tag-3-line"></i> Asignar Facturación
           </button>
           <button onclick="window.exportAdminShopifyOrdersCsv()" class="btn" style="background: #96bf48; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-download-2-line"></i> Exportar Shopify (CSV)
@@ -2833,12 +2946,15 @@ function renderMasterCatalogRows(products) {
       ? '' 
       : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
 
+    const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
         <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
         <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
@@ -3282,6 +3398,184 @@ function setupCatalogListeners(commerce, mainPlatform) {
       XLSX.writeFile(wb, 'plantilla_equivalencias_sku.xlsx');
     });
   }
+
+  // 6.5. Trigger file input for initial stock import
+  const btnTriggerImportStock = document.getElementById('btn-trigger-import-stock');
+  const fileImportStock = document.getElementById('catalog-import-stock-excel');
+  if (btnTriggerImportStock && fileImportStock) {
+    btnTriggerImportStock.addEventListener('click', () => {
+      fileImportStock.click();
+    });
+  }
+
+  if (fileImportStock) {
+    // CLONAR para evitar listeners duplicados al recargar vista
+    const newFileInput = fileImportStock.cloneNode(true);
+    fileImportStock.parentNode.replaceChild(newFileInput, fileImportStock);
+    
+    newFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (rows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          // Identificar columnas: sku y stock
+          const sample = rows[0];
+          let colSku = '';
+          let colStock = '';
+
+          for (const key of Object.keys(sample)) {
+            const lower = key.toLowerCase().trim();
+            if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+            else if (lower === 'stock' || lower === 'stock_inicial' || lower === 'stock inicial' || lower === 'cantidad' || lower === 'initial_stock' || lower === 'cant') colStock = key;
+          }
+
+          if (!colSku || !colStock) {
+            alert('Error: Columnas no encontradas. El archivo debe contener al menos las columnas "SKU" y "Stock Inicial" (o "Stock").');
+            return;
+          }
+
+          if (!confirm(`¿Estás seguro que deseas importar el stock inicial de ${rows.length} filas? Esto reajustará el stock actual de los productos según la diferencia del stock inicial.`)) {
+            return;
+          }
+
+          // Buscar la Bodega Central
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+
+          if (!bodegaCentral) {
+            alert('Error: No se encontró la Bodega Central en el sistema.');
+            return;
+          }
+
+          // Obtener todos los productos del comercio para el mapeo
+          const { data: dbProducts } = await supabase
+            .from('products')
+            .select('id, sku')
+            .eq('comercio', commerce);
+
+          const productMap = {};
+          if (dbProducts) {
+            dbProducts.forEach(p => {
+              productMap[p.sku.toLowerCase().trim()] = p.id;
+            });
+          }
+
+          let updatedCount = 0;
+          let notFoundCount = 0;
+          const notFoundSkus = [];
+
+          for (const row of rows) {
+            const skuVal = String(row[colSku] || '').trim();
+            const stockVal = parseInt(row[colStock], 10);
+            
+            if (!skuVal || isNaN(stockVal) || stockVal < 0) continue;
+
+            const prodId = productMap[skuVal.toLowerCase()];
+            if (!prodId) {
+              notFoundCount++;
+              notFoundSkus.push(skuVal);
+              continue;
+            }
+
+            // 1. Obtener stock inicial anterior de movements
+            const { data: oldMov } = await supabase
+              .from('movements')
+              .select('quantity')
+              .eq('product_id', prodId)
+              .eq('reference_doc', 'Stock Inicial')
+              .limit(1)
+              .maybeSingle();
+
+            const oldInitialStock = oldMov ? oldMov.quantity : 0;
+            const diff = stockVal - oldInitialStock;
+
+            // 2. Actualizar/Insertar en inventory
+            const { data: invRecord } = await supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', bodegaCentral.id)
+              .maybeSingle();
+
+            if (invRecord) {
+              await supabase
+                .from('inventory')
+                .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                .eq('id', invRecord.id);
+            } else {
+              await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  quantity: stockVal
+                }]);
+            }
+
+            // 3. Actualizar/Insertar movements
+            const { data: movRecord } = await supabase
+              .from('movements')
+              .select('id')
+              .eq('product_id', prodId)
+              .eq('reference_doc', 'Stock Inicial')
+              .limit(1)
+              .maybeSingle();
+
+            if (movRecord) {
+              await supabase
+                .from('movements')
+                .update({ quantity: stockVal })
+                .eq('id', movRecord.id);
+            } else {
+              await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  type: 'in',
+                  quantity: stockVal,
+                  reference_doc: 'Stock Inicial'
+                }]);
+            }
+
+            updatedCount++;
+          }
+
+          let summaryMessage = `Importación de Stock Inicial finalizada.\n- ${updatedCount} productos actualizados exitosamente.`;
+          if (notFoundCount > 0) {
+            summaryMessage += `\n- ${notFoundCount} SKUs no encontrados en este comercio: ${notFoundSkus.slice(0, 10).join(', ')}${notFoundSkus.length > 10 ? '...' : ''}`;
+          }
+
+          alert(summaryMessage);
+          renderAdminCatalogWorkspace(commerce);
+
+        } catch (err) {
+          console.error(err);
+          alert('Error al importar la planilla: ' + err.message);
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
 }
 
 async function renderAdminCatalog() {
@@ -3311,8 +3605,8 @@ async function renderAdminCatalog() {
     const seen = new Set();
     if (configComercios) {
       configComercios.forEach(c => {
-        if (c.sigla && !seen.has(c.sigla)) {
-          seen.add(c.sigla);
+        if (c.nombre && !seen.has(c.nombre)) {
+          seen.add(c.nombre);
           uniqueClients.push(c);
         }
       });
@@ -3320,7 +3614,7 @@ async function renderAdminCatalog() {
 
     const clientSelect = document.getElementById('eq-admin-client-select');
     clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-      uniqueClients.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('');
+      uniqueClients.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
 
     if (window.activeAdminComercio) {
       clientSelect.value = window.activeAdminComercio;
@@ -3374,6 +3668,21 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     if (prodErr) throw prodErr;
 
+    // Fetch initial stock movements
+    const { data: initialMovements } = await supabase
+      .from('movements')
+      .select('product_id, quantity, products!inner(comercio)')
+      .eq('products.comercio', commerce)
+      .eq('reference_doc', 'Stock Inicial');
+
+    const initialStockMap = {};
+    if (initialMovements) {
+      initialMovements.forEach(m => {
+        initialStockMap[m.product_id] = m.quantity;
+      });
+    }
+    window.catalogInitialStockMap = initialStockMap;
+
     const masterProducts = products || [];
 
     const { data: syncedProducts, error: syncErr } = await supabase
@@ -3412,6 +3721,14 @@ async function renderAdminCatalogWorkspace(commerce) {
     const importBtn = mainPlatform
       ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
       : '';
+    const importStockBtn = `
+      <div style="position: relative; display: inline-block;">
+        <button class="btn btn-outline" id="btn-trigger-import-stock" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--color-success); color: var(--color-success); background: transparent;">
+          <i class="ri-file-excel-line" style="color: #107c41;"></i> Importar Stock Inicial
+        </button>
+        <input type="file" id="catalog-import-stock-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+      </div>
+    `;
 
     const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
@@ -3442,6 +3759,7 @@ async function renderAdminCatalogWorkspace(commerce) {
                   <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
                 </div>
                 ${importBtn}
+                ${importStockBtn}
                 ${createBtn}
               </div>
             </div>
@@ -3453,6 +3771,7 @@ async function renderAdminCatalogWorkspace(commerce) {
                     <th style="padding: 1rem 1.5rem;">SKU</th>
                     <th style="padding: 1rem 1.5rem;">Nombre</th>
                     <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
+                    <th style="padding: 1rem 1.5rem; text-align: center;">Stock Inicial</th>
                     <th style="padding: 1rem 1.5rem;">Precio</th>
                     <th style="padding: 1rem 1.5rem;">Origen</th>
                     <th style="padding: 1rem 1.5rem;">Medidas</th>
@@ -4852,7 +5171,7 @@ async function renderUploadProducts() {
               <select id="upload-merchant-select" class="form-input" required style="max-width: 450px;">
                 <option value="">-- Seleccione el comercio --</option>
                 ${comercios && comercios.length > 0 
-                  ? comercios.map(c => `<option value="${c.sigla}">${c.nombre} (${c.sigla})</option>`).join('')
+                  ? comercios.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('')
                   : '<option value="" disabled>No hay comercios registrados</option>'
                 }
               </select>
@@ -11941,7 +12260,7 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
     // 2. Consultar datos de facturación actuales
     const { data: r, error } = await supabase
       .from('billing_records')
-      .select('fulfillment_link, fulfillment_pdf_url, enviame_pdfs')
+      .select('fulfillment_link, fulfillment_pdf_url, enviame_pdfs, factura_fulfillment_pdf_url, factura_enviame_pdf_url')
       .eq('id', recordId)
       .single();
       
@@ -11950,6 +12269,8 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
     const fulfillmentLink = r.fulfillment_link || '';
     const fulfillmentPdfUrl = r.fulfillment_pdf_url || '';
     const enviamePdfs = r.enviame_pdfs || [];
+    const facturaFulfPdfUrl = r.factura_fulfillment_pdf_url || '';
+    const facturaEnvPdfUrl = r.factura_enviame_pdf_url || '';
     
     // 3. Renderizar el cuerpo del modal con datos cargados
     const bodyEl = document.getElementById('billing-adjuntos-body');
@@ -11960,7 +12281,7 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
     if (enviamePdfs && Array.isArray(enviamePdfs) && enviamePdfs.length > 0) {
       envPdfsHtml = enviamePdfs.map((pdf, idx) => `
         <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
-          <span style="color: var(--color-text-main); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 250px;"><i class="ri-file-pdf-line" style="color: #ef4444;"></i> ${pdf.name || `PDF ${idx + 1}`}</span>
+          <span style="color: var(--color-text-main); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;"><i class="ri-file-pdf-line" style="color: #ef4444;"></i> ${pdf.name || `PDF ${idx + 1}`}</span>
           <div>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
             <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
@@ -11981,15 +12302,29 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
           <input type="url" id="adj-fulf-link" class="form-input" value="${fulfillmentLink}" placeholder="https://ejemplo.com/desglose" style="width: 100%;">
         </div>
         
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Archivo PDF Fulfillment</label>
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Archivo PDF Desglose Fulfillment</label>
           <input type="file" id="adj-fulf-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
           ${fulfillmentPdfUrl ? `
             <div id="adj-fulf-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
-              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> PDF Cargado</span>
+              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> PDF Desglose Cargado</span>
               <div>
                 <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('PDF Fulfillment - ${commerceName}', '${fulfillmentPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
                 <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); font-style: italic;">Factura Oficial Fulfillment (PDF)</label>
+          <input type="file" id="adj-fulf-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
+          ${facturaFulfPdfUrl ? `
+            <div id="adj-fulf-factura-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
+              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-file-pdf-line"></i> Factura PDF Cargada</span>
+              <div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${commerceName}', '${facturaFulfPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
               </div>
             </div>
           ` : ''}
@@ -11999,15 +12334,37 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
         <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700;">Envíame</h4>
         
         <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Subir Nuevo PDF Envíame</label>
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Subir Nuevo PDF Desglose Envíame</label>
           <input type="file" id="adj-env-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
         </div>
         
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem; display: block;">PDFs Cargados (Envíame)</label>
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem; display: block;">PDFs Desglose Cargados (Envíame)</label>
           <div id="adj-env-pdfs-list">
             ${envPdfsHtml}
           </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); font-style: italic;">Factura Oficial Envíame (PDF)</label>
+          <input type="file" id="adj-env-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
+          ${facturaEnvPdfUrl ? `
+            <div id="adj-env-factura-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
+              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-file-pdf-line"></i> Factura PDF Cargada</span>
+              <div>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${commerceName}', '${facturaEnvPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_enviame_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Notificación Automática -->
+        <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.05); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.15);">
+          <input type="checkbox" id="notify-client-new-invoice" checked style="width: 18px; height: 18px; margin: 0; accent-color: var(--color-success); cursor: pointer;">
+          <label for="notify-client-new-invoice" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
+            Notificar automáticamente al cliente por correo (Brevo) al guardar
+          </label>
         </div>
         
         <div class="modal-footer" style="padding: 1rem 0 0 0; margin-top: 1rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
@@ -12028,68 +12385,146 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
       try {
         const fulfLinkVal = document.getElementById('adj-fulf-link').value.trim();
         const fulfPdfInput = document.getElementById('adj-fulf-pdf');
+        const fulfFacturaInput = document.getElementById('adj-fulf-factura-pdf');
         const envPdfInput = document.getElementById('adj-env-pdf');
+        const envFacturaInput = document.getElementById('adj-env-factura-pdf');
         
         const updates = {
           fulfillment_link: fulfLinkVal || null,
           updated_at: new Date().toISOString()
         };
         
-        // 1. Subir PDF Fulfillment
+        // 1. Subir PDF Desglose Fulfillment
         if (fulfPdfInput && fulfPdfInput.files && fulfPdfInput.files[0]) {
           const file = fulfPdfInput.files[0];
           const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
           const storagePath = `billing_files/${recordId}_fulf_${Date.now()}_${sanitizedName}`;
           
           const { error: uploadError } = await supabase.storage
-            .from('payment_receipts')
-            .upload(storagePath, file);
-            
+             .from('payment_receipts')
+             .upload(storagePath, file);
+             
           if (uploadError) throw uploadError;
           
           const { data: urlData } = supabase.storage
-            .from('payment_receipts')
-            .getPublicUrl(storagePath);
-            
+             .from('payment_receipts')
+             .getPublicUrl(storagePath);
+             
           updates.fulfillment_pdf_url = urlData.publicUrl;
         }
+
+        // 1b. Subir PDF Factura Oficial Fulfillment
+        if (fulfFacturaInput && fulfFacturaInput.files && fulfFacturaInput.files[0]) {
+          const file = fulfFacturaInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const storagePath = `billing_files/${recordId}_fulf_factura_${Date.now()}_${sanitizedName}`;
+          
+          const { error: uploadError } = await supabase.storage
+             .from('payment_receipts')
+             .upload(storagePath, file);
+             
+          if (uploadError) throw uploadError;
+          
+          const { data: urlData } = supabase.storage
+             .from('payment_receipts')
+             .getPublicUrl(storagePath);
+             
+          updates.factura_fulfillment_pdf_url = urlData.publicUrl;
+        }
         
-        // 2. Subir PDF Envíame (agregar al array)
+        // 2. Subir PDF Desglose Envíame (agregar al array)
         if (envPdfInput && envPdfInput.files && envPdfInput.files[0]) {
           const file = envPdfInput.files[0];
           const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
           const storagePath = `billing_files/${recordId}_env_${Date.now()}_${sanitizedName}`;
           
           const { error: uploadError } = await supabase.storage
-            .from('payment_receipts')
-            .upload(storagePath, file);
-            
+             .from('payment_receipts')
+             .upload(storagePath, file);
+             
           if (uploadError) throw uploadError;
           
           const { data: urlData } = supabase.storage
-            .from('payment_receipts')
-            .getPublicUrl(storagePath);
-            
+             .from('payment_receipts')
+             .getPublicUrl(storagePath);
+             
           // Obtener el array actual de nuevo para evitar carreras
           const { data: currentRecord } = await supabase
-            .from('billing_records')
-            .select('enviame_pdfs')
-            .eq('id', recordId)
-            .single();
-            
+             .from('billing_records')
+             .select('enviame_pdfs')
+             .eq('id', recordId)
+             .single();
+             
           const currentPdfs = currentRecord?.enviame_pdfs || [];
           currentPdfs.push({ name: file.name, url: urlData.publicUrl });
           
           updates.enviame_pdfs = currentPdfs;
         }
+
+        // 2b. Subir PDF Factura Oficial Envíame
+        if (envFacturaInput && envFacturaInput.files && envFacturaInput.files[0]) {
+          const file = envFacturaInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const storagePath = `billing_files/${recordId}_env_factura_${Date.now()}_${sanitizedName}`;
+          
+          const { error: uploadError } = await supabase.storage
+             .from('payment_receipts')
+             .upload(storagePath, file);
+             
+          if (uploadError) throw uploadError;
+          
+          const { data: urlData } = supabase.storage
+             .from('payment_receipts')
+             .getPublicUrl(storagePath);
+             
+          updates.factura_enviame_pdf_url = urlData.publicUrl;
+        }
         
         // Guardar cambios en Supabase
         const { error: saveError } = await supabase
-          .from('billing_records')
-          .update(updates)
-          .eq('id', recordId);
-          
+           .from('billing_records')
+           .update(updates)
+           .eq('id', recordId);
+           
         if (saveError) throw saveError;
+        
+        // 3. Notificación automática por correo si está marcado y se subió alguna factura
+        const notifyCheckbox = document.getElementById('notify-client-new-invoice');
+        const uploadedFulfFactura = !!updates.factura_fulfillment_pdf_url;
+        const uploadedEnvFactura = !!updates.factura_enviame_pdf_url;
+        
+        if (notifyCheckbox && notifyCheckbox.checked && (uploadedFulfFactura || uploadedEnvFactura)) {
+          const serviceType = (uploadedFulfFactura && uploadedEnvFactura) ? 'both' : (uploadedFulfFactura ? 'fulfillment' : 'enviame');
+          
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                  recordId,
+                  serviceType,
+                  emails: [], // Buscará los contactos activos correspondientes automáticamente
+                  customMessage: 'Factura oficial cargada en el portal.',
+                  emailType: 'invoice_uploaded'
+                })
+              }).then(async res => {
+                if (!res.ok) {
+                  const errJson = await res.json().catch(() => ({}));
+                  console.error('Error al enviar correo de notificación automática:', errJson.error || res.statusText);
+                } else {
+                  console.log('Notificación automática de factura enviada con éxito.');
+                }
+              }).catch(e => console.error('Fallo de red al enviar notificación automática:', e));
+            }
+          } catch (e) {
+            console.warn('No se pudo enviar la notificación de correo automática:', e);
+          }
+        }
         
         modal.remove();
         
@@ -12143,7 +12578,7 @@ window.deleteBillingAttachmentField = async function(recordId, fieldName, btnEl)
       
     if (updErr) throw updErr;
     
-    const statusDiv = btnEl.closest('#adj-fulf-pdf-status');
+    const statusDiv = btnEl.closest('[id$="-status"]');
     if (statusDiv) statusDiv.remove();
     
     setTimeout(() => showSavingBadge(false), 500);
@@ -14298,6 +14733,23 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
 
+    // Obtener stock inicial histórico
+    const { data: initialMov } = await supabase
+      .from('movements')
+      .select('quantity')
+      .eq('product_id', prodId)
+      .eq('reference_doc', 'Stock Inicial')
+      .limit(1)
+      .maybeSingle();
+
+    const initialStock = initialMov ? initialMov.quantity : 0;
+    window.currentEditProductOldInitialStock = initialStock;
+    
+    const editProdStockInput = document.getElementById('edit-prod-stock');
+    if (editProdStockInput) {
+      editProdStockInput.value = initialStock;
+    }
+
     // Setup pack checkbox and section visibility
     initProductPackDomElements(true);
     
@@ -14462,6 +14914,8 @@ function initProductFormListeners() {
       const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
       const expiration = document.getElementById('edit-prod-expiration').value || null;
       const lot = document.getElementById('edit-prod-lot').value || null;
+      const newInitialStock = parseInt(document.getElementById('edit-prod-stock').value, 10) || 0;
+      const oldInitialStock = window.currentEditProductOldInitialStock || 0;
 
       try {
         const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
@@ -14483,6 +14937,73 @@ function initProductFormListeners() {
           .eq('id', prodId);
 
         if (error) throw error;
+
+        // Si el stock inicial cambió y no es un pack, actualizar inventario y movimiento histórico
+        if (newInitialStock !== oldInitialStock && !isPack) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+
+          if (bodegaCentral) {
+            const diff = newInitialStock - oldInitialStock;
+
+            // Actualizar o insertar inventario en Bodega Central
+            const { data: invRecord } = await supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', bodegaCentral.id)
+              .maybeSingle();
+
+            if (invRecord) {
+              const { error: invErr } = await supabase
+                .from('inventory')
+                .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                .eq('id', invRecord.id);
+              if (invErr) throw invErr;
+            } else {
+              const { error: invErr } = await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  quantity: newInitialStock
+                }]);
+              if (invErr) throw invErr;
+            }
+
+            // Actualizar o insertar movimiento de "Stock Inicial"
+            const { data: movRecord } = await supabase
+              .from('movements')
+              .select('id')
+              .eq('product_id', prodId)
+              .eq('reference_doc', 'Stock Inicial')
+              .limit(1)
+              .maybeSingle();
+
+            if (movRecord) {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .update({ quantity: newInitialStock })
+                .eq('id', movRecord.id);
+              if (movErr) throw movErr;
+            } else {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  type: 'in',
+                  quantity: newInitialStock,
+                  reference_doc: 'Stock Inicial'
+                }]);
+              if (movErr) throw movErr;
+            }
+          }
+        }
 
         // Guardar componentes de packs
         const { error: delErr } = await supabase
@@ -14789,6 +15310,174 @@ window.bulkSetWmsOrderPickingInfo = async function() {
     }
 
     Swal.fire('¡Éxito!', `Se asignó la sucursal y agenda a los ${ids.length} pedidos.`, 'success');
+    window.wmsSelectedOrderIds.clear();
+    const cbAll = document.getElementById('wms-select-all');
+    if (cbAll) cbAll.checked = false;
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+  }
+};
+
+window.bulkSetWmsOrderOperador = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) return;
+
+  const optionsHtml = (window.operadorOptions || []).map(opt => `
+    <option value="${opt}">${opt}</option>
+  `).join('');
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Asignación Masiva: Operador',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Selecciona el operador logístico (transportista) para los ${ids.length} pedidos seleccionados.</p>
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Operador</label>
+        <select id="swal-bulk-set-operador" class="swal2-select" style="width: 100%; margin: 0; box-sizing: border-box;">
+          <option value="">- Quitar Operador -</option>
+          ${optionsHtml}
+        </select>
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      return {
+        operador: document.getElementById('swal-bulk-set-operador').value
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Actualizando pedidos...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        operador: formValues.operador || null
+      })
+      .in('id', ids);
+
+    if (error) throw error;
+
+    for (const id of ids) {
+      const order = window.loadedOrders.find(o => o.id === id);
+      if (order) {
+        order.operador = formValues.operador || null;
+      }
+    }
+
+    Swal.fire('¡Éxito!', `Se asignó el operador a los ${ids.length} pedidos.`, 'success');
+    window.wmsSelectedOrderIds.clear();
+    const cbAll = document.getElementById('wms-select-all');
+    if (cbAll) cbAll.checked = false;
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron actualizar los pedidos: ' + err.message, 'error');
+  }
+};
+
+window.changeOrderBillingPeriod = async function(orderId, currentVal) {
+  const { value: newPeriod } = await Swal.fire({
+    title: 'Asignar Periodo de Facturación',
+    input: 'text',
+    inputLabel: 'Periodo (ej: JUN26, JUL26)',
+    inputValue: currentVal,
+    placeholder: 'Escribe el periodo (dejar vacío para desmarcar)',
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar'
+  });
+  
+  if (newPeriod === undefined) return; // cancelled
+  
+  const val = newPeriod.trim().toUpperCase() || null;
+  
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .update({ periodo_facturacion: val })
+      .eq('id', orderId);
+      
+    if (error) throw error;
+    
+    // Update local loadedOrders
+    const order = window.loadedOrders.find(o => o.id === orderId);
+    if (order) {
+      order.periodo_facturacion = val;
+    }
+    
+    const toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true
+    });
+    toast.fire({
+      icon: 'success',
+      title: 'Periodo de facturación actualizado'
+    });
+    
+    applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error("Error updating billing period:", err);
+    Swal.fire('Error', 'No se pudo actualizar el periodo: ' + err.message, 'error');
+  }
+};
+
+window.bulkSetWmsOrderBillingPeriod = async function() {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) return;
+
+  const { value: newPeriod } = await Swal.fire({
+    title: 'Asignación Masiva: Periodo de Facturación',
+    input: 'text',
+    inputLabel: 'Periodo (ej: JUN26, JUL26)',
+    placeholder: 'Dejar vacío para desmarcar los pedidos seleccionados',
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (newPeriod === undefined) return;
+
+  const val = newPeriod.trim().toUpperCase() || null;
+
+  try {
+    Swal.fire({
+      title: 'Actualizando pedidos...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        periodo_facturacion: val
+      })
+      .in('id', ids);
+
+    if (error) throw error;
+
+    for (const id of ids) {
+      const order = window.loadedOrders.find(o => o.id === id);
+      if (order) {
+        order.periodo_facturacion = val;
+      }
+    }
+
+    Swal.fire('¡Éxito!', `Se asignó el periodo de facturación a los ${ids.length} pedidos.`, 'success');
     window.wmsSelectedOrderIds.clear();
     const cbAll = document.getElementById('wms-select-all');
     if (cbAll) cbAll.checked = false;
@@ -15279,6 +15968,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
           <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">3. Tipo de Correo a Enviar</label>
           <select id="email-type-select" class="form-input" style="width: 100%;">
             <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
+            <option value="invoice_uploaded">Notificación de Factura Cargada</option>
             <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
           </select>
         </div>
@@ -15619,6 +16309,136 @@ window.applyBulkStatusUpdates = async function(periodId) {
     showSavingBadge(false);
   }
 };
+
+window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
+  // Cerrar cualquier popover existente
+  const existing = document.getElementById('wms-col-filter-popover');
+  if (existing) {
+    existing.remove();
+  }
+  
+  // Obtener valores únicos para esta columna a partir de los pedidos cargados
+  const allOrders = window.loadedOrders || [];
+  const uniqueValues = new Set();
+  allOrders.forEach(o => {
+    let val = '';
+    if (columnKey === 'comercio') val = o.comercio;
+    else if (columnKey === 'origen') val = o.origen || o.external_platform || 'Manual';
+    else if (columnKey === 'agenda') val = o.agenda;
+    else if (columnKey === 'operador') val = o.operador || window.pickerOperatorsMap[o.external_order_number || o.id] || '';
+    else if (columnKey === 'shipping_method') val = o.shipping_method;
+    else if (columnKey === 'periodo_facturacion') val = o.periodo_facturacion;
+    else if (columnKey === 'status') val = o.status;
+    else if (columnKey === 'estado_wms') val = o.estado_wms;
+    
+    uniqueValues.add(val === null || val === undefined ? '' : String(val).trim());
+  });
+  
+  const sortedValues = Array.from(uniqueValues).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  
+  // Selecciones activas actuales
+  const activeSelections = window.wmsColumnFilters[columnKey] || [];
+  
+  // Crear contenedor flotante
+  const popover = document.createElement('div');
+  popover.id = 'wms-col-filter-popover';
+  popover.style.position = 'absolute';
+  popover.style.background = 'var(--color-surface)';
+  popover.style.border = '1px solid var(--color-border)';
+  popover.style.borderRadius = 'var(--radius-md)';
+  popover.style.boxShadow = 'var(--shadow-lg)';
+  popover.style.zIndex = '10000';
+  popover.style.width = '240px';
+  popover.style.padding = '0.75rem';
+  popover.style.fontFamily = 'inherit';
+  popover.style.color = 'var(--color-text-main)';
+  
+  // Posicionar el popover respecto al icono cliqueado
+  const rect = event.target.getBoundingClientRect();
+  popover.style.top = `${rect.bottom + window.scrollY + 5}px`;
+  popover.style.left = `${rect.left + window.scrollX - 100}px`;
+  
+  let checkboxesHtml = sortedValues.map((val, idx) => {
+    const displayVal = val === '' ? '(Vacío)' : val;
+    // Si no hay filtro configurado (vacío), por defecto todos seleccionados. Si hay filtro, se marcan los incluidos.
+    const checked = activeSelections.length === 0 || activeSelections.includes(val) ? 'checked' : '';
+    return `
+      <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; padding: 0.25rem; cursor: pointer; user-select: none; color: var(--color-text-main);">
+        <input type="checkbox" class="wms-col-filter-cb" data-value="${val}" ${checked} style="width: 14px; height: 14px; accent-color: var(--color-primary); cursor: pointer; margin: 0;">
+        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${displayVal}</span>
+      </label>
+    `;
+  }).join('');
+  
+  popover.innerHTML = `
+    <div style="font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; display: flex; justify-content: space-between; align-items: center; color: var(--color-text-main);">
+      <span>Filtrar ${columnName}</span>
+      <i class="ri-close-line" onclick="document.getElementById('wms-col-filter-popover').remove()" style="cursor: pointer; font-size: 1rem; color: var(--color-text-muted);"></i>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+      <button onclick="window.setAllColFilters(true)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Todos</button>
+      <button onclick="window.setAllColFilters(false)" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; flex: 1; height: auto; font-weight: 600; cursor: pointer;">Ninguno</button>
+    </div>
+    <div style="max-height: 180px; overflow-y: auto; margin-bottom: 0.75rem; border: 1px solid var(--color-border); padding: 0.25rem; border-radius: var(--radius-sm); background: var(--color-bg);">
+      ${checkboxesHtml}
+    </div>
+    <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--color-border); padding-top: 0.5rem;">
+      <button onclick="window.clearColFilter('${columnKey}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto; cursor: pointer;">Limpiar</button>
+      <button onclick="window.applyColFilter('${columnKey}')" class="btn btn-primary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto; cursor: pointer; color: white;">Aplicar</button>
+    </div>
+  `;
+  
+  document.body.appendChild(popover);
+  
+  // Cerrar al hacer clic fuera del popover
+  setTimeout(() => {
+    const outsideClickListener = (e) => {
+      const pop = document.getElementById('wms-col-filter-popover');
+      if (pop && !pop.contains(e.target) && e.target !== event.target) {
+        pop.remove();
+        document.removeEventListener('click', outsideClickListener);
+      }
+    };
+    document.addEventListener('click', outsideClickListener);
+  }, 0);
+};
+
+window.setAllColFilters = function(checked) {
+  const cbs = document.querySelectorAll('.wms-col-filter-cb');
+  cbs.forEach(cb => cb.checked = checked);
+};
+
+window.clearColFilter = function(columnKey) {
+  delete window.wmsColumnFilters[columnKey];
+  const popover = document.getElementById('wms-col-filter-popover');
+  if (popover) popover.remove();
+  applyWmsFiltersAndRender();
+};
+
+window.applyColFilter = function(columnKey) {
+  const cbs = document.querySelectorAll('.wms-col-filter-cb');
+  const selectedValues = [];
+  const totalCount = cbs.length;
+  let checkedCount = 0;
+  cbs.forEach(cb => {
+    if (cb.checked) {
+      selectedValues.push(cb.getAttribute('data-value'));
+      checkedCount++;
+    }
+  });
+  
+  if (checkedCount === totalCount || checkedCount === 0) {
+    // Si están todos seleccionados (o ninguno, lo cual implica resetear), removemos el filtro de la columna
+    delete window.wmsColumnFilters[columnKey];
+  } else {
+    window.wmsColumnFilters[columnKey] = selectedValues;
+  }
+  
+  const popover = document.getElementById('wms-col-filter-popover');
+  if (popover) popover.remove();
+  applyWmsFiltersAndRender();
+};
+
 
 
 

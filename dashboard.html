@@ -259,6 +259,13 @@
             <label class="form-label">Stock Crítico</label>
             <input type="number" id="edit-prod-stock-critico" class="form-input" value="0" min="0" required placeholder="Ej: 5">
           </div>
+          <div class="form-group">
+            <label class="form-label">Stock Inicial para Seguimiento</label>
+            <input type="number" id="edit-prod-stock" class="form-input" value="0" min="0" required placeholder="Ej: 100">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+              Establece o edita el stock inicial con el que se iniciará el seguimiento de este producto.
+            </p>
+          </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="edit-prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="edit-prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>

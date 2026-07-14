@@ -931,6 +931,21 @@ async function renderCatalog() {
 
     if (prodErr) throw prodErr;
 
+    // Fetch initial stock movements
+    const { data: initialMovements } = await supabase
+      .from('movements')
+      .select('product_id, quantity, products!inner(comercio)')
+      .eq('products.comercio', commerce)
+      .eq('reference_doc', 'Stock Inicial');
+
+    const initialStockMap = {};
+    if (initialMovements) {
+      initialMovements.forEach(m => {
+        initialStockMap[m.product_id] = m.quantity;
+      });
+    }
+    window.catalogInitialStockMap = initialStockMap;
+
     // Filtrar del catálogo master
     const masterProducts = products || [];
 
@@ -971,8 +986,16 @@ async function renderCatalog() {
     const isObserver = userRole === 'observer';
     const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
     const importBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
+      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);</i>Importar de ${mainPlatform}</button>`
       : '';
+    const importStockBtn = isObserver ? '' : `
+      <div style="position: relative; display: inline-block;">
+        <button class="btn btn-outline" id="btn-trigger-import-stock" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--color-success); color: var(--color-success); background: transparent;">
+          <i class="ri-file-excel-line" style="color: #107c41;"></i> Importar Stock Inicial
+        </button>
+        <input type="file" id="catalog-import-stock-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+      </div>
+    `;
 
     const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
@@ -1049,6 +1072,7 @@ async function renderCatalog() {
                   <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
                 </div>
                 ${importBtn}
+                ${importStockBtn}
                 ${createBtn}
               </div>
             </div>
@@ -1060,6 +1084,7 @@ async function renderCatalog() {
                     <th style="padding: 1rem 1.5rem;">SKU</th>
                     <th style="padding: 1rem 1.5rem;">Nombre</th>
                     <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
+                    <th style="padding: 1rem 1.5rem; text-align: center;">Stock Inicial</th>
                     <th style="padding: 1rem 1.5rem;">Precio</th>
                     <th style="padding: 1rem 1.5rem;">Origen</th>
                     <th style="padding: 1rem 1.5rem;">Medidas</th>
@@ -1216,6 +1241,23 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
     document.getElementById('edit-prod-stock-critico').value = product.stock_critico || 0;
+
+    // Obtener stock inicial histórico
+    const { data: initialMov } = await supabase
+      .from('movements')
+      .select('quantity')
+      .eq('product_id', prodId)
+      .eq('reference_doc', 'Stock Inicial')
+      .limit(1)
+      .maybeSingle();
+
+    const initialStock = initialMov ? initialMov.quantity : 0;
+    window.currentEditProductOldInitialStock = initialStock;
+    
+    const editProdStockInput = document.getElementById('edit-prod-stock');
+    if (editProdStockInput) {
+      editProdStockInput.value = initialStock;
+    }
 
     // Configurar visibilidad del checkbox y sección de packs
     initProductPackDomElements(false);
@@ -5210,6 +5252,8 @@ async function renderIntegrations() {
     const expiration = document.getElementById('edit-prod-expiration').value || null;
     const lot = document.getElementById('edit-prod-lot').value || null;
     const stockCritico = parseInt(document.getElementById('edit-prod-stock-critico').value, 10) || 0;
+    const newInitialStock = parseInt(document.getElementById('edit-prod-stock').value, 10) || 0;
+    const oldInitialStock = window.currentEditProductOldInitialStock || 0;
 
     try {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
@@ -5232,6 +5276,73 @@ async function renderIntegrations() {
         .eq('id', prodId);
 
       if (error) throw error;
+
+      // Si el stock inicial cambió y no es un pack, actualizar inventario y movimiento histórico
+      if (newInitialStock !== oldInitialStock && !isPack) {
+        const { data: bodegaCentral } = await supabase
+          .from('warehouses')
+          .select('id')
+          .ilike('name', '%Central%')
+          .limit(1)
+          .single();
+
+        if (bodegaCentral) {
+          const diff = newInitialStock - oldInitialStock;
+
+          // Actualizar o insertar inventario en Bodega Central
+          const { data: invRecord } = await supabase
+            .from('inventory')
+            .select('id, quantity')
+            .eq('product_id', prodId)
+            .eq('warehouse_id', bodegaCentral.id)
+            .maybeSingle();
+
+          if (invRecord) {
+            const { error: invErr } = await supabase
+              .from('inventory')
+              .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+              .eq('id', invRecord.id);
+            if (invErr) throw invErr;
+          } else {
+            const { error: invErr } = await supabase
+              .from('inventory')
+              .insert([{
+                product_id: prodId,
+                warehouse_id: bodegaCentral.id,
+                quantity: newInitialStock
+              }]);
+            if (invErr) throw invErr;
+          }
+
+          // Actualizar o insertar movimiento de "Stock Inicial"
+          const { data: movRecord } = await supabase
+            .from('movements')
+            .select('id')
+            .eq('product_id', prodId)
+            .eq('reference_doc', 'Stock Inicial')
+            .limit(1)
+            .maybeSingle();
+
+          if (movRecord) {
+            const { error: movErr } = await supabase
+              .from('movements')
+              .update({ quantity: newInitialStock })
+              .eq('id', movRecord.id);
+            if (movErr) throw movErr;
+          } else {
+            const { error: movErr } = await supabase
+              .from('movements')
+              .insert([{
+                product_id: prodId,
+                warehouse_id: bodegaCentral.id,
+                type: 'in',
+                quantity: newInitialStock,
+                reference_doc: 'Stock Inicial'
+              }]);
+            if (movErr) throw movErr;
+          }
+        }
+      }
 
       // Guardar componentes de packs
       const { error: delErr } = await supabase
@@ -9007,13 +9118,20 @@ async function fetchAndRenderClientDeclarations() {
   if (!listTableBody) return;
   
   listTableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">Cargando declaraciones...</td></tr>`;
-  
   try {
-    const { data: declarations, error } = await supabase
+    const companyList = [...new Set(getCompanyList())];
+    let query = supabase
       .from('stock_declarations')
-      .select('*, warehouses(name, address, comuna)')
-      .eq('merchant_id', currentMerchantId)
-      .order('created_at', { ascending: false });
+      .select('*, warehouses(name, address, comuna)');
+
+    if (companyList.length > 0) {
+      const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
+      query = query.or(`merchant_id.eq.${currentMerchantId},${commerceFilters}`);
+    } else {
+      query = query.eq('merchant_id', currentMerchantId);
+    }
+
+    const { data: declarations, error } = await query.order('created_at', { ascending: false });
       
     if (error) throw error;
     
@@ -10492,8 +10610,14 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
-            ${r.num_factura || '-'}
+          <td style="vertical-align: middle; text-align: center;">
+            ${r.factura_fulfillment_pdf_url ? `
+              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Fulfillment #${r.num_factura || ''} - ${r.comercio}" data-url="${r.factura_fulfillment_pdf_url}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
+                <i class="ri-file-pdf-line" style="font-size: 0.95rem;"></i> #${r.num_factura || ''}
+              </button>
+            ` : `
+              <span style="font-weight: 600; color: var(--color-text-main);">${r.num_factura || '-'}</span>
+            `}
           </td>
           <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
             ${window.formatCLP(recordTotal)}
@@ -10543,8 +10667,14 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle; text-align: center;">
             <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>
           </td>
-          <td style="vertical-align: middle; text-align: center; font-weight: 600; color: var(--color-text-main);">
-            ${r.num_factura_enviame || '-'}
+          <td style="vertical-align: middle; text-align: center;">
+            ${r.factura_enviame_pdf_url ? `
+              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Envíame #${r.num_factura_enviame || ''} - ${r.comercio}" data-url="${r.factura_enviame_pdf_url}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
+                <i class="ri-file-pdf-line" style="font-size: 0.95rem;"></i> #${r.num_factura_enviame || ''}
+              </button>
+            ` : `
+              <span style="font-weight: 600; color: var(--color-text-main);">${r.num_factura_enviame || '-'}</span>
+            `}
           </td>
           <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
             ${window.formatCLP(recordTotal)}
@@ -12519,12 +12649,15 @@ function renderMasterCatalogRows(products) {
       packBadge = ` <span class="badge" style="background-color: #8b5cf6; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-stack-line"></i> Pack</span>`;
     }
 
+    const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
         <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
         <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
@@ -13241,6 +13374,184 @@ function setupCatalogListeners(commerce, mainPlatform) {
         }
       };
       reader.readAsArrayBuffer(file);
+    });
+  }
+
+  // 6.5. Trigger file input for initial stock import
+  const btnTriggerImportStock = document.getElementById('btn-trigger-import-stock');
+  const fileImportStock = document.getElementById('catalog-import-stock-excel');
+  if (btnTriggerImportStock && fileImportStock) {
+    btnTriggerImportStock.addEventListener('click', () => {
+      fileImportStock.click();
+    });
+  }
+
+  if (fileImportStock) {
+    // CLONAR para evitar listeners duplicados al recargar vista
+    const newFileInput = fileImportStock.cloneNode(true);
+    fileImportStock.parentNode.replaceChild(newFileInput, fileImportStock);
+    
+    newFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (rows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          // Identificar columnas: sku y stock
+          const sample = rows[0];
+          let colSku = '';
+          let colStock = '';
+
+          for (const key of Object.keys(sample)) {
+            const lower = key.toLowerCase().trim();
+            if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+            else if (lower === 'stock' || lower === 'stock_inicial' || lower === 'stock inicial' || lower === 'cantidad' || lower === 'initial_stock' || lower === 'cant') colStock = key;
+          }
+
+          if (!colSku || !colStock) {
+            alert('Error: Columnas no encontradas. El archivo debe contener al menos las columnas "SKU" y "Stock Inicial" (o "Stock").');
+            return;
+          }
+
+          if (!confirm(`¿Estás seguro que deseas importar el stock inicial de ${rows.length} filas? Esto reajustará el stock actual de los productos según la diferencia del stock inicial.`)) {
+            return;
+          }
+
+          // Buscar la Bodega Central
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+
+          if (!bodegaCentral) {
+            alert('Error: No se encontró la Bodega Central en el sistema.');
+            return;
+          }
+
+          // Obtener todos los productos del comercio para el mapeo
+          const { data: dbProducts } = await supabase
+            .from('products')
+            .select('id, sku')
+            .eq('comercio', commerce);
+
+          const productMap = {};
+          if (dbProducts) {
+            dbProducts.forEach(p => {
+              productMap[p.sku.toLowerCase().trim()] = p.id;
+            });
+          }
+
+          let updatedCount = 0;
+          let notFoundCount = 0;
+          const notFoundSkus = [];
+
+          for (const row of rows) {
+            const skuVal = String(row[colSku] || '').trim();
+            const stockVal = parseInt(row[colStock], 10);
+            
+            if (!skuVal || isNaN(stockVal) || stockVal < 0) continue;
+
+            const prodId = productMap[skuVal.toLowerCase()];
+            if (!prodId) {
+              notFoundCount++;
+              notFoundSkus.push(skuVal);
+              continue;
+            }
+
+            // 1. Obtener stock inicial anterior de movements
+            const { data: oldMov } = await supabase
+              .from('movements')
+              .select('quantity')
+              .eq('product_id', prodId)
+              .eq('reference_doc', 'Stock Inicial')
+              .limit(1)
+              .maybeSingle();
+
+            const oldInitialStock = oldMov ? oldMov.quantity : 0;
+            const diff = stockVal - oldInitialStock;
+
+            // 2. Actualizar/Insertar en inventory
+            const { data: invRecord } = await supabase
+              .from('inventory')
+              .select('id, quantity')
+              .eq('product_id', prodId)
+              .eq('warehouse_id', bodegaCentral.id)
+              .maybeSingle();
+
+            if (invRecord) {
+              await supabase
+                .from('inventory')
+                .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                .eq('id', invRecord.id);
+            } else {
+              await supabase
+                .from('inventory')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  quantity: stockVal
+                }]);
+            }
+
+            // 3. Actualizar/Insertar movements
+            const { data: movRecord } = await supabase
+              .from('movements')
+              .select('id')
+              .eq('product_id', prodId)
+              .eq('reference_doc', 'Stock Inicial')
+              .limit(1)
+              .maybeSingle();
+
+            if (movRecord) {
+              await supabase
+                .from('movements')
+                .update({ quantity: stockVal })
+                .eq('id', movRecord.id);
+            } else {
+              await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  type: 'in',
+                  quantity: stockVal,
+                  reference_doc: 'Stock Inicial'
+                }]);
+            }
+
+            updatedCount++;
+          }
+
+          let summaryMessage = `Importación de Stock Inicial finalizada.\n- ${updatedCount} productos actualizados exitosamente.`;
+          if (notFoundCount > 0) {
+            summaryMessage += `\n- ${notFoundCount} SKUs no encontrados en este comercio: ${notFoundSkus.slice(0, 10).join(', ')}${notFoundSkus.length > 10 ? '...' : ''}`;
+          }
+
+          alert(summaryMessage);
+          renderCatalog();
+
+        } catch (err) {
+          console.error(err);
+          alert('Error al importar la planilla: ' + err.message);
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
     });
   }
 }
