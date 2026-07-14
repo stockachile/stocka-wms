@@ -214,6 +214,27 @@ async function syncMerchantOrders(integration) {
 
       const isCancelled = statusName.includes('cancel') || statusName.includes('refund');
 
+      // Formatear método de envío y límite de entrega (SLA)
+      const shippingType = order.ShippingType || 'Dropshipping';
+      const promisedTime = order.PromisedShippingTime || '';
+      let shippingMethodVal = shippingType;
+      if (promisedTime) {
+        try {
+          const dateIso = promisedTime.replace(' ', 'T');
+          const dateObj = new Date(dateIso);
+          if (!isNaN(dateObj.getTime())) {
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const year = String(dateObj.getFullYear()).slice(-2);
+            const hours = String(dateObj.getHours()).padStart(2, '0');
+            const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+            shippingMethodVal = `${shippingType} (Límite: ${day}/${month}/${year} ${hours}:${minutes})`;
+          }
+        } catch (e) {
+          console.error("Error formatting PromisedShippingTime:", e);
+        }
+      }
+
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
@@ -234,14 +255,26 @@ async function syncMerchantOrders(integration) {
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, status: 'cancelado', comercio: integration.comercio, created_at: new Date(order.CreatedAt).toISOString() })
+            .update({ 
+              payment_status: statusName, 
+              status: 'cancelado', 
+              comercio: integration.comercio, 
+              shipping_method: shippingMethodVal,
+              created_at: new Date(order.CreatedAt).toISOString() 
+            })
             .eq('id', existingOrder.id);
           console.log(`🚫 Pedido ${orderNumber} cancelado en Falabella. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
             .from('orders')
-            .update({ payment_status: statusName, raw_falabella_data: order, comercio: integration.comercio, created_at: new Date(order.CreatedAt).toISOString() })
+            .update({ 
+              payment_status: statusName, 
+              raw_falabella_data: order, 
+              comercio: integration.comercio, 
+              shipping_method: shippingMethodVal,
+              created_at: new Date(order.CreatedAt).toISOString() 
+            })
             .eq('id', existingOrder.id);
           console.log(`📝 Actualizado pedido local ${orderNumber}`);
         }
@@ -321,6 +354,7 @@ async function syncMerchantOrders(integration) {
           shipping_complement: [order.AddressShipping?.Address2, order.AddressShipping?.Address5].filter(Boolean).join(', ') || '',
           raw_falabella_data: order,
           label_base64: labelBase64,
+          shipping_method: shippingMethodVal,
           // Nuevas columnas planas
           origen: 'Falabella',
           item: flatItemName,

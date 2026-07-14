@@ -311,30 +311,142 @@
 
   <!-- Modal Crear Pedido -->
   <div class="modal-overlay" id="modal-order">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 850px; width: 95%;">
       <div class="modal-header">
-        <h3>Crear Nuevo Pedido</h3>
+        <h3>Crear Nuevo Pedido Manual</h3>
         <button class="modal-close" data-close="modal-order">&times;</button>
       </div>
       <form id="form-new-order">
-        <div class="modal-body">
-          <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: 1rem;">
-            El sistema descontará automáticamente el stock de la bodega que tenga mayor disponibilidad. Podremos re-asignarlo internamente si es necesario.
+        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
+            Completa los detalles de despacho del cliente y añade los productos requeridos. El sistema reservará automáticamente el inventario de las bodegas disponibles.
           </p>
-          <div class="form-group">
-            <label class="form-label">Seleccionar Producto</label>
-            <select id="order-product" class="form-input" required>
-              <option value="">Cargando productos...</option>
-            </select>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+            
+            <!-- Columna 1: Datos de Despacho -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem;">
+              <h4 style="margin: 0 0 0.5rem 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-user-line"></i> Datos de Despacho
+              </h4>
+              
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Nombre del Cliente <span style="color: var(--color-danger);">*</span></label>
+                <input type="text" id="order-cust-name" class="form-input" placeholder="Ej: Juan Pérez" required style="font-size: 0.85rem;">
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Email</label>
+                  <input type="email" id="order-cust-email" class="form-input" placeholder="juan@correo.com" style="font-size: 0.85rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Teléfono</label>
+                  <input type="text" id="order-cust-phone" class="form-input" placeholder="+56912345678" style="font-size: 0.85rem;">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Dirección de Despacho <span style="color: var(--color-danger);">*</span></label>
+                <input type="text" id="order-cust-address" class="form-input" placeholder="Calle, Número, Villa/Población" required style="font-size: 0.85rem;">
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Comuna / Ciudad <span style="color: var(--color-danger);">*</span></label>
+                  <input type="text" id="order-cust-city" class="form-input" placeholder="Ej: Ñuñoa" required style="font-size: 0.85rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Casa/Depto/Block</label>
+                  <input type="text" id="order-cust-complement" class="form-input" placeholder="Depto 402, Block B" style="font-size: 0.85rem;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Columna 2: Logística y Origen -->
+            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem;">
+              <h4 style="margin: 0 0 0.5rem 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="ri-truck-line"></i> Origen y Envío
+              </h4>
+              
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Método de Envío / Courier</label>
+                <input type="text" id="order-cust-shipping-method" class="form-input" placeholder="Ej: Starken, Despacho Flex, Retiro Ñuñoa" style="font-size: 0.85rem;">
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Canal de Origen</label>
+                <select id="order-cust-origen" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
+                  <option value="Manual" selected>Manual</option>
+                  <option value="Shopify">Shopify</option>
+                  <option value="WooCommerce">WooCommerce</option>
+                  <option value="Jumpseller">Jumpseller</option>
+                  <option value="MercadoLibre">Mercado Libre</option>
+                  <option value="Falabella">Falabella</option>
+                  <option value="Paris">Paris</option>
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Número de Pedido Externo (Opcional)</label>
+                <input type="text" id="order-cust-external-id" class="form-input" placeholder="Ej: #9401" style="font-size: 0.85rem;">
+              </div>
+            </div>
+
           </div>
-          <div class="form-group">
-            <label class="form-label">Cantidad a pedir</label>
-            <input type="number" id="order-qty" class="form-input" value="1" min="1" required>
+
+          <!-- Sección inferior: Selector de Productos e ítems agregados (Full Width) -->
+          <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-shopping-basket-2-line"></i> Ítems del Pedido
+            </h4>
+
+            <!-- Selector de Producto a agregar -->
+            <div style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap;">
+              <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Seleccionar Producto</label>
+                <select id="order-product" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
+                  <option value="">Cargando productos...</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0; width: 90px;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Cantidad</label>
+                <input type="number" id="order-qty" class="form-input" value="1" min="1" style="font-size: 0.85rem; text-align: center;">
+              </div>
+              <button type="button" onclick="window.addClientNewOrderItem()" class="btn btn-primary" style="padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; color: white; display: flex; align-items: center; gap: 0.25rem; height: 36px; border: none; font-weight: 600;"><i class="ri-add-line"></i> Añadir</button>
+            </div>
+
+            <!-- Tabla de ítems añadidos -->
+            <div style="overflow-x: auto; margin-top: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--color-bg);">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-align: left; background: var(--color-surface-hover);">
+                    <th style="padding: 0.5rem 0.75rem;">SKU</th>
+                    <th style="padding: 0.5rem 0.75rem;">Nombre Producto</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 80px;">Cant</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 100px;">Precio Unit</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Total</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 50px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="client-new-order-items-tbody">
+                  <!-- Carga dinámica en JS -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Resumen de totales -->
+            <div style="display: flex; justify-content: flex-end; gap: 2rem; font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); padding-top: 0.5rem; padding-right: 0.5rem;">
+              <span>Total Unidades: <span id="client-new-order-total-qty" style="color: var(--color-primary);">0</span></span>
+              <span>Total Pedido: <span id="client-new-order-total-val" style="color: var(--color-primary);">$0</span></span>
+            </div>
+
           </div>
+
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border);">
           <button type="button" class="btn btn-outline" data-close="modal-order">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white;">Confirmar Pedido</button>
+          <button type="submit" class="btn btn-primary" style="background-color: var(--color-accent); color: white; font-weight: 600;">Confirmar Pedido</button>
         </div>
       </form>
     </div>
@@ -402,6 +514,8 @@
 
   <!-- SheetJS CDN para Exportación Excel -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- PDF Generator (html2pdf) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->

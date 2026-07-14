@@ -5108,21 +5108,28 @@ async function renderIntegrations() {
       selectProd.innerHTML = '<option value="">Cargando productos...</option>';
       modalOrder.classList.add('active');
 
+      // Reset form and temporary items
+      window.tempClientNewOrderItems = [];
+      const form = document.getElementById('form-new-order');
+      if (form) form.reset();
+      window.renderClientNewOrderItemsTable();
+
       // Cargar productos del usuario
       const { data: userAuth } = await supabase.auth.getUser();
       if(userAuth && userAuth.user) {
         const companyList = getCompanyList();
-        let query = supabase.from('products').select('id, name, sku');
+        let query = supabase.from('products').select('id, name, sku, price').order('name');
         if (companyList.length > 0) {
           query = query.in('comercio', companyList);
         } else {
           query = query.eq('comercio', 'no asignado');
         }
         const { data: products } = await query;
+        window.tempClientProductsList = products || [];
         if(products) {
           selectProd.innerHTML = '<option value="">Selecciona un producto</option>';
           products.forEach(p => {
-            selectProd.innerHTML += `<option value="${p.id}">${p.sku} - ${p.name}</option>`;
+            selectProd.innerHTML += `<option value="${p.id}">${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})</option>`;
           });
         }
       }
@@ -5391,85 +5398,118 @@ async function renderIntegrations() {
       alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
       return;
     }
+
+    const items = window.tempClientNewOrderItems || [];
+    if (items.length === 0) {
+      alert('Debes agregar al menos un producto al pedido.');
+      return;
+    }
+
     const btnSubmit = e.target.querySelector('button[type="submit"]');
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Procesando...';
 
-    const prodId = document.getElementById('order-product').value;
-    const qty = parseInt(document.getElementById('order-qty').value, 10);
-
-    if(!prodId) {
-      alert("Selecciona un producto");
-      btnSubmit.disabled = false;
-      btnSubmit.textContent = 'Confirmar Pedido';
-      return;
-    }
-
     try {
       const { data: userAuth } = await supabase.auth.getUser();
+      if (!userAuth || !userAuth.user) throw new Error('No se pudo autenticar al usuario.');
       const merchantId = userAuth.user.id;
 
-      // Buscar bodega con mayor disponibilidad (Stock Físico - Comprometido)
-      const { data: invData, error: errInv } = await supabase
-        .from('inventory')
-        .select('warehouse_id, quantity, committed_quantity')
-        .eq('product_id', prodId);
-        
-      if(errInv) throw errInv;
+      // Extract client details
+      const customerName = document.getElementById('order-cust-name').value.trim();
+      const customerEmail = document.getElementById('order-cust-email').value.trim();
+      const customerPhone = document.getElementById('order-cust-phone').value.trim();
+      const shippingAddress = document.getElementById('order-cust-address').value.trim();
+      const shippingCity = document.getElementById('order-cust-city').value.trim();
+      const shippingComplement = document.getElementById('order-cust-complement').value.trim();
+      const shippingMethod = document.getElementById('order-cust-shipping-method').value.trim();
+      const origen = document.getElementById('order-cust-origen').value;
+      const externalId = document.getElementById('order-cust-external-id').value.trim();
 
-      let bestWarehouse = null;
-      let maxAvailable = -1;
-
-      if(invData && invData.length > 0) {
-        invData.forEach(inv => {
-          const available = inv.quantity - inv.committed_quantity;
-          if (available > maxAvailable) {
-            maxAvailable = available;
-            bestWarehouse = inv.warehouse_id;
-          }
-        });
-      }
-
-      if(!bestWarehouse || maxAvailable < qty) {
-         // Si no hay suficiente, de todos modos creamos el pedido pero alertamos (o tomamos la que tenga algo)
-         // Para este MVP, si no hay stock disponible total en una bodega, asignamos a la que tenga más, 
-         // aunque el stock se vuelva negativo o quede "en espera" (sin stock).
-         // Si bestWarehouse es null (porque recién se creó el producto con 0 stock y no hay inventory row), 
-         // buscamos la bodega central por defecto.
-         if(!bestWarehouse) {
-            const { data: bodegaCentral } = await supabase.from('warehouses').select('id').ilike('name', '%Central%').limit(1).single();
-            bestWarehouse = bodegaCentral.id;
-         }
-      }
+      // Consolidated values
+      const totalCantidad = items.reduce((sum, i) => sum + i.quantity, 0);
+      const orderSkus = items.map(i => i.sku).join(', ');
+      const orderItemsNames = items.map(i => i.name).join(', ');
+      const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.price), 0);
 
       // 1. Crear el Pedido Padre
-      const { data: newOrder, error: errOrder } = await supabase
+      const { data: insertedOrder, error: insertErr } = await supabase
         .from('orders')
         .insert([{
           merchant_id: merchantId,
           comercio: currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA',
-          status: 'para procesar'
+          status: 'para procesar',
+          estado_wms: 'En procesamiento',
+          customer_name: customerName,
+          customer_email: customerEmail || null,
+          customer_phone: customerPhone || null,
+          shipping_address: shippingAddress,
+          shipping_city: shippingCity,
+          shipping_complement: shippingComplement || null,
+          shipping_method: shippingMethod || 'Por definir',
+          origen: origen || 'Manual',
+          external_platform: origen || 'Manual',
+          external_order_number: externalId || `MAN-${Date.now()}`,
+          cantidad: totalCantidad,
+          sku: orderSkus,
+          item: orderItemsNames,
+          total_value: totalValue
         }])
         .select()
         .single();
-      
-      if(errOrder) throw errOrder;
 
-      // 2. Crear Order Item (esto dispara el trigger de stock comprometido)
-      const { error: errItem } = await supabase
-        .from('order_items')
-        .insert([{
-          order_id: newOrder.id,
-          product_id: prodId,
+      if(insertErr) throw insertErr;
+
+      // 2. Determinar la mejor bodega para cada ítem y preparar inserciones
+      const itemsPayload = [];
+      for (const item of items) {
+        // Buscar bodega con mayor disponibilidad (Stock Físico - Comprometido)
+        const { data: invData } = await supabase
+          .from('inventory')
+          .select('warehouse_id, quantity, committed_quantity')
+          .eq('product_id', item.product_id);
+          
+        let bestWarehouse = null;
+        let maxAvailable = -1;
+
+        if(invData && invData.length > 0) {
+          invData.forEach(inv => {
+            const available = inv.quantity - inv.committed_quantity;
+            if (available > maxAvailable) {
+              maxAvailable = available;
+              bestWarehouse = inv.warehouse_id;
+            }
+          });
+        }
+
+        if(!bestWarehouse) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+          if (bodegaCentral) bestWarehouse = bodegaCentral.id;
+        }
+
+        itemsPayload.push({
+          order_id: insertedOrder.id,
+          product_id: item.product_id,
           warehouse_id: bestWarehouse,
-          quantity: qty
-        }]);
+          quantity: item.quantity
+        });
+      }
 
-      if(errItem) throw errItem;
+      // 3. Crear Order Items
+      const { error: errItems } = await supabase
+        .from('order_items')
+        .insert(itemsPayload);
+
+      if(errItems) throw errItems;
 
       alert('Pedido registrado con éxito');
       document.getElementById('modal-order').classList.remove('active');
       e.target.reset();
+      window.tempClientNewOrderItems = [];
       renderOrders(); // Refrescar vista
     } catch (error) {
       console.error(error);
@@ -8722,7 +8762,7 @@ window.renderDeclarations = async function() {
           if (generalErrorContainer && generalErrorList) {
             generalErrorList.innerHTML = `<ul style="margin: 0; padding-left: 0.5rem; text-align: left;">${formErrors.map(e => `<li style="margin-bottom: 2px;">${e}</li>`).join('')}</ul>`;
             generalErrorContainer.style.display = 'block';
-            document.querySelector('.slideover-body').scrollTop = 0;
+            const _sb1 = document.querySelector('.slideover-body'); if (_sb1) _sb1.scrollTop = 0;
           } else {
             alert(formErrors.join('\n'));
           }
@@ -8772,7 +8812,7 @@ window.renderDeclarations = async function() {
           if (generalErrorContainer && generalErrorList) {
             generalErrorList.innerHTML = `No se pudo interpretar el archivo Excel: ${err.message}`;
             generalErrorContainer.style.display = 'block';
-            document.querySelector('.slideover-body').scrollTop = 0;
+            const _sb2 = document.querySelector('.slideover-body'); if (_sb2) _sb2.scrollTop = 0;
           } else {
             alert('Error al leer la planilla Excel: ' + err.message);
           }
@@ -8796,7 +8836,7 @@ window.renderDeclarations = async function() {
           if (generalErrorContainer && generalErrorList) {
             generalErrorList.innerHTML = `<ul style="margin: 0; padding-left: 0.5rem; text-align: left;">${errors.map(e => `<li style="margin-bottom: 2px;">${e}</li>`).join('')}</ul>`;
             generalErrorContainer.style.display = 'block';
-            document.querySelector('.slideover-body').scrollTop = 0;
+            const _sb3 = document.querySelector('.slideover-body'); if (_sb3) _sb3.scrollTop = 0;
           } else {
             alert("Errores críticos en la planilla Excel:\n" + errors.join('\n'));
           }
@@ -9587,6 +9627,9 @@ window.viewDeclarationDetail = async function(id) {
         <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: flex-end; gap: 1rem;">
           <button class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.6rem 1.5rem; font-weight: 600; border-radius: 8px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
             Cerrar Detalle
+          </button>
+          <button class="btn btn-primary" onclick="exportDeclarationToPDF('${dec.id}')" style="padding: 0.6rem 1.5rem; font-weight: 600; border-radius: 8px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 0.4rem; background-color: var(--color-primary);">
+            <i class="ri-file-pdf-line" style="font-size: 1.15rem;"></i> Exportar PDF
           </button>
         </div>
       </div>
@@ -14173,6 +14216,334 @@ window.openClientBillingObservationModal = async function(recordId) {
   } catch (err) {
     console.error(err);
     alert('Error al cargar la observación: ' + err.message);
+  }
+};
+
+window.addClientNewOrderItem = function() {
+  const selectProd = document.getElementById('order-product');
+  const qtyInput = document.getElementById('order-qty');
+  if (!selectProd || !qtyInput) return;
+
+  const prodId = selectProd.value;
+  const qty = parseInt(qtyInput.value, 10);
+
+  if (!prodId) {
+    alert('Por favor selecciona un producto.');
+    return;
+  }
+  if (isNaN(qty) || qty < 1) {
+    alert('Cantidad inválida.');
+    return;
+  }
+
+  const product = (window.tempClientProductsList || []).find(p => p.id === prodId);
+  if (!product) {
+    alert('Producto no encontrado.');
+    return;
+  }
+
+  window.tempClientNewOrderItems = window.tempClientNewOrderItems || [];
+  const existingIdx = window.tempClientNewOrderItems.findIndex(i => i.product_id === prodId);
+  if (existingIdx !== -1) {
+    window.tempClientNewOrderItems[existingIdx].quantity += qty;
+  } else {
+    window.tempClientNewOrderItems.push({
+      product_id: prodId,
+      sku: product.sku,
+      name: product.name,
+      price: product.price || 0,
+      quantity: qty
+    });
+  }
+
+  selectProd.value = '';
+  qtyInput.value = '1';
+
+  window.renderClientNewOrderItemsTable();
+};
+
+window.removeClientNewOrderItem = function(index) {
+  if (window.tempClientNewOrderItems && window.tempClientNewOrderItems[index]) {
+    window.tempClientNewOrderItems.splice(index, 1);
+    window.renderClientNewOrderItemsTable();
+  }
+};
+
+window.renderClientNewOrderItemsTable = function() {
+  const tbody = document.getElementById('client-new-order-items-tbody');
+  const totalQtyEl = document.getElementById('client-new-order-total-qty');
+  const totalValEl = document.getElementById('client-new-order-total-val');
+  if (!tbody || !totalQtyEl || !totalValEl) return;
+
+  const items = window.tempClientNewOrderItems || [];
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+          No hay ítems agregados a este pedido. Selecciona un producto arriba y haz clic en "Añadir".
+        </td>
+      </tr>
+    `;
+    totalQtyEl.textContent = '0';
+    totalValEl.textContent = window.formatCLP(0);
+    return;
+  }
+
+  let html = '';
+  let totalQty = 0;
+  let totalVal = 0;
+
+  items.forEach((item, idx) => {
+    const subtotal = item.quantity * item.price;
+    totalQty += item.quantity;
+    totalVal += subtotal;
+
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center;">
+          <button type="button" onclick="window.removeClientNewOrderItem(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i></button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+  totalQtyEl.textContent = totalQty;
+  totalValEl.textContent = window.formatCLP(totalVal);
+};
+
+window.exportDeclarationToPDF = async function(id) {
+  try {
+    // Buscar la declaración en base de datos
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*, warehouses(name, address, comuna, operating_days)')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!dec) throw new Error('No se encontró la declaración.');
+
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact') {
+      const [y, m, d] = dec.estimated_arrival_date.split('-');
+      etaText = `${d}/${m}/${y}`;
+    } else {
+      etaText = dec.estimated_arrival_period;
+    }
+
+    let products = [];
+    if (dec.file_base64) {
+      try {
+        const binaryString = window.atob(dec.file_base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const workbook = XLSX.read(bytes, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        if (rows && rows.length > 1) {
+          const headerRow = rows[0];
+          const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+          const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+          const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+          const priceIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'valor');
+          
+          if (skuIdx !== -1 && nameIdx !== -1 && qtyIdx !== -1) {
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+              const isEmptyRow = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+              if (isEmptyRow) continue;
+              
+              const sku = row[skuIdx] ? row[skuIdx].toString().trim() : '';
+              const name = row[nameIdx] ? row[nameIdx].toString().trim() : '';
+              const qtyVal = row[qtyIdx];
+              const priceVal = priceIdx !== -1 ? row[priceIdx] : '';
+              
+              const qty = parseInt(qtyVal, 10);
+              let price = 0;
+              if (priceVal !== '' && priceVal !== null && priceVal !== undefined) {
+                price = parseFloat(priceVal);
+                if (isNaN(price)) price = 0;
+              }
+              
+              if (sku || name) {
+                products.push({
+                  sku,
+                  name,
+                  qty: isNaN(qty) ? 0 : qty,
+                  price,
+                  subtotal: (isNaN(qty) ? 0 : qty) * price
+                });
+              }
+            }
+          }
+        }
+      } catch (excelErr) {
+        console.error('Error parsing excel for PDF:', excelErr);
+      }
+    }
+
+    let productsHtml = '';
+    if (products.length > 0) {
+      products.forEach((p, idx) => {
+        productsHtml += `
+          <tr style="border-bottom: 1px solid #cbd5e1;">
+            <td style="padding: 6px 8px; color: #475569;">${idx + 1}</td>
+            <td style="padding: 6px 8px; color: #334155; font-weight: 600;">${p.sku}</td>
+            <td style="padding: 6px 8px; color: #1e293b;">${p.name}</td>
+            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600;">${p.qty}</td>
+            <td style="padding: 6px 8px; color: #475569; text-align: right;">$${(p.price || 0).toLocaleString('es-CL')}</td>
+            <td style="padding: 6px 8px; color: #1e293b; text-align: right; font-weight: 600;">$${(p.subtotal || 0).toLocaleString('es-CL')}</td>
+          </tr>
+        `;
+      });
+    } else {
+      productsHtml = `
+        <tr>
+          <td colspan="6" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
+            No se encontraron productos o el formato de planilla no pudo ser interpretado.
+          </td>
+        </tr>
+      `;
+    }
+
+    // Crear contenedor temporal para el spinner de carga y el contenido a exportar
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.zIndex = '999999';
+    container.style.background = 'rgba(255, 255, 255, 0.98)';
+    container.style.overflowY = 'auto';
+
+    container.innerHTML = `
+      <div id="pdf-loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.98); z-index: 1000000; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; color: #1e3a8a;">
+        <div style="border: 4px solid #f3f3f3; border-top: 4px solid #2563eb; border-radius: 50%; width: 50px; height: 50px; animation: pdfSpin 1s linear infinite; margin-bottom: 20px;"></div>
+        <style>
+          @keyframes pdfSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+        <h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: bold;">Generando Comprobante PDF</h2>
+        <p style="margin: 0; font-size: 14px; color: #475569;">Por favor, espera un momento...</p>
+      </div>
+
+      <div id="pdf-content-area" style="padding: 40px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #ffffff; max-width: 800px; margin: 0 auto; box-sizing: border-box;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 25px;">
+          <div>
+            <h1 style="margin: 0; font-size: 26px; color: #1e3a8a; font-weight: 800; letter-spacing: 0.5px;">WMS STOCKA</h1>
+            <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 1px;">Comprobante de Ingreso de Stock</span>
+          </div>
+          <div style="text-align: right;">
+            <h2 style="margin: 0; font-size: 14px; color: #2563eb; font-weight: 700;">DECLARACIÓN LOGÍSTICA</h2>
+            <span style="font-size: 11px; color: #475569; font-weight: 600;">ID: ${dec.id.substring(0, 8).toUpperCase()}</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 12px; line-height: 1.5;">
+          <div>
+            <h3 style="margin: 0 0 8px 0; font-size: 12px; color: #1e3a8a; font-weight: 700; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; text-transform: uppercase;">Información General</h3>
+            <p style="margin: 4px 0;"><strong>Título/Descripción:</strong> ${dec.title}</p>
+            <p style="margin: 4px 0;"><strong>Comercio:</strong> ${dec.comercio}</p>
+            <p style="margin: 4px 0;"><strong>Estado Actual:</strong> <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #1e293b;">${dec.status}</span></p>
+            <p style="margin: 4px 0;"><strong>Fecha Registro:</strong> ${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</p>
+            <p style="margin: 4px 0;"><strong>Llegada Estimada:</strong> ${etaText}</p>
+          </div>
+          <div>
+            <h3 style="margin: 0 0 8px 0; font-size: 12px; color: #1e3a8a; font-weight: 700; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; text-transform: uppercase;">Detalles Logísticos</h3>
+            <p style="margin: 4px 0;"><strong>Bodega Destino:</strong> ${dec.warehouses ? dec.warehouses.name : 'No asignada'}</p>
+            <p style="margin: 4px 0;"><strong>Volumen Declarado:</strong> ${dec.volume_declared || 0} m³</p>
+            <p style="margin: 4px 0;"><strong>Volumen Confirmado:</strong> ${dec.status !== 'Creada' && dec.status !== 'Bodega Asignada' ? (dec.volume_confirmed || 0) + ' m³' : '—'}</p>
+            <p style="margin: 4px 0;"><strong>Bultos Totales:</strong> ${dec.package_count} (${dec.package_type})</p>
+            <p style="margin: 4px 0; font-size: 11px; color: #64748b; margin-left: 10px;">• C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}</p>
+            <p style="margin: 4px 0;"><strong>Método de Envío:</strong> ${dec.delivery_method}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado' : 'No solicitado'}</p>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; line-height: 1.4;">
+          <div>
+            <h3 style="margin: 0 0 2px 0; font-size: 13px; color: #166534; font-weight: 700;">Resumen Económico Estimado</h3>
+            <span style="color: #475569; font-size: 10px;">* El costo definitivo se liquidará con el volumen físico confirmado en bodega.</span>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 15px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 6px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">Total: ${(dec.estimated_cost || 0).toFixed(2)} UF</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; font-size: 11px; color: #475569; line-height: 1.5;">
+          <div>
+            <strong style="color: #1e293b;">Contacto Comercial & Transportista:</strong><br>
+            Contacto: ${dec.contact_info || 'Sin registrar'}<br>
+            Transportista: ${dec.carrier_info || 'Sin registrar'}
+          </div>
+          <div>
+            <strong style="color: #1e293b;">Notas / Observaciones del Cliente:</strong><br>
+            <span style="font-style: italic;">"${dec.notes || 'Sin comentarios'}"</span>
+          </div>
+        </div>
+
+        <h3 style="font-size: 13px; color: #1e3a8a; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; font-weight: 700; text-transform: uppercase;">Detalle de Productos Declarados en Planilla</h3>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 20px; text-align: left;">
+          <thead>
+            <tr style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 5%;">#</th>
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 25%;">SKU</th>
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 40%;">Nombre Producto</th>
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Cant.</th>
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Valor Unit.</th>
+              <th style="padding: 6px 8px; font-weight: bold; color: #334155; width: 10%; text-align: right;">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productsHtml}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 9px; color: #94a3b8;">
+          Comprobante oficial generado digitalmente por WMS STOCKA.
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    // Obtener el div específico que queremos exportar
+    const contentArea = container.querySelector('#pdf-content-area');
+
+    const opt = {
+      margin:       10,
+      filename:     `comprobante_ingreso_${dec.id.substring(0, 8).toUpperCase()}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    // Usar html2pdf para guardar y usar promesas para garantizar la eliminación posterior
+    html2pdf().from(contentArea).set(opt).save().then(() => {
+      container.remove();
+    }).catch(err => {
+      console.error(err);
+      container.remove();
+    });
+  } catch (err) {
+    console.error('Error generating PDF:', err);
+    alert('Error al generar el PDF: ' + err.message);
   }
 };
 

@@ -12,6 +12,8 @@
   <script src="./js/theme.js"></script>
   <!-- Excel / CSV Parser (SheetJS) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- PDF Generator (html2pdf) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body class="dashboard-body">
 
@@ -500,8 +502,11 @@
             <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
           </div>
         </div>
-        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; gap: 0.75rem; justify-content: flex-end;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">Cancelar</button>
+          <button type="button" class="btn btn-outline" onclick="exportDeclarationToPDF(document.getElementById('manage-dec-id').value)" style="display: flex; align-items: center; gap: 0.35rem; border-color: var(--color-primary); color: var(--color-primary);">
+            <i class="ri-file-pdf-line"></i> Exportar PDF
+          </button>
           <button type="submit" class="btn btn-primary">Guardar Cambios</button>
         </div>
       </form>
