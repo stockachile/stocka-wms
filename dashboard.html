@@ -28,6 +28,7 @@
           <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line"></i> <span class="nav-text">Dashboard</span></a></li>
           <li><a href="#" class="nav-item" data-view="inventory"><i class="ri-box-3-line"></i> <span class="nav-text">Inventario</span></a></li>
           <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
+          <li><a href="#" class="nav-item" data-view="volumen_diario"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
           <li><a href="#" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
           <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
           <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line"></i> <span class="nav-text">Despachos</span></a></li>
@@ -229,7 +230,20 @@
             <label class="form-label">Código de Barras</label>
             <input type="text" id="edit-prod-barcode" class="form-input" placeholder="Ej. 779123456789">
           </div>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem;">Método para definir Volumen</label>
+            <div style="display: flex; gap: 1.5rem; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); font-weight: normal;">
+                <input type="radio" name="edit-prod-vol-method" id="edit-prod-vol-method-dims" value="dims" checked style="width: auto; margin: 0;">
+                Calcular por dimensiones (cm)
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); font-weight: normal;">
+                <input type="radio" name="edit-prod-vol-method" id="edit-prod-vol-method-direct" value="direct" style="width: auto; margin: 0;">
+                Ingresar volumen directo (m³)
+              </label>
+            </div>
+          </div>
+          <div id="edit-prod-dims-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem;">
             <div class="form-group">
               <label class="form-label">Largo (cm)</label>
               <input type="number" id="edit-prod-length" class="form-input" step="0.1" placeholder="cm">
@@ -242,6 +256,13 @@
               <label class="form-label">Alto (cm)</label>
               <input type="number" id="edit-prod-height" class="form-input" step="0.1" placeholder="cm">
             </div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label">Volumen Unitario (m³)</label>
+            <input type="number" id="edit-prod-volume" class="form-input" step="0.000001" placeholder="Volumen en m³" readonly style="background-color: var(--color-gray-dark); color: var(--color-text-muted);">
+            <small class="form-hint" id="edit-prod-volume-hint" style="display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+              Las dimensiones indicadas en centímetros se usarán para calcular automáticamente el volumen unitario en m³.
+            </small>
           </div>
           <div class="form-group">
             <label class="form-label">Peso (kg)</label>

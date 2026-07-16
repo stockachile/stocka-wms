@@ -52,9 +52,25 @@ Hemos completado el desarrollo e integración de los módulos de edición de dec
 2. **Probar el Flujo de Edición (Cliente):**
    - Inicia sesión como cliente. En la tabla resumen, haz click en el botón **"Editar"** en una declaración en estado *"Creada"*.
    - Comprueba que el formulario de la izquierda se despliega con la información del registro y que el botón *"Cancelar"* restablece el formulario.
-   - Modifica algún dato (por ejemplo, cambia la cantidad de unidades o desmarca un tipo de bulto) y presiona *"Guardar Cambios"*. Revisa que la tabla se actualice y que al abrir el modal *"Detalle"* figure la nota en el historial.
+    - Modifica algún dato (por ejemplo, cambia la cantidad de unidades o desmarca un tipo de bulto) y presiona *"Guardar Cambios"*. Revisa que la tabla se actualice y que al abrir el modal *"Detalle"* figure la nota en el historial.
 
 3. **Probar el Flujo Guiado (Administrador):**
-   - Entra al panel de administración, abre el modal **"Gestionar"** en una declaración en estado *"Creada"*.
-   - Comprueba que solo aparece el botón *"Marcar como: En Recepción - Pendiente Conteo"* y que los inputs de cantidad física están ocultos.
-   - Avanza las etapas escribiendo un comentario de avance. En la etapa de *"En proceso de conteo/clasificación"*, comprueba que aparecen las dos opciones de cierre y que al seleccionar una se despliegan dinámicamente los campos correspondientes.
+    - Entra al panel de administración, abre el modal **"Gestionar"** en una declaración en estado *"Creada"*.
+    - Comprueba que solo aparece el botón *"Marcar como: En Recepción - Pendiente Conteo"* y que los inputs de cantidad física están ocultos.
+
+---
+
+## 6. Validación en Tiempo Real del Pedido Inicial para Seguimiento de Stock
+
+Hemos implementado un validador interactivo y proactivo para la configuración de inicio de descuento de stock de los comercios (disponible al hacer clic en **Configurar Comercio** en el listado de comercios del Administrador):
+
+### Características de la Validación:
+1. **Verificación en Base de Datos**:
+   - Al escribir un ID de pedido o número de orden externa (ej: `1024` o un ID en formato UUID), el sistema consulta inmediatamente en la tabla `orders` si el pedido existe para el comercio seleccionado.
+   - Soporta búsqueda de coincidencias exactas e incluye remoción inteligente del símbolo `#` (por ejemplo, si el usuario escribe `1024` pero en la DB se guardó como `#1024`).
+2. **Alertas y Mensajes Dinámicos**:
+   - **Spinner de Carga**: Se muestra un icono animado de carga (`ri-loader-4-line spin`) mientras se procesa la consulta con un breve debounce para evitar saturar la base de datos con consultas repetidas.
+   - **Estado Válido (Verde)**: Si el pedido existe y coincide con la plataforma seleccionada (por ejemplo, Shopify), se dibuja un borde verde y el texto: `"¡Válido! Pedido encontrado (DD/MM/AAAA, Estado: [Estado])"`.
+   - **Plataforma Incorrecta (Naranja)**: Si el pedido existe en la base de datos para ese comercio pero pertenece a una plataforma externa distinta a la del campo (por ejemplo, se ingresa en el campo de *Shopify* pero corresponde a *Manual*), muestra un mensaje de advertencia naranja: `"Encontrado en [Plataforma] (DD/MM/AAAA, Estado: [Estado])"`.
+   - **No Encontrado (Rojo)**: Si el pedido no se encuentra para ese comercio, muestra un mensaje de advertencia rojo indicando que no se localizó la orden.
+   - **Campo Vacío (Gris)**: Indica el comportamiento por defecto: `"Descontará stock desde el inicio (todas las órdenes)"`.

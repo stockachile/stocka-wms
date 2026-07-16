@@ -98,13 +98,13 @@ async function syncLightData() {
   console.log('🔄 Iniciando sincronización de LightData a Supabase vía Excel...');
 
   // 1. Obtener la tabla de comercios_config para el mapeo de siglas en memoria
-  console.log('📡 Recuperando configuraciones de comercios_config desde Supabase...');
+  console.log('📡 Recuperando configuraciones de v_comercios_config desde Supabase...');
   const { data: configRows, error: configError } = await supabase
-    .from('comercios_config')
+    .from('v_comercios_config')
     .select('sigla, nombre');
 
   if (configError) {
-    console.error('⚠️ Advertencia: No se pudo obtener comercios_config:', configError.message);
+    console.error('⚠️ Advertencia: No se pudo obtener v_comercios_config:', configError.message);
   }
 
   const configMap = {};

@@ -31,12 +31,14 @@
           <li class="sidebar-category-header">Operaciones</li>
           <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line"></i> <span class="nav-text">Dashboard Admin</span></a></li>
           <li><a href="#" class="nav-item" data-view="orders_admin"><i class="ri-box-3-line"></i> <span class="nav-text">Gestor de Pedidos</span></a></li>
+          <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span></a></li>
           <li><a href="#" class="nav-item" data-view="consolidated_shipments"><i class="ri-clipboard-line"></i> <span class="nav-text">Envíos Consolidados</span></a></li>
           <li><a href="#" class="nav-item" data-view="reassign_admin"><i class="ri-loop-right-line"></i> <span class="nav-text">Reubicar Stock</span></a></li>
           <li><a href="#" class="nav-item" data-view="manual_in_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingreso Manual</span></a></li>
           <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span> <span id="badge-declarations" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="upload_products_admin"><i class="ri-upload-cloud-2-line"></i> <span class="nav-text">Carga de Planillas</span></a></li>
           <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
+          <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
           
           <li class="sidebar-category-header">Gestión y Sistema</li>
           <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span> <span id="badge-users" class="menu-badge" style="display: none;">0</span></a></li>
@@ -223,7 +225,20 @@
             <label class="form-label">Código de Barras</label>
             <input type="text" id="edit-prod-barcode" class="form-input" placeholder="Ej. 779123456789">
           </div>
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem;">
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem;">Método para definir Volumen</label>
+            <div style="display: flex; gap: 1.5rem; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); font-weight: normal;">
+                <input type="radio" name="edit-prod-vol-method" id="edit-prod-vol-method-dims" value="dims" checked style="width: auto; margin: 0;">
+                Calcular por dimensiones (cm)
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); font-weight: normal;">
+                <input type="radio" name="edit-prod-vol-method" id="edit-prod-vol-method-direct" value="direct" style="width: auto; margin: 0;">
+                Ingresar volumen directo (m³)
+              </label>
+            </div>
+          </div>
+          <div id="edit-prod-dims-container" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem;">
             <div class="form-group">
               <label class="form-label">Largo (cm)</label>
               <input type="number" id="edit-prod-length" class="form-input" step="0.1" placeholder="cm">
@@ -237,6 +252,13 @@
               <input type="number" id="edit-prod-height" class="form-input" step="0.1" placeholder="cm">
             </div>
           </div>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label">Volumen Unitario (m³)</label>
+            <input type="number" id="edit-prod-volume" class="form-input" step="0.000001" placeholder="Volumen en m³" readonly style="background-color: var(--color-gray-dark); color: var(--color-text-muted);">
+            <small class="form-hint" id="edit-prod-volume-hint" style="display: block; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+              Las dimensiones indicadas en centímetros se usarán para calcular automáticamente el volumen unitario en m³.
+            </small>
+          </div>
           <div class="form-group">
             <label class="form-label">Peso (kg)</label>
             <input type="number" id="edit-prod-weight" class="form-input" step="0.01" placeholder="kg">
@@ -248,6 +270,13 @@
           <div class="form-group">
             <label class="form-label">Lote</label>
             <input type="text" id="edit-prod-lot" class="form-input" placeholder="Número de lote">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Stock Inicial para Seguimiento</label>
+            <input type="number" id="edit-prod-stock" class="form-input" value="0" min="0" required placeholder="Ej: 100">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+              Establece o edita el stock inicial con el que se iniciará el seguimiento de este producto.
+            </p>
           </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="edit-prod-is-pack" style="width: auto; cursor: pointer;">
@@ -465,6 +494,12 @@
             <label class="form-label">Volumen Confirmado Recepcionado (m³) *</label>
             <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0.01" step="0.01">
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Indica el volumen verificado físicamente en la bodega en m³.</p>
+          </div>
+
+          <div class="form-group" id="manage-dec-group-real-cost">
+            <label class="form-label">Costo Real Confirmado (UF) *</label>
+            <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.01" required>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Confirma el costo real definitivo de este ingreso. (Sugerido: costo estimado).</p>
           </div>
 
           <div class="form-group" id="manage-dec-group-incidents">

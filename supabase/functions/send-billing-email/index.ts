@@ -678,6 +678,26 @@ serve(async (req) => {
 
     const brevoData = await brevoRes.json();
 
+    // Registrar log de notificación en la base de datos
+    try {
+      const { error: logErr } = await supabaseClient
+        .from('billing_notification_logs')
+        .insert([{
+          record_id: record?.id || null,
+          comercio: commerceName,
+          periodo_nombre: periodName || 'General',
+          email_type: emailType,
+          sent_to: recipientEmails
+        }]);
+      if (logErr) {
+        console.error("Error al insertar log de notificación:", logErr.message);
+      } else {
+        console.log("Log de notificación guardado para:", commerceName);
+      }
+    } catch (logErr: any) {
+      console.warn("Fallo al registrar log de notificación:", logErr.message);
+    }
+
     return new Response(JSON.stringify({ 
       success: true, 
       message: 'Correo enviado exitosamente', 

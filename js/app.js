@@ -2,6 +2,10 @@ import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
 
+window.roundUpVolume = function(val) {
+  if (val === null || val === undefined || isNaN(val) || val === '') return null;
+  return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
+};
 
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
@@ -69,6 +73,7 @@ console.log('DEBUG: Iniciando js/app.js...');
 let userRole = 'observer';
 let currentMerchantId = null;
 let currentCompany = null;
+let currentDeclarationTab = 'active';
 
 // Global state for calendar component
 window.appCalendarState = {
@@ -359,6 +364,9 @@ async function init() {
           } else if (view === 'billing') {
             viewTitle.textContent = 'Facturación';
             renderBillingClient();
+          } else if (view === 'volumen_diario') {
+            viewTitle.textContent = 'Historial de Volumen Diario';
+            renderVolumenDiario();
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
@@ -1020,14 +1028,55 @@ async function renderCatalog() {
     const isObserver = userRole === 'observer';
     const createBtn = isObserver ? '' : '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
     const importBtn = (mainPlatform && !isObserver)
-      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);</i>Importar de ${mainPlatform}</button>`
+      ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
       : '';
-    const importStockBtn = isObserver ? '' : `
-      <div style="position: relative; display: inline-block;">
-        <button class="btn btn-outline" id="btn-trigger-import-stock" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--color-success); color: var(--color-success); background: transparent;">
-          <i class="ri-file-excel-line" style="color: #107c41;"></i> Importar Stock Inicial
+    const excelActionsDropdown = isObserver ? '' : `
+      <style>
+        .excel-dropdown { position: relative; display: inline-block; margin-right: 0.5rem; }
+        .excel-dropdown-content { display: none; position: absolute; right: 0; top: 100%; background-color: var(--color-surface); min-width: 200px; box-shadow: var(--shadow-lg); z-index: 1000; border-radius: var(--radius-md); border: 1px solid var(--color-border); padding: 0.5rem; margin-top: 0; }
+        .excel-dropdown:hover .excel-dropdown-content { display: flex; flex-direction: column; gap: 0.25rem; }
+        .excel-dropdown-btn { width: 100%; text-align: left; padding: 0.5rem 0.75rem; border: none; background: transparent; cursor: pointer; border-radius: var(--radius-sm); color: var(--color-text-main); font-size: 0.85rem; font-weight: 500; display: flex; align-items: center; gap: 0.5rem; transition: background 0.2s; }
+        .excel-dropdown-btn:hover { background: var(--color-bg); }
+      </style>
+      <div class="excel-dropdown">
+        <button class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; border-color: #107c41; color: #107c41; background: transparent;">
+          <i class="ri-file-excel-2-line"></i> Acciones Excel <i class="ri-arrow-down-s-line"></i>
         </button>
-        <input type="file" id="catalog-import-stock-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+        <div class="excel-dropdown-content">
+          <div style="position: relative;">
+            <button class="excel-dropdown-btn" id="btn-trigger-import-stock" style="color: var(--color-success);">
+              <i class="ri-file-upload-line"></i> Importar Stock Inicial
+            </button>
+            <input type="file" id="catalog-import-stock-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+          <button class="excel-dropdown-btn" id="btn-download-stock-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para stock inicial">
+            <i class="ri-download-2-line"></i> Plantilla Stock
+          </button>
+          
+          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
+          
+          <div style="position: relative;">
+            <button class="excel-dropdown-btn" id="btn-trigger-import-dimensions" style="color: #0284c7;">
+              <i class="ri-file-upload-line"></i> Importar Medidas
+            </button>
+            <input type="file" id="catalog-import-dimensions-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+          <button class="excel-dropdown-btn" id="btn-download-dimensions-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para medidas (largo, ancho, alto)">
+            <i class="ri-download-2-line"></i> Plantilla Medidas
+          </button>
+          
+          <div style="height: 1px; background: var(--color-border); margin: 0.25rem 0;"></div>
+          
+          <div style="position: relative;">
+            <button class="excel-dropdown-btn" id="btn-trigger-import-volumes" style="color: #8b5cf6;">
+              <i class="ri-file-upload-line"></i> Importar Volúmenes
+            </button>
+            <input type="file" id="catalog-import-volumes-excel" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+          <button class="excel-dropdown-btn" id="btn-download-volumes-template" style="color: var(--color-text-muted);" title="Descargar planilla de ejemplo para volúmenes (m³)">
+            <i class="ri-download-2-line"></i> Plantilla Volúmenes
+          </button>
+        </div>
       </div>
     `;
 
@@ -1106,7 +1155,7 @@ async function renderCatalog() {
                   <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
                 </div>
                 ${importBtn}
-                ${importStockBtn}
+                ${excelActionsDropdown}
                 ${createBtn}
               </div>
             </div>
@@ -1115,15 +1164,36 @@ async function renderCatalog() {
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
                     <th style="padding: 1rem 1.5rem;">Imagen</th>
-                    <th style="padding: 1rem 1.5rem;">SKU</th>
-                    <th style="padding: 1rem 1.5rem;">Nombre</th>
-                    <th style="padding: 1rem 1.5rem;">Cód. Barras</th>
-                    <th style="padding: 1rem 1.5rem; text-align: center;">Stock Inicial</th>
-                    <th style="padding: 1rem 1.5rem;">Precio</th>
-                    <th style="padding: 1rem 1.5rem;">Origen</th>
-                    <th style="padding: 1rem 1.5rem;">Medidas</th>
-                    <th style="padding: 1rem 1.5rem;">Peso</th>
-                    <th style="padding: 1rem 1.5rem;">Venc. / Lote</th>
+                    <th class="sortable-header" data-sort="sku" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por SKU">
+                      SKU <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="name" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Nombre">
+                      Nombre <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="barcode" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Código de Barras">
+                      Cód. Barras <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="stock" style="padding: 1rem 1.5rem; text-align: center; cursor: pointer; user-select: none;" title="Ordenar por Stock Inicial">
+                      Stock Inicial <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="price" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Precio">
+                      Precio <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="origin" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Origen">
+                      Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="medidas" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Medidas">
+                      Medidas <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="volumen" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Volumen">
+                      Volumen (m³) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="weight" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Peso">
+                      Peso <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="venc" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Vencimiento / Lote">
+                      Venc. / Lote <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
                     <th style="padding: 1rem 1.5rem;">Acciones</th>
                   </tr>
                 </thead>
@@ -1244,6 +1314,72 @@ async function renderCatalog() {
   }
 }
 
+function updateVolumeFieldsState(method) {
+  const isDims = method === 'dims';
+  const lengthInput = document.getElementById('edit-prod-length');
+  const widthInput = document.getElementById('edit-prod-width');
+  const heightInput = document.getElementById('edit-prod-height');
+  const volumeInput = document.getElementById('edit-prod-volume');
+  
+  if (!lengthInput || !widthInput || !heightInput || !volumeInput) return;
+
+  if (isDims) {
+    lengthInput.disabled = false;
+    widthInput.disabled = false;
+    heightInput.disabled = false;
+    lengthInput.style.backgroundColor = '';
+    widthInput.style.backgroundColor = '';
+    heightInput.style.backgroundColor = '';
+    lengthInput.style.color = '';
+    widthInput.style.color = '';
+    heightInput.style.color = '';
+    
+    volumeInput.readOnly = true;
+    volumeInput.style.backgroundColor = 'var(--color-gray-dark)';
+    volumeInput.style.color = 'var(--color-text-muted)';
+    
+    calculateVolumeFromDims();
+  } else {
+    lengthInput.disabled = true;
+    widthInput.disabled = true;
+    heightInput.disabled = true;
+    lengthInput.style.backgroundColor = 'var(--color-gray-dark)';
+    widthInput.style.backgroundColor = 'var(--color-gray-dark)';
+    heightInput.style.backgroundColor = 'var(--color-gray-dark)';
+    lengthInput.style.color = 'var(--color-text-muted)';
+    widthInput.style.color = 'var(--color-text-muted)';
+    heightInput.style.color = 'var(--color-text-muted)';
+    
+    lengthInput.value = '';
+    widthInput.value = '';
+    heightInput.value = '';
+    
+    volumeInput.readOnly = false;
+    volumeInput.style.backgroundColor = '';
+    volumeInput.style.color = '';
+  }
+}
+
+function calculateVolumeFromDims() {
+  const lengthInput = document.getElementById('edit-prod-length');
+  const widthInput = document.getElementById('edit-prod-width');
+  const heightInput = document.getElementById('edit-prod-height');
+  const volumeInput = document.getElementById('edit-prod-volume');
+  
+  if (!lengthInput || !widthInput || !heightInput || !volumeInput) return;
+
+  const length = parseFloat(lengthInput.value) || 0;
+  const width = parseFloat(widthInput.value) || 0;
+  const height = parseFloat(heightInput.value) || 0;
+  
+  if (length > 0 && width > 0 && height > 0) {
+    const volume = (length * width * height) / 1000000;
+    volumeInput.value = window.roundUpVolume(volume).toFixed(5);
+  } else {
+    volumeInput.value = '';
+  }
+}
+
 async function openEditProductModal(prodId) {
   try {
     const { data: product, error } = await supabase
@@ -1275,6 +1411,31 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
     document.getElementById('edit-prod-stock-critico').value = product.stock_critico || 0;
+
+    // Set initial volume mode and value
+    const hasVolume = product.volumen !== null && product.volumen !== undefined;
+    const hasDims = (product.length !== null && product.length !== undefined && product.length !== '') ||
+                    (product.width !== null && product.width !== undefined && product.width !== '') ||
+                    (product.height !== null && product.height !== undefined && product.height !== '');
+
+    const directRadio = document.getElementById('edit-prod-vol-method-direct');
+    const dimsRadio = document.getElementById('edit-prod-vol-method-dims');
+
+    if (hasVolume && !hasDims) {
+      if (directRadio) directRadio.checked = true;
+      updateVolumeFieldsState('direct');
+      const volumeInput = document.getElementById('edit-prod-volume');
+      if (volumeInput) volumeInput.value = product.volumen;
+    } else {
+      if (dimsRadio) dimsRadio.checked = true;
+      updateVolumeFieldsState('dims');
+      if (hasDims) {
+        calculateVolumeFromDims();
+      } else {
+        const volumeInput = document.getElementById('edit-prod-volume');
+        if (volumeInput) volumeInput.value = '';
+      }
+    }
 
     // Obtener stock inicial histórico
     const { data: initialMov } = await supabase
@@ -2577,7 +2738,26 @@ async function renderWarehouses() {
 
 async function renderOrders() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando pedidos...</p>`;
+  appContent.innerHTML = getObserverBanner() + `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
+      <style>
+        @keyframes wms-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes wms-pulse {
+          0%, 100% { opacity: 0.5; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1.1); }
+        }
+      </style>
+      <div style="position: relative; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; width: 80px; height: 80px;">
+        <div style="position: absolute; width: 64px; height: 64px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+        <i class="ri-box-3-line" style="position: absolute; font-size: 1.8rem; color: var(--color-primary); display: inline-block; animation: wms-pulse 1.5s ease-in-out infinite;"></i>
+      </div>
+      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.1rem;">Cargando mis Pedidos</h4>
+      <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem; text-align: center;">Por favor espera unos segundos mientras sincronizamos la información...</p>
+    </div>
+  `;
 
   const ALL_STATUSES = [
     'para procesar', 
@@ -3165,7 +3345,8 @@ window.applyClientWmsFiltersAndRender = function() {
   paginatedOrders.forEach(order => {
     const orderShipments = shipments.filter(s => 
       s.pedido_referencia === order.id || 
-      (order.external_order_number && s.pedido_referencia === order.external_order_number)
+      (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
+      (order.tracking_number && s.pedido_referencia === order.tracking_number)
     );
 
     // Detectar packs originales desde el canal de integración
@@ -3303,10 +3484,57 @@ window.applyClientWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       if (shipment.tracking) {
         const courierName = shipment.courier || 'Seguimiento';
-        trackingHtml = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-          ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:500;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
-          : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main);"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
+        const trackingLink = shipment.tracking_url && shipment.tracking_url !== 'N/A'
+          ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
+          : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
+        
+        const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
+        let badgeBg = '#e5e7eb';
+        let badgeColor = '#4b5563';
+        
+        if (globStatus === 'DESPACHADO') {
+          badgeBg = '#d1fae5';
+          badgeColor = '#065f46';
+        } else if (globStatus === 'ALERTA') {
+          badgeBg = '#fee2e2';
+          badgeColor = '#991b1b';
+        }
+        
+        const shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>`;
+        
+        trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${trackingLink}<div>${shipStatusBadge}</div></div>`;
       }
+    }
+
+    let shipmentStatusHtml = '';
+    if (orderShipments.length > 0) {
+      const shipment = orderShipments[0];
+      const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
+      const rawStatus = shipment.status || '-';
+      let badgeBg = '#e5e7eb';
+      let badgeColor = '#4b5563';
+      
+      if (globStatus === 'DESPACHADO') {
+        badgeBg = '#d1fae5';
+        badgeColor = '#065f46';
+      } else if (globStatus === 'ALERTA') {
+        badgeBg = '#fee2e2';
+        badgeColor = '#991b1b';
+      }
+      
+      shipmentStatusHtml = `
+        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+          <strong>Estado Despacho:</strong> 
+          <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
+            ${globStatus} <span style="font-size: 0.7rem; font-weight: 500; text-transform: none;">(${rawStatus})</span>
+          </span>
+        </p>
+        <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
+          <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
+        </p>
+      `;
+    } else {
+      shipmentStatusHtml = `<p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-style: italic;">Sin información de despacho unificado</p>`;
     }
 
     const firstShipment = orderShipments[0] || null;
@@ -3504,7 +3732,10 @@ window.applyClientWmsFiltersAndRender = function() {
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Fecha Procesamiento:</strong> ${order.fecha_procesamiento || '-'}</p>
+              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+                ${shipmentStatusHtml}
+              </div>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; margin-top: 0.75rem;"><strong>Fecha Procesamiento:</strong> ${order.fecha_procesamiento || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Agenda Picking:</strong> ${order.agenda || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Operador:</strong> ${order.operador || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
@@ -5271,6 +5502,30 @@ async function renderIntegrations() {
     }
   });
 
+  // Listeners for volume method toggle
+  const editVolMethodDims = document.getElementById('edit-prod-vol-method-dims');
+  const editVolMethodDirect = document.getElementById('edit-prod-vol-method-direct');
+  if (editVolMethodDims && editVolMethodDirect) {
+    editVolMethodDims.addEventListener('change', () => updateVolumeFieldsState('dims'));
+    editVolMethodDirect.addEventListener('change', () => updateVolumeFieldsState('direct'));
+  }
+
+  // Listeners for dimensions inputs to calculate volume dynamically
+  const editLength = document.getElementById('edit-prod-length');
+  const editWidth = document.getElementById('edit-prod-width');
+  const editHeight = document.getElementById('edit-prod-height');
+  if (editLength && editWidth && editHeight) {
+    const handleInput = () => {
+      const isDims = document.getElementById('edit-prod-vol-method-dims')?.checked;
+      if (isDims) {
+        calculateVolumeFromDims();
+      }
+    };
+    editLength.addEventListener('input', handleInput);
+    editWidth.addEventListener('input', handleInput);
+    editHeight.addEventListener('input', handleInput);
+  }
+
   // Guardar Cambios Editar Producto
   document.getElementById('form-edit-product').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -5286,9 +5541,25 @@ async function renderIntegrations() {
     const sku = document.getElementById('edit-prod-sku').value;
     const name = document.getElementById('edit-prod-name').value;
     const barcode = document.getElementById('edit-prod-barcode').value || null;
-    const length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
-    const width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
-    const height = document.getElementById('edit-prod-height').value ? parseFloat(document.getElementById('edit-prod-height').value) : null;
+
+    const volMethod = document.querySelector('input[name="edit-prod-vol-method"]:checked')?.value || 'dims';
+    let length = null;
+    let width = null;
+    let height = null;
+    let volumen = null;
+
+    if (volMethod === 'dims') {
+      length = document.getElementById('edit-prod-length').value ? parseFloat(document.getElementById('edit-prod-length').value) : null;
+      width = document.getElementById('edit-prod-width').value ? parseFloat(document.getElementById('edit-prod-width').value) : null;
+      height = document.getElementById('edit-prod-height').value ? parseFloat(document.getElementById('edit-prod-height').value) : null;
+      if (length !== null && width !== null && height !== null) {
+        volumen = window.roundUpVolume((length * width * height) / 1000000);
+      }
+    } else {
+      const volRaw = document.getElementById('edit-prod-volume').value;
+      volumen = volRaw ? window.roundUpVolume(parseFloat(volRaw)) : null;
+    }
+
     const weight = document.getElementById('edit-prod-weight').value ? parseFloat(document.getElementById('edit-prod-weight').value) : null;
     const expiration = document.getElementById('edit-prod-expiration').value || null;
     const lot = document.getElementById('edit-prod-lot').value || null;
@@ -5308,6 +5579,10 @@ async function renderIntegrations() {
           length,
           width,
           height,
+          largo: length,
+          ancho: width,
+          alto: height,
+          volumen,
           weight,
           expiration_date: expiration,
           lot_number: lot,
@@ -5364,23 +5639,33 @@ async function renderIntegrations() {
             .limit(1)
             .maybeSingle();
 
-          if (movRecord) {
-            const { error: movErr } = await supabase
-              .from('movements')
-              .update({ quantity: newInitialStock })
-              .eq('id', movRecord.id);
-            if (movErr) throw movErr;
+          if (newInitialStock > 0) {
+            if (movRecord) {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .update({ quantity: newInitialStock })
+                .eq('id', movRecord.id);
+              if (movErr) throw movErr;
+            } else {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: bodegaCentral.id,
+                  type: 'in',
+                  quantity: newInitialStock,
+                  reference_doc: 'Stock Inicial'
+                }]);
+              if (movErr) throw movErr;
+            }
           } else {
-            const { error: movErr } = await supabase
-              .from('movements')
-              .insert([{
-                product_id: prodId,
-                warehouse_id: bodegaCentral.id,
-                type: 'in',
-                quantity: newInitialStock,
-                reference_doc: 'Stock Inicial'
-              }]);
-            if (movErr) throw movErr;
+            if (movRecord) {
+              const { error: movErr } = await supabase
+                .from('movements')
+                .delete()
+                .eq('id', movRecord.id);
+              if (movErr) throw movErr;
+            }
           }
         }
       }
@@ -8516,7 +8801,7 @@ window.renderDeclarations = async function() {
         
         <!-- Tabla Resumen Full Width -->
         <div id="dec-table-col" class="card" style="width: 100%;">
-          <div class="card-header" style="border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: none; padding-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
             <div>
               <h3>Mis Declaraciones de Ingreso</h3>
               <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-top: 0.25rem;">Historial y estado de tus ingresos declarados.</p>
@@ -8532,6 +8817,16 @@ window.renderDeclarations = async function() {
               ` : ''}
             </div>
           </div>
+          
+          <div class="tabs-container" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); padding: 0 1.5rem; margin-bottom: 0.5rem;">
+            <button class="tab-btn ${currentDeclarationTab === 'active' ? 'active' : ''}" id="tab-active-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${currentDeclarationTab === 'active' ? 'var(--color-primary)' : 'transparent'}; color: ${currentDeclarationTab === 'active' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${currentDeclarationTab === 'active' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+              <i class="ri-loader-4-line"></i> Ingresos Activos
+            </button>
+            <button class="tab-btn ${currentDeclarationTab === 'completed' ? 'active' : ''}" id="tab-completed-declarations" style="padding: 0.75rem 0.5rem; background: none; border: none; border-bottom: 2px solid ${currentDeclarationTab === 'completed' ? 'var(--color-primary)' : 'transparent'}; color: ${currentDeclarationTab === 'completed' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; font-weight: ${currentDeclarationTab === 'completed' ? '600' : '500'}; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
+              <i class="ri-checkbox-circle-line"></i> Historial Completado
+            </button>
+          </div>
+
           <div class="card-body table-responsive">
             <table class="data-table">
               <thead>
@@ -8541,6 +8836,7 @@ window.renderDeclarations = async function() {
                   <th>Cant. Uds</th>
                   <th>Bultos</th>
                   <th>Volumen (m³)</th>
+                  <th>Costos (Est. / Real)</th>
                   <th>Método Envío</th>
                   <th>Estado</th>
                   <th>Recibido / Incidencias</th>
@@ -8558,6 +8854,34 @@ window.renderDeclarations = async function() {
 
     // Initial table load
     fetchAndRenderClientDeclarations();
+
+    // Tab buttons event listeners
+    const activeTabBtn = document.getElementById('tab-active-declarations');
+    const completedTabBtn = document.getElementById('tab-completed-declarations');
+    if (activeTabBtn && completedTabBtn) {
+      activeTabBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        currentDeclarationTab = 'active';
+        activeTabBtn.style.borderBottom = '2px solid var(--color-primary)';
+        activeTabBtn.style.color = 'var(--color-primary)';
+        activeTabBtn.style.fontWeight = '600';
+        completedTabBtn.style.borderBottom = '2px solid transparent';
+        completedTabBtn.style.color = 'var(--color-text-muted)';
+        completedTabBtn.style.fontWeight = '500';
+        fetchAndRenderClientDeclarations();
+      });
+      completedTabBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        currentDeclarationTab = 'completed';
+        completedTabBtn.style.borderBottom = '2px solid var(--color-primary)';
+        completedTabBtn.style.color = 'var(--color-primary)';
+        completedTabBtn.style.fontWeight = '600';
+        activeTabBtn.style.borderBottom = '2px solid transparent';
+        activeTabBtn.style.color = 'var(--color-text-muted)';
+        activeTabBtn.style.fontWeight = '500';
+        fetchAndRenderClientDeclarations();
+      });
+    }
 
     // Refresh button
     const refreshBtn = document.getElementById('btn-refresh-declarations');
@@ -9209,13 +9533,23 @@ async function fetchAndRenderClientDeclarations() {
       
     if (error) throw error;
     
-    if (!declarations || declarations.length === 0) {
-      listTableBody.innerHTML = `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones creadas.</td></tr>`;
+    // Filter declarations based on tab
+    const filteredDeclarations = (declarations || []).filter(dec => {
+      const isCompleted = ['Recibido Conforme', 'Recibido con Incidencias'].includes(dec.status);
+      if (currentDeclarationTab === 'completed') {
+        return isCompleted;
+      } else {
+        return !isCompleted;
+      }
+    });
+
+    if (filteredDeclarations.length === 0) {
+      listTableBody.innerHTML = `<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No tienes declaraciones ${currentDeclarationTab === 'completed' ? 'completadas' : 'activas'}.</td></tr>`;
       return;
     }
     
     let html = '';
-    declarations.forEach(dec => {
+    filteredDeclarations.forEach(dec => {
       let statusBadge = '';
       switch (dec.status) {
         case 'Creada':
@@ -9303,6 +9637,14 @@ async function fetchAndRenderClientDeclarations() {
               </span>
             </div>
           </td>
+          <td style="font-size: 0.85rem;">
+            <div style="font-size: 0.85rem;">
+              <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(2)} UF</strong></span><br>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(2) + ' UF' : '—'}</strong>
+              </span>
+            </div>
+          </td>
           <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
           <td style="font-size: 0.85rem;">${statusBadge}</td>
           <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
@@ -9312,6 +9654,9 @@ async function fetchAndRenderClientDeclarations() {
                 <i class="ri-more-2-fill"></i> Acciones
               </button>
               <div class="table-action-menu-content">
+                <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
+                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
+                </button>
                 <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
                   <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
                 </button>
@@ -12666,7 +13011,7 @@ function renderMasterCatalogRows(products) {
   if (products.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No hay productos en el catálogo master.
         </td>
       </tr>
@@ -12674,7 +13019,68 @@ function renderMasterCatalogRows(products) {
     return;
   }
 
-  tbody.innerHTML = products.map(item => {
+  const sortCol = window.catalogSortCol || 'sku';
+  const sortAsc = window.catalogSortAsc !== false;
+
+  const sortedProducts = [...products].sort((a, b) => {
+    let valA, valB;
+    if (sortCol === 'sku') {
+      valA = (a.sku || '').toString().toLowerCase();
+      valB = (b.sku || '').toString().toLowerCase();
+    } else if (sortCol === 'name') {
+      valA = (a.name || '').toString().toLowerCase();
+      valB = (b.name || '').toString().toLowerCase();
+    } else if (sortCol === 'barcode') {
+      valA = (a.barcode || '').toString().toLowerCase();
+      valB = (b.barcode || '').toString().toLowerCase();
+    } else if (sortCol === 'stock') {
+      valA = parseInt(window.catalogInitialStockMap?.[a.id] || 0, 10);
+      valB = parseInt(window.catalogInitialStockMap?.[b.id] || 0, 10);
+    } else if (sortCol === 'price') {
+      valA = parseFloat(a.price || 0);
+      valB = parseFloat(b.price || 0);
+    } else if (sortCol === 'origin') {
+      let origA = a.shopify_product_id ? 'shopify' : (a.raw_meli_data ? 'meli' : (a.raw_falabella_data ? 'falabella' : 'manual'));
+      let origB = b.shopify_product_id ? 'shopify' : (b.raw_meli_data ? 'meli' : (b.raw_falabella_data ? 'falabella' : 'manual'));
+      valA = origA;
+      valB = origB;
+    } else if (sortCol === 'medidas') {
+      valA = (parseFloat(a.length) || 0) * (parseFloat(a.width) || 0) * (parseFloat(a.height) || 0);
+      valB = (parseFloat(b.length) || 0) * (parseFloat(b.width) || 0) * (parseFloat(b.height) || 0);
+    } else if (sortCol === 'volumen') {
+      valA = parseFloat(a.volumen || 0);
+      valB = parseFloat(b.volumen || 0);
+    } else if (sortCol === 'weight') {
+      valA = parseFloat(a.weight || 0);
+      valB = parseFloat(b.weight || 0);
+    } else if (sortCol === 'venc') {
+      valA = (a.expiration_date || '').toString().toLowerCase();
+      valB = (b.expiration_date || '').toString().toLowerCase();
+    } else {
+      return 0;
+    }
+
+    if (valA < valB) return sortAsc ? -1 : 1;
+    if (valA > valB) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  // Actualizar indicadores visuales de ordenación en las cabeceras
+  document.querySelectorAll('.sortable-header').forEach(header => {
+    const col = header.getAttribute('data-sort');
+    const icon = header.querySelector('.sort-icon');
+    if (icon) {
+      if (col === sortCol) {
+        icon.className = sortAsc ? 'sort-icon ri-arrow-up-line' : 'sort-icon ri-arrow-down-line';
+        icon.style.color = 'var(--color-primary)';
+      } else {
+        icon.className = 'sort-icon ri-arrow-up-down-line';
+        icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+
+  tbody.innerHTML = sortedProducts.map(item => {
     const imgHtml = item.image_url 
       ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
       : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
@@ -12728,6 +13134,15 @@ function renderMasterCatalogRows(products) {
 
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
 
+    const unitVol = parseFloat(item.volumen || 0);
+    const totalVol = unitVol * initialStock;
+    const volumenHtml = (item.volumen !== null && item.volumen !== undefined)
+      ? `<div style="font-size: 0.8rem; line-height: 1.2;">
+           Unit: ${unitVol.toFixed(5)} m³<br>
+           Total: ${totalVol.toFixed(5)} m³
+         </div>`
+      : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
@@ -12738,12 +13153,24 @@ function renderMasterCatalogRows(products) {
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
         <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
+        <td style="padding: 0.75rem 1.5rem;">${volumenHtml}</td>
         <td style="padding: 0.75rem 1.5rem;">${weight}</td>
         <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
         <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
       </tr>
     `;
   }).join('');
+
+  // Preservar filtro de búsqueda si existe un término ingresado
+  const masterSearch = document.getElementById('catalog-master-search');
+  if (masterSearch && masterSearch.value.trim()) {
+    const q = masterSearch.value.toLowerCase().trim();
+    const rows = tbody.querySelectorAll('tr');
+    rows.forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(q) ? '' : 'none';
+    });
+  }
 }
 
 function renderEquivalencesRows(unmappedProducts, mappingsMap) {
@@ -12940,6 +13367,115 @@ function closeCatalogHelpDrawer() {
     drawer.style.right = '-450px';
   }
 }
+
+window.showStockAndDimensionsPreviewModal = function({ title, headers, rows, onConfirm }) {
+  const oldModal = document.getElementById('modal-import-preview');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-import-preview';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+
+  const trs = rows.map(r => {
+    const badgeColor = r.status === 'ok' ? 'var(--color-success)' : 'var(--color-danger)';
+    const badgeText = r.status === 'ok' ? 'Listo' : 'Error';
+    const rowStyle = r.status === 'error' ? 'background-color: rgba(239, 68, 68, 0.05);' : '';
+    return `
+      <tr style="${rowStyle} border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.75rem; font-weight: 600;">${r.sku}</td>
+        <td style="padding: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${r.name || '<span style="color:var(--color-text-muted);">No encontrado</span>'}</td>
+        <td style="padding: 0.75rem; text-align: center;">${r.oldValue}</td>
+        <td style="padding: 0.75rem; text-align: center; font-weight: 600;">${r.newValue}</td>
+        <td style="padding: 0.75rem; text-align: center;">
+          <span class="badge" style="background-color: ${badgeColor}20; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600;">
+            ${badgeText}
+          </span>
+        </td>
+        <td style="padding: 0.75rem; color: ${r.status === 'ok' ? 'var(--color-text-muted)' : 'var(--color-danger)'}; font-size: 0.8rem;">
+          ${r.message || ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalRows = rows.length;
+  const okRows = rows.filter(r => r.status === 'ok').length;
+  const errorRows = rows.filter(r => r.status === 'error').length;
+
+  const alertBanner = errorRows > 0
+    ? `<div style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+         <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i>
+         <span>Se detectaron <strong>${errorRows} filas con errores</strong>. Solo se procesarán las <strong>${okRows} filas válidas</strong>.</span>
+       </div>`
+    : `<div style="background-color: rgba(16, 124, 65, 0.1); border: 1px solid var(--color-success); color: var(--color-success); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+         <i class="ri-checkbox-circle-line" style="font-size: 1.1rem;"></i>
+         <span>¡Todo correcto! Las <strong>${okRows} filas</strong> son completamente válidas y están listas para importar.</span>
+       </div>`;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 850px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <h3><i class="ri-table-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> ${title}</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem; overflow-y: auto; flex: 1;">
+        ${alertBanner}
+        <div style="max-height: 350px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 1.25rem;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+            <thead>
+              <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                <th style="padding: 0.75rem;">SKU</th>
+                <th style="padding: 0.75rem;">Nombre</th>
+                <th style="padding: 0.75rem; text-align: center;">V. Actual</th>
+                <th style="padding: 0.75rem; text-align: center;">N. Valor</th>
+                <th style="padding: 0.75rem; text-align: center;">Estado</th>
+                <th style="padding: 0.75rem;">Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${trs}
+            </tbody>
+          </table>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; gap: 1.5rem; font-size: 0.85rem; color: var(--color-text-main);">
+            <div>Total registros: <strong>${totalRows}</strong></div>
+            <div style="color: var(--color-success);">Válidos: <strong>${okRows}</strong></div>
+            <div style="color: var(--color-danger);">Errores: <strong>${errorRows}</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.25rem;">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-import" ${okRows === 0 ? 'disabled' : ''} style="background-color: var(--color-success); border-color: var(--color-success); color: white;">
+          <i class="ri-checkbox-circle-line"></i> Confirmar y Cargar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const confirmBtn = document.getElementById('btn-confirm-import');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Procesando...';
+      try {
+        const validRows = rows.filter(r => r.status === 'ok');
+        await onConfirm(validRows);
+        modal.remove();
+      } catch (err) {
+        console.error(err);
+        alert('Error durante la importación: ' + err.message);
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="ri-checkbox-circle-line"></i> Confirmar y Cargar';
+      }
+    });
+  }
+};
 
 function setupCatalogListeners(commerce, mainPlatform) {
   // 0. Help button trigger
@@ -13456,15 +13992,33 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
   // 6.5. Trigger file input for initial stock import
   const btnTriggerImportStock = document.getElementById('btn-trigger-import-stock');
-  const fileImportStock = document.getElementById('catalog-import-stock-excel');
-  if (btnTriggerImportStock && fileImportStock) {
+  if (btnTriggerImportStock) {
     btnTriggerImportStock.addEventListener('click', () => {
-      fileImportStock.click();
+      const activeFileInput = document.getElementById('catalog-import-stock-excel');
+      if (activeFileInput) activeFileInput.click();
     });
   }
 
+  // Descargar plantilla de ejemplo para importación de stock inicial
+  const btnDownloadStockTemplate = document.getElementById('btn-download-stock-template');
+  if (btnDownloadStockTemplate) {
+    btnDownloadStockTemplate.addEventListener('click', () => {
+      const headers = [['SKU', 'Stock Inicial']];
+      const sampleData = [
+        ['PROD-001', '100'],
+        ['PROD-002', '50'],
+        ['PROD-003', '0']
+      ];
+      const wsData = headers.concat(sampleData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Stock Inicial');
+      XLSX.writeFile(wb, 'plantilla_stock_inicial.xlsx');
+    });
+  }
+
+  const fileImportStock = document.getElementById('catalog-import-stock-excel');
   if (fileImportStock) {
-    // CLONAR para evitar listeners duplicados al recargar vista
     const newFileInput = fileImportStock.cloneNode(true);
     fileImportStock.parentNode.replaceChild(newFileInput, fileImportStock);
     
@@ -13477,20 +14031,18 @@ function setupCatalogListeners(commerce, mainPlatform) {
         try {
           const data = new Uint8Array(evt.target.result);
           const workbook = XLSX.read(data, { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const rows = XLSX.utils.sheet_to_json(worksheet);
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const excelRows = XLSX.utils.sheet_to_json(worksheet);
 
-          if (rows.length === 0) {
+          if (excelRows.length === 0) {
             alert('El archivo Excel está vacío.');
             return;
           }
 
-          // Identificar columnas: sku y stock
-          const sample = rows[0];
+          // Identificar columnas
+          const sample = excelRows[0];
           let colSku = '';
           let colStock = '';
-
           for (const key of Object.keys(sample)) {
             const lower = key.toLowerCase().trim();
             if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
@@ -13498,15 +14050,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
           }
 
           if (!colSku || !colStock) {
-            alert('Error: Columnas no encontradas. El archivo debe contener al menos las columnas "SKU" y "Stock Inicial" (o "Stock").');
+            alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU" y "Stock Inicial" (o "Stock").');
             return;
           }
 
-          if (!confirm(`¿Estás seguro que deseas importar el stock inicial de ${rows.length} filas? Esto reajustará el stock actual de los productos según la diferencia del stock inicial.`)) {
-            return;
-          }
-
-          // Buscar la Bodega Central
+          // Obtener la Bodega Central
           const { data: bodegaCentral } = await supabase
             .from('warehouses')
             .select('id')
@@ -13519,116 +14067,515 @@ function setupCatalogListeners(commerce, mainPlatform) {
             return;
           }
 
-          // Obtener todos los productos del comercio para el mapeo
+          // Obtener todos los productos del comercio para mapeo y validación
           const { data: dbProducts } = await supabase
             .from('products')
-            .select('id, sku')
+            .select('id, sku, name')
             .eq('comercio', commerce);
 
           const productMap = {};
           if (dbProducts) {
             dbProducts.forEach(p => {
-              productMap[p.sku.toLowerCase().trim()] = p.id;
+              productMap[p.sku.toLowerCase().trim()] = p;
             });
           }
 
-          let updatedCount = 0;
-          let notFoundCount = 0;
-          const notFoundSkus = [];
+          // Obtener todos los stocks iniciales anteriores
+          const { data: dbMovements } = await supabase
+            .from('movements')
+            .select('product_id, quantity')
+            .eq('reference_doc', 'Stock Inicial');
 
-          for (const row of rows) {
+          const stockMap = {};
+          if (dbMovements) {
+            dbMovements.forEach(m => {
+              stockMap[m.product_id] = m.quantity;
+            });
+          }
+
+          // Construir filas para vista previa y validar
+          const previewRows = [];
+          for (const row of excelRows) {
             const skuVal = String(row[colSku] || '').trim();
-            const stockVal = parseInt(row[colStock], 10);
-            
-            if (!skuVal || isNaN(stockVal) || stockVal < 0) continue;
+            const stockValRaw = row[colStock];
+            const stockVal = parseInt(stockValRaw, 10);
 
-            const prodId = productMap[skuVal.toLowerCase()];
-            if (!prodId) {
-              notFoundCount++;
-              notFoundSkus.push(skuVal);
-              continue;
+            const prod = productMap[skuVal.toLowerCase()];
+            const oldStock = prod ? (stockMap[prod.id] || 0) : 0;
+
+            let status = 'ok';
+            let message = '';
+
+            if (!skuVal) {
+              status = 'error';
+              message = 'Línea vacía o SKU ausente';
+            } else if (!prod) {
+              status = 'error';
+              message = 'El SKU no existe en este comercio';
+            } else if (isNaN(stockVal) || stockVal < 0 || stockVal !== Number(stockValRaw)) {
+              status = 'error';
+              message = 'Stock inválido (debe ser un número entero >= 0)';
             }
 
-            // 1. Obtener stock inicial anterior de movements
-            const { data: oldMov } = await supabase
-              .from('movements')
-              .select('quantity')
-              .eq('product_id', prodId)
-              .eq('reference_doc', 'Stock Inicial')
-              .limit(1)
-              .maybeSingle();
-
-            const oldInitialStock = oldMov ? oldMov.quantity : 0;
-            const diff = stockVal - oldInitialStock;
-
-            // 2. Actualizar/Insertar en inventory
-            const { data: invRecord } = await supabase
-              .from('inventory')
-              .select('id, quantity')
-              .eq('product_id', prodId)
-              .eq('warehouse_id', bodegaCentral.id)
-              .maybeSingle();
-
-            if (invRecord) {
-              await supabase
-                .from('inventory')
-                .update({ quantity: Math.max(0, invRecord.quantity + diff) })
-                .eq('id', invRecord.id);
-            } else {
-              await supabase
-                .from('inventory')
-                .insert([{
-                  product_id: prodId,
-                  warehouse_id: bodegaCentral.id,
-                  quantity: stockVal
-                }]);
-            }
-
-            // 3. Actualizar/Insertar movements
-            const { data: movRecord } = await supabase
-              .from('movements')
-              .select('id')
-              .eq('product_id', prodId)
-              .eq('reference_doc', 'Stock Inicial')
-              .limit(1)
-              .maybeSingle();
-
-            if (movRecord) {
-              await supabase
-                .from('movements')
-                .update({ quantity: stockVal })
-                .eq('id', movRecord.id);
-            } else {
-              await supabase
-                .from('movements')
-                .insert([{
-                  product_id: prodId,
-                  warehouse_id: bodegaCentral.id,
-                  type: 'in',
-                  quantity: stockVal,
-                  reference_doc: 'Stock Inicial'
-                }]);
-            }
-
-            updatedCount++;
+            previewRows.push({
+              sku: skuVal || 'N/A',
+              name: prod ? prod.name : null,
+              oldValue: oldStock,
+              newValue: isNaN(stockVal) ? (stockValRaw || '') : stockVal,
+              status,
+              message,
+              prodId: prod ? prod.id : null,
+              stockVal
+            });
           }
 
-          let summaryMessage = `Importación de Stock Inicial finalizada.\n- ${updatedCount} productos actualizados exitosamente.`;
-          if (notFoundCount > 0) {
-            summaryMessage += `\n- ${notFoundCount} SKUs no encontrados en este comercio: ${notFoundSkus.slice(0, 10).join(', ')}${notFoundSkus.length > 10 ? '...' : ''}`;
-          }
+          // Lanzar modal de vista previa
+          window.showStockAndDimensionsPreviewModal({
+            title: 'Vista Previa: Carga Masiva de Stock Inicial',
+            headers: ['SKU', 'Nombre', 'S. Inicial Anterior', 'S. Inicial Nuevo', 'Estado', 'Detalle'],
+            rows: previewRows,
+            onConfirm: async (validRows) => {
+              let updatedCount = 0;
+              
+              // Ejecutar en paralelo
+              const updatePromises = validRows.map(async (r) => {
+                const diff = r.stockVal - r.oldValue;
 
-          alert(summaryMessage);
-          renderCatalog();
+                // 1. inventory update/insert
+                const { data: invRecord } = await supabase
+                  .from('inventory')
+                  .select('id, quantity')
+                  .eq('product_id', r.prodId)
+                  .eq('warehouse_id', bodegaCentral.id)
+                  .maybeSingle();
+
+                if (invRecord) {
+                  const { error: invErr } = await supabase
+                    .from('inventory')
+                    .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                    .eq('id', invRecord.id);
+                  if (invErr) throw invErr;
+                } else {
+                  const { error: invErr } = await supabase
+                    .from('inventory')
+                    .insert([{
+                      product_id: r.prodId,
+                      warehouse_id: bodegaCentral.id,
+                      quantity: r.stockVal
+                    }]);
+                  if (invErr) throw invErr;
+                }
+
+                // 2. movements update/insert
+                const { data: movRecord } = await supabase
+                  .from('movements')
+                  .select('id')
+                  .eq('product_id', r.prodId)
+                  .eq('reference_doc', 'Stock Inicial')
+                  .limit(1)
+                  .maybeSingle();
+
+                if (r.stockVal > 0) {
+                  if (movRecord) {
+                    const { error: movErr } = await supabase
+                      .from('movements')
+                      .update({ quantity: r.stockVal })
+                      .eq('id', movRecord.id);
+                    if (movErr) throw movErr;
+                  } else {
+                    const { error: movErr } = await supabase
+                      .from('movements')
+                      .insert([{
+                        product_id: r.prodId,
+                        warehouse_id: bodegaCentral.id,
+                        type: 'in',
+                        quantity: r.stockVal,
+                        reference_doc: 'Stock Inicial'
+                      }]);
+                    if (movErr) throw movErr;
+                  }
+                } else {
+                  if (movRecord) {
+                    const { error: movErr } = await supabase
+                      .from('movements')
+                      .delete()
+                      .eq('id', movRecord.id);
+                    if (movErr) throw movErr;
+                  }
+                }
+
+                updatedCount++;
+              });
+
+              await Promise.all(updatePromises);
+              alert(`¡Éxito! Se actualizaron ${updatedCount} productos correctamente.`);
+              renderCatalog();
+            }
+          });
 
         } catch (err) {
           console.error(err);
           alert('Error al importar la planilla: ' + err.message);
         }
       };
-
       reader.readAsArrayBuffer(file);
       e.target.value = '';
+    });
+  }
+
+  // 6.7. Trigger file input for dimensions import
+  const btnTriggerImportDimensions = document.getElementById('btn-trigger-import-dimensions');
+  if (btnTriggerImportDimensions) {
+    btnTriggerImportDimensions.addEventListener('click', () => {
+      const activeFileInput = document.getElementById('catalog-import-dimensions-excel');
+      if (activeFileInput) activeFileInput.click();
+    });
+  }
+
+  // Descargar plantilla de ejemplo para importación de dimensiones
+  const btnDownloadDimensionsTemplate = document.getElementById('btn-download-dimensions-template');
+  if (btnDownloadDimensionsTemplate) {
+    btnDownloadDimensionsTemplate.addEventListener('click', () => {
+      const headers = [['SKU', 'Largo', 'Ancho', 'Alto']];
+      const sampleData = [
+        ['PROD-001', '30', '20', '15'],
+        ['PROD-002', '12', '10', '8'],
+        ['PROD-003', '50', '40', '30']
+      ];
+      const wsData = headers.concat(sampleData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Medidas');
+      XLSX.writeFile(wb, 'plantilla_medidas.xlsx');
+    });
+  }
+
+  const fileImportDimensions = document.getElementById('catalog-import-dimensions-excel');
+  if (fileImportDimensions) {
+    const newFileInput = fileImportDimensions.cloneNode(true);
+    fileImportDimensions.parentNode.replaceChild(newFileInput, fileImportDimensions);
+    
+    newFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (excelRows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          // Identificar columnas: sku, largo, ancho, alto
+          const sample = excelRows[0];
+          let colSku = '';
+          let colLargo = '';
+          let colAncho = '';
+          let colAlto = '';
+
+          for (const key of Object.keys(sample)) {
+            const lower = key.toLowerCase().trim();
+            if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+            else if (lower === 'largo' || lower === 'length' || lower === 'longitud') colLargo = key;
+            else if (lower === 'ancho' || lower === 'width' || lower === 'anchura') colAncho = key;
+            else if (lower === 'alto' || lower === 'height' || lower === 'altura') colAlto = key;
+          }
+
+          if (!colSku || !colLargo || !colAncho || !colAlto) {
+            alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU", "Largo", "Ancho" y "Alto".');
+            return;
+          }
+
+          // Obtener todos los productos del comercio
+          const { data: dbProducts } = await supabase
+            .from('products')
+            .select('id, sku, name, length, width, height')
+            .eq('comercio', commerce);
+
+          const productMap = {};
+          if (dbProducts) {
+            dbProducts.forEach(p => {
+              productMap[p.sku.toLowerCase().trim()] = p;
+            });
+          }
+
+          // Construir filas de vista previa
+          const previewRows = [];
+          for (const row of excelRows) {
+            const skuVal = String(row[colSku] || '').trim();
+            const largoRaw = row[colLargo];
+            const anchoRaw = row[colAncho];
+            const altoRaw = row[colAlto];
+
+            const largoVal = parseInt(largoRaw, 10);
+            const anchoVal = parseInt(anchoRaw, 10);
+            const altoVal = parseInt(altoRaw, 10);
+
+            const prod = productMap[skuVal.toLowerCase()];
+            const oldDims = prod ? `${prod.length || 0}x${prod.width || 0}x${prod.height || 0} cm` : '0x0x0 cm';
+
+            let status = 'ok';
+            let message = '';
+
+            if (!skuVal) {
+              status = 'error';
+              message = 'Línea vacía o SKU ausente';
+            } else if (!prod) {
+              status = 'error';
+              message = 'El SKU no existe en este comercio';
+            } else if (
+              isNaN(largoVal) || largoVal <= 0 || largoVal !== Number(largoRaw) ||
+              isNaN(anchoVal) || anchoVal <= 0 || anchoVal !== Number(anchoRaw) ||
+              isNaN(altoVal) || altoVal <= 0 || altoVal !== Number(altoRaw)
+            ) {
+              status = 'error';
+              message = 'Medidas inválidas (deben ser enteros mayores a 0, sin decimales)';
+            }
+
+            previewRows.push({
+              sku: skuVal || 'N/A',
+              name: prod ? prod.name : null,
+              oldValue: oldDims,
+              newValue: status === 'ok' ? `${largoVal}x${anchoVal}x${altoVal} cm` : `${largoRaw || ''}x${anchoRaw || ''}x${altoRaw || ''} cm`,
+              status,
+              message,
+              prodId: prod ? prod.id : null,
+              length: largoVal,
+              width: anchoVal,
+              height: altoVal
+            });
+          }
+
+          // Lanzar modal
+          window.showStockAndDimensionsPreviewModal({
+            title: 'Vista Previa: Carga Masiva de Medidas (Largo, Ancho, Alto)',
+            headers: ['SKU', 'Nombre', 'Medidas Actuales', 'Medidas Nuevas', 'Estado', 'Detalle'],
+            rows: previewRows,
+            onConfirm: async (validRows) => {
+              let updatedCount = 0;
+              const updatePromises = validRows.map(async (r) => {
+                const calculatedVol = (r.length && r.width && r.height) ? window.roundUpVolume((r.length * r.width * r.height) / 1000000) : null;
+                const { error } = await supabase
+                  .from('products')
+                  .update({
+                    length: r.length,
+                    width: r.width,
+                    height: r.height,
+                    largo: r.length,
+                    ancho: r.width,
+                    alto: r.height,
+                    volumen: calculatedVol
+                  })
+                  .eq('id', r.prodId);
+
+                if (error) throw error;
+                updatedCount++;
+              });
+
+              await Promise.all(updatePromises);
+              alert(`¡Éxito! Se actualizaron las dimensiones de ${updatedCount} productos correctamente.`);
+              renderCatalog();
+            }
+          });
+
+        } catch (err) {
+          console.error(err);
+          alert('Error al importar medidas: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
+
+  // 6.7.2. Trigger file input for volumes import
+  const btnTriggerImportVolumes = document.getElementById('btn-trigger-import-volumes');
+  if (btnTriggerImportVolumes) {
+    btnTriggerImportVolumes.addEventListener('click', () => {
+      const activeFileInput = document.getElementById('catalog-import-volumes-excel');
+      if (activeFileInput) activeFileInput.click();
+    });
+  }
+
+  // Descargar plantilla de ejemplo para importación de volúmenes
+  const btnDownloadVolumesTemplate = document.getElementById('btn-download-volumes-template');
+  if (btnDownloadVolumesTemplate) {
+    btnDownloadVolumesTemplate.addEventListener('click', () => {
+      const headers = [['SKU', 'Volumen']];
+      const sampleData = [
+        ['PROD-001', '0.009'],
+        ['PROD-002', '0.00096'],
+        ['PROD-003', '0.06']
+      ];
+      const wsData = headers.concat(sampleData);
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Volumenes');
+      XLSX.writeFile(wb, 'plantilla_volumenes.xlsx');
+    });
+  }
+
+  const fileImportVolumes = document.getElementById('catalog-import-volumes-excel');
+  if (fileImportVolumes) {
+    const newFileInput = fileImportVolumes.cloneNode(true);
+    fileImportVolumes.parentNode.replaceChild(newFileInput, fileImportVolumes);
+    
+    newFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (excelRows.length === 0) {
+            alert('El archivo Excel está vacío.');
+            return;
+          }
+
+          // Identificar columnas: sku, volumen
+          const sample = excelRows[0];
+          let colSku = '';
+          let colVolumen = '';
+
+          for (const key of Object.keys(sample)) {
+            const lower = key.toLowerCase().trim();
+            if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+            else if (lower === 'volumen' || lower === 'volume' || lower === 'volumen_m3' || lower === 'vol' || lower === 'm3') colVolumen = key;
+          }
+
+          if (!colSku || !colVolumen) {
+            alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU" y "Volumen".');
+            return;
+          }
+
+          // Obtener todos los productos del comercio
+          const { data: dbProducts, error: dbErr } = await supabase
+            .from('products')
+            .select('id, sku, name, volumen')
+            .eq('comercio', commerce);
+
+          if (dbErr) {
+            console.error('Error al consultar productos:', dbErr);
+            alert(`Error de Base de Datos: ${dbErr.message}\n\nEs altamente probable que falte agregar la columna "volumen" a la tabla "products". Por favor ejecuta el script de migración SQL "supabase_schema_product_upload.sql" en el panel/SQL Editor de Supabase para agregar la columna y poder realizar esta carga.`);
+            return;
+          }
+
+          const productMap = {};
+          if (dbProducts) {
+            dbProducts.forEach(p => {
+              if (p.sku) {
+                productMap[p.sku.toLowerCase().trim()] = p;
+              }
+            });
+          }
+
+          // Construir filas de vista previa
+          const previewRows = [];
+          for (const row of excelRows) {
+            const skuVal = String(row[colSku] || '').trim();
+            const volRaw = row[colVolumen];
+
+            let volVal = parseFloat(String(volRaw || '').replace(',', '.'));
+
+            const prod = productMap[skuVal.toLowerCase()];
+            const oldVolText = prod ? `${(prod.volumen || 0).toFixed(5)} m³` : '0 m³';
+
+            let status = 'ok';
+            let message = '';
+
+            if (!skuVal) {
+              status = 'error';
+              message = 'Línea vacía o SKU ausente';
+            } else if (!prod) {
+              status = 'error';
+              message = 'El SKU no existe en este comercio';
+            } else if (isNaN(volVal) || volVal <= 0) {
+              status = 'error';
+              message = 'Volumen inválido (debe ser un número mayor a 0)';
+            }
+
+            if (status === 'ok') {
+              volVal = window.roundUpVolume(volVal);
+            }
+
+            previewRows.push({
+              sku: skuVal || 'N/A',
+              name: prod ? prod.name : null,
+              oldValue: oldVolText,
+              newValue: status === 'ok' ? `${volVal.toFixed(5)} m³` : `${volRaw || ''} m³`,
+              status,
+              message,
+              prodId: prod ? prod.id : null,
+              volumen: volVal
+            });
+          }
+
+          // Lanzar modal
+          window.showStockAndDimensionsPreviewModal({
+            title: 'Vista Previa: Carga Masiva de Volúmenes (m³)',
+            headers: ['SKU', 'Nombre', 'Volumen Actual', 'Volumen Nuevo', 'Estado', 'Detalle'],
+            rows: previewRows,
+            onConfirm: async (validRows) => {
+              let updatedCount = 0;
+              const updatePromises = validRows.map(async (r) => {
+                const { error } = await supabase
+                  .from('products')
+                  .update({
+                    volumen: r.volumen
+                  })
+                  .eq('id', r.prodId);
+
+                if (error) throw error;
+                updatedCount++;
+              });
+
+              try {
+                await Promise.all(updatePromises);
+                alert(`¡Éxito! Se actualizaron los volúmenes de ${updatedCount} productos correctamente.`);
+                renderCatalog();
+              } catch (err) {
+                console.error(err);
+                alert('Error al importar volúmenes: ' + err.message);
+              }
+            }
+          });
+
+        } catch (err) {
+          console.error(err);
+          alert('Error al importar volúmenes: ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+  }
+
+  // Manejo de ordenación por cabeceras de tabla
+  if (!window.catalogSortListenerAdded) {
+    window.catalogSortListenerAdded = true;
+    document.addEventListener('click', (e) => {
+      const header = e.target.closest('.sortable-header');
+      if (header) {
+        const col = header.getAttribute('data-sort');
+        if (window.catalogSortCol === col) {
+          window.catalogSortAsc = !window.catalogSortAsc;
+        } else {
+          window.catalogSortCol = col;
+          window.catalogSortAsc = true;
+        }
+        renderMasterCatalogRows(window.currentMasterProducts || []);
+      }
     });
   }
 }
@@ -14082,12 +15029,19 @@ window.loadClientExtraCharges = async function(periodId) {
       const statusBadge = `<span class="client-badge ${statusClass}">${statusText}</span>`;
       const periodName = c.status === 'cobrado' ? (periodsMap[c.periodo_id] || 'No especificado') : '-';
 
+      const ivaBadge = c.iva_tipo === 'iva_incluido'
+        ? '<span style="font-size: 0.7rem; color: var(--color-success); font-weight: 600; display: block; opacity: 0.95; margin-top: 0.15rem;">IVA Incluido</span>'
+        : '<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-top: 0.15rem;">+ IVA (Neto)</span>';
+
       return `
         <tr>
           <td style="vertical-align: middle; color: var(--color-text-muted);">${formattedDate}</td>
           <td style="vertical-align: middle; font-weight: 600; color: var(--color-text-main);">${c.comercio}</td>
           <td style="vertical-align: middle;">${c.detalle}</td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(c.monto)}</td>
+          <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main); line-height: 1.3;">
+            <div>${window.formatCLP(c.monto)}</div>
+            ${ivaBadge}
+          </td>
           <td style="vertical-align: middle;">${statusBadge}</td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">${periodName}</td>
         </tr>
@@ -14573,5 +15527,425 @@ window.exportDeclarationToPDF = async function(id) {
     alert('Error al generar el PDF: ' + err.message);
   }
 };
+
+window.viewDeclarationProducts = async function(id) {
+  let modal = document.getElementById('modal-view-dec-products');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-view-dec-products';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column; max-height: 80vh; padding: 0;">
+        <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+          <h3 style="margin: 0;" id="view-products-title">Productos del Ingreso</h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('modal-view-dec-products').classList.remove('active')">&times;</button>
+        </div>
+        <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;" id="view-products-body">
+          <p class="text-center" style="color: var(--color-text-muted);">Cargando productos...</p>
+        </div>
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-view-dec-products').classList.remove('active')">Cerrar</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  modal.classList.add('active');
+  const bodyEl = document.getElementById('view-products-body');
+  const titleEl = document.getElementById('view-products-title');
+  bodyEl.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="ri-loader-4-line animate-spin" style="font-size: 2rem; color: var(--color-primary); display: inline-block;"></i><p style="margin-top: 0.5rem; color: var(--color-text-muted);">Cargando y procesando la planilla...</p></div>';
+
+  try {
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('title, file_base64')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!dec) throw new Error('No se encontró la declaración.');
+
+    titleEl.textContent = `Productos: ${dec.title}`;
+
+    let products = [];
+    if (dec.file_base64) {
+      const binaryString = window.atob(dec.file_base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const workbook = XLSX.read(bytes, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      if (rows && rows.length > 1) {
+        const headerRow = rows[0];
+        const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+        const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+        const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+        
+        if (skuIdx !== -1 && nameIdx !== -1 && qtyIdx !== -1) {
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (row && row[skuIdx] !== undefined) {
+              products.push({
+                sku: String(row[skuIdx] || '').trim(),
+                name: String(row[nameIdx] || '').trim(),
+                qty: parseInt(row[qtyIdx] || 0)
+              });
+            }
+          }
+        }
+      }
+    }
+
+    if (products.length === 0) {
+      bodyEl.innerHTML = '<p class="text-center" style="padding: 2rem; color: var(--color-text-muted); font-style: italic;">No se encontraron productos en la planilla.</p>';
+      return;
+    }
+
+    let tableHtml = `
+      <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); text-align: left;">
+            <th style="padding: 8px;">#</th>
+            <th style="padding: 8px;">SKU</th>
+            <th style="padding: 8px;">Nombre Producto</th>
+            <th style="padding: 8px; text-align: right;">Cant. Declarada</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    products.forEach((p, idx) => {
+      tableHtml += `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
+          <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
+          <td style="padding: 8px;">${p.name}</td>
+          <td style="padding: 8px; text-align: right; font-weight: bold;">${p.qty.toLocaleString()}</td>
+        </tr>
+      `;
+    });
+
+    tableHtml += `
+        </tbody>
+      </table>
+    `;
+
+    bodyEl.innerHTML = tableHtml;
+
+  } catch (err) {
+    bodyEl.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--color-danger);"><i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i><h4>Error al procesar la planilla</h4><p>${err.message}</p></div>`;
+  }
+};
+
+window.renderVolumenDiario = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  let clientComerces = [];
+  if (currentCompany) {
+    const list = currentCompany.split(',').map(c => c.trim()).filter(Boolean);
+    if (list.some(c => c.toLowerCase() === 'all')) {
+      try {
+        const { data } = await supabase.from('v_comercios_config').select('nombre, sigla');
+        clientComerces = data ? data.map(c => c.nombre) : [];
+      } catch (e) {
+        console.error(e);
+      }
+    } else {
+      clientComerces = list;
+    }
+  }
+
+  let activeComerces = [];
+  try {
+    const { data: activeConfigs } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio')
+      .eq('inventario_seguimiento', true);
+    
+    const activeSet = new Set(activeConfigs ? activeConfigs.map(c => c.comercio.toLowerCase()) : []);
+    activeComerces = clientComerces.filter(c => activeSet.has(c.toLowerCase()));
+  } catch (e) {
+    console.error('Error filtrando comercios por seguimiento:', e);
+    activeComerces = clientComerces;
+  }
+
+  if (activeComerces.length === 0) {
+    appContent.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-information-line" style="font-size: 3rem; display: block; margin-bottom: 1rem;"></i>
+        <h4>Seguimiento de stock inactivo</h4>
+        <p>No tienes comercios asociados con el seguimiento de stock activo. Esta sección está disponible únicamente para comercios con control de inventario.</p>
+      </div>
+    `;
+    return;
+  }
+
+  appContent.innerHTML = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <div>
+        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Historial de Volumen Diario</h3>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Historial de nivel de volumen de tu catálogo de productos medido diariamente a las 1:00 AM</p>
+      </div>
+      <div>
+        <button class="btn btn-outline" id="btn-refresh-volume"><i class="ri-refresh-line"></i> Actualizar</button>
+      </div>
+    </div>
+
+    <!-- Stats & Selector Card -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-body" style="padding: 1.25rem 1.5rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; align-items: end;">
+          <div class="form-group" style="margin: 0; ${activeComerces.length <= 1 ? 'display: none;' : ''}">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
+            <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0;">
+              ${activeComerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+          </div>
+          
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Volumen Actual (Tiempo Real)</span>
+            <span id="volume-current-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-primary); margin-top: 0.25rem;">-- m³</span>
+          </div>
+
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Último Volumen Registrado</span>
+            <span id="volume-last-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.25rem;">-- m³</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table Card -->
+    <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Historial de Registros</h4>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input type="date" id="volume-filter-date" class="form-input" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; margin: 0; width: 150px;" title="Filtrar por fecha">
+          <button class="btn btn-outline" id="btn-clear-date-filter" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" title="Limpiar filtro de fecha"><i class="ri-close-line"></i></button>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        <div class="table-responsive" style="overflow-x: auto;">
+          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg); text-align: left;">
+                <th style="padding: 0.75rem 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase;">Fecha</th>
+                <th style="padding: 0.75rem 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase;">Comercio</th>
+                <th style="padding: 0.75rem 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase; text-align: right;">Nivel de Volumen (m³)</th>
+              </tr>
+            </thead>
+            <tbody id="volume-history-tbody">
+              <tr>
+                <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+                  <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+                  Cargando historial de volumen...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="volume-pagination" style="padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); font-size: 0.85rem;">
+          <span style="color: var(--color-text-muted);" id="volume-page-info">Mostrando registros</span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-outline" id="btn-volume-prev" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Anterior</button>
+            <button class="btn btn-outline" id="btn-volume-next" style="padding: 0.25rem 0.75rem; font-size: 0.8rem;" disabled>Siguiente</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // State
+  let selectedCommerce = activeComerces[0] || '';
+  let selectedDate = '';
+  let currentPage = 1;
+  const itemsPerPage = 15;
+  let allHistories = [];
+
+  // DOM Elements
+  const merchantSelect = document.getElementById('volume-merchant-select');
+  const currentValSpan = document.getElementById('volume-current-value');
+  const lastValSpan = document.getElementById('volume-last-value');
+  const tbody = document.getElementById('volume-history-tbody');
+  const btnRefresh = document.getElementById('btn-refresh-volume');
+  const filterDateInput = document.getElementById('volume-filter-date');
+  const btnClearDate = document.getElementById('btn-clear-date-filter');
+  const btnPrev = document.getElementById('btn-volume-prev');
+  const btnNext = document.getElementById('btn-volume-next');
+  const pageInfo = document.getElementById('volume-page-info');
+
+  // Load Current Volume in Real Time and Last Recorded Volume
+  async function updateVolumeStats() {
+    currentValSpan.textContent = '-- m³';
+    lastValSpan.textContent = '-- m³';
+
+    if (!selectedCommerce) return;
+
+    try {
+      const { data: realTimeData, error: rtErr } = await supabase
+        .from('v_comercios_volumen_actual')
+        .select('volumen_actual')
+        .eq('comercio', selectedCommerce)
+        .maybeSingle();
+
+      if (rtErr) throw rtErr;
+      const volReal = realTimeData ? parseFloat(realTimeData.volumen_actual || 0) : 0;
+      currentValSpan.textContent = `${volReal.toFixed(5)} m³`;
+
+      const { data: lastRecord, error: lastErr } = await supabase
+        .from('comercios_volumen_diario')
+        .select('volumen, fecha')
+        .eq('comercio', selectedCommerce)
+        .order('fecha', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastErr) throw lastErr;
+      if (lastRecord) {
+        const d = new Date(lastRecord.fecha + 'T00:00:00');
+        const formattedDate = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        lastValSpan.textContent = `${parseFloat(lastRecord.volumen).toFixed(5)} m³ (${formattedDate})`;
+      } else {
+        lastValSpan.textContent = 'Sin registros';
+      }
+    } catch (e) {
+      console.error('Error al cargar estadísticas de volumen:', e);
+    }
+  }
+
+  // Load Histories
+  async function loadHistories() {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+          Cargando historial de volumen...
+        </td>
+      </tr>
+    `;
+
+    try {
+      let query = supabase.from('comercios_volumen_diario').select('*');
+
+      if (selectedCommerce) {
+        query = query.eq('comercio', selectedCommerce);
+      } else {
+        query = query.in('comercio', activeComerces);
+      }
+      
+      if (selectedDate) {
+        query = query.eq('fecha', selectedDate);
+      }
+
+      const { data, error } = await query.order('fecha', { ascending: false });
+
+      if (error) throw error;
+
+      allHistories = data || [];
+      currentPage = 1;
+      renderTableData();
+    } catch (e) {
+      console.error('Error al cargar historial de volumen:', e);
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="3" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+            <i class="ri-error-warning-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+            Error al obtener el historial de volumen: ${e.message}
+          </td>
+        </tr>
+      `;
+    }
+  }
+
+  // Render Table Data with Pagination
+  function renderTableData() {
+    if (allHistories.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+            <i class="ri-information-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            No se encontraron registros de volumen para los filtros seleccionados
+          </td>
+        </tr>
+      `;
+      btnPrev.disabled = true;
+      btnNext.disabled = true;
+      pageInfo.textContent = 'Mostrando 0 de 0 registros';
+      return;
+    }
+
+    const totalItems = allHistories.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startIdx = (currentPage - 1) * itemsPerPage;
+    const endIdx = Math.min(startIdx + itemsPerPage, totalItems);
+    const pageItems = allHistories.slice(startIdx, endIdx);
+
+    tbody.innerHTML = pageItems.map(item => {
+      const d = new Date(item.fecha + 'T00:00:00');
+      const formattedDate = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'short' });
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); transition: var(--transition-theme);">
+          <td style="padding: 0.75rem 1.5rem; font-weight: 500; text-transform: capitalize;">${formattedDate}</td>
+          <td style="padding: 0.75rem 1.5rem; font-weight: 600;">${item.comercio}</td>
+          <td style="padding: 0.75rem 1.5rem; text-align: right; font-weight: 700; color: var(--color-primary);">${parseFloat(item.volumen).toFixed(5)} m³</td>
+        </tr>
+      `;
+    }).join('');
+
+    btnPrev.disabled = currentPage === 1;
+    btnNext.disabled = currentPage === totalPages;
+    pageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} registros`;
+  }
+
+  if (merchantSelect) {
+    merchantSelect.addEventListener('change', (e) => {
+      selectedCommerce = e.target.value;
+      updateVolumeStats();
+      loadHistories();
+    });
+  }
+
+  filterDateInput.addEventListener('change', (e) => {
+    selectedDate = e.target.value;
+    loadHistories();
+  });
+
+  btnClearDate.addEventListener('click', () => {
+    filterDateInput.value = '';
+    selectedDate = '';
+    loadHistories();
+  });
+
+  btnRefresh.addEventListener('click', () => {
+    updateVolumeStats();
+    loadHistories();
+  });
+
+  btnPrev.addEventListener('click', () => {
+    if (currentPage > 1) {
+      currentPage--;
+      renderTableData();
+    }
+  });
+
+  btnNext.addEventListener('click', () => {
+    if (currentPage * itemsPerPage < allHistories.length) {
+      currentPage++;
+      renderTableData();
+    }
+  });
+
+  await updateVolumeStats();
+  await loadHistories();
+};
+
 
 
