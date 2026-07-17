@@ -1504,11 +1504,11 @@ async function renderCatalog() {
     let commerceSelectorHtml = '';
     if (assignedComercios.length > 1) {
       commerceSelectorHtml = `
-        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+        <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.9rem;">
             <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
           </label>
-          <select id="catalog-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+          <select id="catalog-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem;">
             ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
           </select>
         </div>
@@ -1516,17 +1516,17 @@ async function renderCatalog() {
     }
 
     const mainPlatformSelectorHtml = `
-      <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+      <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
-          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.25rem; color: var(--color-text-main); font-size: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem; color: var(--color-text-main); font-size: 0.9rem;">
             <i class="ri-settings-4-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal de Ventas (Catálogo Maestro)
           </label>
-          <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">
+          <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
             Establece la plataforma de donde proviene tu catálogo maestro de productos.
           </p>
         </div>
-        <div style="display: flex; align-items: center; gap: 1rem;">
-          <select id="eq-main-platform-select" class="form-input" style="min-width: 200px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <select id="eq-main-platform-select" class="form-input" style="min-width: 180px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; height: 34px; font-size: 0.85rem;">
             <option value="" ${mainPlatform === '' ? 'selected' : ''}>Ninguna (Usar WMS)</option>
             <option value="Shopify" ${mainPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
             <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
@@ -1535,7 +1535,7 @@ async function renderCatalog() {
             <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
             <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
           </select>
-          <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); padding: 0.6rem 1.2rem; font-weight: 500; height: 38px;">
+          <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-md); padding: 0.45rem 1rem; font-weight: 500; height: 34px; font-size: 0.85rem;">
             <i class="ri-save-line"></i> Guardar
           </button>
         </div>
@@ -1582,38 +1582,38 @@ async function renderCatalog() {
               <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                    <th style="padding: 1rem 1.5rem;">Imagen</th>
-                    <th class="sortable-header" data-sort="sku" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por SKU">
+                    <th style="padding: 0.65rem 0.75rem;">Imagen</th>
+                    <th class="sortable-header" data-sort="sku" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por SKU">
                       SKU <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="name" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Nombre">
+                    <th class="sortable-header" data-sort="name" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Nombre">
                       Nombre <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="barcode" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Código de Barras">
+                    <th class="sortable-header" data-sort="barcode" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Código de Barras">
                       Cód. Barras <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="stock" style="padding: 1rem 1.5rem; text-align: center; cursor: pointer; user-select: none;" title="Ordenar por Stock Inicial">
+                    <th class="sortable-header" data-sort="stock" style="padding: 0.65rem 0.75rem; text-align: center; cursor: pointer; user-select: none;" title="Ordenar por Stock Inicial">
                       Stock Inicial <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="price" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Precio">
+                    <th class="sortable-header" data-sort="price" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Precio">
                       Precio <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="origin" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Origen">
+                    <th class="sortable-header" data-sort="origin" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Origen">
                       Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="medidas" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Medidas">
+                    <th class="sortable-header" data-sort="medidas" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Medidas">
                       Medidas <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="volumen" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Volumen">
+                    <th class="sortable-header" data-sort="volumen" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Volumen">
                       Volumen (m³) <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="weight" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Peso">
+                    <th class="sortable-header" data-sort="weight" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Peso">
                       Peso <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th class="sortable-header" data-sort="venc" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Vencimiento / Lote">
+                    <th class="sortable-header" data-sort="venc" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Vencimiento / Lote">
                       Venc. / Lote <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
-                    <th style="padding: 1rem 1.5rem;">Acciones</th>
+                    <th style="padding: 0.65rem 0.75rem;">Acciones</th>
                   </tr>
                 </thead>
                 <tbody id="catalog-master-tbody" style="font-size: 0.9rem; color: var(--color-text);">
@@ -1917,7 +1917,26 @@ async function openEditProductModal(prodId) {
 
 async function renderInventory() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem;">Cargando inventario...</p>`;
+  appContent.innerHTML = getObserverBanner() + `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
+      <style>
+        @keyframes wms-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes wms-pulse {
+          0%, 100% { opacity: 0.5; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1.1); }
+        }
+      </style>
+      <div style="position: relative; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; width: 80px; height: 80px;">
+        <div style="position: absolute; width: 64px; height: 64px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+        <i class="ri-archive-line" style="position: absolute; font-size: 1.8rem; color: var(--color-primary); display: inline-block; animation: wms-pulse 1.5s ease-in-out infinite;"></i>
+      </div>
+      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.1rem;">Cargando mi Inventario</h4>
+      <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem; text-align: center;">Por favor espera unos segundos mientras sincronizamos la información...</p>
+    </div>
+  `;
 
   try {
     const assignedComercios = (currentCompany || '')
@@ -1990,11 +2009,11 @@ async function renderInventory() {
     let commerceSelectorHtml = '';
     if (assignedComercios.length > 1) {
       commerceSelectorHtml = `
-        <div style="margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
+        <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.9rem;">
             <i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Comercio Activo
           </label>
-          <select id="inventory-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+          <select id="inventory-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem;">
             ${assignedComercios.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
           </select>
         </div>
@@ -2027,37 +2046,37 @@ async function renderInventory() {
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
                 <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th class="inventory-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="physical" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="physical" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Físico <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="pending" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="pending" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Pendiente <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="totalAvailable" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="totalAvailable" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Total) <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="stock_critico" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="stock_critico" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Crítico <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="status" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="status" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="sort-indicator"></span></span>
                   </th>
-                  <th style="text-align: center; width: 100px; padding: 1rem 1.5rem; white-space: nowrap;">Acciones</th>
+                  <th style="text-align: center; width: 100px; padding: 0.65rem 0.75rem; white-space: nowrap;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
@@ -2257,19 +2276,19 @@ function renderInventoryTableBody() {
 
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
-        <td style="padding: 0.75rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">
-          <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 70px; text-align: center; padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500;" ${isObserver ? 'disabled' : ''} />
+        <td style="padding: 0.45rem 0.75rem;"><strong>${r.sku || 'N/A'}</strong></td>
+        <td style="padding: 0.45rem 0.75rem;">${r.name || 'N/A'}</td>
+        <td style="padding: 0.45rem 0.75rem; color: var(--color-text-muted);">${r.warehouse}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center;"><strong>${r.physical}</strong></td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center;">
+          <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 60px; text-align: center; padding: 0.15rem 0.3rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;" ${isObserver ? 'disabled' : ''} />
         </td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">${badge}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">${actionBtnHtml}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center;">${badge}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center;">${actionBtnHtml}</td>
       </tr>
     `;
   }).join('');
@@ -3571,47 +3590,47 @@ async function renderOrders() {
 
     appContent.innerHTML = getObserverBanner() + `
       <!-- Tarjetas de KPI -->
-      <div class="orders-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem;">
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+      <div class="orders-kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-info-bg); color: var(--badge-info-text); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-shopping-bag-line"></i>
           </div>
           <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
-            <strong id="kpi-client-total" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+            <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; font-weight: 500;">Total Pedidos</span>
+            <strong id="kpi-client-total" style="font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-time-line"></i>
           </div>
           <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
-            <strong id="kpi-client-processing" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+            <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; font-weight: 500;">Para Procesar</span>
+            <strong id="kpi-client-processing" style="font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-success-bg); color: var(--badge-success-text); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-hammer-line"></i>
           </div>
           <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
-            <strong id="kpi-client-in-prep" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">0</strong>
+            <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; font-weight: 500;">En Preparación</span>
+            <strong id="kpi-client-in-prep" style="font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">0</strong>
           </div>
         </div>
-        <div class="kpi-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm);">
-          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+        <div class="kpi-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <div style="background: var(--badge-neutral-bg); color: var(--badge-neutral-text); width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
             <i class="ri-money-dollar-circle-line"></i>
           </div>
           <div>
-            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; font-weight: 500;">Valor Facturado</span>
-            <strong id="kpi-client-sales" style="font-size: 1.5rem; color: var(--color-text-main); font-weight: 700;">$0</strong>
+            <span style="font-size: 0.8rem; color: var(--color-text-muted); display: block; font-weight: 500;">Valor Facturado</span>
+            <strong id="kpi-client-sales" style="font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">$0</strong>
           </div>
         </div>
       </div>
 
       <!-- Panel de Filtros -->
-      <div class="filters-card" style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); margin-bottom: 1.5rem; box-shadow: var(--shadow-sm);">
+      <div class="filters-card" style="background: var(--color-surface); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1rem; box-shadow: var(--shadow-sm);">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;">
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-search-line"></i> Buscar Pedido</label>
@@ -3689,21 +3708,21 @@ async function renderOrders() {
         <div class="card-body" style="padding:0; overflow-x: auto;">
           <table class="data-table" style="min-width:600px;">
             <thead>
-              <tr>
-                <th style="width: 30px; text-align: center;"></th>
-                <th style="width: 40px; text-align: center;">
+              <tr style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); border-bottom: 2px solid var(--color-border);">
+                <th style="width: 30px; text-align: center; padding: 0.65rem 0.75rem;"></th>
+                <th style="width: 40px; text-align: center; padding: 0.65rem 0.75rem;">
                   <input type="checkbox" id="select-all-client-orders" style="cursor: pointer;">
                 </th>
-                <th style="min-width:140px;">ID Pedido</th>
-                <th>Origen</th>
-                <th>Fecha</th>
-                <th style="text-align:center;">Artículos</th>
-                <th style="text-align:right;">Valor Total</th>
-                <th>Tipo Despacho</th>
-                <th>SLA</th>
-                <th>Etiqueta</th>
-                <th>Estado Origen</th>
-                <th>Estado WMS</th>
+                <th style="min-width:140px; padding: 0.65rem 0.75rem;">ID Pedido</th>
+                <th style="padding: 0.65rem 0.75rem;">Origen</th>
+                <th style="padding: 0.65rem 0.75rem;">Fecha</th>
+                <th style="text-align:center; padding: 0.65rem 0.75rem;">Artículos</th>
+                <th style="text-align:right; padding: 0.65rem 0.75rem;">Valor Total</th>
+                <th style="padding: 0.65rem 0.75rem;">Tipo Despacho</th>
+                <th style="padding: 0.65rem 0.75rem;">SLA</th>
+                <th style="padding: 0.65rem 0.75rem;">Etiqueta</th>
+                <th style="padding: 0.65rem 0.75rem;">Estado Origen</th>
+                <th style="padding: 0.65rem 0.75rem;">Estado WMS</th>
               </tr>
             </thead>
             <tbody id="client-orders-tbody">
@@ -4316,13 +4335,13 @@ window.applyClientWmsFiltersAndRender = function() {
 
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
-        <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleClientOrderRow('${order.id}')">
+        <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary); padding: 0.45rem 0.75rem;" onclick="window.toggleClientOrderRow('${order.id}')">
           <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
         </td>
-        <td style="text-align: center; vertical-align: middle;">
+        <td style="text-align: center; vertical-align: middle; padding: 0.45rem 0.75rem;">
           <input type="checkbox" class="order-select-checkbox" data-order-id="${order.id}" style="cursor: pointer;" onclick="event.stopPropagation();">
         </td>
-        <td>
+        <td style="padding: 0.45rem 0.75rem;">
           <div style="display:flex; flex-direction:column; gap:0.2rem;">
             <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
             ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
@@ -4333,24 +4352,24 @@ window.applyClientWmsFiltersAndRender = function() {
             </div>
           </div>
         </td>
-        <td>${originHtml}</td>
-        <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem;">
+        <td style="padding: 0.45rem 0.75rem;">${originHtml}</td>
+        <td style="white-space:nowrap; color:var(--color-text-muted); font-size:0.82rem; padding: 0.45rem 0.75rem;">
           <i class="ri-calendar-line" style="margin-right:0.25rem;"></i>${dateStr}
         </td>
-        <td style="text-align:center;">
+        <td style="text-align:center; padding: 0.45rem 0.75rem;">
           <span style="font-size:1rem; font-weight:700; color:var(--color-text-main);">${totalItems}</span>
           <span style="display:block; font-size:0.68rem; color:var(--color-text-muted);">artículo${totalItems !== 1 ? 's' : ''}</span>
         </td>
-        <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap;">
+        <td style="text-align:right; font-weight:700; color:var(--color-text-main); white-space:nowrap; padding: 0.45rem 0.75rem;">
           ${window.formatCLP(order.total_value)}
         </td>
-        <td>${tipoHtml}</td>
-        <td>${slaHtml}</td>
-        <td>${labelHtml}</td>
-        <td>
+        <td style="padding: 0.45rem 0.75rem;">${tipoHtml}</td>
+        <td style="padding: 0.45rem 0.75rem;">${slaHtml}</td>
+        <td style="padding: 0.45rem 0.75rem;">${labelHtml}</td>
+        <td style="padding: 0.45rem 0.75rem;">
           <span style="background-color:${badgeColor}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
         </td>
-        <td>
+        <td style="padding: 0.45rem 0.75rem;">
           <span style="background-color:${wmsBadgeBg}; color:${wmsBadgeColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${wmsStatus}</span>
         </td>
       </tr>
@@ -9350,19 +9369,13 @@ window.renderDeclarations = async function() {
                   <label class="form-label" style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; display: block;">Seleccionar Productos del Catálogo</label>
                   <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Busca y añade los productos que registrarás en este ingreso.</p>
                   
-                  <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+                  <div style="position: relative; margin-bottom: 1rem;">
                     <div style="position: relative; display: flex; align-items: center; width: 100%;">
                       <i class="ri-search-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 0.95rem;"></i>
-                      <input type="text" id="dec-catalog-product-search" class="form-input" placeholder="Buscar por SKU o Nombre..." style="padding-left: 2.25rem; width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); border-radius: 6px; border: 1px solid var(--color-border);">
+                      <input type="text" id="dec-catalog-product-search" class="form-input" placeholder="Buscar por SKU o Nombre..." style="padding-left: 2.25rem; width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); border-radius: 6px; border: 1px solid var(--color-border);" autocomplete="off">
                     </div>
-                    <div style="display: flex; gap: 0.5rem;">
-                      <select id="dec-catalog-product-select" class="form-input" style="flex: 1; height: 38px;">
-                        <option value="">-- Selecciona un Producto --</option>
-                      </select>
-                      <button type="button" id="btn-add-catalog-product" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; margin: 0; display: flex; align-items: center; gap: 0.25rem;">
-                        <i class="ri-add-line" style="font-size: 1rem;"></i> Agregar
-                      </button>
-                    </div>
+                    <!-- Contenedor flotante de sugerencias autocomplete -->
+                    <div id="dec-catalog-search-results" style="display: none; position: absolute; top: 42px; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; max-height: 250px; overflow-y: auto; z-index: 999; box-shadow: 0 10px 25px rgba(0,0,0,0.3); padding: 0.25rem 0;"></div>
                   </div>
                   
                   <label class="form-label" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Productos Seleccionados</label>
@@ -9594,16 +9607,16 @@ window.renderDeclarations = async function() {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Título / Descripción</th>
-                  <th>Llegada Estimada</th>
-                  <th>Cant. Uds</th>
-                  <th>Bultos</th>
-                  <th>Volumen (m³)</th>
-                  <th>Costos (Est. / Real)</th>
-                  <th>Método Envío</th>
-                  <th>Estado</th>
-                  <th>Recibido / Incidencias</th>
-                  <th>Acciones</th>
+                  <th style="padding: 0.65rem 0.75rem;">Título / Descripción</th>
+                  <th style="padding: 0.65rem 0.75rem;">Llegada Estimada</th>
+                  <th style="padding: 0.65rem 0.75rem;">Cant. Uds</th>
+                  <th style="padding: 0.65rem 0.75rem;">Bultos</th>
+                  <th style="padding: 0.65rem 0.75rem;">Volumen (m³)</th>
+                  <th style="padding: 0.65rem 0.75rem;">Costos (Est. / Real)</th>
+                  <th style="padding: 0.65rem 0.75rem;">Método Envío</th>
+                  <th style="padding: 0.65rem 0.75rem;">Estado</th>
+                  <th style="padding: 0.65rem 0.75rem;">Recibido / Incidencias</th>
+                  <th style="padding: 0.65rem 0.75rem;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="declarations-table-body">
@@ -9768,51 +9781,86 @@ window.renderDeclarations = async function() {
         selectComm.addEventListener('change', checkSelectedCommerceTracking);
       }
 
-      // Search input filter for catalog products
+      // Autocomplete list suggestions for catalog products
       const searchProdInput = document.getElementById('dec-catalog-product-search');
-      if (searchProdInput) {
+      const searchResultsDiv = document.getElementById('dec-catalog-search-results');
+      if (searchProdInput && searchResultsDiv) {
         searchProdInput.addEventListener('input', (e) => {
           const term = e.target.value.toLowerCase().trim();
-          const selectProd = document.getElementById('dec-catalog-product-select');
-          if (!selectProd) return;
-          
-          const products = window.decCatalogProductsCache || [];
-          let html = '<option value="">-- Selecciona un Producto --</option>';
-          products.forEach(p => {
-            const nameMatch = p.name && p.name.toLowerCase().includes(term);
-            const skuMatch = p.sku && p.sku.toLowerCase().includes(term);
-            if (nameMatch || skuMatch || !term) {
-              html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}">${p.name} (${p.sku})</option>`;
-            }
-          });
-          selectProd.innerHTML = html;
-        });
-      }
-
-      const btnAddProd = document.getElementById('btn-add-catalog-product');
-      if (btnAddProd) {
-        btnAddProd.addEventListener('click', () => {
-          const selectProd = document.getElementById('dec-catalog-product-select');
-          const sku = selectProd.value;
-          if (!sku) {
-            alert('Por favor selecciona un producto.');
+          if (!term) {
+            searchResultsDiv.innerHTML = '';
+            searchResultsDiv.style.display = 'none';
             return;
           }
-          const option = selectProd.options[selectProd.selectedIndex];
-          const name = option.getAttribute('data-name');
-          const vol = parseFloat(option.getAttribute('data-vol') || '0');
-          addCatalogProductToDeclarationList(sku, name, vol);
-
-          // UX Polish: Clear search input, restore dropdown list, and focus search
-          const searchInput = document.getElementById('dec-catalog-product-search');
-          if (searchInput) {
-            searchInput.value = '';
-            // Trigger input to restore all options
-            searchInput.dispatchEvent(new Event('input'));
-            searchInput.focus();
-          } else {
-            selectProd.value = '';
+          
+          const products = window.decCatalogProductsCache || [];
+          const matches = products.filter(p => 
+            (p.name && p.name.toLowerCase().includes(term)) || 
+            (p.sku && p.sku.toLowerCase().includes(term))
+          );
+          
+          if (matches.length === 0) {
+            searchResultsDiv.innerHTML = '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center;">Sin coincidencias</div>';
+            searchResultsDiv.style.display = 'block';
+            return;
           }
+          
+          let html = '';
+          matches.forEach(p => {
+            html += `
+              <div class="search-result-item" 
+                   data-sku="${p.sku}" 
+                   data-name="${p.name.replace(/"/g, '&quot;')}" 
+                   data-vol="${p.volumen || 0}" 
+                   data-price="${p.price || 0}" 
+                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                   onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+                   onmouseout="this.style.backgroundColor='transparent'">
+                <strong style="color: var(--color-text-main);">${p.name}</strong>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+              </div>
+            `;
+          });
+          
+          searchResultsDiv.innerHTML = html;
+          searchResultsDiv.style.display = 'block';
+        });
+
+        // Prevent submitting form on Enter and auto-select single match
+        searchProdInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const items = searchResultsDiv.querySelectorAll('.search-result-item');
+            if (items.length === 1) {
+              items[0].click();
+            }
+          }
+        });
+
+        // Close results when clicking outside
+        document.addEventListener('click', (e) => {
+          if (!searchProdInput.contains(e.target) && !searchResultsDiv.contains(e.target)) {
+            searchResultsDiv.style.display = 'none';
+          }
+        });
+
+        // When a suggestion item is clicked, add it
+        searchResultsDiv.addEventListener('click', (e) => {
+          const item = e.target.closest('.search-result-item');
+          if (!item) return;
+          
+          const sku = item.getAttribute('data-sku');
+          const name = item.getAttribute('data-name');
+          const vol = parseFloat(item.getAttribute('data-vol') || '0');
+          const price = parseFloat(item.getAttribute('data-price') || '0');
+          
+          addCatalogProductToDeclarationList(sku, name, vol, price);
+          
+          // Clear and hide suggestions
+          searchProdInput.value = '';
+          searchResultsDiv.innerHTML = '';
+          searchResultsDiv.style.display = 'none';
+          searchProdInput.focus();
         });
       }
 
@@ -10021,8 +10069,9 @@ window.renderDeclarations = async function() {
             const sku = qtyInput.getAttribute('data-sku');
             const name = qtyInput.getAttribute('data-name');
             const qty = parseInt(qtyInput.value, 10);
+            const price = parseFloat(qtyInput.getAttribute('data-price') || '0');
             if (qty > 0) {
-              parsedProducts.push({ sku, name, qty, price: 0, subtotal: 0 });
+              parsedProducts.push({ sku, name, qty, price, subtotal: qty * price });
               totalQtyFromExcel += qty;
             }
           });
@@ -10039,7 +10088,8 @@ window.renderDeclarations = async function() {
             const ws = XLSX.utils.json_to_sheet(parsedProducts.map(p => ({
               'Nombre Producto': p.name,
               'SKU': p.sku,
-              'Cantidad declarada': p.qty
+              'Cantidad declarada': p.qty,
+              'Valor': p.price
             })));
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Productos");
@@ -10488,7 +10538,7 @@ async function fetchAndRenderClientDeclarations() {
 
       html += `
         <tr style="transition: background-color 0.2s;">
-          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
+          <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
             ${dec.title}
             <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
               <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
@@ -10499,16 +10549,16 @@ async function fetchAndRenderClientDeclarations() {
             </div>
             ` : ''}
           </td>
-          <td style="font-size: 0.85rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
-          <td style="font-size: 0.85rem;"><strong>${dec.quantity_declared}</strong></td>
-          <td style="font-size: 0.85rem;">
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><i class="ri-calendar-event-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${etaText}</td>
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><strong>${dec.quantity_declared}</strong></td>
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
             <strong>${dec.package_count}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${dec.package_type})</span>
             <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 2px;">
               C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}
             </div>
             ${dec.requires_unloading ? '<span class="badge" style="font-size: 0.65rem; padding: 1px 4px; border-radius: 3px; display: inline-block; margin-top: 2px; background-color: var(--badge-warning-bg); color: var(--badge-warning-text); font-weight: 600;">Descarga</span>' : ''}
           </td>
-          <td style="font-size: 0.85rem;">
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
             <div style="font-size: 0.85rem;">
               <span>Decl: <strong>${dec.volume_declared || 0} m³</strong></span><br>
               <span style="font-size: 0.75rem; color: var(--color-text-muted);">
@@ -10516,7 +10566,7 @@ async function fetchAndRenderClientDeclarations() {
               </span>
             </div>
           </td>
-          <td style="font-size: 0.85rem;">
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">
             <div style="font-size: 0.85rem;">
               <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(2)} UF</strong></span><br>
               <span style="font-size: 0.75rem; color: var(--color-text-muted);">
@@ -10524,10 +10574,10 @@ async function fetchAndRenderClientDeclarations() {
               </span>
             </div>
           </td>
-          <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
-          <td style="font-size: 0.85rem;">${statusBadge}</td>
-          <td style="font-size: 0.85rem;">${qtyReceivedText}</td>
-          <td style="font-size: 0.85rem; text-align: center; overflow: visible;">
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">${statusBadge}</td>
+          <td style="font-size: 0.85rem; padding: 0.45rem 0.75rem;">${qtyReceivedText}</td>
+          <td style="font-size: 0.85rem; text-align: center; overflow: visible; padding: 0.45rem 0.75rem;">
             <div class="table-action-menu">
               <button class="table-action-menu-btn" onclick="toggleTableActionMenu(event, this)">
                 <i class="ri-more-2-fill"></i> Acciones
@@ -11676,39 +11726,39 @@ window.renderBillingClient = async function() {
     </div>
     
     <!-- Información para Pago / Datos de Transferencia -->
-    <div class="card" style="margin-top: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-body" style="padding: 1.25rem 1.5rem;">
-        <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-          <i class="ri-bank-line" style="color: var(--color-primary); font-size: 1.2rem;"></i>
+    <div class="card" style="margin-top: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-body" style="padding: 0.75rem 1rem;">
+        <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+          <i class="ri-bank-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
           Datos para Pago y Transferencia Bancaria
         </h4>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; background: var(--color-bg); padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Razón Social</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">STOCKA SPA</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Razón Social</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">STOCKA SPA</strong>
           </div>
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">RUT</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">77.524.557-3</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">RUT</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">77.524.557-3</strong>
           </div>
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Banco</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">Scotiabank (Sud Americano)</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Banco</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">Scotiabank (Sud Americano)</strong>
           </div>
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Tipo de Cuenta</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">Cuenta Corriente</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Tipo de Cuenta</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">Cuenta Corriente</strong>
           </div>
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Número de Cuenta</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">992369965</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Número de Cuenta</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">992369965</strong>
           </div>
           <div>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.15rem; text-transform: uppercase; letter-spacing: 0.05em;">Correo Electrónico</span>
-            <strong style="color: var(--color-text-main); font-size: 0.85rem;">finanzas@stocka.cl</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Correo Electrónico</span>
+            <strong style="color: var(--color-text-main); font-size: 0.8rem;">finanzas@stocka.cl</strong>
           </div>
         </div>
-        <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
           <i class="ri-information-line" style="color: var(--color-primary);"></i>
           Por favor, envíe el comprobante de transferencia al correo indicado o infórmelo directamente en los botones de acción de su período de facturación.
         </p>
@@ -11904,16 +11954,16 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
               ${r.fulfillment_link ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-link" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
-                  <i class="ri-link" style="font-size: 0.9rem;"></i> Revisar registro de facturación
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-link" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
+                  <i class="ri-link" style="font-size: 0.8rem;"></i> Revisar registro de facturación
                 </button>
               ` : ''}
               ${r.fulfillment_pdf_url ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
-                  <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> Ver Desglose
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
+                  <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> Ver Desglose
                 </button>
               ` : ''}
-              ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>' : ''}
+              ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>' : ''}
             </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
@@ -11942,11 +11992,11 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             ${r.factura_fulfillment_pdf_url ? `
-              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Fulfillment #${r.num_factura || ''} - ${r.comercio}" data-url="${r.factura_fulfillment_pdf_url}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
-                <i class="ri-file-pdf-line" style="font-size: 0.95rem;"></i> #${r.num_factura || ''}
+              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Fulfillment #${r.num_factura || ''} - ${r.comercio}" data-url="${r.factura_fulfillment_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
+                <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> #${r.num_factura || ''}
               </button>
             ` : `
-              <span style="font-weight: 600; color: var(--color-text-main);">${r.num_factura || '-'}</span>
+              <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">${r.num_factura || '-'}</span>
             `}
           </td>
           <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
@@ -11970,10 +12020,10 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
               ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; height: auto;">
-                  <i class="ri-file-pdf-line" style="font-size: 0.9rem;"></i> ${pdf.name || `PDF ${idx + 1}`}
+                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
+                  <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> ${pdf.name || `PDF ${idx + 1}`}
                 </button>
-              `).join('') : '<span style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>'}
+              `).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>'}
             </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
@@ -11999,11 +12049,11 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle; text-align: center;">
             ${r.factura_enviame_pdf_url ? `
-              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Envíame #${r.num_factura_enviame || ''} - ${r.comercio}" data-url="${r.factura_enviame_pdf_url}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
-                <i class="ri-file-pdf-line" style="font-size: 0.95rem;"></i> #${r.num_factura_enviame || ''}
+              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Envíame #${r.num_factura_enviame || ''} - ${r.comercio}" data-url="${r.factura_enviame_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
+                <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> #${r.num_factura_enviame || ''}
               </button>
             ` : `
-              <span style="font-weight: 600; color: var(--color-text-main);">${r.num_factura_enviame || '-'}</span>
+              <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">${r.num_factura_enviame || '-'}</span>
             `}
           </td>
           <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
@@ -12136,20 +12186,20 @@ window.loadClientBillingData = async function(periodId) {
 
       <!-- Tabla Fulfillment -->
       <div id="billing-tab-fulf" class="table-responsive">
-        <table class="data-table" style="min-width: 1000px; font-size: 0.85rem; border-collapse: collapse;">
+        <table class="data-table" style="min-width: 900px; font-size: 0.8rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 200px; border-bottom: 1px solid var(--color-border);">Registros</th>
-              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Desglose</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
-              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
-              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
-              <th style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
-              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
-              <th style="min-width: 130px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
+              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Registros</th>
+              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Desglose</th>
+              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
+              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
+              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
+              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
+              <th style="min-width: 60px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
+              <th style="min-width: 110px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -12160,19 +12210,19 @@ window.loadClientBillingData = async function(periodId) {
 
       <!-- Tabla Envíame -->
       <div id="billing-tab-env" class="table-responsive" style="display: none;">
-        <table class="data-table" style="min-width: 1000px; font-size: 0.85rem; border-collapse: collapse;">
+        <table class="data-table" style="min-width: 900px; font-size: 0.8rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 200px; border-bottom: 1px solid var(--color-border);">Registros</th>
-              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
-              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
-              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
-              <th style="min-width: 70px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
-              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
-              <th style="min-width: 130px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
+              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Comercio</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Registros</th>
+              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Límite</th>
+              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
+              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
+              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
+              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
+              <th style="min-width: 60px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
+              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
+              <th style="min-width: 110px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -12558,14 +12608,14 @@ function injectClientBillingStyles() {
     .billing-summary-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1.5rem;
-      margin-bottom: 2rem;
+      gap: 1rem;
+      margin-bottom: 1rem;
     }
     .billing-summary-card {
       background: linear-gradient(145deg, var(--color-surface) 0%, rgba(30, 41, 59, 0.3) 100%);
       border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: var(--radius-lg);
-      padding: 1.5rem 1.75rem;
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1.25rem;
       display: flex;
       flex-direction: column;
       box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
@@ -12577,7 +12627,7 @@ function injectClientBillingStyles() {
     .billing-summary-card::before {
       content: '';
       position: absolute;
-      top: 0; left: 0; width: 100%; height: 4px;
+      top: 0; left: 0; width: 100%; height: 3px;
       background: var(--color-primary);
     }
     .billing-summary-card:nth-child(2)::before {
@@ -12587,26 +12637,26 @@ function injectClientBillingStyles() {
       background: var(--color-warning);
     }
     .billing-summary-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
     }
     .billing-summary-label {
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       color: var(--color-text-muted);
       text-transform: uppercase;
       font-weight: 700;
       letter-spacing: 0.05em;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.25rem;
       display: flex;
       align-items: center;
       gap: 0.35rem;
     }
     .billing-summary-label i {
-      font-size: 1.1rem;
+      font-size: 1rem;
       opacity: 0.8;
     }
     .billing-summary-value {
-      font-size: 1.75rem;
+      font-size: 1.35rem;
       font-weight: 800;
       color: var(--color-text-main);
       letter-spacing: -0.02em;
@@ -12617,16 +12667,16 @@ function injectClientBillingStyles() {
       display: inline-flex;
       background: var(--color-bg);
       border-radius: 50px;
-      padding: 0.25rem;
-      margin: 1rem 1.25rem;
+      padding: 0.2rem;
+      margin: 0.5rem 1rem;
       border: 1px solid var(--color-border);
       box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
     }
     .billing-tab-btn {
-      padding: 0.5rem 1.5rem;
+      padding: 0.4rem 1.25rem;
       border-radius: 50px;
       font-weight: 600;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       color: var(--color-text-muted);
       cursor: pointer;
       border: none;
@@ -12642,9 +12692,9 @@ function injectClientBillingStyles() {
     /* Filters Bar */
     .billing-filters-bar {
       display: flex;
-      gap: 1.5rem;
+      gap: 1rem;
       align-items: center;
-      padding: 1rem 1.25rem;
+      padding: 0.6rem 1rem;
       background: linear-gradient(90deg, rgba(30,41,59,0.2) 0%, transparent 100%);
       border-bottom: 1px solid var(--color-border);
       flex-wrap: wrap;
@@ -12678,6 +12728,14 @@ function injectClientBillingStyles() {
     
     .billing-record-row-fulf, .billing-record-row-env {
       transition: background-color 0.2s ease;
+    }
+    .billing-record-row-fulf td, .billing-record-row-env td {
+      padding: 0.35rem 0.45rem !important;
+      font-size: 0.78rem !important;
+    }
+    #billing-tab-fulf th, #billing-tab-env th, #billing-tab-extra th {
+      padding: 0.45rem 0.45rem !important;
+      font-size: 0.78rem !important;
     }
     .billing-record-row-fulf:hover, .billing-record-row-env:hover {
       background-color: rgba(255, 255, 255, 0.03);
@@ -14029,11 +14087,11 @@ function renderMasterCatalogRows(products) {
     const isObserver = userRole === 'observer';
     const deleteBtn = isObserver 
       ? '' 
-      : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
+      : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
     
     const actionBtn = isObserver 
       ? '' 
-      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
 
     let packBadge = '';
     if (item.is_pack) {
@@ -14053,18 +14111,18 @@ function renderMasterCatalogRows(products) {
 
     return `
       <tr data-product-row-id="${item.id}">
-        <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
-        <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
-        <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${initialStock}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
-        <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
-        <td style="padding: 0.75rem 1.5rem;">${dimensions}</td>
-        <td style="padding: 0.75rem 1.5rem;">${volumenHtml}</td>
-        <td style="padding: 0.75rem 1.5rem;">${weight}</td>
-        <td style="padding: 0.75rem 1.5rem;">${expAndLot}</td>
-        <td style="padding: 0.75rem 1.5rem;">${actionBtn}</td>
+        <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
+        <td style="padding: 0.45rem 0.75rem;"><strong>${item.sku}</strong></td>
+        <td style="padding: 0.45rem 0.75rem;">${item.name}</td>
+        <td style="padding: 0.45rem 0.75rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center;"><strong>${initialStock}</strong></td>
+        <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
+        <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}</td>
+        <td style="padding: 0.45rem 0.75rem;">${dimensions}</td>
+        <td style="padding: 0.45rem 0.75rem;">${volumenHtml}</td>
+        <td style="padding: 0.45rem 0.75rem;">${weight}</td>
+        <td style="padding: 0.45rem 0.75rem;">${expAndLot}</td>
+        <td style="padding: 0.45rem 0.75rem;">${actionBtn}</td>
       </tr>
     `;
   }).join('');
@@ -16551,6 +16609,21 @@ window.viewDeclarationProducts = async function(id) {
   }
 };
 
+function loadChartJS() {
+  return new Promise((resolve) => {
+    if (window.Chart) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+    script.onload = () => {
+      resolve();
+    };
+    document.head.appendChild(script);
+  });
+}
+
 window.renderVolumenDiario = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
@@ -16595,8 +16668,30 @@ window.renderVolumenDiario = async function() {
     return;
   }
 
+  // Default date range (current month)
+  const tzDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+  const y = tzDate.getFullYear();
+  const m = tzDate.getMonth();
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+
+  function formatDate(d) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  let startDate = formatDate(firstDay);
+  let endDate = formatDate(lastDay);
+  let selectedCommerce = activeComerces[0] || '';
+  let currentPage = 1;
+  const itemsPerPage = 15;
+  let allHistories = [];
+  let volumeChartInstance = null;
+
   appContent.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
       <div>
         <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Historial de Volumen Diario</h3>
         <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Historial de nivel de volumen de tu catálogo de productos medido diariamente a las 1:00 AM</p>
@@ -16609,39 +16704,65 @@ window.renderVolumenDiario = async function() {
     <!-- Stats & Selector Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; align-items: end;">
           <div class="form-group" style="margin: 0; ${activeComerces.length <= 1 ? 'display: none;' : ''}">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
-            <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0;">
-              ${activeComerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+            <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
+              ${activeComerces.map(c => `<option value="${c}" ${c === selectedCommerce ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
           </div>
-          
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Volumen Actual (Tiempo Real)</span>
-            <span id="volume-current-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-primary); margin-top: 0.25rem;">-- m³</span>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Fecha Inicio</label>
+            <input type="date" id="volume-start-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
           </div>
 
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Último Volumen Registrado</span>
-            <span id="volume-last-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.25rem;">-- m³</span>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Fecha Fin</label>
+            <input type="date" id="volume-end-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
           </div>
+          
+          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Volumen Actual</span>
+            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+          </div>
+
+          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Último Volumen</span>
+            <span id="volume-last-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart Card -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Histórico Diario (1:00 AM)
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
+          </span>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 1.25rem;">
+        <div style="position: relative; height: 320px; width: 100%;">
+          <canvas id="volume-chart-canvas"></canvas>
         </div>
       </div>
     </div>
 
     <!-- Table Card -->
     <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Historial de Registros</h4>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <input type="date" id="volume-filter-date" class="form-input" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; margin: 0; width: 150px;" title="Filtrar por fecha">
-          <button class="btn btn-outline" id="btn-clear-date-filter" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" title="Limpiar filtro de fecha"><i class="ri-close-line"></i></button>
-        </div>
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Detalle de Mediciones Diarias</h4>
       </div>
       <div class="card-body" style="padding: 0;">
         <div class="table-responsive" style="overflow-x: auto;">
-          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0;">
+          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0; font-size: 0.85rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg); text-align: left;">
                 <th style="padding: 0.75rem 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase;">Fecha</th>
@@ -16670,21 +16791,18 @@ window.renderVolumenDiario = async function() {
     </div>
   `;
 
-  // State
-  let selectedCommerce = activeComerces[0] || '';
-  let selectedDate = '';
-  let currentPage = 1;
-  const itemsPerPage = 15;
-  let allHistories = [];
+  // Set default values in inputs
+  document.getElementById('volume-start-date').value = startDate;
+  document.getElementById('volume-end-date').value = endDate;
 
   // DOM Elements
   const merchantSelect = document.getElementById('volume-merchant-select');
+  const startDateInput = document.getElementById('volume-start-date');
+  const endDateInput = document.getElementById('volume-end-date');
   const currentValSpan = document.getElementById('volume-current-value');
   const lastValSpan = document.getElementById('volume-last-value');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
-  const filterDateInput = document.getElementById('volume-filter-date');
-  const btnClearDate = document.getElementById('btn-clear-date-filter');
   const btnPrev = document.getElementById('btn-volume-prev');
   const btnNext = document.getElementById('btn-volume-next');
   const pageInfo = document.getElementById('volume-page-info');
@@ -16728,6 +16846,150 @@ window.renderVolumenDiario = async function() {
     }
   }
 
+  // Update Chart
+  async function updateChart() {
+    let liveVolume = 0;
+    try {
+      const { data: rtData, error: rtErr } = await supabase
+        .from('v_comercios_volumen_actual')
+        .select('volumen_actual')
+        .eq('comercio', selectedCommerce)
+        .maybeSingle();
+      if (rtErr) throw rtErr;
+      if (rtData) {
+        liveVolume = parseFloat(rtData.volumen_actual || 0);
+      }
+    } catch (e) {
+      console.error('Error al obtener volumen en tiempo real para gráfico:', e);
+    }
+
+    const tzToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+    const yy = tzToday.getFullYear();
+    const mm = String(tzToday.getMonth() + 1).padStart(2, '0');
+    const dd = String(tzToday.getDate()).padStart(2, '0');
+    const chileTodayStr = `${yy}-${mm}-${dd}`;
+
+    const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
+
+    // Group/Map histories by date
+    const dates = allHistories.map(item => item.fecha);
+    const labels = dates.map(d => {
+      const parts = d.split('-');
+      return `${parts[2]}/${parts[1]}`;
+    });
+    const values = allHistories.map(item => parseFloat(item.volumen || 0));
+
+    if (isTodayInRange) {
+      labels.push('Actual');
+      values.push(liveVolume);
+    }
+
+    const ctx = document.getElementById('volume-chart-canvas');
+    if (!ctx) return;
+
+    await loadChartJS();
+
+    if (volumeChartInstance) {
+      volumeChartInstance.destroy();
+    }
+
+    const pointBgColor = labels.map(l => l === 'Actual' ? '#f43f5e' : '#2563eb');
+    const pointBdColor = labels.map(l => l === 'Actual' ? '#fda4af' : '#3b82f6');
+    const pointRad = labels.map(l => l === 'Actual' ? 7 : 4);
+    const pointHoverRad = labels.map(l => l === 'Actual' ? 9 : 6);
+
+    volumeChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Volumen',
+          data: values,
+          borderColor: '#2563eb',
+          borderWidth: 2.5,
+          backgroundColor: (context) => {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return null;
+            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.15)');
+            gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+            return gradient;
+          },
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: pointBgColor,
+          pointBorderColor: pointBdColor,
+          pointBorderWidth: 2,
+          pointRadius: pointRad,
+          pointHoverRadius: pointHoverRad,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            borderColor: '#334155',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              title: function(context) {
+                const item = context[0];
+                if (item.label === 'Actual') {
+                  return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
+                }
+                const foundDate = dates[item.dataIndex];
+                if (foundDate) {
+                  const parts = foundDate.split('-');
+                  return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
+                }
+                return `Fecha: ${item.label}`;
+              },
+              label: function(context) {
+                return ` Volumen: ${context.parsed.y.toFixed(5)} m³`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              display: false
+            },
+            ticks: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              }
+            }
+          },
+          y: {
+            grid: {
+              color: 'rgba(148, 163, 184, 0.08)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              },
+              callback: function(value) {
+                return value.toFixed(3) + ' m³';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
   // Load Histories
   async function loadHistories() {
     tbody.innerHTML = `
@@ -16748,16 +17010,20 @@ window.renderVolumenDiario = async function() {
         query = query.in('comercio', activeComerces);
       }
       
-      if (selectedDate) {
-        query = query.eq('fecha', selectedDate);
+      if (startDate) {
+        query = query.gte('fecha', startDate);
+      }
+      if (endDate) {
+        query = query.lte('fecha', endDate);
       }
 
-      const { data, error } = await query.order('fecha', { ascending: false });
+      const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
 
       if (error) throw error;
 
       allHistories = data || [];
       currentPage = 1;
+      await updateChart();
       renderTableData();
     } catch (e) {
       console.error('Error al cargar historial de volumen:', e);
@@ -16774,7 +17040,10 @@ window.renderVolumenDiario = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    if (allHistories.length === 0) {
+    // Reverse historical data to show most recent first in table
+    const tableHistories = [...allHistories].reverse();
+
+    if (tableHistories.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="3" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
@@ -16789,11 +17058,11 @@ window.renderVolumenDiario = async function() {
       return;
     }
 
-    const totalItems = allHistories.length;
+    const totalItems = tableHistories.length;
     const totalPages = Math.ceil(totalItems / itemsPerPage);
     const startIdx = (currentPage - 1) * itemsPerPage;
     const endIdx = Math.min(startIdx + itemsPerPage, totalItems);
-    const pageItems = allHistories.slice(startIdx, endIdx);
+    const pageItems = tableHistories.slice(startIdx, endIdx);
 
     tbody.innerHTML = pageItems.map(item => {
       const d = new Date(item.fecha + 'T00:00:00');
@@ -16813,6 +17082,7 @@ window.renderVolumenDiario = async function() {
     pageInfo.textContent = `Mostrando ${startIdx + 1}-${endIdx} de ${totalItems} registros`;
   }
 
+  // Event Listeners
   if (merchantSelect) {
     merchantSelect.addEventListener('change', (e) => {
       selectedCommerce = e.target.value;
@@ -16821,14 +17091,13 @@ window.renderVolumenDiario = async function() {
     });
   }
 
-  filterDateInput.addEventListener('change', (e) => {
-    selectedDate = e.target.value;
+  startDateInput.addEventListener('change', (e) => {
+    startDate = e.target.value;
     loadHistories();
   });
 
-  btnClearDate.addEventListener('click', () => {
-    filterDateInput.value = '';
-    selectedDate = '';
+  endDateInput.addEventListener('change', (e) => {
+    endDate = e.target.value;
     loadHistories();
   });
 
@@ -17138,15 +17407,10 @@ async function checkSelectedCommerceTracking() {
 }
 
 async function loadCatalogProductsForDeclaration(commerce) {
-  const selectProd = document.getElementById('dec-catalog-product-select');
-  if (!selectProd) return;
-  
-  selectProd.innerHTML = '<option value="">Cargando productos...</option>';
-  
   try {
     const { data: prods, error } = await supabase
       .from('products')
-      .select('sku, name, volumen')
+      .select('sku, name, volumen, price')
       .eq('comercio', commerce)
       .order('name');
       
@@ -17154,24 +17418,26 @@ async function loadCatalogProductsForDeclaration(commerce) {
     
     window.decCatalogProductsCache = prods || [];
     
-    if (!prods || prods.length === 0) {
-      selectProd.innerHTML = '<option value="">-- No hay productos en catálogo --</option>';
-      return;
+    const selectProd = document.getElementById('dec-catalog-product-select');
+    if (selectProd) {
+      if (!prods || prods.length === 0) {
+        selectProd.innerHTML = '<option value="">-- No hay productos en catálogo --</option>';
+        return;
+      }
+      let html = '<option value="">-- Selecciona un Producto --</option>';
+      prods.forEach(p => {
+        html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}">${p.name} (${p.sku})</option>`;
+      });
+      selectProd.innerHTML = html;
     }
-    
-    let html = '<option value="">-- Selecciona un Producto --</option>';
-    prods.forEach(p => {
-      html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}">${p.name} (${p.sku})</option>`;
-    });
-    selectProd.innerHTML = html;
-    
   } catch (e) {
     console.error('Error preloading catalog products:', e);
-    selectProd.innerHTML = '<option value="">Error al cargar productos</option>';
+    const selectProd = document.getElementById('dec-catalog-product-select');
+    if (selectProd) selectProd.innerHTML = '<option value="">Error al cargar productos</option>';
   }
 }
 
-function addCatalogProductToDeclarationList(sku, name, vol) {
+function addCatalogProductToDeclarationList(sku, name, vol, price = 0) {
   const container = document.getElementById('dec-selected-products-list');
   if (!container) return;
 
@@ -17198,7 +17464,7 @@ function addCatalogProductToDeclarationList(sku, name, vol) {
       <div style="font-size: 0.72rem; color: var(--color-text-muted);">SKU: ${sku} | Vol: ${vol.toFixed(4)} m³</div>
     </div>
     <div style="display: flex; align-items: center; gap: 0.5rem;">
-      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" min="1" value="1" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
+      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" min="1" value="1" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
       <button type="button" class="btn-remove-selected-prod" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 0.25rem;"><i class="ri-delete-bin-line"></i></button>
     </div>
   `;

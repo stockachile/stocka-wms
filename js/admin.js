@@ -20768,8 +20768,30 @@ window.renderVolumenDiarioAdmin = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
 
+  // Default date range (current month) in America/Santiago timezone
+  const tzDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+  const y = tzDate.getFullYear();
+  const m = tzDate.getMonth();
+  const firstDay = new Date(y, m, 1);
+  const lastDay = new Date(y, m + 1, 0);
+
+  function formatDate(d) {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  let startDate = formatDate(firstDay);
+  let endDate = formatDate(lastDay);
+  let selectedCommerce = '';
+  let currentPage = 1;
+  const itemsPerPage = 15;
+  let allHistories = [];
+  let volumeChartInstance = null;
+
   appContent.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
       <div>
         <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Registro de Volumen Diario</h3>
         <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Visualiza y gestiona el histórico de volumen total diario de cada comercio con seguimiento de stock activo</p>
@@ -20782,26 +20804,36 @@ window.renderVolumenDiarioAdmin = async function() {
     <!-- Filters & Stats Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; align-items: end;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; align-items: end;">
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
-            <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0;">
+            <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
               <option value="">Cargando comercios...</option>
             </select>
           </div>
-          
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Volumen Actual (Tiempo Real)</span>
-            <span id="volume-current-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-primary); margin-top: 0.25rem;">-- m³</span>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Fecha Inicio</label>
+            <input type="date" id="volume-start-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
           </div>
 
-          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column;">
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase;">Último Registro Diario</span>
-            <span id="volume-last-value" style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.25rem;">-- m³</span>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Fecha Fin</label>
+            <input type="date" id="volume-end-date" class="form-input" style="width: 100%; margin: 0; height: 38px;">
+          </div>
+          
+          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Volumen Actual</span>
+            <span id="volume-current-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-primary); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+          </div>
+
+          <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Último Registro</span>
+            <span id="volume-last-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
           </div>
 
           <div id="volume-manual-action" style="display: none;">
-            <button class="btn btn-primary" id="btn-force-volume" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; height: 38px;">
+            <button class="btn btn-primary" id="btn-force-volume" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; height: 38px; font-size: 0.85rem;">
               <i class="ri-history-line"></i> Registrar Volumen Hoy
             </button>
           </div>
@@ -20809,18 +20841,34 @@ window.renderVolumenDiarioAdmin = async function() {
       </div>
     </div>
 
+    <!-- Chart Card -->
+    <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
+        <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Histórico Diario (1:00 AM)
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
+          </span>
+        </div>
+      </div>
+      <div class="card-body" style="padding: 1.25rem;">
+        <div style="position: relative; height: 320px; width: 100%;">
+          <canvas id="volume-chart-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+
     <!-- Table Card -->
     <div class="card" style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Historial de Registros</h4>
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <input type="date" id="volume-filter-date" class="form-input" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; margin: 0; width: 150px;" title="Filtrar por fecha">
-          <button class="btn btn-outline" id="btn-clear-date-filter" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;" title="Limpiar filtro de fecha"><i class="ri-close-line"></i></button>
-        </div>
+      <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Detalle de Mediciones Diarias</h4>
       </div>
       <div class="card-body" style="padding: 0;">
         <div class="table-responsive" style="overflow-x: auto;">
-          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0;">
+          <table class="table" style="width: 100%; border-collapse: collapse; margin: 0; font-size: 0.85rem;">
             <thead>
               <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg); text-align: left;">
                 <th style="padding: 0.75rem 1.5rem; font-size: 0.8rem; color: var(--color-text-muted); text-transform: uppercase;">Fecha</th>
@@ -20850,23 +20898,20 @@ window.renderVolumenDiarioAdmin = async function() {
     </div>
   `;
 
-  // State
-  let selectedCommerce = '';
-  let selectedDate = '';
-  let currentPage = 1;
-  const itemsPerPage = 15;
-  let allHistories = [];
+  // Set default values in inputs
+  document.getElementById('volume-start-date').value = startDate;
+  document.getElementById('volume-end-date').value = endDate;
 
   // DOM Elements
   const merchantSelect = document.getElementById('volume-merchant-select');
+  const startDateInput = document.getElementById('volume-start-date');
+  const endDateInput = document.getElementById('volume-end-date');
   const currentValSpan = document.getElementById('volume-current-value');
   const lastValSpan = document.getElementById('volume-last-value');
   const actionDiv = document.getElementById('volume-manual-action');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnForce = document.getElementById('btn-force-volume');
-  const filterDateInput = document.getElementById('volume-filter-date');
-  const btnClearDate = document.getElementById('btn-clear-date-filter');
   const btnPrev = document.getElementById('btn-volume-prev');
   const btnNext = document.getElementById('btn-volume-next');
   const pageInfo = document.getElementById('volume-page-info');
@@ -20904,40 +20949,192 @@ window.renderVolumenDiarioAdmin = async function() {
     lastValSpan.textContent = '-- m³';
     actionDiv.style.display = 'none';
 
-    if (!selectedCommerce) return;
-
     try {
-      const { data: realTimeData, error: rtErr } = await supabase
-        .from('v_comercios_volumen_actual')
-        .select('volumen_actual')
-        .eq('comercio', selectedCommerce)
-        .maybeSingle();
+      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
+      if (selectedCommerce) {
+        rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      }
+      const { data: realTimeData, error: rtErr } = await rtQuery;
 
       if (rtErr) throw rtErr;
-      const volReal = realTimeData ? parseFloat(realTimeData.volumen_actual || 0) : 0;
+      const volReal = realTimeData ? realTimeData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0) : 0;
       currentValSpan.textContent = `${volReal.toFixed(5)} m³`;
 
-      actionDiv.style.display = 'block';
+      if (selectedCommerce) {
+        actionDiv.style.display = 'block';
 
-      const { data: lastRecord, error: lastErr } = await supabase
-        .from('comercios_volumen_diario')
-        .select('volumen, fecha')
-        .eq('comercio', selectedCommerce)
-        .order('fecha', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        const { data: lastRecord, error: lastErr } = await supabase
+          .from('comercios_volumen_diario')
+          .select('volumen, fecha')
+          .eq('comercio', selectedCommerce)
+          .order('fecha', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      if (lastErr) throw lastErr;
-      if (lastRecord) {
-        const d = new Date(lastRecord.fecha + 'T00:00:00');
-        const formattedDate = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        lastValSpan.textContent = `${parseFloat(lastRecord.volumen).toFixed(5)} m³ (${formattedDate})`;
+        if (lastErr) throw lastErr;
+        if (lastRecord) {
+          const d = new Date(lastRecord.fecha + 'T00:00:00');
+          const formattedDate = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          lastValSpan.textContent = `${parseFloat(lastRecord.volumen).toFixed(5)} m³ (${formattedDate})`;
+        } else {
+          lastValSpan.textContent = 'Sin registros';
+        }
       } else {
-        lastValSpan.textContent = 'Sin registros';
+        lastValSpan.textContent = 'N/A (Multiples)';
       }
     } catch (e) {
       console.error('Error al cargar estadísticas de volumen:', e);
     }
+  }
+
+  // Update Chart
+  async function updateChart() {
+    let liveVolume = 0;
+    try {
+      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
+      if (selectedCommerce) {
+        rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      }
+      const { data: rtData, error: rtErr } = await rtQuery;
+      if (rtErr) throw rtErr;
+      if (rtData) {
+        liveVolume = rtData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0);
+      }
+    } catch (e) {
+      console.error('Error al obtener volumen en tiempo real para gráfico:', e);
+    }
+
+    const tzToday = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+    const yy = tzToday.getFullYear();
+    const mm = String(tzToday.getMonth() + 1).padStart(2, '0');
+    const dd = String(tzToday.getDate()).padStart(2, '0');
+    const chileTodayStr = `${yy}-${mm}-${dd}`;
+
+    const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
+
+    // Group histories by date
+    const groupedHistories = {};
+    allHistories.forEach(item => {
+      const dStr = item.fecha;
+      groupedHistories[dStr] = (groupedHistories[dStr] || 0) + parseFloat(item.volumen || 0);
+    });
+
+    const dates = Object.keys(groupedHistories).sort();
+    const labels = dates.map(d => {
+      const parts = d.split('-');
+      return `${parts[2]}/${parts[1]}`;
+    });
+    const values = dates.map(d => groupedHistories[d]);
+
+    if (isTodayInRange) {
+      labels.push('Actual');
+      values.push(liveVolume);
+    }
+
+    const ctx = document.getElementById('volume-chart-canvas');
+    if (!ctx) return;
+
+    await loadChartJS();
+
+    if (volumeChartInstance) {
+      volumeChartInstance.destroy();
+    }
+
+    const pointBgColor = labels.map(l => l === 'Actual' ? '#f43f5e' : '#2563eb');
+    const pointBdColor = labels.map(l => l === 'Actual' ? '#fda4af' : '#3b82f6');
+    const pointRad = labels.map(l => l === 'Actual' ? 7 : 4);
+    const pointHoverRad = labels.map(l => l === 'Actual' ? 9 : 6);
+
+    volumeChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Volumen',
+          data: values,
+          borderColor: '#2563eb',
+          borderWidth: 2.5,
+          backgroundColor: (context) => {
+            const chart = context.chart;
+            const {ctx, chartArea} = chart;
+            if (!chartArea) return null;
+            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.15)');
+            gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
+            return gradient;
+          },
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: pointBgColor,
+          pointBorderColor: pointBdColor,
+          pointBorderWidth: 2,
+          pointRadius: pointRad,
+          pointHoverRadius: pointHoverRad,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.9)',
+            titleColor: '#fff',
+            bodyColor: '#fff',
+            borderColor: '#334155',
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              title: function(context) {
+                const item = context[0];
+                if (item.label === 'Actual') {
+                  return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
+                }
+                const foundDate = dates[item.dataIndex];
+                if (foundDate) {
+                  const parts = foundDate.split('-');
+                  return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
+                }
+                return `Fecha: ${item.label}`;
+              },
+              label: function(context) {
+                return ` Volumen: ${context.parsed.y.toFixed(5)} m³`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: {
+              display: false
+            },
+            ticks: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              }
+            }
+          },
+          y: {
+            grid: {
+              color: 'rgba(148, 163, 184, 0.08)',
+              drawBorder: false
+            },
+            ticks: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              },
+              callback: function(value) {
+                return value.toFixed(3) + ' m³';
+              }
+            }
+          }
+        }
+      }
+    });
   }
 
   // Load Histories
@@ -20957,16 +21154,20 @@ window.renderVolumenDiarioAdmin = async function() {
       if (selectedCommerce) {
         query = query.eq('comercio', selectedCommerce);
       }
-      if (selectedDate) {
-        query = query.eq('fecha', selectedDate);
+      if (startDate) {
+        query = query.gte('fecha', startDate);
+      }
+      if (endDate) {
+        query = query.lte('fecha', endDate);
       }
 
-      const { data, error } = await query.order('fecha', { ascending: false });
+      const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
 
       if (error) throw error;
 
       allHistories = data || [];
       currentPage = 1;
+      await updateChart();
       renderTableData();
     } catch (e) {
       console.error('Error al cargar historial de volumen:', e);
@@ -20983,7 +21184,10 @@ window.renderVolumenDiarioAdmin = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    if (allHistories.length === 0) {
+    // Reverse historical data to show most recent first in table
+    const tableHistories = [...allHistories].reverse();
+
+    if (tableHistories.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="4" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
@@ -20998,11 +21202,11 @@ window.renderVolumenDiarioAdmin = async function() {
       return;
     }
 
-    const totalItems = allHistories.length;
+    const totalItems = tableHistories.length;
     const totalPages = Math.ceil(totalItems / itemsPerPage);
     const startIdx = (currentPage - 1) * itemsPerPage;
     const endIdx = Math.min(startIdx + itemsPerPage, totalItems);
-    const pageItems = allHistories.slice(startIdx, endIdx);
+    const pageItems = tableHistories.slice(startIdx, endIdx);
 
     tbody.innerHTML = pageItems.map(item => {
       const d = new Date(item.fecha + 'T00:00:00');
@@ -21033,14 +21237,13 @@ window.renderVolumenDiarioAdmin = async function() {
     loadHistories();
   });
 
-  filterDateInput.addEventListener('change', (e) => {
-    selectedDate = e.target.value;
+  startDateInput.addEventListener('change', (e) => {
+    startDate = e.target.value;
     loadHistories();
   });
 
-  btnClearDate.addEventListener('click', () => {
-    filterDateInput.value = '';
-    selectedDate = '';
+  endDateInput.addEventListener('change', (e) => {
+    endDate = e.target.value;
     loadHistories();
   });
 
@@ -21096,6 +21299,7 @@ window.renderVolumenDiarioAdmin = async function() {
   });
 
   await loadComercios();
+  await updateVolumeStats();
   await loadHistories();
 };
 

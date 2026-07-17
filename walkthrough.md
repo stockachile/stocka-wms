@@ -95,3 +95,15 @@ Hemos implementado un visualizador interactivo para ver en detalle qué pedidos 
    - Nombre del cliente receptor.
    - Estado del pedido en tiempo real.
    - Cantidad exacta de unidades de este SKU que el pedido tiene comprometidas.
+
+---
+
+## 8. Pantalla de Carga Premium en Módulo de Inventario (Cliente)
+
+Para mejorar el diseño visual y la experiencia de usuario (UX), hemos alineado el módulo de inventario con el de catálogo introduciendo una pantalla de carga dedicada:
+
+### Detalles Visuales:
+1. **Diseño Uniforme**: Utiliza un contenedor centrado con fondo de tarjeta de superficie (`var(--color-surface)`), bordes redondeados y sombra sutil.
+2. **Animación Circular**: Muestra un spinner animado circular continuo que rota suavemente en 360 grados (`wms-spin`).
+3. **Ícono Pulsante**: Centrado dentro del círculo de carga, el ícono de caja archivadora (`ri-archive-line`) tiene una animación de pulso continuo (`wms-pulse`) escalando suavemente de tamaño y opacidad.
+4. **Textos**: Muestra el título *"Cargando mi Inventario"* en negrita junto con el texto de espera habitual.
