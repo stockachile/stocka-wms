@@ -235,6 +235,20 @@ async function syncMerchantOrders(integration) {
         }
       }
 
+      // Obtener ítems del pedido desde la API (para rescatar equivalencias de SKU, tracking y courier)
+      console.log(`--> Obteniendo ítems para el pedido ${orderId}...`);
+      const items = await fetchOrderItems(integration, orderId);
+      if (items.length === 0) {
+        console.log(`⚠️ No se encontraron ítems para el pedido ${orderId}. Ignorando.`);
+        continue;
+      }
+
+      // Extraer datos de tracking y courier desde los ítems
+      const trackingCodeItem = items.find(item => item.TrackingCode && item.TrackingCode.trim() !== '')?.TrackingCode;
+      const trackingNum = trackingCodeItem || orderId;
+      const shipmentProviderItem = items.find(item => item.ShipmentProvider && item.ShipmentProvider.trim() !== '')?.ShipmentProvider;
+      const courierName = shipmentProviderItem || 'Falabella';
+
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
@@ -260,6 +274,8 @@ async function syncMerchantOrders(integration) {
               status: 'cancelado', 
               comercio: integration.comercio, 
               shipping_method: shippingMethodVal,
+              tracking_number: trackingNum,
+              courier: courierName,
               created_at: new Date(order.CreatedAt).toISOString() 
             })
             .eq('id', existingOrder.id);
@@ -273,10 +289,12 @@ async function syncMerchantOrders(integration) {
               raw_falabella_data: order, 
               comercio: integration.comercio, 
               shipping_method: shippingMethodVal,
+              tracking_number: trackingNum,
+              courier: courierName,
               created_at: new Date(order.CreatedAt).toISOString() 
             })
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${orderNumber}`);
+          console.log(`📝 Actualizado pedido local ${orderNumber} (Tracking: ${trackingNum}, Courier: ${courierName})`);
         }
 
         // Si existe pero no tiene etiqueta de despacho, intentar descargarla
@@ -303,14 +321,6 @@ async function syncMerchantOrders(integration) {
           shouldInsertItems = true;
         }
       } else {
-        // Pedido nuevo: Obtener ítems del pedido desde la API
-        console.log(`--> Obteniendo ítems para el pedido nuevo ${orderId}...`);
-        const items = await fetchOrderItems(integration, orderId);
-        if (items.length === 0) {
-          console.log(`⚠️ No se encontraron ítems para el pedido ${orderId}. Ignorando.`);
-          continue;
-        }
-
         // Descargar etiqueta de despacho
         console.log(`--> Descargando etiqueta de despacho...`);
         labelBase64 = await downloadLabelBase64(integration, orderId);
@@ -355,6 +365,8 @@ async function syncMerchantOrders(integration) {
           raw_falabella_data: order,
           label_base64: labelBase64,
           shipping_method: shippingMethodVal,
+          tracking_number: trackingNum,
+          courier: courierName,
           // Nuevas columnas planas
           origen: 'Falabella',
           item: flatItemName,

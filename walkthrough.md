@@ -47,7 +47,8 @@ Hemos completado el desarrollo e integración de los módulos de edición de dec
 ## Instrucciones para Puesta en Marcha (Usuario)
 
 1. **Migración de Base de Datos:**
-   - La estructura de la base de datos se mantiene idéntica a la instalada en el paso anterior. No se requieren scripts SQL adicionales.
+   - Para habilitar la opción de incluir/excluir el pedido inicial en el descuento de stock, debes actualizar la función `should_process_order_stock` en Supabase.
+   - Copia el código actualizado de [supabase_schema_inventory_control.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/supabase_schema_inventory_control.sql) y ejecútalo en el SQL Editor de tu consola de Supabase.
 
 2. **Probar el Flujo de Edición (Cliente):**
    - Inicia sesión como cliente. En la tabla resumen, haz click en el botón **"Editar"** en una declaración en estado *"Creada"*.
@@ -74,3 +75,23 @@ Hemos implementado un validador interactivo y proactivo para la configuración d
    - **Plataforma Incorrecta (Naranja)**: Si el pedido existe en la base de datos para ese comercio pero pertenece a una plataforma externa distinta a la del campo (por ejemplo, se ingresa en el campo de *Shopify* pero corresponde a *Manual*), muestra un mensaje de advertencia naranja: `"Encontrado en [Plataforma] (DD/MM/AAAA, Estado: [Estado])"`.
    - **No Encontrado (Rojo)**: Si el pedido no se encuentra para ese comercio, muestra un mensaje de advertencia rojo indicando que no se localizó la orden.
    - **Campo Vacío (Gris)**: Indica el comportamiento por defecto: `"Descontará stock desde el inicio (todas las órdenes)"`.
+
+---
+
+## 7. Consulta de Detalle de Stock Comprometido (Admin y Cliente)
+
+Hemos implementado un visualizador interactivo para ver en detalle qué pedidos de venta y qué canales/clientes están comprometiendo stock de un determinado producto:
+
+### Características:
+1. **Acceso Rápido**: En la columna **Comprometido** de la tabla de stock (tanto en la vista del administrador como la del cliente), si la cantidad comprometida es mayor a cero, el número se mostrará como un enlace interactivo subrayado.
+2. **Modal Informativa**: Al hacer clic en el número comprometido, se despliega una modal dedicada con la información del producto (Nombre, SKU y Bodega seleccionada).
+3. **Filtro Inteligente por RPC (`get_committed_order_details`)**: 
+   - Realiza la consulta directa a través de un procedimiento almacenado en Supabase que filtra de forma inteligente excluyendo estados terminales (`despachado`, `cancelado`, `entregado`, `retirado`).
+   - Además, aplica la función `should_process_order_stock(order_id)` en caliente, garantizando que **solo se listen aquellos pedidos que se crearon posterior a la marca de inicio (inclusive/exclusive según el checkbox)**. Esto previene cualquier discrepancia visual con la cantidad de stock comprometida acumulada en la base de datos.
+4. **Campos Mostrados**:
+   - Fecha/Hora de creación del pedido.
+   - Número de pedido o canal ID.
+   - Canal de origen (Shopify, Falabella, MercadoLibre, Manual, etc.).
+   - Nombre del cliente receptor.
+   - Estado del pedido en tiempo real.
+   - Cantidad exacta de unidades de este SKU que el pedido tiene comprometidas.

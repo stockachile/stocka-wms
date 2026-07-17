@@ -18,9 +18,11 @@ DECLARE
   v_platform TEXT;
   v_start_config JSONB;
   v_start_order_num TEXT;
+  v_include BOOLEAN;
   v_start_ts TIMESTAMP WITH TIME ZONE;
-  v_start_val TEXT;
-  v_order_val TEXT;
+  v_start_order_id UUID;
+  v_start_val BIGINT;
+  v_order_val BIGINT;
 BEGIN
   -- A. Obtener datos del pedido
   SELECT * INTO v_order FROM public.orders WHERE id = p_order_id;
@@ -55,10 +57,13 @@ BEGIN
 
   -- Extraer el número de orden de inicio (ej: "1024" o "#1024")
   v_start_order_num := v_start_config->>'external_order_number';
+  
+  -- Leer flag de incluir (si no existe, por defecto es TRUE)
+  v_include := COALESCE((v_start_config->>'incluir')::BOOLEAN, TRUE);
 
   IF v_start_order_num IS NOT NULL AND v_start_order_num != '' THEN
-    -- Intentar buscar el pedido en la base de datos para extraer su created_at
-    SELECT created_at INTO v_start_ts
+    -- Intentar buscar el pedido en la base de datos para extraer su created_at e ID
+    SELECT id, created_at INTO v_start_order_id, v_start_ts
     FROM public.orders
     WHERE comercio = v_order.comercio
       AND COALESCE(external_platform, 'Manual') = v_platform
@@ -66,18 +71,33 @@ BEGIN
     LIMIT 1;
 
     IF v_start_ts IS NOT NULL THEN
-      -- Si el pedido de inicio existe, comparamos por fecha de creación (más robusto)
-      RETURN v_order.created_at >= v_start_ts;
+      IF v_include THEN
+        RETURN v_order.created_at >= v_start_ts;
+      ELSE
+        -- Si no se incluye, descartamos explícitamente el pedido de inicio por ID o número de orden
+        IF v_order.id = v_start_order_id OR v_order.external_order_number = v_start_order_num THEN
+          RETURN FALSE;
+        END IF;
+        RETURN v_order.created_at > v_start_ts;
+      END IF;
     ELSE
       -- Si el pedido no se encuentra en la base de datos, realizamos comparación numérica del número de orden
-      v_start_val := regexp_replace(v_start_order_num, '[^0-9]', '', 'g');
-      v_order_val := regexp_replace(v_order.external_order_number, '[^0-9]', '', 'g');
+      v_start_val := regexp_replace(v_start_order_num, '[^0-9]', '', 'g')::BIGINT;
+      v_order_val := regexp_replace(v_order.external_order_number, '[^0-9]', '', 'g')::BIGINT;
 
-      IF v_start_val = '' OR v_order_val = '' THEN
+      IF v_start_val IS NULL OR v_order_val IS NULL THEN
         -- Si no son puramente numéricos, usar comparación de texto lexicográfica
-        RETURN v_order.external_order_number >= v_start_order_num;
+        IF v_include THEN
+          RETURN v_order.external_order_number >= v_start_order_num;
+        ELSE
+          RETURN v_order.external_order_number > v_start_order_num;
+        END IF;
       ELSE
-        RETURN v_order_val::BIGINT >= v_start_val::BIGINT;
+        IF v_include THEN
+          RETURN v_order_val >= v_start_val;
+        ELSE
+          RETURN v_order_val > v_start_val;
+        END IF;
       END IF;
     END IF;
   END IF;
@@ -138,5 +158,35 @@ BEGIN
   END IF;
   
   RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. Crear función para obtener el desglose de pedidos comprometidos aplicando las reglas de inicio
+CREATE OR REPLACE FUNCTION public.get_committed_order_details(p_product_id UUID, p_warehouse_id UUID)
+RETURNS TABLE (
+  quantity INTEGER,
+  order_id UUID,
+  external_order_number TEXT,
+  external_platform TEXT,
+  status TEXT,
+  created_at TIMESTAMP WITH TIME ZONE,
+  customer_name TEXT
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    oi.quantity,
+    o.id AS order_id,
+    o.external_order_number,
+    o.external_platform,
+    o.status,
+    o.created_at,
+    o.customer_name
+  FROM public.order_items oi
+  JOIN public.orders o ON o.id = oi.order_id
+  WHERE oi.product_id = p_product_id
+    AND oi.warehouse_id = p_warehouse_id
+    AND o.status NOT IN ('despachado', 'cancelado', 'entregado', 'retirado')
+    AND public.should_process_order_stock(o.id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

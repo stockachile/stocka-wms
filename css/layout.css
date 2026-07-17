@@ -1,7 +1,14 @@
 /* Dashboard Layout Variables */
 :root {
-  --sidebar-width: 260px;
-  --header-height: 70px;
+  --sidebar-width: 250px;
+  --header-height: 65px;
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --sidebar-width: 220px;
+    --header-height: 55px;
+  }
 }
 
 .dashboard-body {

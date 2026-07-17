@@ -674,6 +674,19 @@ window.updateAdminBadges = async function() {
       badgeDecs.style.display = decCount > 0 ? 'inline-flex' : 'none';
     }
 
+    // 5. Integrations
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const { count: integrationsCount } = await supabase
+      .from('merchant_integrations')
+      .select('*', { count: 'exact', head: true })
+      .gte('created_at', fortyEightHoursAgo);
+      
+    const badgeIntegrations = document.getElementById('badge-integrations');
+    if (badgeIntegrations && integrationsCount !== null) {
+      badgeIntegrations.textContent = integrationsCount;
+      badgeIntegrations.style.display = integrationsCount > 0 ? 'inline-flex' : 'none';
+    }
+
   } catch (e) {
     console.error('Error updating admin badges:', e);
   }
@@ -872,7 +885,8 @@ async function renderAdminOrders() {
     if (orders && orders.length > 0) {
       const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
       const orderIds = orders.map(o => o.id);
-      const allRefs = [...orderRefs, ...orderIds];
+      const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
+      const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
       const { data: shipData, error: shipError } = await supabase
         .from('envios_unificados')
@@ -963,7 +977,8 @@ async function renderAdminOrders() {
           // Cargar despachos correspondientes para historial
           const orderRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
           const orderIds = histOrders.map(o => o.id);
-          const allRefs = [...orderRefs, ...orderIds];
+          const orderTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
+          const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
           const { data: shipData, error: shipError } = await supabase
             .from('envios_unificados')
@@ -1421,11 +1436,65 @@ window.applyWmsFiltersAndRender = function() {
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
     // Buscar el envío en el listado cargado
-    const orderShipments = shipments.filter(s => 
+    let orderShipments = shipments.filter(s => 
       s.pedido_referencia === order.id || 
       (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
       (order.tracking_number && s.pedido_referencia === order.tracking_number)
     );
+
+    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella o Paris, simular uno a partir del estado de la orden
+    const isVirtualPlatform = order.origen === 'MercadoLibre' || 
+                              order.external_platform === 'MercadoLibre' || 
+                              order.origen === 'Falabella' || 
+                              order.external_platform === 'Falabella' ||
+                              order.origen === 'Paris' || 
+                              order.external_platform === 'Paris';
+
+    if (orderShipments.length === 0 && isVirtualPlatform) {
+      let globStatus = 'SIN MOVIMIENTO';
+      
+      const wmsStatus = (order.status || '').toLowerCase().trim();
+      const channelStatus = (order.payment_status || '').toLowerCase().trim();
+      
+      const isShipped = wmsStatus === 'despachado' || 
+                        wmsStatus === 'entregado' || 
+                        wmsStatus === 'retirado' ||
+                        channelStatus === 'shipped' || 
+                        channelStatus === 'delivered' || 
+                        channelStatus === 'shipped_by_seller' || 
+                        channelStatus === 'received' || 
+                        channelStatus === 'closed';
+                        
+      const isAlert = wmsStatus === 'cancelado' || 
+                      wmsStatus === 'incidencia' || 
+                      channelStatus === 'cancelled' || 
+                      channelStatus === 'refunded' || 
+                      channelStatus === 'refused';
+      
+      if (isShipped) {
+        globStatus = 'DESPACHADO';
+      } else if (isAlert) {
+        globStatus = 'ALERTA';
+      }
+      
+      const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
+      const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
+      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : 'MercadoLibre');
+      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : 'mercadolibre');
+      
+      orderShipments = [{
+        id: `virtual:${order.id}`,
+        source_table: sourceTable,
+        source_id: order.id,
+        tracking: order.tracking_number || 'N/A',
+        tracking_url: order.tracking_url || 'N/A',
+        courier: order.courier || defaultCourier,
+        status: order.status,
+        global_status: globStatus,
+        created_at: order.created_at,
+        updated_at: order.created_at
+      }];
+    }
 
     // Detectar packs originales desde el canal de integración
     let originalPacksHtml = '';
@@ -1540,9 +1609,28 @@ window.applyWmsFiltersAndRender = function() {
       ? `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem;"><i class="ri-check-line"></i> Exportado</span>`
       : '';
 
+    let shipmentBadgeHtml = '';
+    if (orderShipments.length > 0) {
+      const shipment = orderShipments[0];
+      const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
+      const courierName = shipment.courier || 'Courier';
+      let badgeBg = '#e5e7eb';
+      let badgeColor = '#4b5563';
+      
+      if (globStatus === 'DESPACHADO') {
+        badgeBg = '#d1fae5';
+        badgeColor = '#065f46';
+      } else if (globStatus === 'ALERTA') {
+        badgeBg = '#fee2e2';
+        badgeColor = '#991b1b';
+      }
+      
+      shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
+    }
+
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}</div></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}</div></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}</div></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -4631,6 +4719,7 @@ async function renderAdminInventoryWorkspace(commerce) {
         comercio,
         stock_critico,
         inventory (
+          warehouse_id,
           quantity,
           committed_quantity,
           warehouses (name)
@@ -4641,6 +4730,32 @@ async function renderAdminInventoryWorkspace(commerce) {
     const { data: products, error } = await query;
 
     if (error) throw error;
+
+    // Obtener stock en tránsito / pendiente de ingreso
+    let pendingStockMap = {};
+    try {
+      const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
+      const { data: decs } = await supabase
+        .from('stock_declarations')
+        .select('products_list, file_base64')
+        .eq('comercio', commerce)
+        .in('status', activeStatuses);
+        
+      if (decs) {
+        decs.forEach(dec => {
+          const decProds = getDeclarationProducts(dec);
+          decProds.forEach(p => {
+            if (p.sku) {
+              const skuNorm = p.sku.trim();
+              pendingStockMap[skuNorm] = (pendingStockMap[skuNorm] || 0) + (p.qty || 0);
+            }
+          });
+        });
+      }
+    } catch (e) {
+      console.error('Error calculating pending stock map:', e);
+    }
+    window.adminInventoryPendingStockMap = pendingStockMap;
 
     window.cachedAdminInventoryProducts = products || [];
 
@@ -4680,6 +4795,9 @@ async function renderAdminInventoryWorkspace(commerce) {
                   </th>
                   <th class="admin-inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="admin-sort-indicator"></span></span>
+                  </th>
+                  <th class="admin-inventory-sortable" data-sort="pending" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Pendiente <span class="admin-sort-indicator"></span></span>
                   </th>
                   <th class="admin-inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="admin-sort-indicator"></span></span>
@@ -4755,7 +4873,7 @@ function renderAdminInventoryTableBody() {
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No se encontraron productos coincidentes.
         </td>
       </tr>
@@ -4779,13 +4897,22 @@ function renderAdminInventoryTableBody() {
       </button>
     `;
 
+    const committedHtml = r.committed > 0
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${r.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${r.warehouse.replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos">${r.committed}</span>`
+      : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+
+    const pendingHtml = r.pending > 0
+      ? `<span class="badge-pending-link" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-primary); font-weight: 700;" title="Ver ingresos pendientes">${r.pending}</span>`
+      : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
         <td style="padding: 0.75rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${r.committed}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center;">
@@ -4847,6 +4974,25 @@ function renderAdminInventoryTableBody() {
       openAdminProductMovementsModal(prodId, sku, name);
     });
   });
+
+  tbody.querySelectorAll('.badge-committed-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-prod-id');
+      const whId = e.currentTarget.getAttribute('data-warehouse-id');
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      const whName = e.currentTarget.getAttribute('data-warehouse-name');
+      openCommittedDetailModal(prodId, whId, sku, name, whName);
+    });
+  });
+
+  tbody.querySelectorAll('.badge-pending-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      const sku = e.currentTarget.getAttribute('data-prod-sku');
+      const name = e.currentTarget.getAttribute('data-prod-name');
+      openPendingDetailModal(sku, name);
+    });
+  });
 }
 
 function applyAdminInventoryFiltersAndSort() {
@@ -4866,14 +5012,18 @@ function applyAdminInventoryFiltersAndSort() {
       ? 'Agotado' 
       : (totalAvailable <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
 
+    const pendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[prod.sku.trim()] || 0) : 0;
+
     if (invList.length === 0) {
       rows.push({
         id: prod.id,
         sku: prod.sku || '',
         name: prod.name || '',
         warehouse: 'Sin asignar',
+        warehouse_id: null,
         physical: 0,
         committed: 0,
+        pending: pendingVal,
         available: 0,
         totalAvailable: totalAvailable,
         stock_critico: prod.stock_critico || 0,
@@ -4887,8 +5037,10 @@ function applyAdminInventoryFiltersAndSort() {
           sku: prod.sku || '',
           name: prod.name || '',
           warehouse: inv.warehouses?.name || 'N/A',
+          warehouse_id: inv.warehouse_id,
           physical: inv.quantity || 0,
           committed: inv.committed_quantity || 0,
+          pending: pendingVal,
           available: available,
           totalAvailable: totalAvailable,
           stock_critico: prod.stock_critico || 0,
@@ -5114,6 +5266,119 @@ async function openAdminProductMovementsModal(productId, sku, name) {
     const modalBody = document.getElementById('movements-modal-body-admin');
     if (modalBody) {
       modalBody.innerHTML = `<p style="color: red; text-align: center; padding: 2rem;">Error al cargar movimientos: ${err.message}</p>`;
+    }
+  }
+}
+
+async function openCommittedDetailModal(productId, warehouseId, sku, name, warehouseName) {
+  const modalId = 'modal-committed-detail';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-heart-pulse-line" style="color: var(--color-accent);"></i> Detalle de Stock Comprometido
+          </h3>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+            ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong> <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> Bodega: <strong>${warehouseName}</strong>
+          </p>
+        </div>
+        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="committed-detail-modal-body">
+        <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
+          <p style="margin: 0; font-size: 0.9rem;">Buscando pedidos pendientes que comprometen stock...</p>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  try {
+    const { data: items, error } = await supabase.rpc('get_committed_order_details', {
+      p_product_id: productId,
+      p_warehouse_id: warehouseId
+    });
+
+    if (error) throw error;
+
+    const modalBody = document.getElementById('committed-detail-modal-body');
+    if (!modalBody) return;
+
+    if (!items || items.length === 0) {
+      modalBody.innerHTML = `
+        <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
+          <i class="ri-checkbox-circle-line" style="font-size: 3rem; color: var(--color-success); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay pedidos pendientes comprometiendo stock para este producto en esta bodega.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let totalQty = 0;
+    let rowsHtml = items.map(item => {
+      totalQty += item.quantity || 0;
+      
+      const formattedDate = item.created_at 
+        ? new Date(item.created_at).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+        : '-';
+
+      const platform = item.external_platform || 'Manual';
+      const orderNum = item.external_order_number || item.order_id || 'N/A';
+      const customer = item.customer_name || 'N/A';
+      const statusBadge = `<span class="badge" style="background-color: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase;">${item.status || 'N/A'}</span>`;
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
+          <td style="padding: 0.85rem 0.5rem; font-weight: 600;">${orderNum}</td>
+          <td style="padding: 0.85rem 0.5rem; text-transform: capitalize;">${platform}</td>
+          <td style="padding: 0.85rem 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${customer}</td>
+          <td style="padding: 0.85rem 0.5rem;">${statusBadge}</td>
+          <td style="padding: 0.85rem 0.5rem; text-align: center; font-weight: 700; color: var(--color-accent);">${item.quantity}</td>
+        </tr>
+      `;
+    }).join('');
+
+    modalBody.innerHTML = `
+      <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+            <th style="padding: 0.6rem 0.5rem;">Fecha / Hora</th>
+            <th style="padding: 0.6rem 0.5rem;">Nº Pedido</th>
+            <th style="padding: 0.6rem 0.5rem;">Plataforma</th>
+            <th style="padding: 0.6rem 0.5rem;">Cliente</th>
+            <th style="padding: 0.6rem 0.5rem;">Estado Pedido</th>
+            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cant. Comprometida</th>
+          </tr>
+        </thead>
+        <tbody style="color: var(--color-text-main);">
+          ${rowsHtml}
+          <tr style="background: rgba(0,0,0,0.02); font-weight: bold; border-top: 2px solid var(--color-border);">
+            <td colspan="5" style="padding: 0.85rem 0.5rem; text-align: right;">Total Comprometido:</td>
+            <td style="padding: 0.85rem 0.5rem; text-align: center; font-size: 1rem; color: var(--color-accent);">${totalQty}</td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+
+  } catch (err) {
+    console.error('Error al cargar detalle de stock comprometido:', err);
+    const modalBody = document.getElementById('committed-detail-modal-body');
+    if (modalBody) {
+      modalBody.innerHTML = `<p style="color: red; text-align: center; padding: 2rem;">Error al cargar detalle: ${err.message}</p>`;
     }
   }
 }
@@ -17207,7 +17472,7 @@ window.showMerchantEditModal = function(comercioName) {
     : '';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 500px; width: 90%;">
+    <div class="modal-content" style="max-width: 650px; width: 90%;">
       <form id="form-edit-merchant" style="margin: 0;">
         <div class="modal-header">
           <h3 style="margin: 0;"><i class="ri-edit-line"></i> Configurar Comercio: ${comercioName}</h3>
@@ -17256,6 +17521,7 @@ window.showMerchantEditModal = function(comercioName) {
                 
                 // Input para Manual siempre visible
                 const manualVal = startObj.Manual?.external_order_number || '';
+                const manualIncluir = startObj.Manual?.incluir !== false; // Por defecto es true
                 html += `
                   <div>
                     <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
@@ -17265,13 +17531,20 @@ window.showMerchantEditModal = function(comercioName) {
                         <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.5rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
                       </div>
                     </div>
-                    <div class="validation-message" data-platform="Manual" style="margin-left: 125px; margin-top: 0.2rem; font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                    <div style="margin-left: 125px; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                      <label style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: normal; margin: 0; user-select: none;">
+                        <input type="checkbox" class="start-order-include" data-platform="Manual" ${manualIncluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
+                        Incluir este pedido
+                      </label>
+                      <div class="validation-message" data-platform="Manual" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                    </div>
                   </div>
                 `;
 
                 activeInts.forEach(i => {
                   const platform = i.platform;
                   const val = startObj[platform]?.external_order_number || '';
+                  const incluir = startObj[platform]?.incluir !== false; // Por defecto es true
                   html += `
                     <div>
                       <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
@@ -17281,7 +17554,13 @@ window.showMerchantEditModal = function(comercioName) {
                           <i class="validation-spinner ri-loader-4-line spin" style="position: absolute; right: 0.5rem; display: none; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
                         </div>
                       </div>
-                      <div class="validation-message" data-platform="${platform}" style="margin-left: 125px; margin-top: 0.2rem; font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                      <div style="margin-left: 125px; margin-top: 0.2rem; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                        <label style="display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; cursor: pointer; color: var(--color-text-main); font-weight: normal; margin: 0; user-select: none;">
+                          <input type="checkbox" class="start-order-include" data-platform="${platform}" ${incluir ? 'checked' : ''} style="width: auto; margin: 0; vertical-align: middle;">
+                          Incluir este pedido
+                        </label>
+                        <div class="validation-message" data-platform="${platform}" style="font-size: 0.75rem; min-height: 16px; line-height: 1.2;"></div>
+                      </div>
                     </div>
                   `;
                 });
@@ -17333,6 +17612,7 @@ window.showMerchantEditModal = function(comercioName) {
     const container = input.closest('div');
     const spinner = container.querySelector('.validation-spinner');
     const messageDiv = input.closest('div').parentNode.parentNode.querySelector(`.validation-message[data-platform="${platform}"]`);
+    const includeCheckbox = input.closest('div').parentNode.parentNode.querySelector(`.start-order-include[data-platform="${platform}"]`);
 
     let debounceTimeout = null;
 
@@ -17380,10 +17660,12 @@ window.showMerchantEditModal = function(comercioName) {
                                   (platform !== 'Manual' && order.external_platform && order.external_platform.toLowerCase() === platform.toLowerCase());
 
           const formattedDate = order.created_at ? new Date(order.created_at).toLocaleDateString('es-CL') : 'N/A';
+          const incluir = includeCheckbox ? includeCheckbox.checked : true;
+          const inclText = incluir ? 'incluyendo este pedido' : 'excluyendo este pedido';
 
           if (isPlatformMatch) {
             if (messageDiv) {
-              messageDiv.innerHTML = `<span style="color: var(--color-success); font-weight: 500;"><i class="ri-checkbox-circle-fill" style="vertical-align: middle; margin-right: 0.25rem;"></i>Pedido encontrado (${formattedDate}, Estado: ${order.status})</span>`;
+              messageDiv.innerHTML = `<span style="color: var(--color-success); font-weight: 500;"><i class="ri-checkbox-circle-fill" style="vertical-align: middle; margin-right: 0.25rem;"></i>Pedido encontrado (${formattedDate}, ${inclText}, Estado: ${order.status})</span>`;
             }
             input.style.borderColor = 'var(--color-success)';
           } else {
@@ -17427,6 +17709,12 @@ window.showMerchantEditModal = function(comercioName) {
       if (debounceTimeout) clearTimeout(debounceTimeout);
       validate();
     });
+
+    if (includeCheckbox) {
+      includeCheckbox.addEventListener('change', () => {
+        validate();
+      });
+    }
   });
 
   const form = document.getElementById('form-edit-merchant');
@@ -17451,8 +17739,11 @@ window.showMerchantEditModal = function(comercioName) {
       const platform = input.getAttribute('data-platform');
       const val = input.value.trim();
       if (val) {
+        const includeCheckbox = input.closest('div').parentNode.parentNode.querySelector(`.start-order-include[data-platform="${platform}"]`);
+        const incluir = includeCheckbox ? includeCheckbox.checked : true;
         startOrdersObj[platform] = {
-          external_order_number: val
+          external_order_number: val,
+          incluir: incluir
         };
       }
     });
@@ -20807,6 +21098,175 @@ window.renderVolumenDiarioAdmin = async function() {
   await loadComercios();
   await loadHistories();
 };
+
+function getDeclarationProducts(dec) {
+  if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+    return dec.products_list;
+  }
+  if (dec.file_base64) {
+    try {
+      const binaryString = window.atob(dec.file_base64);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const workbook = XLSX.read(bytes, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      const parsed = [];
+      if (rows && rows.length > 1) {
+        const headerRow = rows[0];
+        const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+        const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+        const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+        
+        if (skuIdx !== -1 && nameIdx !== -1 && qtyIdx !== -1) {
+          for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            if (row && row[skuIdx] !== undefined) {
+              parsed.push({
+                sku: String(row[skuIdx] || '').trim(),
+                name: String(row[nameIdx] || '').trim(),
+                qty: parseInt(row[qtyIdx] || 0)
+              });
+            }
+          }
+        }
+      }
+      return parsed;
+    } catch (e) {
+      console.error('Error fallback parsing Excel:', e);
+    }
+  }
+  return [];
+}
+
+async function openPendingDetailModal(sku, name) {
+  const modalId = 'modal-pending-detail';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-loader-4-line" style="color: var(--color-primary);"></i> Detalle de Stock Pendiente de Ingreso
+          </h3>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
+            \${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>\${sku}</strong>
+          </p>
+        </div>
+        <button class="modal-close" onclick="document.getElementById('\${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="pending-detail-modal-body">
+        <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
+          <p style="margin: 0; font-size: 0.9rem;">Buscando ingresos activos con este producto...</p>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('\${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  try {
+    const activeStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'];
+    const commerce = window.activeIntegrationCommerce || (window.currentSelectedCommerceWms);
+    const selectedCommerce = commerce || document.getElementById('inv-commerce-select')?.value || '';
+    
+    let query = supabase
+      .from('stock_declarations')
+      .select('id, title, status, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, products_list, file_base64')
+      .in('status', activeStatuses);
+      
+    if (selectedCommerce) {
+      query = query.eq('comercio', selectedCommerce);
+    }
+
+    const { data: declarations, error } = await query.order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const modalBody = document.getElementById('pending-detail-modal-body');
+    if (!modalBody) return;
+
+    const matchingDecs = [];
+    if (declarations) {
+      declarations.forEach(dec => {
+        const products = getDeclarationProducts(dec);
+        const match = products.find(p => p.sku && p.sku.trim().toLowerCase() === sku.trim().toLowerCase());
+        if (match) {
+          matchingDecs.push({
+            id: dec.id,
+            title: dec.title,
+            status: dec.status,
+            eta: dec.estimated_arrival_type === 'exact' 
+              ? `\${dec.estimated_arrival_date.split('-')[2]}/\${dec.estimated_arrival_date.split('-')[1]}/\${dec.estimated_arrival_date.split('-')[0]}`
+              : dec.estimated_arrival_period,
+            qty: match.qty
+          });
+        }
+      });
+    }
+
+    if (matchingDecs.length === 0) {
+      modalBody.innerHTML = `
+        <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
+          <i class="ri-checkbox-circle-line" style="font-size: 3rem; color: var(--color-success); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay ingresos de stock activos con este producto en camino.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let rowsHtml = matchingDecs.map(item => {
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.85rem;">
+          <td style="padding: 0.75rem 1rem;"><strong>\${item.title}</strong></td>
+          <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">\${item.eta}</td>
+          <td style="padding: 0.75rem 1rem;">
+            <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-size: 0.75rem;">\${item.status}</span>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 600; color: var(--color-primary);">\${item.qty.toLocaleString()}</td>
+        </tr>
+      `;
+    }).join('');
+
+    modalBody.innerHTML = `
+      <table class="data-table" style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); text-align: left; font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted);">
+            <th style="padding: 0.5rem 1rem;">Ingreso / Declaración</th>
+            <th style="padding: 0.5rem 1rem;">ETA / Llegada</th>
+            <th style="padding: 0.5rem 1rem;">Estado</th>
+            <th style="padding: 0.5rem 1rem; text-align: right;">Cantidad Pendiente</th>
+          </tr>
+        </thead>
+        <tbody>
+          \${rowsHtml}
+        </tbody>
+      </table>
+    `;
+
+  } catch (err) {
+    console.error('Error fetching pending details:', err);
+    const modalBody = document.getElementById('pending-detail-modal-body');
+    if (modalBody) {
+      modalBody.innerHTML = `<p style="color: var(--color-danger); text-align: center; padding: 2rem;">Error al buscar detalles: \${err.message}</p>`;
+    }
+  }
+}
 
 
 
