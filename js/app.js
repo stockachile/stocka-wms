@@ -5467,14 +5467,10 @@ async function renderIntegrations() {
                     <input type="password" id="walmart-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" required style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
                   </div>
                   <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">Redirect URI / Shop URL (Opcional)</label>
-                    <input type="text" id="walmart-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${walmartRedirectUri}" style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <label class="form-label" style="font-weight: 600;">Redirect URI (Copiar en tu panel de Walmart)</label>
+                    <input type="text" id="walmart-redirect-uri" class="form-input" value="${walmartRedirectUri}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); cursor: not-allowed;">
                   </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWalmart ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Código de Autorización / Refresh Token (Opcional)</label>
-                    <input type="password" id="walmart-auth-code" class="form-input" placeholder="Ingresa el código si usas flujo Auth Code" style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido si tu cuenta requiere flujo de código de autorización en lugar de credenciales de cliente directas.</p>
-                  </div>
+                  <input type="hidden" id="walmart-auth-code" value="">
                   <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
                     ${walmartButtonHtml}
                   </div>
