@@ -5457,14 +5457,6 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   }
 }
 
-  } catch (err) {
-    console.error('Error al cargar movimientos:', err);
-    const modalBody = document.getElementById('movements-modal-body-admin');
-    if (modalBody) {
-      modalBody.innerHTML = `<p style="color: red; text-align: center; padding: 2rem;">Error al cargar movimientos: ${err.message}</p>`;
-    }
-  }
-}
 
 async function openCommittedDetailModal(productId, warehouseId, sku, name, warehouseName) {
   const modalId = 'modal-committed-detail';
