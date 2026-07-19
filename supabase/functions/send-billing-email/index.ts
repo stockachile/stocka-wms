@@ -359,6 +359,48 @@ serve(async (req) => {
         </div>
       `;
     } 
+    else if (emailType === 'payment_overdue_manual') {
+      emailSubject = `[AVISO] Plazo de pago vencido - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #f97316, #ea580c)';
+      emailTitle = 'Plazo de Pago Vencido';
+
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Nos comunicamos para informarte que se ha <strong>excedido el plazo límite de pago</strong> para tus servicios pendientes del periodo <strong>${periodName}</strong>.
+        </div>
+
+        <div style="background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #c2410c; line-height: 1.5; font-weight: 600;">
+          ⚠️ Te invitamos a regularizar tu situación a la brevedad para evitar la interrupción o pausa temporal de tus operaciones y servicios de despacho.
+        </div>
+
+        ${servicesHtml}
+
+        <div style="margin-top: 25px; padding: 15px; background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 15px; font-weight: 700; color: #1e3a8a;">Total Pendiente:</span>
+          <span style="font-size: 20px; font-weight: 800; color: #1e3a8a;">${formatCLP(totalMonto)}</span>
+        </div>
+
+        ${appealDeadlineNote}
+
+        ${paymentDetailsHtml}
+
+        <div style="margin-top: 30px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; background-color: #f8fafc;">
+          <strong style="color: #1e293b; font-size: 15px; display: block; margin-bottom: 12px;">¿Cómo puedes informar tu pago?</strong>
+          <ul style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #475569; line-height: 1.6;">
+            <li style="margin-bottom: 6px;"><strong>Opción 1 (Recomendada):</strong> Sube tu comprobante directamente en el WMS Stocka ingresando a la sección <strong>Facturación</strong> y haciendo clic en el botón de adjunto (clip 📎) en el periodo correspondiente.</li>
+            <li style="margin-bottom: 6px;"><strong>Opción 2:</strong> Responde directamente a este correo adjuntando el comprobante de la transferencia realizada.</li>
+          </ul>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 30px; padding: 15px; background-color: #fff1f2; border: 1px solid #ffe4e6; color: #9f1239; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Nota sobre la continuidad de tu servicio:</strong><br>
+          Recordamos que mantener tus facturas al día es fundamental. En caso de no registrarse el pago oportuno, el servicio de preparación y despacho de tu comercio podría ser pausado temporalmente en los próximos días.
+        </div>
+      `;
+    }
     else if (emailType === 'suspension_warning') {
       emailSubject = `[ALERTA CRÍTICA] Aviso de suspensión de servicio - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #dc2626, #991b1b)';
@@ -555,6 +597,73 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'onboarding_received') {
+      emailSubject = `Hemos recibido tu solicitud de alta - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
+      emailTitle = 'Solicitud de Alta Recibida';
+      
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          ¡Gracias por completar tu proceso de onboarding! Hemos recibido con éxito tus datos comerciales y el contrato firmado.
+        </div>
+        
+        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #1e40af; line-height: 1.5;">
+          <strong>Estado:</strong> En Revisión Comercial<br>
+          Nuestro equipo revisará los documentos adjuntos y configurará los parámetros de tu comercio. Te notificaremos por correo electrónico en un plazo estimado de 24 a 48 horas hábiles.
+        </div>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+          Durante este periodo, si necesitas realizar alguna modificación o tienes dudas, puedes responder directamente a este correo.
+        </div>
+      `;
+    }
+    else if (emailType === 'onboarding_approved') {
+      emailSubject = `¡Tu cuenta de Fulfillment 360 está activa! - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #10b981, #059669)';
+      emailTitle = 'Alta de Comercio Aprobada';
+      
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          ¡Nos complace informarte que <strong>tu solicitud de alta ha sido aprobada con éxito</strong>!
+        </div>
+        
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center;">
+          CUENTA ACTIVA Y OPERATIVA
+        </div>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+          Tu comercio ha sido configurado en el WMS de Stocka. A partir de ahora puedes acceder con tus credenciales de usuario registradas y utilizar todas las funcionalidades:
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>Cargar y gestionar tu catálogo de productos.</li>
+            <li>Crear declaraciones de ingreso de stock a bodega.</li>
+            <li>Conectar tus integraciones de Shopify, WooCommerce u otras plataformas.</li>
+          </ul>
+        </div>
+      `;
+    }
+    else if (emailType === 'onboarding_observed') {
+      emailSubject = `Acción requerida: Observaciones en tu solicitud de alta - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #f97316, #d97706)';
+      emailTitle = 'Solicitud Pendiente de Corrección';
+      
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Hemos revisado tu solicitud de alta y se han detectado algunas <strong>observaciones que requieren tu atención</strong> antes de proceder con la activación.
+        </div>
+        
+        <div style="background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #c2410c; line-height: 1.5;">
+          <strong style="display: block; margin-bottom: 5px;">Detalle de Observaciones:</strong>
+          <span style="font-style: italic; color: #475569;">${customMessage || 'Por favor revisa el portal para ver las observaciones.'}</span>
+        </div>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+          Para resolver esto, simplemente inicia sesión en el portal WMS con tu cuenta, revisa el detalle del estado y utiliza el botón de corregir para actualizar tu información o contrato firmado.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `[Facturación] Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -647,10 +756,11 @@ serve(async (req) => {
 </html>
       `;
 
+    const isOnboarding = ['onboarding_received', 'onboarding_approved', 'onboarding_observed'].includes(emailType);
     const brevoPayload = {
       sender: {
-        name: "Finanzas Stocka",
-        email: "finanzas@stocka.cl"
+        name: isOnboarding ? "Stocka" : "Finanzas Stocka",
+        email: isOnboarding ? "info@stocka.cl" : "finanzas@stocka.cl"
       },
       to: recipientEmails.map(email => ({ email })),
       subject: emailSubject,
@@ -678,24 +788,26 @@ serve(async (req) => {
 
     const brevoData = await brevoRes.json();
 
-    // Registrar log de notificación en la base de datos
-    try {
-      const { error: logErr } = await supabaseClient
-        .from('billing_notification_logs')
-        .insert([{
-          record_id: record?.id || null,
-          comercio: commerceName,
-          periodo_nombre: periodName || 'General',
-          email_type: emailType,
-          sent_to: recipientEmails
-        }]);
-      if (logErr) {
-        console.error("Error al insertar log de notificación:", logErr.message);
-      } else {
-        console.log("Log de notificación guardado para:", commerceName);
+    // Registrar log de notificación en la base de datos si no es onboarding
+    if (!isOnboarding) {
+      try {
+        const { error: logErr } = await supabaseClient
+          .from('billing_notification_logs')
+          .insert([{
+            record_id: record?.id || null,
+            comercio: commerceName,
+            periodo_nombre: periodName || 'General',
+            email_type: emailType,
+            sent_to: recipientEmails
+          }]);
+        if (logErr) {
+          console.error("Error al insertar log de notificación:", logErr.message);
+        } else {
+          console.log("Log de notificación guardado para:", commerceName);
+        }
+      } catch (logErr: any) {
+        console.warn("Fallo al registrar log de notificación:", logErr.message);
       }
-    } catch (logErr: any) {
-      console.warn("Fallo al registrar log de notificación:", logErr.message);
     }
 
     return new Response(JSON.stringify({ 

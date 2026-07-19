@@ -308,18 +308,49 @@ async function syncProducts(integration) {
     const products = data.products;
     console.log(`Se encontraron ${products.length} productos base.`);
 
+    const seenSkus = new Set();
     const productsToUpsert = [];
     for (const product of products) {
+      // Intentar obtener la imagen principal del producto
+      let imageUrl = null;
+      if (product.image && product.image.src) {
+        imageUrl = product.image.src;
+      } else if (product.images && product.images.length > 0) {
+        imageUrl = product.images[0].src;
+      }
+
       for (const variant of product.variants) {
         let variantSku = variant.sku || variant.id.toString();
         let cleanSku = variantSku.trim();
         if (!cleanSku) continue;
 
+        const upperSku = cleanSku.toUpperCase();
+        if (seenSkus.has(upperSku)) {
+          let suffixIndex = 1;
+          let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+          while (seenSkus.has(newSku.toUpperCase())) {
+            suffixIndex++;
+            newSku = `${cleanSku}-DUP-${suffixIndex}`;
+          }
+          cleanSku = newSku;
+        }
+        seenSkus.add(cleanSku.toUpperCase());
+
+        // Si la variante tiene una imagen específica, la usamos, si no usamos la del producto principal
+        let varImageUrl = imageUrl;
+        if (product.images && variant.image_id) {
+          const matchedImg = product.images.find(img => img.id === variant.image_id);
+          if (matchedImg && matchedImg.src) {
+            varImageUrl = matchedImg.src;
+          }
+        }
+
         productsToUpsert.push({
           comercio: integration.comercio,
           platform: 'Shopify',
           sku: cleanSku,
-          name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`
+          name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`,
+          image_url: varImageUrl
         });
       }
     }

@@ -41,14 +41,16 @@
           <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
           
           <li class="sidebar-category-header">Gestión y Sistema</li>
+          <li><a href="#" class="nav-item" data-view="onboarding_admin"><i class="ri-git-pull-request-line"></i> <span class="nav-text">Solicitudes de Alta</span> <span id="badge-onboarding" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="users_admin"><i class="ri-team-line"></i> <span class="nav-text">Gestionar Usuarios</span> <span id="badge-users" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="merchants_admin"><i class="ri-store-3-line"></i> <span class="nav-text">Gestionar Comercios</span></a></li>
           <li><a href="#" class="nav-item" data-view="warehouses_admin"><i class="ri-map-pin-line"></i> <span class="nav-text">Gestionar Bodegas</span></a></li>
           <li><a href="#" class="nav-item" data-view="visibility_rules_admin"><i class="ri-eye-off-line"></i> <span class="nav-text">Reglas de Visibilidad</span></a></li>
           <li><a href="#" class="nav-item" data-view="billing_admin"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span> <span id="badge-billing" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span> <span id="badge-integrations" class="menu-badge" style="display: none;">0</span></a></li>
-          <li><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Gestión de Tickets</span></a></li>
-          <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
+           <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span> <span id="badge-integrations" class="menu-badge" style="display: none;">0</span></a></li>
+           <li><a href="#" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
+           <li><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets_admin"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Gestión de Tickets</span></a></li>
+           <li><a href="#" class="nav-item" data-view="documentation_admin"><i class="ri-folder-shield-2-line"></i> <span class="nav-text">Documentación Admin</span></a></li>
         </ul>
       </nav>
       <div class="sidebar-footer">
@@ -194,6 +196,10 @@
             <input type="checkbox" id="prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>
           </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="checkbox" id="prod-is-virtual" style="width: auto; cursor: pointer;">
+            <label for="prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" data-close="modal-product">Cancelar</button>
@@ -281,6 +287,10 @@
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="edit-prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="edit-prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>
+          </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="checkbox" id="edit-prod-is-virtual" style="width: auto; cursor: pointer;">
+            <label for="edit-prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
           </div>
           <div id="edit-prod-pack-section" style="display: none; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
             <h4 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600; color: var(--color-text-main);">Componentes del Pack</h4>

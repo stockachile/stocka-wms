@@ -41,11 +41,12 @@
           <li><a href="#" class="nav-item" data-view="pickups"><i class="ri-store-2-line"></i> <span class="nav-text">Punto de Retiro</span></a></li>
           <li><a href="#" class="nav-item" data-view="sales"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Punto de Ventas</span></a></li>
           
-          <li class="sidebar-category-header">Sistema</li>
-          <li><a href="#" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
-          <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
-          <li style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
-          <li><a href="#" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
+           <li class="sidebar-category-header">Sistema</li>
+           <li><a href="#" class="nav-item" data-view="billing"><i class="ri-bill-line"></i> <span class="nav-text">Facturación</span></a></li>
+           <li><a href="#" class="nav-item" data-view="integrations"><i class="ri-plug-line"></i> <span class="nav-text">Integraciones</span></a></li>
+           <li><a href="#" class="nav-item" data-view="incidencias"><i class="ri-alert-line"></i> <span class="nav-text">Incidencias</span> <span id="badge-incidencias" class="menu-badge" style="display: none;">0</span></a></li>
+           <li style="display: none;"><a href="#" class="nav-item hidden-ticket-nav" data-view="tickets"></a></li>
+           <li><a href="#" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
         </ul>
       </nav>
       <div class="sidebar-footer">
@@ -199,6 +200,10 @@
             <input type="checkbox" id="prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>
           </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="checkbox" id="prod-is-virtual" style="width: auto; cursor: pointer;">
+            <label for="prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" data-close="modal-product">Cancelar</button>
@@ -290,6 +295,10 @@
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
             <input type="checkbox" id="edit-prod-is-pack" style="width: auto; cursor: pointer;">
             <label for="edit-prod-is-pack" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Pack / Combo?</label>
+          </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="checkbox" id="edit-prod-is-virtual" style="width: auto; cursor: pointer;">
+            <label for="edit-prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
           </div>
           <div id="edit-prod-pack-section" style="display: none; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
             <h4 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 600; color: var(--color-text-main);">Componentes del Pack</h4>

@@ -190,3 +190,192 @@ BEGIN
     AND public.should_process_order_stock(o.id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 7. Modificar/Redefinir los triggers sobre order_items para manejar inserción, actualización y borrado
+
+-- A. Trigger para nuevas inserciones (redefinido para seguridad de bodega no nula y estado activo)
+CREATE OR REPLACE FUNCTION public.handle_new_order_item()
+RETURNS trigger AS $$
+DECLARE
+  v_order_status TEXT;
+BEGIN
+  SELECT status INTO v_order_status FROM public.orders WHERE id = NEW.order_id;
+  IF v_order_status IN ('despachado', 'cancelado', 'entregado', 'retirado') THEN
+    RETURN NEW;
+  END IF;
+
+  IF NOT public.should_process_order_stock(NEW.order_id) THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.warehouse_id IS NOT NULL THEN
+    UPDATE public.inventory
+    SET committed_quantity = committed_quantity + NEW.quantity
+    WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- B. Trigger para actualizaciones (ej. cuando se asigna bodega, cambia cantidad o producto)
+CREATE OR REPLACE FUNCTION public.handle_update_order_item()
+RETURNS trigger AS $$
+DECLARE
+  v_order_status TEXT;
+  v_old_process BOOLEAN;
+  v_new_process BOOLEAN;
+BEGIN
+  SELECT status INTO v_order_status FROM public.orders WHERE id = COALESCE(NEW.order_id, OLD.order_id);
+  IF v_order_status IN ('despachado', 'cancelado', 'entregado', 'retirado') THEN
+    RETURN NEW;
+  END IF;
+
+  v_old_process := public.should_process_order_stock(OLD.order_id);
+  v_new_process := public.should_process_order_stock(NEW.order_id);
+
+  -- Restar cantidad anterior si correspondía procesar y tenía bodega
+  IF v_old_process AND OLD.warehouse_id IS NOT NULL THEN
+    UPDATE public.inventory
+    SET committed_quantity = GREATEST(0, committed_quantity - OLD.quantity)
+    WHERE product_id = OLD.product_id AND warehouse_id = OLD.warehouse_id;
+  END IF;
+
+  -- Sumar cantidad nueva si corresponde procesar y tiene bodega
+  IF v_new_process AND NEW.warehouse_id IS NOT NULL THEN
+    UPDATE public.inventory
+    SET committed_quantity = committed_quantity + NEW.quantity
+    WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_order_item_updated ON public.order_items;
+CREATE TRIGGER on_order_item_updated
+  AFTER UPDATE ON public.order_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_update_order_item();
+
+-- C. Trigger para eliminaciones (ej. cuando se borra un ítem del pedido)
+CREATE OR REPLACE FUNCTION public.handle_delete_order_item()
+RETURNS trigger AS $$
+DECLARE
+  v_order_status TEXT;
+BEGIN
+  SELECT status INTO v_order_status FROM public.orders WHERE id = OLD.order_id;
+  IF v_order_status IN ('despachado', 'cancelado', 'entregado', 'retirado') THEN
+    RETURN OLD;
+  END IF;
+
+  IF public.should_process_order_stock(OLD.order_id) AND OLD.warehouse_id IS NOT NULL THEN
+    UPDATE public.inventory
+    SET committed_quantity = GREATEST(0, committed_quantity - OLD.quantity)
+    WHERE product_id = OLD.product_id AND warehouse_id = OLD.warehouse_id;
+  END IF;
+
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_order_item_deleted ON public.order_items;
+CREATE TRIGGER on_order_item_deleted
+  AFTER DELETE ON public.order_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_delete_order_item();
+
+-- 8. Crear función administrativa para recalcular/sincronizar el stock comprometido
+CREATE OR REPLACE FUNCTION public.recalculate_committed_stock()
+RETURNS VOID AS $$
+BEGIN
+  -- 1. Resetear todos los comprometidos a 0
+  UPDATE public.inventory SET committed_quantity = 0;
+
+  -- 2. Recalcular e inyectar basándose en ítems de pedidos activos calificados
+  UPDATE public.inventory inv
+  SET committed_quantity = COALESCE(summary.total_committed, 0)
+  FROM (
+    SELECT 
+      oi.product_id,
+      oi.warehouse_id,
+      SUM(oi.quantity)::INTEGER AS total_committed
+    FROM public.order_items oi
+    JOIN public.orders o ON o.id = oi.order_id
+    WHERE o.status NOT IN ('despachado', 'cancelado', 'entregado', 'retirado')
+      AND oi.warehouse_id IS NOT NULL
+      AND public.should_process_order_stock(o.id)
+    GROUP BY oi.product_id, oi.warehouse_id
+  ) summary
+  WHERE inv.product_id = summary.product_id
+    AND inv.warehouse_id = summary.warehouse_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 9. Asignar Bodega Central por defecto a ítems de pedidos que no especifiquen una
+
+CREATE OR REPLACE FUNCTION public.assign_default_warehouse()
+RETURNS trigger AS $$
+DECLARE
+  v_default_warehouse_id UUID := 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; -- Bodega Central
+BEGIN
+  IF NEW.warehouse_id IS NULL THEN
+    NEW.warehouse_id := v_default_warehouse_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_order_item_assign_default_warehouse ON public.order_items;
+CREATE TRIGGER on_order_item_assign_default_warehouse
+  BEFORE INSERT OR UPDATE ON public.order_items
+  FOR EACH ROW
+  EXECUTE FUNCTION public.assign_default_warehouse();
+
+
+-- 10. Inicializar automáticamente el inventario en Bodega Central al crear nuevos productos
+
+CREATE OR REPLACE FUNCTION public.handle_new_product_inventory()
+RETURNS trigger AS $$
+DECLARE
+  v_default_warehouse_id UUID := 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; -- Bodega Central
+BEGIN
+  INSERT INTO public.inventory (product_id, warehouse_id, quantity, committed_quantity)
+  VALUES (NEW.id, v_default_warehouse_id, 0, 0)
+  ON CONFLICT DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_product_inserted ON public.products;
+CREATE TRIGGER on_product_inserted
+  AFTER INSERT ON public.products
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_product_inventory();
+
+
+-- =========================================================================
+-- MIGRACIÓN ÚNICA: EJECUTAR PARA APLICAR REGLAS A DATOS ANTIGUOS
+-- =========================================================================
+--
+-- -- A. Asegurar filas en inventario para Bodega Central en todos los productos
+-- INSERT INTO public.inventory (product_id, warehouse_id, quantity, committed_quantity)
+-- SELECT p.id, 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09', 0, 0
+-- FROM public.products p
+-- WHERE NOT EXISTS (
+--   SELECT 1 FROM public.inventory i 
+--   WHERE i.product_id = p.id AND i.warehouse_id = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'
+-- )
+-- ON CONFLICT DO NOTHING;
+--
+-- -- B. Asignar Bodega Central a todos los ítems de pedidos anteriores con bodega nula
+-- UPDATE public.order_items
+-- SET warehouse_id = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'
+-- WHERE warehouse_id IS NULL;
+--
+-- -- C. Recalcular stock comprometido global
+-- SELECT public.recalculate_committed_stock();
+-- =========================================================================
+
+

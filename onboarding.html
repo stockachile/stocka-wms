@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Onboarding Fulfillment 360 - STOCKA</title>
+  <meta name="description" content="Solicitud de alta para el servicio de Fulfillment 360 de Stocka.cl">
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="apple-touch-icon" href="./favicon.png">
+  <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/style.css">
+  <script src="./js/theme.js"></script>
+  <style>
+    /* Estilos específicos para el asistente de Onboarding */
+    .onboarding-wrapper {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--color-bg);
+      transition: var(--transition-theme);
+    }
+    
+    .onboarding-header {
+      padding: 1.5rem 2rem;
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: var(--transition-theme);
+    }
+    
+    .onboarding-header-logo img {
+      height: 40px;
+    }
+    
+    .onboarding-header-logo img.dark-logo {
+      display: none;
+    }
+    
+    [data-theme="dark"] .onboarding-header-logo img.light-logo {
+      display: none;
+    }
+    
+    [data-theme="dark"] .onboarding-header-logo img.dark-logo {
+      display: inline-block;
+    }
+    
+    .onboarding-container {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 2rem 1rem;
+    }
+    
+    .onboarding-card {
+      background: var(--color-surface);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      width: 100%;
+      max-width: 800px;
+      padding: 2.5rem;
+      border: 1px solid var(--color-border);
+      transition: var(--transition-theme);
+    }
+    
+    /* Stepper Progress Bar */
+    .stepper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2.5rem;
+      position: relative;
+    }
+    
+    .stepper::before {
+      content: "";
+      position: absolute;
+      top: 20px;
+      left: 5%;
+      right: 5%;
+      height: 4px;
+      background: var(--color-border);
+      z-index: 1;
+      transition: var(--transition-theme);
+    }
+    
+    .stepper-progress {
+      position: absolute;
+      top: 20px;
+      left: 5%;
+      height: 4px;
+      background: var(--color-accent);
+      z-index: 2;
+      width: 0%;
+      transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .step-item {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex: 1;
+    }
+    
+    .step-circle {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--color-bg);
+      border: 2px solid var(--color-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      transition: all 0.3s ease;
+    }
+    
+    .step-label {
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      text-align: center;
+      transition: color 0.3s ease;
+    }
+    
+    .step-item.active .step-circle {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: #fff;
+      box-shadow: var(--shadow-glow-accent);
+    }
+    
+    .step-item.active .step-label {
+      color: var(--color-text-main);
+    }
+    
+    .step-item.completed .step-circle {
+      background: var(--color-success);
+      border-color: var(--color-success);
+      color: #fff;
+    }
+    
+    .step-item.completed .step-label {
+      color: var(--color-success);
+    }
+    
+    /* Wizard Steps Panels */
+    .step-panel {
+      display: none;
+    }
+    
+    .step-panel.active {
+      display: block;
+      animation: onboardingFadeIn 0.4s ease;
+    }
+    
+    @keyframes onboardingFadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .step-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .step-desc {
+      font-size: 0.95rem;
+      color: var(--color-text-muted);
+      margin-bottom: 2rem;
+    }
+    
+    /* Form grids */
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+    
+    @media (max-width: 640px) {
+      .form-grid-2 {
+        grid-template-columns: 1fr;
+      }
+      .onboarding-card {
+        padding: 1.5rem;
+      }
+      .stepper {
+        margin-bottom: 1.5rem;
+      }
+      .step-label {
+        display: none; /* Hide labels on mobile to prevent overlapping */
+      }
+    }
+    
+    /* Checkbox & Radio Cards */
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    
+    .option-card {
+      position: relative;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: var(--color-surface);
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    
+    .option-card:hover {
+      background: var(--color-surface-hover);
+      border-color: var(--color-accent);
+    }
+    
+    .option-card input[type="checkbox"],
+    .option-card input[type="radio"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      margin: 0;
+      accent-color: var(--color-accent);
+    }
+    
+    .option-card.selected {
+      border-color: var(--color-accent);
+      background: rgba(94, 23, 235, 0.04);
+      box-shadow: 0 0 0 1px var(--color-accent);
+    }
+    
+    /* File Upload Area */
+    .file-upload-zone {
+      border: 2px dashed var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      background: var(--color-bg);
+      transition: all 0.2s ease;
+      position: relative;
+    }
+    
+    .file-upload-zone:hover {
+      border-color: var(--color-accent);
+      background: var(--color-surface-hover);
+    }
+    
+    .file-upload-icon {
+      font-size: 2.5rem;
+      color: var(--color-text-muted);
+      margin-bottom: 1rem;
+    }
+    
+    .file-upload-text {
+      font-size: 0.95rem;
+      color: var(--color-text-main);
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    
+    .file-upload-hint {
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+    }
+    
+    .file-upload-input {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+    
+    .file-preview {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 0.75rem 1rem;
+      margin-top: 1rem;
+    }
+    
+    .file-preview-info {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    
+    .file-preview-icon {
+      font-size: 1.5rem;
+      color: var(--color-danger);
+    }
+    
+    .file-preview-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .file-preview-size {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+    }
+    
+    .file-remove-btn {
+      background: none;
+      border: none;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 0.25rem;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+    
+    .file-remove-btn:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-danger);
+    }
+    
+    /* Document templates card */
+    .template-box {
+      background: rgba(37, 99, 235, 0.05);
+      border: 1px solid rgba(37, 99, 235, 0.2);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    
+    .template-desc {
+      font-size: 0.85rem;
+      color: var(--color-text-muted);
+    }
+    
+    .template-links {
+      display: flex;
+      gap: 0.5rem;
+    }
+    
+    .btn-template {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.5rem 0.85rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    
+    .btn-template-pdf {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+    }
+    
+    .btn-template-pdf:hover {
+      background: #ef4444;
+      color: #fff;
+    }
+    
+    .btn-template-word {
+      background: rgba(37, 99, 235, 0.1);
+      color: #2563eb;
+    }
+    
+    .btn-template-word:hover {
+      background: #2563eb;
+      color: #fff;
+    }
+    
+    /* Switch design */
+    .switch-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      margin-bottom: 1.5rem;
+      transition: var(--transition-theme);
+    }
+    
+    .switch-label-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    
+    .switch-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--color-text-main);
+    }
+    
+    .switch-desc {
+      font-size: 0.75rem;
+      color: var(--color-text-muted);
+    }
+    
+    .switch-input-element {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+    }
+    
+    .switch-input-element input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #cbd5e1;
+      transition: .3s;
+      border-radius: 24px;
+    }
+    
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    
+    input:checked + .slider {
+      background-color: var(--color-accent);
+    }
+    
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+    
+    /* Footer wizard buttons */
+    .wizard-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 2.5rem;
+      border-top: 1px solid var(--color-border);
+      padding-top: 1.5rem;
+      transition: var(--transition-theme);
+    }
+    
+    .onboarding-alert-container {
+      margin-bottom: 1.5rem;
+    }
+    
+    /* Alert style overrides */
+    .alert {
+      padding: 0.85rem 1.25rem;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .alert-error {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: var(--color-danger);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+    .alert-success {
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--color-success);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+    .alert-info {
+      background-color: rgba(59, 130, 246, 0.1);
+      color: var(--color-info);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+    }
+    
+    /* Loading overlay */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--color-accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="onboarding-wrapper">
+    <!-- Header -->
+    <header class="onboarding-header">
+      <div class="onboarding-header-logo">
+        <!-- Logo de Stocka adaptado a claro/oscuro -->
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA Logo" class="light-logo">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="dark-logo">
+      </div>
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <button class="theme-toggle-btn" aria-label="Cambiar tema">
+          <i class="ri-sun-line sun-icon"></i>
+          <i class="ri-moon-line moon-icon"></i>
+        </button>
+        <a href="./index.html" class="btn btn-outline" style="padding: 0.45rem 1rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text-main); text-decoration: none;">Volver al Login</a>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="onboarding-container">
+      <div class="onboarding-card">
+        
+        <!-- Stepper -->
+        <div class="stepper">
+          <div class="stepper-progress" id="stepper-progress"></div>
+          <div class="step-item active" data-step="1">
+            <div class="step-circle">1</div>
+            <div class="step-label">Contacto</div>
+          </div>
+          <div class="step-item" data-step="2">
+            <div class="step-circle">2</div>
+            <div class="step-label">Facturación</div>
+          </div>
+          <div class="step-item" data-step="3">
+            <div class="step-circle">3</div>
+            <div class="step-label">Comercial</div>
+          </div>
+          <div class="step-item" data-step="4">
+            <div class="step-circle">4</div>
+            <div class="step-label">Firma</div>
+          </div>
+          <div class="step-item" data-step="5">
+            <div class="step-circle">5</div>
+            <div class="step-label">Listo</div>
+          </div>
+        </div>
+
+        <div class="onboarding-alert-container" id="onboarding-alert"></div>
+
+        <form id="onboarding-form" novalidate>
+          
+          <!-- PASO 1: CONTACTO Y CUENTA -->
+          <div class="step-panel active" id="panel-1">
+            <h2 class="step-title"><i class="ri-user-smile-line" style="color: var(--color-accent)"></i> Datos de Contacto y Cuenta</h2>
+            <p class="step-desc">Crea tu cuenta de acceso al portal y define el contacto principal de la operación.</p>
+            
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="full_name" class="form-label">Nombre Completo <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="full_name" class="form-input" placeholder="Juan Pérez" required>
+              </div>
+              <div class="form-group">
+                <label for="rut_personal" class="form-label">RUT Personal <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="rut_personal" class="form-input" placeholder="12.345.678-9" required>
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="email" class="form-label">Correo Electrónico <span style="color: var(--color-danger)">*</span></label>
+                <input type="email" id="email" class="form-input" placeholder="juan.perez@empresa.com" required>
+                <small class="form-hint" style="font-size: 0.75rem; color: var(--color-text-muted);">Este correo y la contraseña definida abajo serán tus credenciales de inicio de sesión.</small>
+              </div>
+              <div class="form-group">
+                <label for="password" class="form-label">Contraseña <span style="color: var(--color-danger)">*</span></label>
+                <input type="password" id="password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+              </div>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="phone" class="form-label">Teléfono de Contacto <span style="color: var(--color-danger)">*</span></label>
+                <input type="tel" id="phone" class="form-input" placeholder="+56 9 1234 5678" required>
+              </div>
+              <div class="form-group">
+                <label for="cargo" class="form-label">Cargo</label>
+                <input type="text" id="cargo" class="form-input" placeholder="Ej. Gerente de Operaciones">
+              </div>
+            </div>
+          </div>
+
+          <!-- PASO 2: DATOS DE FACTURACIÓN -->
+          <div class="step-panel" id="panel-2">
+            <h2 class="step-title"><i class="ri-bill-line" style="color: var(--color-accent)"></i> Información de Facturación</h2>
+            <p class="step-desc">Detalles legales de la empresa para la facturación mensual del servicio.</p>
+            
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="razon_social" class="form-label">Razón Social <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="razon_social" class="form-input" placeholder="Mi Empresa S.A." required>
+              </div>
+              <div class="form-group">
+                <label for="rut_empresa" class="form-label">RUT Empresa <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="rut_empresa" class="form-input" placeholder="76.123.456-K" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="giro_comercio" class="form-label">Giro comercial <span style="color: var(--color-danger)">*</span></label>
+              <input type="text" id="giro_comercio" class="form-input" placeholder="Venta al por menor de artículos de vestuario" required>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="direccion_facturacion" class="form-label">Dirección de facturación <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="direccion_facturacion" class="form-input" placeholder="Av. Providencia 1234, Of. 501" required>
+              </div>
+              <div class="form-group">
+                <label for="comuna" class="form-label">Comuna <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="comuna" class="form-input" placeholder="Providencia" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="email_facturacion" class="form-label">Email de Facturación <span style="color: var(--color-danger)">*</span></label>
+              <input type="email" id="email_facturacion" class="form-input" placeholder="facturacion@miempresa.com" required>
+            </div>
+          </div>
+
+          <!-- PASO 3: OPCIONES COMERCIALES -->
+          <div class="step-panel" id="panel-3">
+            <h2 class="step-title"><i class="ri-store-2-line" style="color: var(--color-accent)"></i> Configuración de tu Comercio</h2>
+            <p class="step-desc">Indica cómo opera tu negocio para coordinar la bodega y los canales de venta.</p>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="nombre_fantasia" class="form-label">Nombre de Fantasía <span style="color: var(--color-danger)">*</span></label>
+                <input type="text" id="nombre_fantasia" class="form-input" placeholder="Nombre comercial de tu marca" required>
+              </div>
+              <div class="form-group">
+                <label for="sitio_web" class="form-label">Sitio web</label>
+                <input type="url" id="sitio_web" class="form-input" placeholder="https://www.miempresa.com">
+              </div>
+            </div>
+
+            <!-- Plataformas de venta -->
+            <div class="form-group">
+              <label class="form-label">¿En qué plataformas generas ventas? (Selecciona una o más) <span style="color: var(--color-danger)">*</span></label>
+              <div class="options-grid">
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Shopify"><span>Shopify</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Woocommerce"><span>Woocommerce</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Jumpseller"><span>Jumpseller</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Bsale"><span>Bsale</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Prestashop"><span>Prestashop</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Redes Sociales"><span>Redes Sociales</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="MercadoShops"><span>MercadoShops</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Bigcommerce"><span>Bigcommerce</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Venta Directa"><span>Venta Directa</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="VTEX"><span>VTEX</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="WIX"><span>WIX</span></label>
+                <label class="option-card"><input type="checkbox" name="plataformas" value="Otro"><span>Otro</span></label>
+              </div>
+            </div>
+
+            <!-- Marketplaces -->
+            <div class="form-group">
+              <label class="form-label">¿En qué Marketplaces vendes actualmente? (Selecciona uno o más) <span style="color: var(--color-danger)">*</span></label>
+              <div class="options-grid">
+                <label class="option-card"><input type="checkbox" name="marketplaces" id="mp-meli" value="Mercadolibre"><span>Mercadolibre</span></label>
+                <label class="option-card"><input type="checkbox" name="marketplaces" value="Falabella"><span>Falabella</span></label>
+                <label class="option-card"><input type="checkbox" name="marketplaces" value="Walmart"><span>Walmart</span></label>
+                <label class="option-card"><input type="checkbox" name="marketplaces" value="Paris"><span>Paris</span></label>
+                <label class="option-card"><input type="checkbox" name="marketplaces" value="Ripley"><span>Ripley</span></label>
+                <label class="option-card"><input type="checkbox" name="marketplaces" value="Otro"><span>Otro</span></label>
+              </div>
+            </div>
+
+            <!-- Mercado Libre Opciones (Condicional) -->
+            <div class="form-group" id="meli-options-container" style="display: none; border-left: 3px solid var(--color-accent); padding-left: 1rem; margin-bottom: 1.5rem;">
+              <label class="form-label">Para Mercadolibre, ¿qué opciones de despacho quieres incorporar?</label>
+              <div class="options-grid">
+                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Entregas Flex"><span>Entregas Flex</span></label>
+                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Mercadoenvios"><span>Mercadoenvios</span></label>
+                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Full"><span>Full</span></label>
+              </div>
+            </div>
+
+            <!-- Couriers Santiago -->
+            <div class="form-group">
+              <label class="form-label">Operación dentro de Santiago, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
+              <div class="options-grid">
+                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Stocka - Entrega Same Day"><span>Same Day Stocka</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Bluexpress"><span>Bluexpress</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Chilexpress"><span>Chilexpress</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Starken"><span>Starken</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Otro"><span>Otro</span></label>
+              </div>
+            </div>
+
+            <!-- Couriers Regiones -->
+            <div class="form-group">
+              <label class="form-label">Operación hacia Regiones, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
+              <div class="options-grid">
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por menor costo según destino."><span>Costo más bajo</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por tiempos de entrega según destino."><span>Tiempo más corto</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Bluexpress"><span>Bluexpress</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Chilexpress"><span>Chilexpress</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Starken"><span>Starken</span></label>
+                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Otro"><span>Otro</span></label>
+              </div>
+            </div>
+
+            <!-- Retiro en sucursal switch -->
+            <div class="switch-container">
+              <div class="switch-label-group">
+                <span class="switch-title">Ofrecer Retiro en Sucursal</span>
+                <span class="switch-desc">Marca si habilitarás retiro físico de pedidos en bodega para tus clientes.</span>
+              </div>
+              <label class="switch-input-element">
+                <input type="checkbox" id="retiro_sucursal">
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <!-- Packaging -->
+            <div class="form-group">
+              <label for="descripcion_packaging" class="form-label">Descripción de Packaging de tus Pedidos <span style="color: var(--color-danger)">*</span></label>
+              <textarea id="descripcion_packaging" class="form-input" style="height: 100px; resize: vertical;" placeholder="Describe detalladamente cómo debemos empaquetar tus ventas, materiales requeridos, o si utilizas el empaque estándar de Stocka." required></textarea>
+            </div>
+          </div>
+
+          <!-- PASO 4: FIRMA Y CONTRATO -->
+          <div class="step-panel" id="panel-4">
+            <h2 class="step-title"><i class="ri-ball-pen-line" style="color: var(--color-accent)"></i> Términos y Firma de Contrato</h2>
+            <p class="step-desc">Descarga el contrato, incorpórale tu firma y súbelo digitalizado para formalizar el servicio.</p>
+
+            <div class="alert alert-info" style="margin-bottom: 1.5rem;">
+              <i class="ri-information-line"></i>
+              <div>
+                <strong>Instrucciones:</strong> Descarga la plantilla de contrato en el formato de tu preferencia (PDF o Word), completa la información legal solicitada, fírmalo digitalmente y súbelo a continuación.
+              </div>
+            </div>
+
+            <!-- Plantillas de descarga -->
+            <div class="template-box">
+              <div class="template-desc">
+                <strong><i class="ri-file-text-line"></i> Plantillas de Contrato Stocka:</strong>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">Elige el formato adecuado para descargar y rellenar.</p>
+              </div>
+              <div class="template-links">
+                <!-- Enlaces públicos de Supabase Storage para descargar las plantillas de contrato -->
+                <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.pdf" target="_blank" class="btn-template btn-template-pdf">
+                  <i class="ri-file-pdf-line"></i> Descargar PDF
+                </a>
+                <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.docx" target="_blank" class="btn-template btn-template-word">
+                  <i class="ri-file-word-line"></i> Descargar Word
+                </a>
+              </div>
+            </div>
+
+            <!-- Carga de archivo -->
+            <div class="form-group">
+              <label class="form-label">Cargar aquí tu contrato firmado (PDF) <span style="color: var(--color-danger)">*</span></label>
+              <div class="file-upload-zone" id="drop-zone">
+                <i class="ri-upload-cloud-line file-upload-icon"></i>
+                <div class="file-upload-text">Haz clic o arrastra el archivo aquí para subir</div>
+                <div class="file-upload-hint">Solo se permiten archivos en formato PDF (Max. 10MB)</div>
+                <input type="file" id="contrato_file" class="file-upload-input" accept=".pdf" required>
+              </div>
+
+              <!-- Preview del archivo subido -->
+              <div class="file-preview" id="file-preview-el">
+                <div class="file-preview-info">
+                  <i class="ri-file-pdf-fill file-preview-icon"></i>
+                  <div>
+                    <span class="file-preview-name" id="file-name-span">archivo.pdf</span>
+                    <span class="file-preview-size" id="file-size-span">(0 KB)</span>
+                  </div>
+                </div>
+                <button type="button" class="file-remove-btn" id="file-remove-btn" title="Quitar archivo">
+                  <i class="ri-close-line"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Aceptar Checkbox -->
+            <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 1.5rem; padding: 0.5rem 0;">
+              <input type="checkbox" id="accept_terms" style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; accent-color: var(--color-accent);" required>
+              <label for="accept_terms" style="cursor: pointer; font-size: 0.95rem; line-height: 1.4; color: var(--color-text-main); font-weight: 500;">
+                Declaro aceptar los términos y condiciones de contratación del servicio de Fulfillment 360 de Stocka.cl
+              </label>
+            </div>
+          </div>
+
+          <!-- PASO 5: FINALIZACIÓN -->
+          <div class="step-panel" id="panel-5" style="text-align: center; padding: 1.5rem 0;">
+            <div style="width: 72px; height: 72px; background: rgba(16, 185, 129, 0.1); color: var(--color-success); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 3rem; margin: 0 auto 1.5rem auto; box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);">
+              <i class="ri-checkbox-circle-fill"></i>
+            </div>
+            
+            <h2 class="step-title" style="justify-content: center; font-size: 1.8rem; margin-bottom: 0.75rem;">¡Solicitud Recibida con éxito!</h2>
+            <p class="step-desc" style="max-width: 550px; margin: 0 auto 2.5rem auto; font-size: 1.05rem; line-height: 1.5;">
+              Qué emoción tenerte a bordo. Tu solicitud de alta en <strong>Fulfillment 360</strong> ya está en revisión por nuestro equipo comercial. 
+              <br><br>
+              <span style="color: var(--color-text-muted); font-size: 0.95rem;">
+                Muy pronto habilitaremos las credenciales definitivas del portal. Desde este momento puedes ingresar a tu cuenta para verificar el estado en tiempo real.
+              </span>
+            </p>
+
+            <button type="button" id="btn-finish-go-wms" class="btn btn-primary" style="padding: 0.75rem 2rem; font-weight: 600; font-size: 1rem; border-radius: var(--radius-md); box-shadow: var(--shadow-glow);">
+              Ir al Portal WMS
+            </button>
+          </div>
+
+          <!-- Botones de Navegación -->
+          <div class="wizard-footer" id="wizard-navigation">
+            <button type="button" id="btn-back" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); visibility: hidden;">
+              <i class="ri-arrow-left-line"></i> Anterior
+            </button>
+            <button type="button" id="btn-next" class="btn btn-primary" style="background: var(--color-accent); border-color: var(--color-accent); color: white;">
+              Siguiente <i class="ri-arrow-right-line"></i>
+            </button>
+          </div>
+
+        </form>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading-overlay">
+    <div class="spinner"></div>
+    <h3 style="font-weight: 600; font-size: 1.2rem; margin: 0;" id="loading-text">Cargando...</h3>
+    <p style="font-size: 0.85rem; color: #cbd5e1; margin: 0;" id="loading-subtext">Por favor, espera un momento.</p>
+  </div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- App Scripts -->
+  <script type="module" src="./js/supabase.js"></script>
+  <script type="module" src="./js/onboarding.js"></script>
+</body>
+</html>

@@ -85,7 +85,7 @@ Hemos implementado un visualizador interactivo para ver en detalle qué pedidos 
 ### Características:
 1. **Acceso Rápido**: En la columna **Comprometido** de la tabla de stock (tanto en la vista del administrador como la del cliente), si la cantidad comprometida es mayor a cero, el número se mostrará como un enlace interactivo subrayado.
 2. **Modal Informativa**: Al hacer clic en el número comprometido, se despliega una modal dedicada con la información del producto (Nombre, SKU y Bodega seleccionada).
-3. **Filtro Inteligente por RPC (`get_committed_order_details`)**: 
+3. **Filtro Inteligente por RPC (`get_committed_order_details`)**:
    - Realiza la consulta directa a través de un procedimiento almacenado en Supabase que filtra de forma inteligente excluyendo estados terminales (`despachado`, `cancelado`, `entregado`, `retirado`).
    - Además, aplica la función `should_process_order_stock(order_id)` en caliente, garantizando que **solo se listen aquellos pedidos que se crearon posterior a la marca de inicio (inclusive/exclusive según el checkbox)**. Esto previene cualquier discrepancia visual con la cantidad de stock comprometida acumulada en la base de datos.
 4. **Campos Mostrados**:
@@ -107,3 +107,47 @@ Para mejorar el diseño visual y la experiencia de usuario (UX), hemos alineado 
 2. **Animación Circular**: Muestra un spinner animado circular continuo que rota suavemente en 360 grados (`wms-spin`).
 3. **Ícono Pulsante**: Centrado dentro del círculo de carga, el ícono de caja archivadora (`ri-archive-line`) tiene una animación de pulso continuo (`wms-pulse`) escalando suavemente de tamaño y opacidad.
 4. **Textos**: Muestra el título *"Cargando mi Inventario"* en negrita junto con el texto de espera habitual.
+---
+
+## 14. Filtros Avanzados en Catálogo Master (Cliente y Administrador)
+
+Hemos implementado filtros avanzados en tiempo real en las vistas de Catálogo Master, accesibles de forma idéntica en el panel del **Cliente** (`js/app.js`) y del **Administrador** (`js/admin.js`):
+
+### Características de los Filtros:
+1. **Canal / Origen:**
+   - Permite filtrar los productos por su canal de integración: **Shopify**, **MercadoLibre**, **Falabella**, **Paris**, **WooCommerce**, **Jumpseller**, o aquellos registrados como **Manual (Sin canal)**.
+2. **Estructura (Packs / Combos):**
+   - Permite filtrar si el producto es un **Pack o Combo** o excluir packs para mostrar únicamente productos individuales.
+3. **Tipo de Producto (Virtual vs. Físico):**
+   - Permite filtrar si el producto es de tipo **Virtual** o **Físico**.
+4. **Buscador Integrado en Tiempo Real:**
+   - Los filtros funcionan de manera conjunta con la barra de búsqueda general y la ordenación (sorting) de columnas. Al cambiar cualquier filtro o término de búsqueda, la tabla se renderiza y ordena de inmediato en milisegundos sin recargar la página.
+5. **Aviso de Resultados Vacíos:**
+   - Si una combinación de filtros no produce resultados, en lugar de una tabla vacía confusa, se renderiza el mensaje: *"No se encontraron productos con los filtros seleccionados."*
+---
+
+## 15. Corrección de Pérdida de Listeners al Filtrar / Buscar
+
+### Problema Detectado:
+Al escribir en el buscador o cambiar un filtro, la tabla se limpia y se re-dibuja desde cero (sobrescribiendo `innerHTML` del contenedor `#catalog-master-tbody`). Esto causaba que los event listeners estáticos de los botones **"Editar"** y **"Eliminar"** (que se enlazaban únicamente una vez al cargar el módulo) se destruyeran, imposibilitando editar o eliminar cualquier producto después de realizar un filtrado.
+
+### Solución Implementada:
+Hemos migrado las acciones de edición y de eliminación a un modelo de **Delegación de Eventos** (Event Delegation) en `js/app.js` y `js/admin.js`:
+- En lugar de escuchar los clicks directamente en cada botón, el event listener se asocia al elemento contenedor padre `#catalog-master-tbody`.
+- Al hacer click en cualquier parte del cuerpo de la tabla, se detecta de forma dinámica el elemento más cercano que coincida con `.btn-edit-product` o `.btn-delete-product` mediante `e.target.closest()`.
+- **Resultado:** Los botones de editar y eliminar siguen funcionando de manera ininterrumpida y persistente, sin importar cuántas veces se filtre, busque o re-ordene la tabla.
+
+---
+
+## 16. Mejoras de Interactividad y Cálculo en Gráficos de Evolución de Volumen
+
+Hemos implementado ajustes finos para mejorar la visualización y exactitud en el panel de **Evolución de Volumen Diario** tanto en el Cliente (`js/app.js`) como en el Administrador (`js/admin.js`):
+
+1. **Gráfico Limpio en Selección Individual**: 
+   - Cuando se selecciona un comercio individual en el filtro de Comercio (`selectedCommerce` no vacío / `isStackedBar` es falso), se oculta la curva de totales ("Curva Total") que se superponía innecesariamente sobre la línea única del comercio.
+   - De igual manera, se oculta la leyenda superior (`legend: { display: isStackedBar }`), dejando la línea del gráfico completamente despejada y limpia.
+2. **Cálculo de Tendencia Corregido**:
+   - Anteriormente, el indicador de **Tendencia Periodo** calculaba erróneamente el total en tiempo real sumando todos los comercios asignados al usuario en lugar del comercio seleccionado.
+   - Ahora, al seleccionar un comercio individual, el cálculo de tendencia del periodo toma estrictamente la lectura en tiempo real del comercio seleccionado (`liveVolumeMap[selectedCommerce] || 0`), recalculando el porcentaje de forma exacta, reflejando correctamente las tendencias negativas si el comercio está en descenso.
+3. **Optimización de Consultas en Tiempo Real**:
+   - Se adaptaron las consultas en tiempo real a Supabase para filtrar por el comercio activo si hay un comercio individual seleccionado.

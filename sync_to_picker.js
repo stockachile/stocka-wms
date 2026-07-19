@@ -63,7 +63,7 @@ async function run() {
         estado_wms,
         agenda,
         sucursal_pickeo,
-        order_items (quantity, products(sku, name, price, image_url, options))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -96,6 +96,7 @@ async function run() {
         // Estructurar ítems de WMS para comparar
         const wmsItemsMap = {};
         wmsOrder.order_items.forEach(oi => {
+          if (oi.products?.is_virtual) return;
           const sku = (oi.products?.sku || '').trim().toUpperCase();
           if (sku) {
             wmsItemsMap[sku] = (wmsItemsMap[sku] || 0) + (parseInt(oi.quantity, 10) || 0);
@@ -140,6 +141,7 @@ async function run() {
           const payloads = [];
           const nowStr = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
           wmsOrder.order_items.forEach(oi => {
+            if (oi.products?.is_virtual) return;
             const prod = oi.products || {};
             const opt = prod.options || {};
             payloads.push({

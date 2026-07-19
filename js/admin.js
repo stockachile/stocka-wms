@@ -1,6 +1,7 @@
 import supabase from './supabase.js';
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
+import { renderIncidenciasAdmin } from './incidencias.js';
 
 let userRole = 'admin';
 window.catalogQuickEditMode = false;
@@ -500,6 +501,10 @@ async function init() {
             viewTitle.textContent = 'Gestión de Tickets';
             const appContent = document.getElementById('app-content');
             renderTicketsAdmin(appContent);
+          } else if (view === 'incidencias_admin') {
+            viewTitle.textContent = 'Gestión de Incidencias';
+            const appContent = document.getElementById('app-content');
+            renderIncidenciasAdmin(appContent);
           } else if (view === 'documentation_admin') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsAdmin();
@@ -685,6 +690,24 @@ window.updateAdminBadges = async function() {
     if (badgeIntegrations && integrationsCount !== null) {
       badgeIntegrations.textContent = integrationsCount;
       badgeIntegrations.style.display = integrationsCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    // 6. Incidencias Admin
+    try {
+      const { count: incidenciasCount, error: incErr } = await supabase
+        .from('incidencias')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pendiente');
+        
+      const badgeIncidenciasAdmin = document.getElementById('badge-incidencias-admin');
+      if (badgeIncidenciasAdmin && incidenciasCount !== null && !incErr) {
+        badgeIncidenciasAdmin.textContent = incidenciasCount;
+        badgeIncidenciasAdmin.style.display = incidenciasCount > 0 ? 'inline-flex' : 'none';
+      } else if (incErr && (incErr.code === '42P01' || incErr.message.includes('does not exist'))) {
+        if (badgeIncidenciasAdmin) badgeIncidenciasAdmin.style.display = 'none';
+      }
+    } catch (err) {
+      console.warn('Error fetching incidencias count for admin badge:', err);
     }
 
   } catch (e) {
@@ -7455,6 +7478,7 @@ const CLIENT_MODULES = [
   { id: 'billing', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
   { id: 'tickets', label: 'Soporte y Tickets' },
+  { id: 'incidencias', label: 'Incidencias' },
   { id: 'documentation', label: 'Documentación' },
   { id: 'profile', label: 'Mi Perfil' }
 ];
@@ -7474,6 +7498,7 @@ const ADMIN_MODULES = [
   { id: 'billing_admin', label: 'Facturación' },
   { id: 'integrations', label: 'Integraciones' },
   { id: 'tickets_admin', label: 'Gestión de Tickets' },
+  { id: 'incidencias_admin', label: 'Gestión de Incidencias' },
   { id: 'documentation_admin', label: 'Documentación Admin' }
 ];
 

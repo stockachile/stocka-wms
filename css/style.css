@@ -4,9 +4,15 @@ html {
   font-size: 16px;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1024px) and (max-width: 1440px) {
   html {
-    font-size: 14px; /* Scales down all rem-based sizes on desktop monitors */
+    font-size: 14px; /* Scales down all rem-based sizes on medium laptops/monitors */
+  }
+}
+
+@media (min-width: 1441px) {
+  html {
+    font-size: 15.5px; /* Scales back up slightly on larger desktop monitors to prevent tiny text */
   }
 }
 
@@ -787,6 +793,31 @@ h1, h2, h3, h4, h5, h6 {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(94, 23, 235, 0.4); }
+  50% { transform: scale(1.08); box-shadow: 0 0 45px rgba(94, 23, 235, 0.6); }
+}
+
+@keyframes fadePulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-6px); }
+  20%, 40%, 60%, 80% { transform: translateX(6px); }
+}
+
+.shake {
+  animation: shake 0.55s cubic-bezier(.36,.07,.19,.97) both;
 }
 
 /* ==========================================================================

@@ -7,9 +7,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const alertContainer = document.getElementById('alert-container');
   const loginBtn = document.getElementById('login-btn');
 
-  // Función para mostrar alertas
+  // Función para mostrar alertas con animación de error (shake)
   const showAlert = (message, type = 'error') => {
     alertContainer.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+    if (type === 'error') {
+      const authCard = document.querySelector('.auth-card');
+      if (authCard) {
+        authCard.classList.remove('shake');
+        void authCard.offsetWidth; // Trigger reflow to restart animation
+        authCard.classList.add('shake');
+        setTimeout(() => authCard.classList.remove('shake'), 600);
+      }
+    }
     setTimeout(() => {
       alertContainer.innerHTML = '';
     }, 5000);
@@ -82,7 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     loginBtn.disabled = true;
-    loginBtn.textContent = 'Ingresando...';
+    loginBtn.innerHTML = '<i class="ri-loader-4-line" style="display: inline-block; animation: spin 1s linear infinite; margin-right: 0.35rem;"></i> Ingresando...';
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -96,10 +105,38 @@ document.addEventListener('DOMContentLoaded', () => {
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.session.user.id).single();
         const role = profile ? profile.role : 'client';
         
-        showAlert('Inicio de sesión exitoso. Redirigiendo...', 'success');
+        // Loader de transición premium a pantalla completa
+        const loader = document.createElement('div');
+        loader.id = 'premium-login-loader';
+        loader.style.cssText = `
+          position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+          background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          z-index: 9999; opacity: 0; transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+          font-family: 'Inter', sans-serif;
+        `;
+        loader.innerHTML = `
+          <div style="position: relative; display: flex; align-items: center; justify-content: center; margin-bottom: 2rem;">
+            <!-- Outer progress circle -->
+            <div style="width: 86px; height: 86px; border: 4px solid rgba(94, 23, 235, 0.1); border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+            <!-- Inner glowing logo pulse -->
+            <div style="position: absolute; width: 60px; height: 60px; background: rgba(94, 23, 235, 0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: pulse 1.4s ease-in-out infinite;">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="width: 26px; height: 26px; object-fit: contain;" alt="Logo">
+            </div>
+          </div>
+          <h3 style="color: #fff; font-size: 1.25rem; font-weight: 700; margin: 0 0 0.5rem 0; letter-spacing: -0.01em; text-align: center;">Preparando tu Bodega</h3>
+          <p style="color: rgba(255, 255, 255, 0.5); font-size: 0.85rem; margin: 0; animation: fadePulse 1.4s ease-in-out infinite; text-align: center;">Estableciendo conexión segura...</p>
+        `;
+        document.body.appendChild(loader);
+        
+        // Forzar reflow e iniciar fade-in de la transición
+        void loader.offsetWidth;
+        loader.style.opacity = '1';
+        
         setTimeout(() => {
           window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
-        }, 1000);
+        }, 1300);
       }
     } catch (error) {
       let msg = error.message;

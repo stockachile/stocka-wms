@@ -407,12 +407,30 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
 async function handleProductSave(merchantId, comercio, product) {
   console.log(`Guardando variantes del producto ID ${product.id} ("${product.title}") vía Webhook`);
 
+  // Intentar obtener la imagen principal del producto
+  let imageUrl = null;
+  if (product.image && product.image.src) {
+    imageUrl = product.image.src;
+  } else if (product.images && product.images.length > 0) {
+    imageUrl = product.images[0].src;
+  }
+
   for (const variant of product.variants) {
+    // Si la variante tiene una imagen específica, la usamos, si no usamos la del producto principal
+    let varImageUrl = imageUrl;
+    if (product.images && variant.image_id) {
+      const matchedImg = product.images.find(img => img.id === variant.image_id);
+      if (matchedImg && matchedImg.src) {
+        varImageUrl = matchedImg.src;
+      }
+    }
+
     const productDataToUpsert = {
       comercio: comercio,
       platform: "Shopify",
       sku: variant.sku || variant.id.toString(),
-      name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`
+      name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
+      image_url: varImageUrl
     };
 
     const { error } = await supabase

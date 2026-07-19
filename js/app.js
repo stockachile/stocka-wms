@@ -1,6 +1,7 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
+import { renderIncidenciasClient } from './incidencias.js';
 
 window.roundUpVolume = function(val) {
   if (val === null || val === undefined || isNaN(val) || val === '') return null;
@@ -389,6 +390,10 @@ async function init() {
             viewTitle.textContent = 'Soporte y Tickets';
             const appContent = document.getElementById('app-content');
             renderTicketsClient(appContent);
+          } else if (view === 'incidencias') {
+            viewTitle.textContent = 'Incidencias';
+            const appContent = document.getElementById('app-content');
+            renderIncidenciasClient(appContent);
           } else if (view === 'documentation') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsClient();
@@ -458,6 +463,12 @@ async function init() {
 
     // Notification Logic
     initNotifications(session.user.id);
+
+    // Incidencias Badges Logic
+    if (currentCompany) {
+      updateClientBadges(session.user.id, currentCompany);
+      setInterval(() => updateClientBadges(session.user.id, currentCompany), 60000);
+    }
 
   } catch (err) {
     console.error('DEBUG: Error crítico durante la inicialización de app.js:', err);
@@ -16682,9 +16693,18 @@ window.renderVolumenDiario = async function() {
     return `${yy}-${mm}-${dd}`;
   }
 
+  function addDays(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
   let startDate = formatDate(firstDay);
   let endDate = formatDate(lastDay);
-  let selectedCommerce = activeComerces[0] || '';
+  let selectedCommerce = activeComerces.length === 1 ? activeComerces[0] : '';
   let currentPage = 1;
   const itemsPerPage = 15;
   let allHistories = [];
@@ -16693,22 +16713,23 @@ window.renderVolumenDiario = async function() {
   appContent.innerHTML = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
       <div>
-        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Historial de Volumen Diario</h3>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Historial de nivel de volumen de tu catálogo de productos medido diariamente a las 1:00 AM</p>
+        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Evolución de Volumen Diario</h3>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Monitorea el histórico diario y el consumo en tiempo real de volumen total por metro cúbico</p>
       </div>
       <div>
         <button class="btn btn-outline" id="btn-refresh-volume"><i class="ri-refresh-line"></i> Actualizar</button>
       </div>
     </div>
 
-    <!-- Stats & Selector Card -->
+    <!-- Filters & Stats Card -->
     <div class="card" style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
       <div class="card-body" style="padding: 1.25rem 1.5rem;">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; align-items: end;">
           <div class="form-group" style="margin: 0; ${activeComerces.length <= 1 ? 'display: none;' : ''}">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Comercio</label>
             <select id="volume-merchant-select" class="form-input" style="width: 100%; margin: 0; height: 38px;">
-              ${activeComerces.map(c => `<option value="${c}" ${c === selectedCommerce ? 'selected' : ''}>${c}</option>`).join('')}
+              <option value="">-- Todos los comercios --</option>
+              ${activeComerces.map(c => `<option value="${c}">${c}</option>`).join('')}
             </select>
           </div>
 
@@ -16728,8 +16749,8 @@ window.renderVolumenDiario = async function() {
           </div>
 
           <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; height: 50px; justify-content: center;">
-            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Último Volumen</span>
-            <span id="volume-last-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2;">-- m³</span>
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: uppercase; line-height: 1.2;">Tendencia Periodo</span>
+            <span id="volume-trend-value" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem; line-height: 1.2; display: flex; align-items: center;">--</span>
           </div>
         </div>
       </div>
@@ -16741,7 +16762,10 @@ window.renderVolumenDiario = async function() {
         <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
         <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Histórico Diario (1:00 AM)
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #cbd5e1; display: inline-block;"></span> Contexto Extra (Gris)
           </span>
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
             <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
@@ -16800,64 +16824,87 @@ window.renderVolumenDiario = async function() {
   const startDateInput = document.getElementById('volume-start-date');
   const endDateInput = document.getElementById('volume-end-date');
   const currentValSpan = document.getElementById('volume-current-value');
-  const lastValSpan = document.getElementById('volume-last-value');
+  const trendValSpan = document.getElementById('volume-trend-value');
   const tbody = document.getElementById('volume-history-tbody');
   const btnRefresh = document.getElementById('btn-refresh-volume');
   const btnPrev = document.getElementById('btn-volume-prev');
   const btnNext = document.getElementById('btn-volume-next');
   const pageInfo = document.getElementById('volume-page-info');
 
-  // Load Current Volume in Real Time and Last Recorded Volume
+  // Load Current Volume in Real Time
   async function updateVolumeStats() {
     currentValSpan.textContent = '-- m³';
-    lastValSpan.textContent = '-- m³';
-
-    if (!selectedCommerce) return;
 
     try {
-      const { data: realTimeData, error: rtErr } = await supabase
-        .from('v_comercios_volumen_actual')
-        .select('volumen_actual')
-        .eq('comercio', selectedCommerce)
-        .maybeSingle();
+      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
+      if (selectedCommerce) {
+        rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      } else {
+        rtQuery = rtQuery.in('comercio', activeComerces);
+      }
+      const { data: realTimeData, error: rtErr } = await rtQuery;
 
       if (rtErr) throw rtErr;
-      const volReal = realTimeData ? parseFloat(realTimeData.volumen_actual || 0) : 0;
+      const volReal = realTimeData ? realTimeData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0) : 0;
       currentValSpan.textContent = `${volReal.toFixed(5)} m³`;
-
-      const { data: lastRecord, error: lastErr } = await supabase
-        .from('comercios_volumen_diario')
-        .select('volumen, fecha')
-        .eq('comercio', selectedCommerce)
-        .order('fecha', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (lastErr) throw lastErr;
-      if (lastRecord) {
-        const d = new Date(lastRecord.fecha + 'T00:00:00');
-        const formattedDate = d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        lastValSpan.textContent = `${parseFloat(lastRecord.volumen).toFixed(5)} m³ (${formattedDate})`;
-      } else {
-        lastValSpan.textContent = 'Sin registros';
-      }
     } catch (e) {
       console.error('Error al cargar estadísticas de volumen:', e);
     }
   }
 
+  // Update Trend Indicator
+  function updateTrendIndicator(filteredDates, filteredValues, totalLiveVolume, isTodayInRange) {
+    if (!trendValSpan) return;
+
+    const dates = [...filteredDates];
+    const values = [...filteredValues];
+
+    if (isTodayInRange) {
+      dates.push('Actual');
+      values.push(totalLiveVolume);
+    }
+
+    if (values.length < 2) {
+      trendValSpan.innerHTML = '<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin datos suf.</span>';
+      return;
+    }
+
+    const vStart = values[0];
+    const vEnd = values[values.length - 1];
+
+    let pctChange = 0;
+    if (vStart > 0) {
+      pctChange = ((vEnd - vStart) / vStart) * 100;
+    } else if (vEnd > 0) {
+      pctChange = 100;
+    }
+
+    const absPct = Math.abs(pctChange).toFixed(2);
+    if (pctChange > 0.0001) {
+      trendValSpan.innerHTML = `<span style="color: #10b981; display: flex; align-items: center; font-weight: 700;"><i class="ri-trending-up-line" style="margin-right: 0.25rem;"></i> +${absPct}%</span>`;
+    } else if (pctChange < -0.0001) {
+      trendValSpan.innerHTML = `<span style="color: #ef4444; display: flex; align-items: center; font-weight: 700;"><i class="ri-trending-down-line" style="margin-right: 0.25rem;"></i> -${absPct}%</span>`;
+    } else {
+      trendValSpan.innerHTML = `<span style="color: var(--color-text-muted); display: flex; align-items: center; font-weight: 700;"><i class="ri-subtract-line" style="margin-right: 0.25rem;"></i> 0.00%</span>`;
+    }
+  }
+
   // Update Chart
   async function updateChart() {
-    let liveVolume = 0;
+    let liveVolumeMap = {};
     try {
-      const { data: rtData, error: rtErr } = await supabase
-        .from('v_comercios_volumen_actual')
-        .select('volumen_actual')
-        .eq('comercio', selectedCommerce)
-        .maybeSingle();
+      let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
+      if (selectedCommerce) {
+        rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      } else {
+        rtQuery = rtQuery.in('comercio', activeComerces);
+      }
+      const { data: rtData, error: rtErr } = await rtQuery;
       if (rtErr) throw rtErr;
       if (rtData) {
-        liveVolume = parseFloat(rtData.volumen_actual || 0);
+        rtData.forEach(item => {
+          liveVolumeMap[item.comercio] = parseFloat(item.volumen_actual || 0);
+        });
       }
     } catch (e) {
       console.error('Error al obtener volumen en tiempo real para gráfico:', e);
@@ -16871,17 +16918,22 @@ window.renderVolumenDiario = async function() {
 
     const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
 
-    // Group/Map histories by date
-    const dates = allHistories.map(item => item.fecha);
+    // Get unique list of dates (sorted ascending)
+    const datesSet = new Set();
+    allHistories.forEach(item => datesSet.add(item.fecha));
+    const dates = Array.from(datesSet).sort();
+
+    const chartDates = [...dates];
+    if (isTodayInRange) {
+      chartDates.push('Actual');
+    }
+
     const labels = dates.map(d => {
       const parts = d.split('-');
       return `${parts[2]}/${parts[1]}`;
     });
-    const values = allHistories.map(item => parseFloat(item.volumen || 0));
-
     if (isTodayInRange) {
       labels.push('Actual');
-      values.push(liveVolume);
     }
 
     const ctx = document.getElementById('volume-chart-canvas');
@@ -16893,44 +16945,203 @@ window.renderVolumenDiario = async function() {
       volumeChartInstance.destroy();
     }
 
-    const pointBgColor = labels.map(l => l === 'Actual' ? '#f43f5e' : '#2563eb');
-    const pointBdColor = labels.map(l => l === 'Actual' ? '#fda4af' : '#3b82f6');
-    const pointRad = labels.map(l => l === 'Actual' ? 7 : 4);
-    const pointHoverRad = labels.map(l => l === 'Actual' ? 9 : 6);
+    const isStackedBar = !selectedCommerce;
 
-    volumeChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Volumen',
+    // Get list of comercios to show
+    let comercios = [];
+    if (isStackedBar) {
+      comercios = [...activeComerces].sort();
+    } else {
+      comercios = [selectedCommerce];
+    }
+
+    const CHART_PALETTE = [
+      '#3b82f6', // blue
+      '#10b981', // emerald
+      '#f59e0b', // amber
+      '#8b5cf6', // violet
+      '#ec4899', // pink
+      '#06b6d4', // cyan
+      '#f97316', // orange
+      '#14b8a6', // teal
+      '#a855f7', // purple
+      '#6366f1'  // indigo
+    ];
+    const CHART_BORDER_PALETTE = [
+      '#1d4ed8',
+      '#047857',
+      '#b45309',
+      '#6d28d9',
+      '#be185d',
+      '#0e7490',
+      '#c2410c',
+      '#0f766e',
+      '#7e22ce',
+      '#4338ca'
+    ];
+
+    const datasets = comercios.map((commerceName, idx) => {
+      const values = chartDates.map(d => {
+        if (d === 'Actual') {
+          return liveVolumeMap[commerceName] || 0;
+        }
+        const match = allHistories.find(item => item.comercio === commerceName && item.fecha === d);
+        return match ? parseFloat(match.volumen || 0) : 0;
+      });
+
+      if (isStackedBar) {
+        // Multi-merchant stacked bar details
+        const bgColors = chartDates.map(d => {
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
+        });
+        const borderColors = chartDates.map(d => {
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 'rgba(148, 163, 184, 0.4)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
+        });
+
+        return {
+          type: 'bar',
+          label: commerceName,
+          data: values,
+          backgroundColor: bgColors,
+          borderColor: borderColors,
+          borderWidth: 1,
+          barPercentage: 0.45,
+          categoryPercentage: 0.8,
+          stack: 'volume_stack'
+        };
+      } else {
+        // Single merchant line curve
+        const pointBgColor = chartDates.map(d => {
+          if (d === 'Actual') return '#f43f5e';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#2563eb';
+        });
+        const pointBdColor = chartDates.map(d => {
+          if (d === 'Actual') return '#fda4af';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#3b82f6';
+        });
+        const pointRad = chartDates.map(d => d === 'Actual' ? 7 : 4);
+        const pointHoverRad = chartDates.map(d => d === 'Actual' ? 9 : 6);
+
+        return {
+          type: 'line',
+          label: commerceName,
           data: values,
           borderColor: '#2563eb',
           borderWidth: 2.5,
-          backgroundColor: (context) => {
-            const chart = context.chart;
-            const {ctx, chartArea} = chart;
-            if (!chartArea) return null;
-            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.15)');
-            gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
-            return gradient;
-          },
-          fill: true,
           tension: 0.35,
           pointBackgroundColor: pointBgColor,
           pointBorderColor: pointBdColor,
           pointBorderWidth: 2,
           pointRadius: pointRad,
           pointHoverRadius: pointHoverRad,
-        }]
+          segment: {
+            borderColor: ctx => {
+              const p0 = ctx.p0DataIndex;
+              const p1 = ctx.p1DataIndex;
+              const d0 = chartDates[p0];
+              const d1 = chartDates[p1];
+              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+            },
+            borderDash: ctx => {
+              const p0 = ctx.p0DataIndex;
+              const p1 = ctx.p1DataIndex;
+              const d0 = chartDates[p0];
+              const d1 = chartDates[p1];
+              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? [4, 4] : undefined;
+            }
+          }
+        };
+      }
+    });
+
+    // Overlay the Total Volume Curve only if we are showing multiple comerces (consolidated)
+    if (isStackedBar) {
+      const totalValues = chartDates.map((_, i) => {
+        // datasets contains individual commerce volumes
+        return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+      });
+
+      datasets.push({
+        type: 'line',
+        label: 'Curva Total',
+        data: totalValues,
+        borderColor: '#2563eb',
+        borderWidth: 2.2,
+        tension: 0.35,
+        fill: false,
+        pointBackgroundColor: chartDates.map(d => {
+          if (d === 'Actual') return '#f43f5e';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#2563eb';
+        }),
+        pointBorderColor: chartDates.map(d => {
+          if (d === 'Actual') return '#fda4af';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#3b82f6';
+        }),
+        pointRadius: chartDates.map(d => d === 'Actual' ? 6 : 3.5),
+        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 8 : 5.5),
+        segment: {
+          borderColor: ctx => {
+            const p0 = ctx.p0DataIndex;
+            const p1 = ctx.p1DataIndex;
+            const d0 = chartDates[p0];
+            const d1 = chartDates[p1];
+            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+          },
+          borderDash: ctx => {
+            const p0 = ctx.p0DataIndex;
+            const p1 = ctx.p1DataIndex;
+            const d0 = chartDates[p0];
+            const d1 = chartDates[p1];
+            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? [4, 4] : undefined;
+          }
+        }
+      });
+    }
+
+    // Calculate trend over user selected range
+    const filteredDates = dates.filter(d => d >= startDate && d <= endDate);
+    const filteredValues = filteredDates.map(d => {
+      const matches = allHistories.filter(item => item.fecha === d);
+      return matches.reduce((sum, item) => sum + parseFloat(item.volumen || 0), 0);
+    });
+
+    let totalLiveVolume = 0;
+    if (selectedCommerce) {
+      totalLiveVolume = liveVolumeMap[selectedCommerce] || 0;
+    } else {
+      totalLiveVolume = Object.values(liveVolumeMap).reduce((sum, v) => sum + v, 0);
+    }
+    updateTrendIndicator(filteredDates, filteredValues, totalLiveVolume, isTodayInRange);
+
+    volumeChartInstance = new Chart(ctx, {
+      data: {
+        labels: labels,
+        datasets: datasets
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: false
+            display: isStackedBar,
+            position: 'top',
+            labels: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              },
+              boxWidth: 12
+            }
           },
           tooltip: {
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
@@ -16945,7 +17156,7 @@ window.renderVolumenDiario = async function() {
                 if (item.label === 'Actual') {
                   return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
                 }
-                const foundDate = dates[item.dataIndex];
+                const foundDate = chartDates[item.dataIndex];
                 if (foundDate) {
                   const parts = foundDate.split('-');
                   return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
@@ -16953,13 +17164,48 @@ window.renderVolumenDiario = async function() {
                 return `Fecha: ${item.label}`;
               },
               label: function(context) {
-                return ` Volumen: ${context.parsed.y.toFixed(5)} m³`;
+                const dataIndex = context.dataIndex;
+                const chart = context.chart;
+                let dayTotal = 0;
+                chart.data.datasets.forEach(dataset => {
+                  if (dataset.type === 'bar') {
+                    dayTotal += parseFloat(dataset.data[dataIndex] || 0);
+                  }
+                });
+
+                const value = context.parsed.y;
+                const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
+                
+                if (context.dataset.label === 'Curva Total') {
+                  return ` Volumen Total: ${value.toFixed(5)} m³`;
+                }
+
+                if (isStackedBar) {
+                  return ` ${context.dataset.label}: ${value.toFixed(5)} m³ (${pct}%)`;
+                } else {
+                  return ` Volumen: ${value.toFixed(5)} m³`;
+                }
+              },
+              footer: function(context) {
+                if (isStackedBar) {
+                  const dataIndex = context[0].dataIndex;
+                  const chart = context[0].chart;
+                  let dayTotal = 0;
+                  chart.data.datasets.forEach(dataset => {
+                    if (dataset.type === 'bar') {
+                      dayTotal += parseFloat(dataset.data[dataIndex] || 0);
+                    }
+                  });
+                  return `Total diario: ${dayTotal.toFixed(5)} m³`;
+                }
+                return null;
               }
             }
           }
         },
         scales: {
           x: {
+            stacked: isStackedBar,
             grid: {
               display: false
             },
@@ -16971,6 +17217,7 @@ window.renderVolumenDiario = async function() {
             }
           },
           y: {
+            stacked: isStackedBar,
             grid: {
               color: 'rgba(148, 163, 184, 0.08)',
               drawBorder: false
@@ -17002,6 +17249,13 @@ window.renderVolumenDiario = async function() {
     `;
 
     try {
+      const startD = new Date(startDate + 'T00:00:00');
+      const endD = new Date(endDate + 'T00:00:00');
+      const diffDays = Math.ceil(Math.abs(endD - startD) / (1000 * 60 * 60 * 24)) + 1;
+
+      const expandedStart = addDays(startDate, -diffDays);
+      const expandedEnd = addDays(endDate, diffDays);
+
       let query = supabase.from('comercios_volumen_diario').select('*');
 
       if (selectedCommerce) {
@@ -17010,12 +17264,7 @@ window.renderVolumenDiario = async function() {
         query = query.in('comercio', activeComerces);
       }
       
-      if (startDate) {
-        query = query.gte('fecha', startDate);
-      }
-      if (endDate) {
-        query = query.lte('fecha', endDate);
-      }
+      query = query.gte('fecha', expandedStart).lte('fecha', expandedEnd);
 
       const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
 
@@ -17040,8 +17289,10 @@ window.renderVolumenDiario = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    // Reverse historical data to show most recent first in table
-    const tableHistories = [...allHistories].reverse();
+    // Reverse historical data to show most recent first in table (only within user selected filtered range)
+    const tableHistories = allHistories
+      .filter(item => item.fecha >= startDate && item.fecha <= endDate)
+      .reverse();
 
     if (tableHistories.length === 0) {
       tbody.innerHTML = `
@@ -17509,4 +17760,44 @@ function recalculateCatalogTotals() {
     volEl.value = totalVolume > 0 ? totalVolume.toFixed(3) : '';
   }
 }
+
+async function updateClientBadges(userId, userComercio) {
+  try {
+    const badgeEl = document.getElementById('badge-incidencias');
+    if (!badgeEl) return;
+
+    let query = supabase
+      .from('incidencias')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pendiente');
+
+    if (userComercio !== 'all') {
+      const commerceList = userComercio.split(',').map(s => s.trim()).filter(Boolean);
+      if (commerceList.length > 0) {
+        query = query.in('comercio', commerceList);
+      } else {
+        query = query.eq('comercio', 'no asignado');
+      }
+    }
+
+    const { count, error } = await query;
+    if (error) {
+      if (error.code === '42P01' || error.message.includes('does not exist')) {
+        badgeEl.style.display = 'none';
+        return;
+      }
+      throw error;
+    }
+
+    if (count !== null && count > 0) {
+      badgeEl.textContent = count;
+      badgeEl.style.display = 'inline-flex';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Error al actualizar globo de incidencias del cliente:', err);
+  }
+}
+window.updateClientBadges = updateClientBadges;
 
