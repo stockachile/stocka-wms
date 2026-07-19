@@ -179,3 +179,24 @@ Hemos implementado un sistema completo de Onboarding para la incorporación de n
    - Una función RPC segura (`update_user_metadata_from_onboarding`) actualiza los metadatos de Auth para asegurar que el cambio de rol del usuario de `observer` a `client` persista de inmediato en su sesión activa sin requerir cerrar sesión.
 
 ---
+
+## 18. Tarjetas de Resumen y Métricas en el Encabezado de Catálogo (Cliente y Admin)
+
+Hemos implementado un conjunto de tarjetas de métricas en la sección superior de la vista de catálogo (junto al seleccionable de comercio), tanto en la vista de **Cliente** (`js/app.js`) como en la del **Administrador** (`js/admin.js`).
+
+### Métricas Incluidas:
+1. **SKUs en Catálogo:**
+   - Muestra la cantidad total de SKUs registrados en el catálogo master del comercio.
+   - Incluye el desglose dinámico indicando cuántos de esos SKUs poseen inventario físico actual mayor a cero en las bodegas.
+2. **Packs / Combos:**
+   - Cantidad de artículos configurados como Packs/Combos de productos.
+3. **Artículos Virtuales:**
+   - Cantidad de productos virtuales (servicios, intangibles o sin inventario físico).
+4. **Incidencias:**
+   - Número de incidencias activas en estado **Pendiente** asignadas al comercio, mostrando además el total histórico de incidencias registradas.
+
+### Características Visuales y de UX:
+- **Diseño Moderno:** Tarjetas con bordes redondeados (`radius-md`), fondo de tarjeta de superficie (`var(--color-surface)`), sombras sutiles y efectos de hover suaves.
+- **Iconografía Integrada:** Iconos de Remix Icon específicos con colores de contraste agradables y semánticos (azul para SKUs, morado para Packs, verde para Virtuales, rojo para Incidencias).
+- **Consistencia de Carga:** Muestra un estado de carga animado (*"Cargando estadísticas..."*) de manera asíncrona mientras se realizan las consultas a Supabase, evitando parpadeos bruscos en la interfaz.
+- **Sincronización:** En la vista de administrador, el panel de tarjetas se oculta/muestra y actualiza en tiempo real de acuerdo al comercio seleccionado en el menú desplegable. En la vista del cliente, las métricas se recalculan automáticamente si este cambia de comercio activo.

@@ -1127,6 +1127,7 @@ async function renderAdminOrders() {
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
+              <option value="Walmart">Walmart</option>
               <option value="Manual">Manual</option>
             </select>
           </div>
@@ -1639,7 +1640,7 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const platform = order.origen || order.external_platform || 'Manual';
-    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280')))));
+    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280'))))));
     const platformLower = platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
@@ -2522,7 +2523,7 @@ async function renderIntegrations() {
         const companyName = mi.profiles?.company_name || 'Desconocido';
         const commerceName = mi.comercio || 'No especificado';
         const platform = mi.platform || 'Desconocida';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280')))));
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : '#6b7280'))))));
         
         const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
         
@@ -2543,7 +2544,7 @@ async function renderIntegrations() {
           : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Inactiva</span>';
 
         let syncStatusHtml = '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
-        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Falabella') {
+        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Falabella' || mi.platform === 'Walmart') {
           const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
           const now = new Date();
           const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true; // Más de 1 hora
@@ -2563,7 +2564,7 @@ async function renderIntegrations() {
           }
 
           // Botón para forzar sincronización manual (disponible en plataformas mapeadas en Edge Function)
-          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute'].includes(mi.platform);
+          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute', 'Walmart'].includes(mi.platform);
           if (supportManualSync && mi.is_active) {
             syncStatusHtml += `
               <div style="margin-top: 0.35rem;">
@@ -3225,6 +3226,8 @@ function renderMasterCatalogRows(products) {
       platformName = 'WooCommerce'; platformColor = '#96588a';
     } else if (item.raw_jumpseller_data) {
       platformName = 'Jumpseller'; platformColor = '#0284c7';
+    } else if (item.raw_walmart_data) {
+      platformName = 'Walmart'; platformColor = '#0071ce';
     }
     const platformLower = platformName.toLowerCase();
     const originBadge = `<img src="./img/${platformLower}.png" alt="${platformName}" title="${platformName}" style="height: 32px; max-width: 100px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>${platformName}</span>';" />`;
@@ -4823,37 +4826,37 @@ async function renderAdminInventoryWorkspace(commerce) {
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
                 <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th class="admin-inventory-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="physical" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="physical" title="Cantidad física total del producto actualmente en la bodega" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Físico <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="committed" title="Unidades comprometidas en pedidos activos y pendientes de procesar" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="pending" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="pending" title="Unidades pendientes de recibir (compras o traslados en camino)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Pendiente <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="available" title="Unidades disponibles para venta en esta bodega específica (Físico - Comprometido)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="totalAvailable" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="totalAvailable" title="Unidades disponibles consolidadas sumando todas las bodegas de este comercio" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Total) <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="stock_critico" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="stock_critico" title="Umbral de stock mínimo definido para alertas de bajo stock" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Crítico <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="status" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="status" title="Estado de stock basado en la disponibilidad total respecto al Stock Crítico" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th style="text-align: center; width: 100px; padding: 1rem 1.5rem; white-space: nowrap;">Acciones</th>
+                  <th title="Acciones y operaciones del producto" style="text-align: center; width: 100px; padding: 1rem 1.5rem; white-space: nowrap;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="admin-inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
@@ -5204,7 +5207,7 @@ async function openAdminProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+    <div class="modal-content" style="max-width: 1000px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
@@ -5216,14 +5219,36 @@ async function openAdminProductMovementsModal(productId, sku, name) {
         </div>
         <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="movements-modal-body-admin">
+      
+      <!-- Date Filter Bar -->
+      <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
+            <input type="date" id="admin-movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
+            <input type="date" id="admin-movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+          </div>
+          <button class="btn btn-primary" id="admin-btn-filter-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Filtrar</button>
+          <button class="btn btn-outline" id="admin-btn-clear-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Limpiar</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;" id="movements-modal-body-admin">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
           <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
         </div>
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+      
+      <!-- Footer with pagination and close -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05); flex-wrap: wrap; gap: 1rem;">
+        <div id="admin-movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
+          <!-- Dynamic pagination info and controls -->
+        </div>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 36px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
       </div>
     </div>
   `;
@@ -5245,63 +5270,192 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 
     if (error) throw error;
 
-    const modalBody = document.getElementById('movements-modal-body-admin');
-    if (!modalBody) return;
+    // Helper to extract UUID
+    const extractUuid = (ref) => {
+      if (!ref) return null;
+      const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      return match ? match[0] : null;
+    };
 
-    if (!movements || movements.length === 0) {
-      modalBody.innerHTML = `
-        <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
-          <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
-          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos de stock registrados para este producto.</p>
-          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">Los ingresos y salidas aparecerán aquí una vez que comiencen a procesarse.</p>
-        </div>
-      `;
-      return;
+    // Lookup order names
+    const orderIds = [...new Set((movements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
+    const orderMap = {};
+    if (orderIds.length > 0) {
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('id, external_order_number')
+        .in('id', orderIds);
+      
+      if (orders) {
+        orders.forEach(o => {
+          orderMap[o.id] = o.external_order_number;
+        });
+      }
     }
 
-    let rowsHtml = movements.map(m => {
-      const isIngreso = m.type === 'in';
-      const typeBadge = isIngreso
-        ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-        : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
-      
-      const formattedDate = m.date 
-        ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
-        : '-';
+    // Store state in window
+    window.activeAdminMovsState = {
+      allMovements: movements || [],
+      orderMap: orderMap,
+      currentPage: 1,
+      pageSize: 10,
+      filterFrom: null,
+      filterTo: null
+    };
 
-      const qtyStyle = isIngreso 
-        ? 'color: var(--color-success); font-weight: 700;' 
-        : 'color: var(--color-danger); font-weight: 700;';
+    const renderTable = () => {
+      const modalBody = document.getElementById('movements-modal-body-admin');
+      const pagContainer = document.getElementById('admin-movements-pagination-container');
+      if (!modalBody || !pagContainer) return;
 
-      const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+      const state = window.activeAdminMovsState;
 
-      return `
-        <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
-          <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
-          <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
-          <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
-          <td style="padding: 0.85rem 0.5rem; color: var(--color-text-muted); font-size: 0.85rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${m.reference_doc || ''}">${m.reference_doc || '-'}</td>
-        </tr>
-      `;
-    }).join('');
+      // Filter by dates
+      let filtered = state.allMovements;
+      if (state.filterFrom) {
+        const fromDate = new Date(state.filterFrom + 'T00:00:00');
+        filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
+      }
+      if (state.filterTo) {
+        const toDate = new Date(state.filterTo + 'T23:59:59');
+        filtered = filtered.filter(m => m.date && new Date(m.date) <= toDate);
+      }
 
-    modalBody.innerHTML = `
-      <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
-        <thead>
-          <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-            <th style="padding: 0.6rem 0.5rem;">Fecha / Hora</th>
-            <th style="padding: 0.6rem 0.5rem;">Bodega</th>
-            <th style="padding: 0.6rem 0.5rem;">Tipo</th>
-            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
-            <th style="padding: 0.6rem 0.5rem;">Referencia</th>
+      if (filtered.length === 0) {
+        modalBody.innerHTML = `
+          <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
+            <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros.</p>
+          </div>
+        `;
+        pagContainer.innerHTML = '';
+        return;
+      }
+
+      // Pagination
+      const total = filtered.length;
+      const totalPages = Math.ceil(total / state.pageSize);
+      if (state.currentPage > totalPages) state.currentPage = totalPages || 1;
+
+      const startIdx = (state.currentPage - 1) * state.pageSize;
+      const endIdx = Math.min(startIdx + state.pageSize, total);
+      const paginated = filtered.slice(startIdx, endIdx);
+
+      // Render rows
+      let rowsHtml = paginated.map(m => {
+        const isIngreso = m.type === 'in';
+        const typeBadge = isIngreso
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+        
+        const formattedDate = m.date 
+          ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+          : '-';
+
+        const qtyStyle = isIngreso 
+          ? 'color: var(--color-success); font-weight: 700;' 
+          : 'color: var(--color-danger); font-weight: 700;';
+
+        const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+
+        // Map reference uuid to order number
+        const uuid = extractUuid(m.reference_doc);
+        let displayRef = m.reference_doc || '-';
+        if (uuid && state.orderMap[uuid]) {
+          displayRef = m.reference_doc.replace(uuid, state.orderMap[uuid]);
+        }
+
+        return `
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
+            <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
+            <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
+            <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.85rem 0.5rem; color: var(--color-text-main); font-size: 0.85rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
           </tr>
-        </thead>
-        <tbody style="color: var(--color-text-main);">
-          ${rowsHtml}
-        </tbody>
-      </table>
-    `;
+        `;
+      }).join('');
+
+      modalBody.innerHTML = `
+        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+              <th style="padding: 0.6rem 0.5rem; width: 25%;">Fecha / Hora</th>
+              <th style="padding: 0.6rem 0.5rem; width: 20%;">Bodega</th>
+              <th style="padding: 0.6rem 0.5rem; width: 15%;">Tipo</th>
+              <th style="padding: 0.6rem 0.5rem; text-align: center; width: 15%;">Cantidad</th>
+              <th style="padding: 0.6rem 0.5rem; width: 25%;">Referencia</th>
+            </tr>
+          </thead>
+          <tbody style="color: var(--color-text-main);">
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+
+      // Pagination controls
+      pagContainer.innerHTML = `
+        <div style="font-weight: 500;">Mostrando ${startIdx + 1} - ${endIdx} de ${total} movimientos</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-outline btn-sm" id="admin-btn-movs-prev" ${state.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Anterior</button>
+          <span style="font-weight: 600; font-size: 0.8rem; min-width: 80px; text-align: center;">Pág. ${state.currentPage} de ${totalPages}</span>
+          <button class="btn btn-outline btn-sm" id="admin-btn-movs-next" ${state.currentPage === totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Siguiente</button>
+        </div>
+      `;
+
+      // Attach page events
+      document.getElementById('admin-btn-movs-prev')?.addEventListener('click', () => {
+        if (state.currentPage > 1) {
+          state.currentPage--;
+          renderTable();
+        }
+      });
+
+      document.getElementById('admin-btn-movs-next')?.addEventListener('click', () => {
+        if (state.currentPage < totalPages) {
+          state.currentPage++;
+          renderTable();
+        }
+      });
+    };
+
+    renderTable();
+
+    // Attach filter events
+    document.getElementById('admin-btn-filter-movs')?.addEventListener('click', () => {
+      const fromVal = document.getElementById('admin-movs-date-from')?.value;
+      const toVal = document.getElementById('admin-movs-date-to')?.value;
+      window.activeAdminMovsState.filterFrom = fromVal || null;
+      window.activeAdminMovsState.filterTo = toVal || null;
+      window.activeAdminMovsState.currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('admin-btn-clear-movs')?.addEventListener('click', () => {
+      const fromEl = document.getElementById('admin-movs-date-from');
+      const toEl = document.getElementById('admin-movs-date-to');
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+      window.activeAdminMovsState.filterFrom = null;
+      window.activeAdminMovsState.filterTo = null;
+      window.activeAdminMovsState.currentPage = 1;
+      renderTable();
+    });
+
+  } catch (err) {
+    console.error('Error al cargar movimientos:', err);
+    const modalBody = document.getElementById('movements-modal-body-admin');
+    if (modalBody) {
+      modalBody.innerHTML = `
+        <div class="text-center" style="color: var(--color-danger); padding: 3rem 1rem;">
+          <i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem;"></i>
+          <p style="margin: 0; font-weight: 500;">Error al cargar el historial de movimientos.</p>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">${err.message}</p>
+        </div>
+      `;
+    }
+  }
+}
 
   } catch (err) {
     console.error('Error al cargar movimientos:', err);
@@ -5435,6 +5589,7 @@ async function renderAdminCatalog() {
       <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
         <option value="">-- Seleccione un Cliente --</option>
       </select>
+      <div id="catalog-admin-stats-container" style="margin-top: 1.5rem; display: none;"></div>
     </div>
     <div id="eq-admin-workspace" style="display: none;">
     </div>
@@ -5472,6 +5627,7 @@ async function renderAdminCatalog() {
     clientSelect.addEventListener('change', (e) => {
       const selectedComercio = e.target.value;
       const workspace = document.getElementById('eq-admin-workspace');
+      const statsContainer = document.getElementById('catalog-admin-stats-container');
       if (selectedComercio) {
         workspace.style.display = 'block';
         window.activeAdminComercio = selectedComercio;
@@ -5479,6 +5635,10 @@ async function renderAdminCatalog() {
       } else {
         workspace.style.display = 'none';
         window.activeAdminComercio = '';
+        if (statsContainer) {
+          statsContainer.style.display = 'none';
+          statsContainer.innerHTML = '';
+        }
       }
     });
 
@@ -5495,6 +5655,18 @@ async function renderAdminCatalogWorkspace(commerce) {
   const workspace = document.getElementById('eq-admin-workspace');
   workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando catálogo del comercio...</p>`;
 
+  const statsContainer = document.getElementById('catalog-admin-stats-container');
+  if (statsContainer) {
+    statsContainer.style.display = 'block';
+    statsContainer.innerHTML = `
+      <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; width: 100%;">
+        <div style="flex: 1 1 220px; height: 76px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 0.85rem;">
+          <i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem; font-size: 1.2rem;"></i> Cargando estadísticas...
+        </div>
+      </div>
+    `;
+  }
+
   try {
     const { data: integrations, error: intErr } = await supabase
       .from('merchant_integrations')
@@ -5510,11 +5682,22 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const { data: products, error: prodErr } = await supabase
       .from('products')
-      .select('*')
+      .select('*, inventory(quantity)')
       .eq('comercio', commerce)
       .order('name');
 
     if (prodErr) throw prodErr;
+
+    let incidents = [];
+    try {
+      const { data: incs } = await supabase
+        .from('incidencias')
+        .select('status')
+        .eq('comercio', commerce);
+      incidents = incs || [];
+    } catch (err) {
+      console.error('Error fetching incidents for admin stats:', err);
+    }
 
     // Fetch initial stock movements
     const { data: initialMovements } = await supabase
@@ -5564,6 +5747,78 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     window.currentMasterProducts = masterProducts;
     window.currentUnmappedSyncedProducts = unmappedSynced;
+
+    // Render stats cards in the upper container for admin
+    const statsContainer = document.getElementById('catalog-admin-stats-container');
+    if (statsContainer) {
+      const totalSkus = masterProducts.length;
+      const skusWithStock = masterProducts.filter(p => {
+        const totalStock = (p.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+        return totalStock > 0;
+      }).length;
+
+      const totalPacks = masterProducts.filter(p => p.is_pack === true).length;
+      const totalVirtual = masterProducts.filter(p => p.is_virtual === true).length;
+
+      const totalIncidents = incidents.length;
+      const pendingIncidents = incidents.filter(i => i.status === 'pendiente').length;
+
+      statsContainer.innerHTML = `
+        <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; width: 100%;">
+          <!-- Tarjeta SKUs -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary);">
+              <i class="ri-barcode-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">SKUs en Catálogo</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalSkus} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">(${skusWithStock} con stock > 0)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Packs -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+              <i class="ri-stack-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Packs / Combos</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalPacks}
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Virtuales -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(16, 185, 129, 0.1); color: #10b981;">
+              <i class="ri-computer-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Artículos Virtuales</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalVirtual}
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Incidencias -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
+              <i class="ri-alert-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Incidencias</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${pendingIncidents} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">pendientes (${totalIncidents} tot.)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     const createBtn = '<button class="btn btn-primary" id="btn-new-product" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px;"><i class="ri-add-line" style="margin-right: 0.25rem;"></i>Nuevo Producto</button>';
     const importBtn = mainPlatform

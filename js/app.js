@@ -1440,14 +1440,25 @@ async function renderCatalog() {
     const mainPlatform = mainIntegration ? mainIntegration.platform : '';
     const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
 
-    // 2. Fetch WMS products
+    // 2. Fetch WMS products and incidents
     const { data: products, error: prodErr } = await supabase
       .from('products')
-      .select('*')
+      .select('*, inventory(quantity)')
       .eq('comercio', commerce)
       .order('name');
 
     if (prodErr) throw prodErr;
+
+    let incidents = [];
+    try {
+      const { data: incs } = await supabase
+        .from('incidencias')
+        .select('status')
+        .eq('comercio', commerce);
+      incidents = incs || [];
+    } catch (err) {
+      console.error('Error fetching incidents for stats:', err);
+    }
 
     // Fetch initial stock movements
     const { data: initialMovements } = await supabase
@@ -1599,7 +1610,17 @@ async function renderCatalog() {
       </div>
     `;
 
-    appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + mainPlatformSelectorHtml + `
+    const statsContainerHtml = `
+      <div id="catalog-client-stats-container" style="margin-top: 1rem; margin-bottom: 1.5rem;">
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; width: 100%;">
+          <div style="flex: 1 1 200px; height: 76px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 0.85rem;">
+            <i class="ri-loader-4-line ri-spin" style="margin-right: 0.5rem; font-size: 1.2rem;"></i> Cargando estadísticas...
+          </div>
+        </div>
+      </div>
+    `;
+
+    appContent.innerHTML = getObserverBanner() + commerceSelectorHtml + mainPlatformSelectorHtml + statsContainerHtml + `
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem;">
         <div class="integration-tabs" style="display: flex; gap: 0.5rem; padding-bottom: 0px; border-bottom: none; margin-bottom: 0;">
           <button class="integration-tab catalog-tab active" data-tab="tab-catalog-master" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
@@ -1770,6 +1791,78 @@ async function renderCatalog() {
         ${datalistOptionsHtml}
       </datalist>
     `;
+
+    // Render stats cards in the upper container
+    const statsContainer = document.getElementById('catalog-client-stats-container');
+    if (statsContainer) {
+      const totalSkus = masterProducts.length;
+      const skusWithStock = masterProducts.filter(p => {
+        const totalStock = (p.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+        return totalStock > 0;
+      }).length;
+
+      const totalPacks = masterProducts.filter(p => p.is_pack === true).length;
+      const totalVirtual = masterProducts.filter(p => p.is_virtual === true).length;
+
+      const totalIncidents = incidents.length;
+      const pendingIncidents = incidents.filter(i => i.status === 'pendiente').length;
+
+      statsContainer.innerHTML = `
+        <div style="display: flex; gap: 1.25rem; flex-wrap: wrap; width: 100%;">
+          <!-- Tarjeta SKUs -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(59, 130, 246, 0.1); color: var(--color-primary);">
+              <i class="ri-barcode-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">SKUs en Catálogo</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalSkus} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">(${skusWithStock} con stock > 0)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Packs -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
+              <i class="ri-stack-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Packs / Combos</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalPacks}
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Virtuales -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(16, 185, 129, 0.1); color: #10b981;">
+              <i class="ri-computer-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Artículos Virtuales</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${totalVirtual}
+              </div>
+            </div>
+          </div>
+
+          <!-- Tarjeta Incidencias -->
+          <div style="flex: 1 1 220px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; box-shadow: var(--shadow-sm); transition: all 0.25s ease;">
+            <div style="width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; background: rgba(239, 68, 68, 0.1); color: var(--color-danger);">
+              <i class="ri-alert-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Incidencias</div>
+              <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                ${pendingIncidents} <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">pendientes (${totalIncidents} tot.)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
 
     renderMasterCatalogRows(masterProducts);
     renderEquivalencesRows(unmappedSynced, mappingsMap);
@@ -2103,37 +2196,37 @@ async function renderInventory() {
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
                 <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th class="inventory-sortable" data-sort="sku" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="name" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="warehouse" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="physical" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="physical" title="Cantidad física total del producto actualmente en la bodega" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Físico <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="committed" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="committed" title="Unidades comprometidas en pedidos activos y pendientes de procesar" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="pending" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="pending" title="Unidades pendientes de recibir (compras o traslados en camino)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Pendiente <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="available" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="available" title="Unidades disponibles para venta en esta bodega específica (Físico - Comprometido)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="totalAvailable" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="totalAvailable" title="Unidades disponibles consolidadas sumando todas las bodegas de este comercio" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Total) <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="stock_critico" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="stock_critico" title="Umbral de stock mínimo definido para alertas de bajo stock" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Crítico <span class="sort-indicator"></span></span>
                   </th>
-                  <th class="inventory-sortable" data-sort="status" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
+                  <th class="inventory-sortable" data-sort="status" title="Estado de stock basado en la disponibilidad total respecto al Stock Crítico" style="cursor: pointer; user-select: none; padding: 0.65rem 0.75rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="sort-indicator"></span></span>
                   </th>
-                  <th style="text-align: center; width: 100px; padding: 0.65rem 0.75rem; white-space: nowrap;">Acciones</th>
+                  <th title="Acciones y operaciones del producto" style="text-align: center; width: 100px; padding: 0.65rem 0.75rem; white-space: nowrap;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
@@ -2627,7 +2720,7 @@ async function openProductMovementsModal(productId, sku, name) {
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+    <div class="modal-content" style="max-width: 1000px; width: 95%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
@@ -2639,14 +2732,36 @@ async function openProductMovementsModal(productId, sku, name) {
         </div>
         <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="movements-modal-body">
+      
+      <!-- Date Filter Bar -->
+      <div style="display: flex; gap: 1rem; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Desde:</label>
+            <input type="date" id="movs-date-from" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Hasta:</label>
+            <input type="date" id="movs-date-to" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); height: 32px;">
+          </div>
+          <button class="btn btn-primary" id="btn-filter-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Filtrar</button>
+          <button class="btn btn-outline" id="btn-clear-movs" style="padding: 0 1rem; font-size: 0.8rem; height: 32px; border-radius: var(--radius-sm); display: inline-flex; align-items: center; cursor: pointer; font-weight: 600;">Limpiar</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;" id="movements-modal-body">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
           <p style="margin: 0; font-size: 0.9rem;">Cargando historial de transacciones...</p>
         </div>
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+      
+      <!-- Footer with pagination and close -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05); flex-wrap: wrap; gap: 1rem;">
+        <div id="movements-pagination-container" style="display: flex; align-items: center; justify-content: space-between; width: calc(100% - 120px); font-size: 0.85rem; color: var(--color-text-muted);">
+          <!-- Dynamic pagination info and controls -->
+        </div>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500; height: 36px; padding: 0 1.25rem; cursor: pointer;">Cerrar</button>
       </div>
     </div>
   `;
@@ -2668,63 +2783,177 @@ async function openProductMovementsModal(productId, sku, name) {
 
     if (error) throw error;
 
-    const modalBody = document.getElementById('movements-modal-body');
-    if (!modalBody) return;
+    // Helper to extract UUID
+    const extractUuid = (ref) => {
+      if (!ref) return null;
+      const match = ref.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      return match ? match[0] : null;
+    };
 
-    if (!movements || movements.length === 0) {
-      modalBody.innerHTML = `
-        <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
-          <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
-          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos de stock registrados para este producto.</p>
-          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">Los ingresos y salidas aparecerán aquí una vez que comiencen a procesarse.</p>
-        </div>
-      `;
-      return;
+    // Lookup order names
+    const orderIds = [...new Set((movements || []).map(m => extractUuid(m.reference_doc)).filter(Boolean))];
+    const orderMap = {};
+    if (orderIds.length > 0) {
+      const { data: orders } = await supabase
+        .from('orders')
+        .select('id, external_order_number')
+        .in('id', orderIds);
+      
+      if (orders) {
+        orders.forEach(o => {
+          orderMap[o.id] = o.external_order_number;
+        });
+      }
     }
 
-    let rowsHtml = movements.map(m => {
-      const isIngreso = m.type === 'in';
-      const typeBadge = isIngreso
-        ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
-        : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
-      
-      const formattedDate = m.date 
-        ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
-        : '-';
+    // Store state in window
+    window.activeMovsState = {
+      allMovements: movements || [],
+      orderMap: orderMap,
+      currentPage: 1,
+      pageSize: 10,
+      filterFrom: null,
+      filterTo: null
+    };
 
-      const qtyStyle = isIngreso 
-        ? 'color: var(--color-success); font-weight: 700;' 
-        : 'color: var(--color-danger); font-weight: 700;';
+    const renderTable = () => {
+      const modalBody = document.getElementById('movements-modal-body');
+      const pagContainer = document.getElementById('movements-pagination-container');
+      if (!modalBody || !pagContainer) return;
 
-      const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+      const state = window.activeMovsState;
 
-      return `
-        <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
-          <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
-          <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
-          <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
-          <td style="padding: 0.85rem 0.5rem; color: var(--color-text-muted); font-size: 0.85rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${m.reference_doc || ''}">${m.reference_doc || '-'}</td>
-        </tr>
-      `;
-    }).join('');
+      // Filter by dates
+      let filtered = state.allMovements;
+      if (state.filterFrom) {
+        const fromDate = new Date(state.filterFrom + 'T00:00:00');
+        filtered = filtered.filter(m => m.date && new Date(m.date) >= fromDate);
+      }
+      if (state.filterTo) {
+        const toDate = new Date(state.filterTo + 'T23:59:59');
+        filtered = filtered.filter(m => m.date && new Date(m.date) <= toDate);
+      }
 
-    modalBody.innerHTML = `
-      <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
-        <thead>
-          <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
-            <th style="padding: 0.6rem 0.5rem;">Fecha / Hora</th>
-            <th style="padding: 0.6rem 0.5rem;">Bodega</th>
-            <th style="padding: 0.6rem 0.5rem;">Tipo</th>
-            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
-            <th style="padding: 0.6rem 0.5rem;">Referencia</th>
+      if (filtered.length === 0) {
+        modalBody.innerHTML = `
+          <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
+            <i class="ri-exchange-line" style="font-size: 3rem; color: var(--color-border); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
+            <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay movimientos que coincidan con los filtros.</p>
+          </div>
+        `;
+        pagContainer.innerHTML = '';
+        return;
+      }
+
+      // Pagination
+      const total = filtered.length;
+      const totalPages = Math.ceil(total / state.pageSize);
+      if (state.currentPage > totalPages) state.currentPage = totalPages || 1;
+
+      const startIdx = (state.currentPage - 1) * state.pageSize;
+      const endIdx = Math.min(startIdx + state.pageSize, total);
+      const paginated = filtered.slice(startIdx, endIdx);
+
+      // Render rows
+      let rowsHtml = paginated.map(m => {
+        const isIngreso = m.type === 'in';
+        const typeBadge = isIngreso
+          ? '<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: var(--color-success); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-left-down-line"></i> Ingreso</span>'
+          : '<span class="badge" style="background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem;"><i class="ri-arrow-right-up-line"></i> Salida</span>';
+        
+        const formattedDate = m.date 
+          ? new Date(m.date).toLocaleString('es-CL', { timeZone: 'America/Santiago' })
+          : '-';
+
+        const qtyStyle = isIngreso 
+          ? 'color: var(--color-success); font-weight: 700;' 
+          : 'color: var(--color-danger); font-weight: 700;';
+
+        const qtyText = isIngreso ? `+${m.quantity}` : `-${m.quantity}`;
+
+        // Map reference uuid to order number
+        const uuid = extractUuid(m.reference_doc);
+        let displayRef = m.reference_doc || '-';
+        if (uuid && state.orderMap[uuid]) {
+          displayRef = m.reference_doc.replace(uuid, state.orderMap[uuid]);
+        }
+
+        return `
+          <tr style="border-bottom: 1px solid var(--color-border);">
+            <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
+            <td style="padding: 0.85rem 0.5rem;">${m.warehouses?.name || 'N/A'}</td>
+            <td style="padding: 0.85rem 0.5rem;">${typeBadge}</td>
+            <td style="padding: 0.85rem 0.5rem; text-align: center; ${qtyStyle}">${qtyText}</td>
+            <td style="padding: 0.85rem 0.5rem; color: var(--color-text-main); font-size: 0.85rem; font-weight: 500;" title="${displayRef}">${displayRef}</td>
           </tr>
-        </thead>
-        <tbody style="color: var(--color-text-main);">
-          ${rowsHtml}
-        </tbody>
-      </table>
-    `;
+        `;
+      }).join('');
+
+      modalBody.innerHTML = `
+        <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; background: rgba(0,0,0,0.02);">
+              <th style="padding: 0.6rem 0.5rem; width: 25%;">Fecha / Hora</th>
+              <th style="padding: 0.6rem 0.5rem; width: 20%;">Bodega</th>
+              <th style="padding: 0.6rem 0.5rem; width: 15%;">Tipo</th>
+              <th style="padding: 0.6rem 0.5rem; text-align: center; width: 15%;">Cantidad</th>
+              <th style="padding: 0.6rem 0.5rem; width: 25%;">Referencia</th>
+            </tr>
+          </thead>
+          <tbody style="color: var(--color-text-main);">
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+
+      // Pagination controls
+      pagContainer.innerHTML = `
+        <div style="font-weight: 500;">Mostrando ${startIdx + 1} - ${endIdx} de ${total} movimientos</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-outline btn-sm" id="btn-movs-prev" ${state.currentPage === 1 ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Anterior</button>
+          <span style="font-weight: 600; font-size: 0.8rem; min-width: 80px; text-align: center;">Pág. ${state.currentPage} de ${totalPages}</span>
+          <button class="btn btn-outline btn-sm" id="btn-movs-next" ${state.currentPage === totalPages ? 'disabled' : ''} style="padding: 0.25rem 0.75rem; height: 28px; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">Siguiente</button>
+        </div>
+      `;
+
+      // Attach page events
+      document.getElementById('btn-movs-prev')?.addEventListener('click', () => {
+        if (state.currentPage > 1) {
+          state.currentPage--;
+          renderTable();
+        }
+      });
+
+      document.getElementById('btn-movs-next')?.addEventListener('click', () => {
+        if (state.currentPage < totalPages) {
+          state.currentPage++;
+          renderTable();
+        }
+      });
+    };
+
+    renderTable();
+
+    // Attach filter events
+    document.getElementById('btn-filter-movs')?.addEventListener('click', () => {
+      const fromVal = document.getElementById('movs-date-from')?.value;
+      const toVal = document.getElementById('movs-date-to')?.value;
+      window.activeMovsState.filterFrom = fromVal || null;
+      window.activeMovsState.filterTo = toVal || null;
+      window.activeMovsState.currentPage = 1;
+      renderTable();
+    });
+
+    document.getElementById('btn-clear-movs')?.addEventListener('click', () => {
+      const fromEl = document.getElementById('movs-date-from');
+      const toEl = document.getElementById('movs-date-to');
+      if (fromEl) fromEl.value = '';
+      if (toEl) toEl.value = '';
+      window.activeMovsState.filterFrom = null;
+      window.activeMovsState.filterTo = null;
+      window.activeMovsState.currentPage = 1;
+      renderTable();
+    });
 
   } catch (err) {
     console.error('Error al cargar movimientos:', err);
@@ -4674,6 +4903,7 @@ async function renderIntegrations() {
     const meliIntegration = integrationsList ? integrationsList.find(i => i.platform === 'MercadoLibre') : null;
     const wooIntegration = integrationsList ? integrationsList.find(i => i.platform === 'WooCommerce') : null;
     const jumpsellerIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Jumpseller') : null;
+    const walmartIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Walmart') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
@@ -4699,6 +4929,13 @@ async function renderIntegrations() {
     const meliRedirectUri = hasMeli ? (meliIntegration.shop_url || 'https://www.google.com') : 'https://www.google.com';
     const meliStatusText = hasMeli 
       ? (meliIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    const hasWalmart = !!walmartIntegration;
+    const walmartClientId = hasWalmart ? (walmartIntegration.client_id || '') : '';
+    const walmartRedirectUri = hasWalmart ? (walmartIntegration.shop_url || 'https://www.google.com') : 'https://www.google.com';
+    const walmartStatusText = hasWalmart 
+      ? (walmartIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     const hasWoo = !!wooIntegration;
@@ -4769,6 +5006,13 @@ async function renderIntegrations() {
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>' +
             '<button type="button" class="btn btn-primary" id="btn-sync-meli" style="background-color: #f59e0b; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
 
+    const walmartButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasWalmart 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-walmart" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Walmart API</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-walmart" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Walmart</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-walmart" style="background-color: #0071ce; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
+
     const wooButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasWoo 
@@ -4818,6 +5062,7 @@ async function renderIntegrations() {
         <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
         <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
         <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
+        <button class="integration-tab" data-tab="tab-walmart"><i class="ri-store-2-line"></i> Walmart</button>
         <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
         <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
       </div>
@@ -4832,6 +5077,7 @@ async function renderIntegrations() {
             ${hasParis ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">París</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + parisStatusText + '</div></div>' : ''}
             ${hasFalabella ? '<div class="card" style="border: 1px solid rgba(132, 204, 22, 0.2); background: rgba(132, 204, 22, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #84cc16;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Falabella</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + falabellaUser + '</span></div></div>' + falabellaStatusText + '</div></div>' : ''}
             ${hasMeli ? '<div class="card" style="border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #f59e0b;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">MercadoLibre</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + meliStatusText + '</div></div>' : ''}
+            ${hasWalmart ? '<div class="card" style="border: 1px solid rgba(0, 113, 206, 0.2); background: rgba(0, 113, 206, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #0071ce;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Walmart</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + walmartStatusText + '</div></div>' : ''}
             ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
             ${hasJumpseller ? '<div class="card" style="border: 1px solid rgba(2, 132, 199, 0.2); background: rgba(2, 132, 199, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-2-line" style="font-size: 2rem; color: #0284c7;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Jumpseller</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + jumpsellerUrl + '</span></div></div>' + jumpsellerStatusText + '</div></div>' : ''}
             ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
@@ -5187,6 +5433,75 @@ async function renderIntegrations() {
               <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background-color: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.75rem;">
                 <i class="ri-customer-service-2-line" style="font-size: 1.5rem; color: var(--color-primary);"></i>
                 <p style="margin: 0; color: var(--color-primary); font-weight: 500; font-size: 0.9rem;">Para activar cada servicio, pueden contactar con nosotros a través de su ejecutiva KAM.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Walmart -->
+        <div id="tab-walmart" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Walmart Marketplace</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasWalmart ? 'rgba(0, 113, 206, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasWalmart ? 'rgba(0, 113, 206, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasWalmart ? '#0071ce' : 'var(--color-text-main)'};">Walmart Store (Official API)</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y catálogo de productos.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${walmartStatusText}
+                   </div>
+                </div>
+                <form id="form-walmart-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
+                    <input type="text" id="walmart-client-id" class="form-input" placeholder="ej. d828d1df-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value="${walmartClientId}" ${hasWalmart ? 'readonly' : 'required'} style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWalmart ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
+                    <input type="password" id="walmart-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" required style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">Redirect URI / Shop URL (Opcional)</label>
+                    <input type="text" id="walmart-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${walmartRedirectUri}" style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasWalmart ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Código de Autorización / Refresh Token (Opcional)</label>
+                    <input type="password" id="walmart-auth-code" class="form-input" placeholder="Ingresa el código si usas flujo Auth Code" style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido si tu cuenta requiere flujo de código de autorización en lugar de credenciales de cliente directas.</p>
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${walmartButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Walmart
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                      Dirígete a Walmart Developer Portal, inicia sesión en tu cuenta de vendedor y genera tus credenciales de API de tipo <strong>Client ID</strong> y <strong>Client Secret</strong>.
+                    </p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Configurar en Stocka:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                      Ingresa el Client ID y el Client Secret en los campos del formulario y presiona <strong>Conectar Walmart API</strong> para guardar e iniciar la sincronización del catálogo y pedidos.
+                    </p>
+                  </li>
+                </ol>
               </div>
             </div>
           </div>
@@ -5940,6 +6255,244 @@ async function renderIntegrations() {
           } finally {
             btnSyncMeli.disabled = false;
             btnSyncMeli.textContent = 'Sincronizar Productos';
+          }
+        });
+      }
+    }
+
+    // Walmart Submit/Sync/Disconnect Listeners
+    // Walmart Submit Listener
+    if(!hasWalmart) {
+      const formWalmart = document.getElementById('form-walmart-integration');
+      if (formWalmart) {
+        formWalmart.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const btn = document.getElementById('btn-save-walmart');
+          btn.disabled = true;
+          btn.textContent = 'Conectando...';
+
+          // Mostrar overlay de carga premium
+          const loadingOverlay = document.createElement('div');
+          loadingOverlay.id = 'walmart-loading-overlay';
+          loadingOverlay.style = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+            font-family: inherit;
+            transition: all 0.3s ease;
+          `;
+          loadingOverlay.innerHTML = `
+            <div style="background: var(--color-surface, #1e293b); padding: 2.5rem; border-radius: var(--radius-lg, 12px); border: 1px solid var(--color-border, #334155); box-shadow: var(--shadow-2xl); text-align: center; max-width: 400px; width: 90%;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: #0071ce; display: inline-block; margin-bottom: 1.5rem;"></i>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main, #f8fafc);">Conectando con Walmart</h3>
+              <p style="margin: 0 0 1.5rem 0; font-size: 0.9rem; color: var(--color-text-muted, #94a3b8); line-height: 1.5;">
+                Estamos validando tus credenciales y realizando la primera sincronización de tu catálogo. Esto puede tomar unos segundos...
+              </p>
+              <div style="width: 100%; background: var(--color-bg, #0f172a); height: 6px; border-radius: 99px; overflow: hidden; position: relative;">
+                <div style="position: absolute; height: 100%; background: #0071ce; width: 30%; border-radius: 99px; animation: walmartProgress 1.5s infinite ease-in-out;"></div>
+              </div>
+            </div>
+            <style>
+              @keyframes walmartProgress {
+                0% { left: -30%; }
+                50% { width: 40%; }
+                100% { left: 100%; }
+              }
+            </style>
+          `;
+          document.body.appendChild(loadingOverlay);
+
+          const client_id = document.getElementById('walmart-client-id').value.trim();
+          const client_secret = document.getElementById('walmart-client-secret').value.trim();
+          const redirect_uri = document.getElementById('walmart-redirect-uri').value.trim();
+          const auth_code = document.getElementById('walmart-auth-code').value.trim();
+
+          if (!client_id || !client_secret) {
+            loadingOverlay.remove();
+            alert('Debes ingresar el Client ID y el Client Secret.');
+            btn.disabled = false;
+            btn.textContent = 'Conectar Walmart API';
+            return;
+          }
+
+          try {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'Walmart',
+              shop_url: redirect_uri || 'https://www.google.com',
+              client_id: client_id,
+              client_secret: client_secret,
+              access_token: auth_code || client_secret,
+              is_active: true,
+              comercio: window.activeIntegrationCommerce
+            }]);
+            if(insErr) throw insErr;
+            
+            // Llamar a la Edge Function inmediatamente
+            let syncNotice = '';
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/walmart-sync', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                  },
+                  body: JSON.stringify({
+                    comercio: window.activeIntegrationCommerce
+                  })
+                });
+                
+                if (response.ok) {
+                  const result = await response.json();
+                  syncNotice = ` y se sincronizaron ${result.count} productos.`;
+                } else {
+                  const errJson = await response.json();
+                  throw new Error(errJson.error || 'Error en sincronización inicial');
+                }
+              }
+            } catch (syncErr) {
+              console.warn('Advertencia en la sincronización inicial:', syncErr);
+              syncNotice = ` (la sincronización inicial tardará un poco en completarse, pero las credenciales se guardaron con éxito)`;
+            }
+
+            loadingOverlay.remove();
+            alert(`Integración con Walmart guardada con éxito${syncNotice}`);
+            renderIntegrations(); // Recargar vista
+          } catch(err) {
+            loadingOverlay.remove();
+            console.error(err);
+            alert('Error al guardar la integración: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Conectar Walmart API';
+          }
+        });
+      }
+    } else {
+      const btnDisconnectWalmart = document.getElementById('btn-disconnect-walmart');
+      if (btnDisconnectWalmart) {
+        btnDisconnectWalmart.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          if(confirm('¿Estás seguro que deseas desconectar tu cuenta de Walmart?')) {
+            try {
+              const { error: delErr } = await supabase.from('merchant_integrations')
+                .delete()
+                .eq('comercio', window.activeIntegrationCommerce)
+                .eq('platform', 'Walmart');
+              if(delErr) throw delErr;
+              alert('Conexión con Walmart eliminada.');
+              renderIntegrations();
+            } catch(err) {
+               console.error(err);
+               alert('Error al desconectar: ' + err.message);
+            }
+          }
+        });
+      }
+
+      const btnSyncWalmart = document.getElementById('btn-sync-walmart');
+      if (btnSyncWalmart) {
+        btnSyncWalmart.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          
+          btnSyncWalmart.disabled = true;
+          btnSyncWalmart.textContent = 'Sincronizando...';
+
+          // Mostrar overlay de carga premium
+          const loadingOverlay = document.createElement('div');
+          loadingOverlay.id = 'walmart-loading-overlay';
+          loadingOverlay.style = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: white;
+            font-family: inherit;
+            transition: all 0.3s ease;
+          `;
+          loadingOverlay.innerHTML = `
+            <div style="background: var(--color-surface, #1e293b); padding: 2.5rem; border-radius: var(--radius-lg, 12px); border: 1px solid var(--color-border, #334155); box-shadow: var(--shadow-2xl); text-align: center; max-width: 400px; width: 90%;">
+              <i class="ri-loader-4-line ri-spin" style="font-size: 3rem; color: #0071ce; display: inline-block; margin-bottom: 1.5rem;"></i>
+              <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-main, #f8fafc);">Sincronizando Walmart</h3>
+              <p style="margin: 0 0 1.5rem 0; font-size: 0.9rem; color: var(--color-text-muted, #94a3b8); line-height: 1.5;">
+                Estamos actualizando el catálogo de productos en tiempo real. Esto puede tomar unos segundos...
+              </p>
+              <div style="width: 100%; background: var(--color-bg, #0f172a); height: 6px; border-radius: 99px; overflow: hidden; position: relative;">
+                <div style="position: absolute; height: 100%; background: #0071ce; width: 30%; border-radius: 99px; animation: walmartProgress 1.5s infinite ease-in-out;"></div>
+              </div>
+            </div>
+            <style>
+              @keyframes walmartProgress {
+                0% { left: -30%; }
+                50% { width: 40%; }
+                100% { left: 100%; }
+              }
+            </style>
+          `;
+          document.body.appendChild(loadingOverlay);
+
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) throw new Error("No hay sesión activa");
+
+            const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/walmart-sync', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`
+              },
+              body: JSON.stringify({
+                comercio: window.activeIntegrationCommerce
+              })
+            });
+
+            const result = await response.json();
+            
+            if (!response.ok) {
+              throw new Error(result.error || 'Error al sincronizar');
+            }
+
+            loadingOverlay.remove();
+            alert(`¡Catálogo de Walmart sincronizado exitosamente! Se importaron/actualizaron ${result.count} productos.`);
+            if (typeof renderInventory === 'function') {
+              renderInventory();
+            }
+          } catch (err) {
+            loadingOverlay.remove();
+            console.error(err);
+            alert('Error en la sincronización: ' + err.message);
+          } finally {
+            btnSyncWalmart.disabled = false;
+            btnSyncWalmart.textContent = 'Sincronizar Productos';
           }
         });
       }
@@ -14962,7 +15515,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const validSkus = new Set((validProducts || []).map(p => p.sku));
 
           const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller'];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller', 'Walmart'];
 
           rows.forEach((r) => {
             let platformVal = colPlatform ? r[colPlatform] : 'Todas';

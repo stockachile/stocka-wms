@@ -84,7 +84,8 @@ serve(async (req) => {
       'Falabella': 'sync_falabella.yml',
       'Paris': 'sync_paris.yml',
       'LightData': 'sync_lightdata.yml',
-      'Optiroute': 'optiroute_sync.yml'
+      'Optiroute': 'optiroute_sync.yml',
+      'Walmart': 'sync_walmart.yml'
     }
 
     const workflowFile = workflowMap[platform]
