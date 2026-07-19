@@ -184,3 +184,21 @@ CREATE TRIGGER tg_onboarding_request_email
   AFTER INSERT OR UPDATE OF status ON public.onboarding_requests
   FOR EACH ROW
   EXECUTE FUNCTION public.tr_onboarding_request_email_notification();
+
+-- 5. RPC para actualizar metadatos del usuario en auth.users desde el onboarding (ejecutado por administradores)
+CREATE OR REPLACE FUNCTION public.update_user_metadata_from_onboarding(
+    p_user_id UUID,
+    p_role TEXT,
+    p_comercio TEXT
+)
+RETURNS BOOLEAN AS $$
+BEGIN
+    UPDATE auth.users
+    SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('role', p_role, 'comercio', p_comercio)
+    WHERE id = p_user_id;
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Otorgar permisos de ejecución al rol autenticado
+GRANT EXECUTE ON FUNCTION public.update_user_metadata_from_onboarding TO authenticated;

@@ -1,7 +1,7 @@
 import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
-import { renderIncidenciasClient } from './incidencias.js';
+import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 
 window.roundUpVolume = function(val) {
   if (val === null || val === undefined || isNaN(val) || val === '') return null;
@@ -408,7 +408,21 @@ async function init() {
     let firstVisibleItem = null;
 
     if (navItems) {
-      if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
+      if (userRole === 'observer') {
+        navItems.forEach(item => {
+          const view = item.getAttribute('data-view');
+          if (view === 'dashboard' || view === 'profile' || view === 'inbox') {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'block';
+            else item.style.display = 'block';
+            if (!firstVisibleItem) firstVisibleItem = item;
+          } else {
+            const parentLi = item.closest('li');
+            if (parentLi) parentLi.style.display = 'none';
+            else item.style.display = 'none';
+          }
+        });
+      } else if (allowedModulesStr !== 'all' && allowedModulesStr !== null && allowedModulesStr !== '') {
         allowedModules = allowedModulesStr.split(',').map(m => m.trim());
         
         navItems.forEach(item => {
@@ -589,6 +603,38 @@ async function initNotifications(userId) {
 async function renderDashboard() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando dashboard...</p>';
+
+  if (userRole === 'observer') {
+    appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando estado del onboarding...</p>';
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user ? user.id : null;
+      if (!userId) throw new Error('No se pudo identificar el usuario actual.');
+
+      const { data: request, error } = await supabase
+        .from('onboarding_requests')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (request) {
+        renderOnboardingStatus(request);
+      } else {
+        renderNoOnboardingState();
+      }
+    } catch (err) {
+      console.error('Error al cargar onboarding:', err);
+      appContent.innerHTML = `
+        <div class="alert alert-danger" style="margin: 2rem;">
+          <i class="ri-error-warning-line"></i>
+          Error al cargar el estado de tu onboarding: ${err.message}
+        </div>
+      `;
+    }
+    return;
+  }
 
   try {
     // Obtener estadísticas rápidas
@@ -17800,4 +17846,144 @@ async function updateClientBadges(userId, userComercio) {
   }
 }
 window.updateClientBadges = updateClientBadges;
+
+// =========================================================================
+// ONBOARDING CLIENT VIEW FUNCTIONS
+// =========================================================================
+
+function renderNoOnboardingState() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `
+    <div style="max-width: 600px; margin: 3rem auto; padding: 2.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); text-align: center;">
+      <div style="width: 72px; height: 72px; background: rgba(99, 102, 241, 0.1); color: var(--color-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem auto; font-size: 2.2rem;">
+        <i class="ri-rocket-2-line"></i>
+      </div>
+      <h3 style="font-weight: 700; font-size: 1.4rem; color: var(--color-text-main); margin-bottom: 0.75rem;">¡Bienvenido a WMS Stocka!</h3>
+      <p style="color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;">
+        Para comenzar a operar en nuestro centro de distribución y despachar tus productos, primero debes completar la solicitud de alta del servicio de Fulfillment 360.
+      </p>
+      <a href="./onboarding.html" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 0.95rem; border-radius: var(--radius-md); display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;">
+        Comenzar Onboarding <i class="ri-arrow-right-line"></i>
+      </a>
+    </div>
+  `;
+}
+
+function renderOnboardingStatus(request) {
+  const appContent = document.getElementById('app-content');
+  const viewTitle = document.getElementById('view-title');
+  if (viewTitle) viewTitle.textContent = 'Seguimiento de Alta';
+
+  let statusHtml = '';
+  let trackerHtml = '';
+
+  if (request.status === 'pending') {
+    statusHtml = `
+      <div class="alert alert-warning" style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 2rem; background-color: rgba(245, 158, 11, 0.1); color: var(--color-warning); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: var(--radius-md);">
+        <i class="ri-time-line" style="font-size: 1.8rem;"></i>
+        <div>
+          <strong style="display: block; font-size: 0.95rem; margin-bottom: 0.15rem; color: var(--color-warning);">Solicitud Recibida - En Revisión</strong>
+          <span style="font-size: 0.85rem; color: var(--color-text-main);">Tu solicitud de alta comercial está en proceso de revisión por nuestro equipo comercial. Recibirás una notificación por correo una vez aprobada.</span>
+        </div>
+      </div>
+    `;
+    
+    trackerHtml = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; position: relative; max-width: 500px; margin: 0 auto 3rem auto;">
+        <div style="position: absolute; top: 20px; left: 10%; right: 10%; height: 4px; background: var(--color-border); z-index: 1;"></div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-success); border: 2px solid var(--color-success); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.2rem;"><i class="ri-check-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-success);">Enviado</span>
+        </div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-accent); border: 2px solid var(--color-accent); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.2rem;"><i class="ri-time-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-accent);">En Revisión</span>
+        </div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;"><i class="ri-flag-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);">Activación</span>
+        </div>
+      </div>
+    `;
+  } else if (request.status === 'rejected') {
+    statusHtml = `
+      <div class="alert alert-danger" style="display: flex; flex-direction: column; gap: 0.5rem; padding: 1.25rem; margin-bottom: 2rem; background-color: rgba(239, 68, 68, 0.1); color: var(--color-danger); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-md);">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <i class="ri-close-circle-line" style="font-size: 1.8rem; color: var(--color-danger);"></i>
+          <div>
+            <strong style="display: block; font-size: 0.95rem; margin-bottom: 0.15rem; color: var(--color-danger);">Solicitud Observada (Pendiente de Corrección)</strong>
+            <span style="font-size: 0.85rem; color: var(--color-text-main);">Se han detectado observaciones en tu contrato o datos de comercio.</span>
+          </div>
+        </div>
+        <div style="margin-top: 0.75rem; padding: 0.75rem 1rem; background: var(--color-bg); border-left: 3px solid var(--color-danger); border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--color-text-main); white-space: pre-line;">
+          <strong>Motivo:</strong>\n${request.rejection_reason || 'Sin motivo especificado.'}
+        </div>
+        <div style="margin-top: 0.75rem; text-align: right;">
+          <a href="./onboarding.html" class="btn btn-primary" style="padding: 0.45rem 1.25rem; font-size: 0.8rem; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.35rem; background: var(--color-danger); border-color: var(--color-danger); color: #fff; text-decoration: none;">
+            <i class="ri-refresh-line"></i> Corregir y Volver a Intentar
+          </a>
+        </div>
+      </div>
+    `;
+    
+    trackerHtml = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2.5rem; position: relative; max-width: 500px; margin: 0 auto 3rem auto;">
+        <div style="position: absolute; top: 20px; left: 10%; right: 10%; height: 4px; background: var(--color-border); z-index: 1;"></div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-success); border: 2px solid var(--color-success); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.2rem;"><i class="ri-check-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-success);">Enviado</span>
+        </div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-danger); border: 2px solid var(--color-danger); display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.2rem;"><i class="ri-close-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-danger);">Observada</span>
+        </div>
+        
+        <div style="position: relative; z-index: 3; display: flex; flex-direction: column; align-items: center; flex: 1;">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;"><i class="ri-flag-line"></i></div>
+          <span style="margin-top: 0.5rem; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);">Activación</span>
+        </div>
+      </div>
+    `;
+  }
+
+  appContent.innerHTML = `
+    <div style="max-width: 800px; margin: 1.5rem auto; padding: 2rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); transition: var(--transition-theme);">
+      <h3 style="font-weight: 700; font-size: 1.35rem; color: var(--color-text-main); margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; margin-top: 0;">
+        <i class="ri-time-line" style="color: var(--color-accent)"></i> Seguimiento de Alta de Comercio
+      </h3>
+      
+      ${trackerHtml}
+      ${statusHtml}
+
+      <div style="border-top: 1px solid var(--color-border); padding-top: 1.5rem; margin-top: 1.5rem;">
+        <h4 style="font-weight: 600; font-size: 1rem; color: var(--color-text-main); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.35rem;">
+          <i class="ri-file-text-line" style="color: var(--color-primary);"></i> Resumen de Datos Registrados
+        </h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; font-size: 0.85rem; color: var(--color-text-main);">
+          <div><strong>Razón Social:</strong> ${request.razon_social}</div>
+          <div><strong>RUT Empresa:</strong> ${request.rut_empresa}</div>
+          <div><strong>Marca / Fantasía:</strong> ${request.nombre_fantasia}</div>
+          <div><strong>Giro Comercial:</strong> ${request.giro_comercio}</div>
+          <div><strong>Contacto:</strong> ${request.full_name} (${request.email})</div>
+          <div><strong>Teléfono:</strong> ${request.phone}</div>
+          <div style="grid-column: 1 / span 2; display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-top: 0.5rem;">
+            <i class="ri-file-pdf-fill" style="color: var(--color-danger); font-size: 1.5rem;"></i>
+            <div style="flex-grow: 1;">
+              <strong style="display: block; font-size: 0.8rem;">Contrato de Servicios</strong>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">PDF cargado digitalmente en el proceso de Onboarding.</span>
+            </div>
+            <a href="${request.contrato_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none;">
+              <i class="ri-eye-line"></i> Ver Archivo
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
 

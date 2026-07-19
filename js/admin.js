@@ -1,7 +1,7 @@
 import supabase from './supabase.js';
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
-import { renderIncidenciasAdmin } from './incidencias.js';
+import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 
 let userRole = 'admin';
 window.catalogQuickEditMode = false;
@@ -470,6 +470,9 @@ async function init() {
           } else if (view === 'catalog') {
             viewTitle.textContent = 'Catálogo & Equivalencias';
             renderAdminCatalog();
+          } else if (view === 'onboarding_admin') {
+            viewTitle.textContent = 'Solicitudes de Alta';
+            renderOnboardingAdmin();
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
@@ -708,6 +711,22 @@ window.updateAdminBadges = async function() {
       }
     } catch (err) {
       console.warn('Error fetching incidencias count for admin badge:', err);
+    }
+
+    // 7. Onboarding Admin
+    try {
+      const { count: onboardingCount, error: onbErr } = await supabase
+        .from('onboarding_requests')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'pending');
+
+      const badgeOnboarding = document.getElementById('badge-onboarding');
+      if (badgeOnboarding && onboardingCount !== null && !onbErr) {
+        badgeOnboarding.textContent = onboardingCount;
+        badgeOnboarding.style.display = onboardingCount > 0 ? 'inline-flex' : 'none';
+      }
+    } catch (err) {
+      console.warn('Error fetching onboarding count for admin badge:', err);
     }
 
   } catch (e) {
@@ -21390,10 +21409,10 @@ async function openPendingDetailModal(sku, name) {
             <i class="ri-loader-4-line" style="color: var(--color-primary);"></i> Detalle de Stock Pendiente de Ingreso
           </h3>
           <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
-            \${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>\${sku}</strong>
+            ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong>
           </p>
         </div>
-        <button class="modal-close" onclick="document.getElementById('\${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
       <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="pending-detail-modal-body">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
@@ -21402,7 +21421,7 @@ async function openPendingDetailModal(sku, name) {
         </div>
       </div>
       <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('\${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
       </div>
     </div>
   `;
@@ -21441,7 +21460,7 @@ async function openPendingDetailModal(sku, name) {
             title: dec.title,
             status: dec.status,
             eta: dec.estimated_arrival_type === 'exact' 
-              ? `\${dec.estimated_arrival_date.split('-')[2]}/\${dec.estimated_arrival_date.split('-')[1]}/\${dec.estimated_arrival_date.split('-')[0]}`
+              ? `${dec.estimated_arrival_date.split('-')[2]}/${dec.estimated_arrival_date.split('-')[1]}/${dec.estimated_arrival_date.split('-')[0]}`
               : dec.estimated_arrival_period,
             qty: match.qty
           });
@@ -21462,12 +21481,12 @@ async function openPendingDetailModal(sku, name) {
     let rowsHtml = matchingDecs.map(item => {
       return `
         <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.85rem;">
-          <td style="padding: 0.75rem 1rem;"><strong>\${item.title}</strong></td>
-          <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">\${item.eta}</td>
+          <td style="padding: 0.75rem 1rem;"><strong>${item.title}</strong></td>
+          <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">${item.eta}</td>
           <td style="padding: 0.75rem 1rem;">
-            <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-size: 0.75rem;">\${item.status}</span>
+            <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-size: 0.75rem;">${item.status}</span>
           </td>
-          <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 600; color: var(--color-primary);">\${item.qty.toLocaleString()}</td>
+          <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 600; color: var(--color-primary);">${item.qty.toLocaleString()}</td>
         </tr>
       `;
     }).join('');
@@ -21483,7 +21502,7 @@ async function openPendingDetailModal(sku, name) {
           </tr>
         </thead>
         <tbody>
-          \${rowsHtml}
+          ${rowsHtml}
         </tbody>
       </table>
     `;
@@ -21492,9 +21511,614 @@ async function openPendingDetailModal(sku, name) {
     console.error('Error fetching pending details:', err);
     const modalBody = document.getElementById('pending-detail-modal-body');
     if (modalBody) {
-      modalBody.innerHTML = `<p style="color: var(--color-danger); text-align: center; padding: 2rem;">Error al buscar detalles: \${err.message}</p>`;
+      modalBody.innerHTML = `<p style="color: var(--color-danger); text-align: center; padding: 2rem;">Error al buscar detalles: ${err.message}</p>`;
     }
   }
+}
+
+// =========================================================================
+// ONBOARDING ADMIN FUNCTIONS
+// =========================================================================
+
+async function renderOnboardingAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando solicitudes de onboarding...</p>';
+
+  try {
+    const { data: requests, error } = await supabase
+      .from('onboarding_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    appContent.innerHTML = `
+      <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+          <h4 style="margin: 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main);">
+            <i class="ri-git-pull-request-line" style="color: var(--color-accent); margin-right: 0.25rem;"></i> Solicitudes de Alta Comercial
+          </h4>
+          <div style="display: flex; gap: 0.5rem;" id="onboarding-tabs">
+            <button class="btn btn-primary onboarding-tab-btn" data-status="all" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Todas</button>
+            <button class="btn btn-outline onboarding-tab-btn" data-status="pending" style="padding: 0.35rem 0.85rem; font-size: 0.85rem; display: flex; align-items: center;">
+              Pendientes
+              <span id="badge-onboarding-tab" style="display: none; background: var(--color-danger); color: white; border-radius: 10px; padding: 0.1rem 0.35rem; font-size: 0.65rem; margin-left: 0.25rem; font-weight: bold;">0</span>
+            </button>
+            <button class="btn btn-outline onboarding-tab-btn" data-status="approved" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Aprobadas</button>
+            <button class="btn btn-outline onboarding-tab-btn" data-status="rejected" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Observadas</button>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="data-table" id="onboarding-requests-table">
+            <thead>
+              <tr>
+                <th>Fecha Solicitud</th>
+                <th>Marca / Fantasía</th>
+                <th>Razón Social</th>
+                <th>RUT Empresa</th>
+                <th>Contacto</th>
+                <th>Estado</th>
+                <th style="text-align: center; width: 120px;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="onboarding-requests-tbody">
+              <tr>
+                <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">Cargando registros...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    // Actualizar badge en la pestaña
+    const pendingCount = (requests || []).filter(r => r.status === 'pending').length;
+    const tabBadge = document.getElementById('badge-onboarding-tab');
+    if (tabBadge) {
+      tabBadge.textContent = pendingCount;
+      tabBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
+    }
+
+    // Función interna para renderizar registros según filtro
+    const filterAndRender = (statusFilter) => {
+      const tbody = document.getElementById('onboarding-requests-tbody');
+      if (!tbody) return;
+
+      const filtered = (requests || []).filter(r => {
+        if (statusFilter === 'all') return true;
+        return r.status === statusFilter;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+              No se encontraron solicitudes con el estado seleccionado.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(r => {
+        const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString('es-CL', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        }) : 'Sin Fecha';
+
+        let badgeBg = 'var(--color-gray)';
+        let badgeColor = '#1a1a1a';
+        let badgeText = r.status || 'pending';
+
+        if (r.status === 'approved') {
+          badgeBg = 'var(--badge-success-bg)';
+          badgeColor = 'var(--badge-success-text)';
+          badgeText = 'Aprobado';
+        } else if (r.status === 'rejected') {
+          badgeBg = 'var(--badge-danger-bg)';
+          badgeColor = 'var(--badge-danger-text)';
+          badgeText = 'Observado';
+        } else {
+          badgeBg = 'var(--badge-warning-bg)';
+          badgeColor = 'var(--badge-warning-text)';
+          badgeText = 'Pendiente';
+        }
+
+        return `
+          <tr>
+            <td style="font-weight: 500;">${dateStr}</td>
+            <td style="font-weight: 600; color: var(--color-primary);">${r.nombre_fantasia || 'Sin Nombre'}</td>
+            <td>${r.razon_social || 'Sin Razón Social'}</td>
+            <td>${r.rut_empresa || 'Sin RUT'}</td>
+            <td>
+              <div style="font-weight: 500;">${r.full_name || 'Desconocido'}</div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">${r.email}</div>
+            </td>
+            <td>
+              <span class="badge" style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: var(--radius-sm);">
+                ${badgeText}
+              </span>
+            </td>
+            <td style="text-align: center;">
+              <button class="btn btn-outline btn-sm btn-view-onboarding" data-id="${r.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                <i class="ri-eye-line"></i> Ver Detalle
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Agregar eventos a botones "Ver Detalle"
+      tbody.querySelectorAll('.btn-view-onboarding').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reqId = btn.getAttribute('data-id');
+          const selectedReq = requests.find(r => r.id === reqId);
+          if (selectedReq) showOnboardingDetailModal(selectedReq);
+        });
+      });
+    };
+
+    // Renderizar inicialmente "Todas"
+    filterAndRender('all');
+
+    // Manejar clics de pestañas
+    const tabButtons = document.querySelectorAll('.onboarding-tab-btn');
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabButtons.forEach(b => {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-outline');
+        });
+        btn.classList.remove('btn-outline');
+        btn.classList.add('btn-primary');
+
+        const status = btn.getAttribute('data-status');
+        filterAndRender(status);
+      });
+    });
+
+  } catch (err) {
+    console.error('Error al renderizar panel de onboarding admin:', err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: var(--color-danger);">Error: ${err.message}</p>`;
+  }
+}
+window.renderOnboardingAdmin = renderOnboardingAdmin;
+
+function showOnboardingDetailModal(req) {
+  const isPending = req.status === 'pending';
+  
+  // Remover modal previo si existe
+  const oldModal = document.getElementById('onboarding-detail-modal');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'onboarding-detail-modal';
+  
+  const platformsStr = (req.plataformas_venta || []).join(', ') || 'Ninguna';
+  const marketplacesStr = (req.marketplaces || []).join(', ') || 'Ninguno';
+  const mlOpcionesStr = (req.ml_opciones || []).join(', ') || 'Ninguna';
+  const courierSantiagoStr = (req.courier_santiago || []).join(', ') || 'Ninguno';
+  const courierRegionesStr = (req.courier_regiones || []).join(', ') || 'Ninguno';
+
+  let footerButtonsHtml = '';
+  if (isPending) {
+    footerButtonsHtml = `
+      <button class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger);" id="btn-onboarding-reject">
+        <i class="ri-close-circle-line"></i> Observar / Corregir
+      </button>
+      <button class="btn btn-primary" style="background-color: var(--color-success); border-color: var(--color-success); color: white;" id="btn-onboarding-approve">
+        <i class="ri-checkbox-circle-line"></i> Aprobación y Configuración
+      </button>
+    `;
+  } else {
+    footerButtonsHtml = `
+      <div style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
+        Esta solicitud ya fue procesada (Estado: <strong>${req.status === 'approved' ? 'Aprobada' : 'Observada'}</strong>)
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 800px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
+      <div class="modal-header" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border);">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-git-pull-request-line" style="color: var(--color-accent);"></i> 
+          Solicitud de Onboarding: ${req.nombre_fantasia}
+        </h3>
+        <button class="modal-close" id="btn-close-onboarding-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+        
+        <!-- Estado Rejection Reason si aplica -->
+        ${req.status === 'rejected' ? `
+          <div style="background-color: rgba(239,68,68,0.08); border-left: 4px solid var(--color-danger); padding: 0.75rem 1rem; border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--color-text-main); white-space: pre-line;">
+            <strong style="color: var(--color-danger); display: block; margin-bottom: 0.15rem;">Motivo de la Observación / Corrección Requerida:</strong>
+            ${req.rejection_reason || 'Sin motivo ingresado.'}
+          </div>
+        ` : ''}
+
+        <!-- Secciones Detalle -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;">
+          
+          <!-- Columna 1: Datos Personales y de Contacto -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md);">
+            <h4 style="margin: 0 0 0.75rem 0; color: var(--color-primary); font-size: 0.9rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem;"><i class="ri-user-line"></i> Contacto y Cuenta</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+              <div><strong>Nombre Completo:</strong> ${req.full_name}</div>
+              <div><strong>RUT Personal:</strong> ${req.rut_personal}</div>
+              <div><strong>Correo Electrónico:</strong> <a href="mailto:${req.email}">${req.email}</a></div>
+              <div><strong>Teléfono:</strong> ${req.phone}</div>
+              <div><strong>Cargo:</strong> ${req.cargo || 'Sin Especificar'}</div>
+            </div>
+          </div>
+
+          <!-- Columna 2: Datos de Facturación -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md);">
+            <h4 style="margin: 0 0 0.75rem 0; color: var(--color-primary); font-size: 0.9rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem;"><i class="ri-bill-line"></i> Datos de Facturación</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+              <div><strong>Razón Social:</strong> ${req.razon_social}</div>
+              <div><strong>RUT Empresa:</strong> ${req.rut_empresa}</div>
+              <div><strong>Giro Comercial:</strong> ${req.giro_comercio}</div>
+              <div><strong>Dirección:</strong> ${req.direccion_facturacion}</div>
+              <div><strong>Comuna:</strong> ${req.comuna}</div>
+              <div><strong>Email Facturas:</strong> <a href="mailto:${req.email_facturacion}">${req.email_facturacion}</a></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Seccion 3: Configuración Comercial -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+          <h4 style="margin: 0 0 0.25rem 0; color: var(--color-primary); font-size: 0.9rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Configuración Comercial</h4>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div><strong>Nombre de Fantasía:</strong> ${req.nombre_fantasia}</div>
+            <div><strong>Sitio web:</strong> ${req.sitio_web ? `<a href="${req.sitio_web}" target="_blank">${req.sitio_web}</a>` : 'Sin sitio web'}</div>
+            <div><strong>Plataformas Venta:</strong> ${platformsStr}</div>
+            <div><strong>Marketplaces Activos:</strong> ${marketplacesStr}</div>
+            ${req.marketplaces?.includes('Mercadolibre') ? `<div><strong>Opciones Mercado Libre:</strong> ${mlOpcionesStr}</div>` : ''}
+            <div><strong>Courier Santiago:</strong> ${courierSantiagoStr}</div>
+            <div><strong>Courier Regiones:</strong> ${courierRegionesStr}</div>
+            <div><strong>Ofrece Retiro Sucursal:</strong> ${req.retiro_sucursal ? 'Sí' : 'No'}</div>
+          </div>
+          <div style="margin-top: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 0.5rem;">
+            <strong>Descripción de Empaque (Packaging):</strong>
+            <p style="margin: 0.25rem 0 0 0; font-style: italic; color: var(--color-text-muted); line-height: 1.4;">${req.descripcion_packaging || 'Sin instrucciones'}</p>
+          </div>
+        </div>
+
+        <!-- Seccion 4: Contrato Firmado -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
+          <div>
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.9rem;"><i class="ri-file-pdf-fill" style="color: var(--color-danger);"></i> Contrato Firmado por el Cliente</h4>
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">PDF cargado digitalmente en el proceso de Onboarding.</p>
+          </div>
+          <a href="${req.contrato_url}" target="_blank" class="btn btn-outline" style="padding: 0.45rem 1.25rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none;">
+            <i class="ri-download-2-line"></i> Descargar Contrato PDF
+          </a>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+        <button class="btn btn-outline" id="btn-close-onboarding-modal-footer">Cerrar</button>
+        ${footerButtonsHtml}
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  };
+
+  document.getElementById('btn-close-onboarding-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-close-onboarding-modal-footer').addEventListener('click', closeModal);
+
+  if (isPending) {
+    document.getElementById('btn-onboarding-reject').addEventListener('click', () => {
+      showOnboardingObservationsModal(req);
+    });
+
+    document.getElementById('btn-onboarding-approve').addEventListener('click', () => {
+      closeModal();
+      showOnboardingApproveConfigModal(req);
+    });
+  }
+}
+
+function showOnboardingApproveConfigModal(req) {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'onboarding-approve-config-modal';
+
+  const suggestedSigla = (req.nombre_fantasia || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .substring(0, 3)
+    .toUpperCase();
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; width: 95%;">
+      <div class="modal-header">
+        <h3><i class="ri-checkbox-circle-fill" style="color: var(--color-success); margin-right: 0.5rem;"></i> Configurar Alta de Comercio</h3>
+        <button class="modal-close" id="btn-close-approve-config-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+          Configura los parámetros para crear el comercio en el WMS. Esto asociará al usuario y desbloqueará su panel.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label" for="commerce-name-input">Nombre Oficial del Comercio <span style="color: var(--color-danger)">*</span></label>
+          <input type="text" id="commerce-name-input" class="form-input" value="${(req.nombre_fantasia || '').toUpperCase()}" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="commerce-sigla-input">Sigla del Comercio (3 caracteres) <span style="color: var(--color-danger)">*</span></label>
+          <input type="text" id="commerce-sigla-input" class="form-input" value="${suggestedSigla}" maxlength="3" required style="text-transform: uppercase;">
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+            <input type="checkbox" id="check-enable-inventory" checked style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary);">
+            <span>Habilitar seguimiento de Inventario</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+            <input type="checkbox" id="check-sigla-pedido" checked style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary);">
+            <span>Pedido de origen trae sigla del comercio</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+        <button class="btn btn-outline" id="btn-cancel-approve-config">Cancelar</button>
+        <button class="btn btn-primary" style="background-color: var(--color-success); border-color: var(--color-success); color: white;" id="btn-confirm-approve-config">
+          <i class="ri-check-double-line"></i> Confirmar y Activar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  };
+
+  document.getElementById('btn-close-approve-config-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-approve-config').addEventListener('click', closeModal);
+
+  document.getElementById('btn-confirm-approve-config').addEventListener('click', async () => {
+    const commerceName = document.getElementById('commerce-name-input').value.trim().toUpperCase();
+    const commerceSigla = document.getElementById('commerce-sigla-input').value.trim().toUpperCase();
+    const enableInventory = document.getElementById('check-enable-inventory').checked;
+    const siglaPedido = document.getElementById('check-sigla-pedido').checked;
+
+    if (!commerceName || commerceSigla.length !== 3) {
+      alert('Por favor ingresa un nombre válido y una sigla de exactamente 3 caracteres.');
+      return;
+    }
+
+    const btnSubmit = document.getElementById('btn-confirm-approve-config');
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Activando...';
+
+    try {
+      // 1. Verificar si el comercio o la sigla ya existen
+      const { data: existingCom, error: checkErr } = await supabase
+        .from('v_comercios_config')
+        .select('*')
+        .or(`comercio.eq.${commerceName},sigla.eq.${commerceSigla}`);
+
+      if (checkErr) throw checkErr;
+      if (existingCom && existingCom.length > 0) {
+        throw new Error('El nombre de comercio o la sigla ya están registrados.');
+      }
+
+      // 2. Crear comercio en v_comercios_config
+      const { error: insertComErr } = await supabase
+        .from('v_comercios_config')
+        .insert([{
+          comercio: commerceName,
+          sigla: commerceSigla
+        }]);
+
+      if (insertComErr) throw insertComErr;
+
+      // 3. Inicializar estado de cobranza
+      await supabase
+        .from('commerce_billing_status')
+        .insert([{
+          comercio: commerceName,
+          status: 'Activo'
+        }]);
+
+      // 4. Inicializar configuraciones adicionales
+      await supabase
+        .from('comercios_adicional_config')
+        .insert([{
+          comercio: commerceName,
+          sigla_pedido: siglaPedido,
+          enable_inventory: enableInventory
+        }]);
+
+      // 5. Promover al usuario de 'observer' a 'client' y asociar el comercio
+      const { error: updateProfileErr } = await supabase
+        .from('profiles')
+        .update({
+          role: 'client',
+          comercio: commerceName
+        })
+        .eq('id', req.user_id);
+
+      if (updateProfileErr) throw updateProfileErr;
+
+      // 6. Actualizar metadatos en Supabase Auth
+      await supabase.rpc('update_user_metadata_from_onboarding', {
+        p_user_id: req.user_id,
+        p_role: 'client',
+        p_comercio: commerceName
+      });
+
+      // 7. Modificar la solicitud a 'approved' en onboarding_requests
+      const { error: onboardingErr } = await supabase
+        .from('onboarding_requests')
+        .update({ status: 'approved' })
+        .eq('id', req.id);
+
+      if (onboardingErr) throw onboardingErr;
+
+      // Éxito total
+      alert(`¡Solicitud aprobada con éxito!\\nSe ha creado el comercio "${commerceName}" (${commerceSigla}) y se ha activado la cuenta del usuario.`);
+      closeModal();
+      window.renderOnboardingAdmin();
+      window.updateAdminBadges();
+
+    } catch (err) {
+      console.error('Error al aprobar onboarding:', err);
+      alert('Error al aprobar: ' + err.message);
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = '<i class="ri-check-double-line"></i> Confirmar y Activar';
+    }
+  });
+}
+
+// Modal estructurado de observaciones para la solicitud de onboarding
+function showOnboardingObservationsModal(req) {
+  // Remover modal previo si existe
+  const oldObsModal = document.getElementById('onboarding-observations-modal');
+  if (oldObsModal) oldObsModal.remove();
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'onboarding-observations-modal';
+  modal.style.zIndex = '9999'; // Asegurar que quede por encima del modal de detalle
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 580px; width: 95%;">
+      <div class="modal-header">
+        <h3><i class="ri-alert-line" style="color: var(--color-danger); margin-right: 0.5rem;"></i> Observaciones de Solicitud</h3>
+        <button class="modal-close" id="btn-close-obs-modal">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0; line-height: 1.4;">
+          Selecciona una o más observaciones de la lista estándar o redacta comentarios específicos. Se consolidarán en una lista de pendientes para el cliente.
+        </p>
+
+        <!-- Checklist de Observaciones Estándar -->
+        <div class="form-group">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Observaciones Comunes:</label>
+          <div style="display: flex; flex-direction: column; gap: 0.65rem; background: var(--color-bg); border: 1px solid var(--color-border); padding: 1rem; border-radius: var(--radius-md);">
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="El contrato no cuenta con firma (digital o física) en todas sus páginas." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>El contrato no cuenta con firma (digital o física) en todas sus páginas.</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="El contrato debe estar firmado por el representante legal de la empresa." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>El contrato debe estar firmado por el representante legal de la empresa.</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="El RUT de la Empresa no coincide con los datos indicados en la firma del contrato." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>El RUT de la Empresa no coincide con los datos indicados en la firma del contrato.</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="RUT de la Empresa inválido o inactivo según registros del SII." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>RUT de la Empresa inválido o inactivo según registros del SII.</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="La dirección de facturación está incompleta (falta número de oficina o comuna)." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>La dirección de facturación está incompleta (falta número de oficina o comuna).</span>
+            </label>
+            <label style="display: flex; align-items: flex-start; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main); margin-bottom: 0;">
+              <input type="checkbox" class="obs-check" value="Falta especificar o detallar el embalaje/packaging requerido para tus envíos." style="margin-top: 0.15rem; width: 16px; height: 16px; flex-shrink: 0; accent-color: var(--color-danger);">
+              <span>Falta especificar o detallar el embalaje/packaging requerido para tus envíos.</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Observaciones Adicionales / Personalizadas -->
+        <div class="form-group">
+          <label class="form-label" for="obs-custom-text" style="font-weight: 600;">Observaciones Adicionales o Específicas:</label>
+          <textarea id="obs-custom-text" class="form-input" style="height: 100px; resize: vertical; background: var(--color-bg);" placeholder="Redacta aquí cualquier indicación adicional..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+        <button class="btn btn-outline" id="btn-cancel-obs">Cancelar</button>
+        <button class="btn btn-primary" style="background-color: var(--color-danger); border-color: var(--color-danger); color: white;" id="btn-confirm-obs">
+          <i class="ri-mail-send-line"></i> Guardar y Notificar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  };
+
+  document.getElementById('btn-close-obs-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-obs').addEventListener('click', closeModal);
+
+  document.getElementById('btn-confirm-obs').addEventListener('click', async () => {
+    const checkedBoxes = document.querySelectorAll('.obs-check:checked');
+    const customText = document.getElementById('obs-custom-text').value.trim();
+
+    const observations = [];
+    checkedBoxes.forEach(cb => {
+      observations.push(cb.value);
+    });
+
+    if (customText) {
+      observations.push(customText);
+    }
+
+    if (observations.length === 0) {
+      alert('Debes seleccionar al menos una observación de la lista o redactar un comentario.');
+      return;
+    }
+
+    // Formatear observaciones como lista ordenada/viñetas
+    const finalReason = observations.map(obs => `• ${obs}`).join('\n');
+
+    const btnSubmit = document.getElementById('btn-confirm-obs');
+    btnSubmit.disabled = true;
+    btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando...';
+
+    try {
+      const { error } = await supabase
+        .from('onboarding_requests')
+        .update({ status: 'rejected', rejection_reason: finalReason })
+        .eq('id', req.id);
+
+      if (error) throw error;
+
+      alert('La solicitud ha sido marcada con observaciones y el cliente recibirá la notificación.');
+      closeModal();
+      window.renderOnboardingAdmin();
+      window.updateAdminBadges();
+
+      // Cerrar también el modal de detalle original que quedó detrás
+      const detailModal = document.getElementById('onboarding-detail-modal');
+      if (detailModal) {
+        detailModal.classList.remove('active');
+        setTimeout(() => detailModal.remove(), 300);
+      }
+
+    } catch (err) {
+      console.error('Error al guardar observaciones:', err);
+      alert('Ocurrió un error al procesar las observaciones: ' + err.message);
+      btnSubmit.disabled = false;
+      btnSubmit.innerHTML = '<i class="ri-mail-send-line"></i> Guardar y Notificar';
+    }
+  });
 }
 
 

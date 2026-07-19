@@ -151,3 +151,31 @@ Hemos implementado ajustes finos para mejorar la visualización y exactitud en e
    - Ahora, al seleccionar un comercio individual, el cálculo de tendencia del periodo toma estrictamente la lectura en tiempo real del comercio seleccionado (`liveVolumeMap[selectedCommerce] || 0`), recalculando el porcentaje de forma exacta, reflejando correctamente las tendencias negativas si el comercio está en descenso.
 3. **Optimización de Consultas en Tiempo Real**:
    - Se adaptaron las consultas en tiempo real a Supabase para filtrar por el comercio activo si hay un comercio individual seleccionado.
+
+---
+
+## 17. Implementación de Onboarding de Comercio y Notificaciones por Correo
+
+Hemos implementado un sistema completo de Onboarding para la incorporación de nuevos comercios, que abarca desde la solicitud de alta del cliente hasta la revisión del administrador y las notificaciones automáticas.
+
+### Características y Flujos:
+1. **Formulario de Registro de Onboarding (`onboarding.html` y `js/onboarding.js`)**:
+   - Formulario autoguiado dividido en 4 secciones lógicas (Datos de Contacto, Datos de Facturación, Configuración de Ventas/Logística y Carga del Contrato Firmado).
+   - Sube el contrato firmado en formato PDF directamente a la carpeta segura `onboarding/` en Supabase Storage.
+2. **Seguimiento del Cliente (`js/app.js`)**:
+   - Si un usuario tiene el rol `observer`, su panel operativo se restringe. Se muestra un banner de seguimiento interactivo en tres pasos: **Enviado** ➡️ **En Revisión / Observada** ➡️ **Activación**.
+   - Si su solicitud fue observada (rechazada para corrección), el cliente ve los motivos listados y tiene un acceso directo para volver a abrir el formulario de onboarding y corregir los datos.
+3. **Consola del Administrador (`js/admin.js`)**:
+   - Muestra una pestaña **"Solicitudes de Alta"** con un listado filtrable (Todas, Pendientes, Aprobadas, Observadas).
+   - Un modal de detalle para descargar el contrato PDF del cliente y revisar toda la información de facturación y embalaje.
+4. **Formulario Interactivo de Observaciones (Modal en `js/admin.js`)**:
+   - Al hacer clic en "Observar / Corregir", se despliega una modal con observaciones comunes (ej: falta firma del contrato, RUT inválido, etc.) que se pueden marcar con un solo click, además de un campo de comentarios detallados.
+   - Consolda el resultado en una lista con viñetas en la base de datos.
+5. **Notificaciones de Correo Inteligentes y Remitente Dinámico**:
+   - Modificada la Edge Function de Supabase (`send-billing-email`) para procesar 3 plantillas de onboarding (`onboarding_received`, `onboarding_approved`, `onboarding_observed`) y enviar correos automáticos usando la API de Brevo.
+   - En caso de correos de onboarding, el remitente se cambia de forma dinámica a `info@stocka.cl` (bajo el nombre "Stocka"), mientras que los cobros regulares se mantienen con `finanzas@stocka.cl`.
+6. **Automatización vía Triggers de Base de Datos (`supabase_schema_onboarding.sql`)**:
+   - Un trigger Postgres (`tg_onboarding_request_email`) invoca de manera asíncrona a la Edge Function de Supabase al insertar una solicitud o al actualizar su estado (`approved` o `rejected`).
+   - Una función RPC segura (`update_user_metadata_from_onboarding`) actualiza los metadatos de Auth para asegurar que el cambio de rol del usuario de `observer` a `client` persista de inmediato en su sesión activa sin requerir cerrar sesión.
+
+---
