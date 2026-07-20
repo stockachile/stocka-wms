@@ -11892,10 +11892,20 @@ async function loadBillingRecords(periodId, bodyElement) {
             </select>
           </td>
           <td style="vertical-align: middle;">
-            <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <span class="amount-cell">
+              <input type="text" value="${formatCLP(r.total_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'total_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
+              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.total_fulfillment || 0}', this)" title="Copiar monto">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </span>
           </td>
           <td style="vertical-align: middle;">
-            <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <span class="amount-cell">
+              <input type="text" value="${formatCLP(r.abono_fulfillment || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_fulfillment', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
+              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_fulfillment || 0}', this)" title="Copiar abono">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </span>
           </td>
           <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_fulfillment)}" onchange="updateSelectField(this, '${r.id}', 'pago_fulfillment')">
@@ -11969,10 +11979,20 @@ async function loadBillingRecords(periodId, bodyElement) {
             ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
           </td>
           <td style="vertical-align: middle;">
-            <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <span class="amount-cell">
+              <input type="text" value="${formatCLP(r.enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
+              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.enviame || 0}', this)" title="Copiar monto">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </span>
           </td>
           <td style="vertical-align: middle;">
-            <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 100px;">
+            <span class="amount-cell">
+              <input type="text" value="${formatCLP(r.abono_enviame || 0)}" class="billing-input text-right" onfocus="if(this.value.includes('$')) this.value = this.value.replace(/[^\d-]/g, '')" onblur="saveMoneyField('${r.id}', 'abono_enviame', this)" onkeydown="if(event.key==='Enter')this.blur()" style="width: 85px;">
+              <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${r.abono_enviame || 0}', this)" title="Copiar abono">
+                <i class="ri-file-copy-line"></i>
+              </button>
+            </span>
           </td>
           <td style="vertical-align: middle;">
             <select class="billing-select ${getStatusClass(r.pago_enviame)}" onchange="updateSelectField(this, '${r.id}', 'pago_enviame')">
@@ -15450,9 +15470,9 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
   modal.id = 'modal-billing-attachments';
   modal.className = 'modal-overlay active';
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-content" style="max-width: 680px; width: 90%;">
       <div class="modal-header">
-        <h3><i class="ri-attachment-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Adjuntos: ${commerceName}</h3>
+        <h3><i class="ri-attachment-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Adjuntos de Facturación: ${commerceName}</h3>
         <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
       </div>
       <div class="modal-body" id="billing-adjuntos-body" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
@@ -15487,87 +15507,132 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
     let envPdfsHtml = '';
     if (enviamePdfs && Array.isArray(enviamePdfs) && enviamePdfs.length > 0) {
       envPdfsHtml = enviamePdfs.map((pdf, idx) => `
-        <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
-          <span style="color: var(--color-text-main); font-weight: 500; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 200px;"><i class="ri-file-pdf-line" style="color: #ef4444;"></i> ${pdf.name || `PDF ${idx + 1}`}</span>
-          <div>
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+        <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+            <div style="width: 28px; height: 28px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <i class="ri-file-pdf-line" style="font-size: 1.1rem;"></i>
+            </div>
+            <div style="text-align: left; overflow: hidden; max-width: 140px;">
+              <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${pdf.name}">${pdf.name || `PDF ${idx + 1}`}</div>
+              <div style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500;">Desglose Env</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
           </div>
         </div>
       `).join('');
     } else {
-      envPdfsHtml = '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.5rem 0;">No hay PDFs cargados en Envíame.</p>';
+      envPdfsHtml = '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.5rem 0; font-style: italic;">No hay PDFs cargados en Envíame.</p>';
     }
     
     bodyEl.innerHTML = `
       <form id="form-billing-attachments-submit">
-        <!-- Fulfillment Section -->
-        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700;">Fulfillment</h4>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Enlace Fulfillment (URL)</label>
-          <input type="url" id="adj-fulf-link" class="form-input" value="${fulfillmentLink}" placeholder="https://ejemplo.com/desglose" style="width: 100%;">
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Archivo PDF Desglose Fulfillment</label>
-          <input type="file" id="adj-fulf-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
-          ${fulfillmentPdfUrl ? `
-            <div id="adj-fulf-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
-              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> PDF Desglose Cargado</span>
-              <div>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('PDF Fulfillment - ${commerceName}', '${fulfillmentPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1rem;">
+          <!-- Fulfillment Column -->
+          <div style="background: rgba(37, 99, 235, 0.02); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem;">
+            <h4 style="margin: 0 0 1rem 0; border-bottom: 2px solid rgba(37, 99, 235, 0.1); padding-bottom: 0.35rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-box-3-line"></i> Fulfillment 360
+            </h4>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Enlace Fulfillment (URL)</label>
+              <div style="position: relative;">
+                <input type="url" id="adj-fulf-link" class="form-input" value="${fulfillmentLink}" placeholder="https://docs.google.com/spreadsheets/..." style="width: 100%; padding-left: 2rem; font-size: 0.8rem; height: 34px; border-radius: var(--radius-sm);">
+                <i class="ri-link" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
               </div>
             </div>
-          ` : ''}
-        </div>
-
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); font-style: italic;">Factura Oficial Fulfillment (PDF)</label>
-          <input type="file" id="adj-fulf-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
-          ${facturaFulfPdfUrl ? `
-            <div id="adj-fulf-factura-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
-              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-file-pdf-line"></i> Factura PDF Cargada</span>
-              <div>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${commerceName}', '${facturaFulfPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">PDF Desglose Fulfillment</label>
+              <input type="file" id="adj-fulf-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 34px; border-radius: var(--radius-sm);">
+              ${fulfillmentPdfUrl ? `
+                <div id="adj-fulf-pdf-status" style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                    <div style="width: 28px; height: 28px; background: rgba(16, 185, 129, 0.1); color: var(--color-success); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                      <i class="ri-file-pdf-line" style="font-size: 1.1rem;"></i>
+                    </div>
+                    <div style="text-align: left; overflow: hidden;">
+                      <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 120px;">Desglose_Fulf.pdf</div>
+                      <div style="font-size: 0.65rem; color: var(--color-success); font-weight: 500;"><i class="ri-checkbox-circle-line"></i> Cargado</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('PDF Fulfillment - ${commerceName}', '${fulfillmentPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto;"><i class="ri-delete-bin-line"></i> Quitar</button>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+    
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Factura Oficial (Fulfillment)</label>
+              <input type="file" id="adj-fulf-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 34px; border-radius: var(--radius-sm);">
+              ${facturaFulfPdfUrl ? `
+                <div id="adj-fulf-factura-pdf-status" style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                    <div style="width: 28px; height: 28px; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                      <i class="ri-file-text-line" style="font-size: 1.1rem;"></i>
+                    </div>
+                    <div style="text-align: left; overflow: hidden;">
+                      <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 120px;">Factura_Fulf.pdf</div>
+                      <div style="font-size: 0.65rem; color: var(--color-primary); font-weight: 500;"><i class="ri-checkbox-circle-line"></i> Cargado</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Fulfillment - ${commerceName}', '${facturaFulfPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_fulfillment_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto;"><i class="ri-delete-bin-line"></i> Quitar</button>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+          
+          <!-- Envíame Column -->
+          <div style="background: rgba(94, 23, 235, 0.02); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem;">
+            <h4 style="margin: 0 0 1rem 0; border-bottom: 2px solid rgba(94, 23, 235, 0.1); padding-bottom: 0.35rem; color: var(--color-accent); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-truck-line"></i> Courier Envíame
+            </h4>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Subir Nuevo PDF Desglose</label>
+              <input type="file" id="adj-env-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 34px; border-radius: var(--radius-sm);">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">PDFs Desglose Cargados</label>
+              <div id="adj-env-pdfs-list" style="max-height: 120px; overflow-y: auto; padding-right: 0.25rem;">
+                ${envPdfsHtml}
               </div>
             </div>
-          ` : ''}
-        </div>
-        
-        <!-- Envíame Section -->
-        <h4 style="margin-bottom: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem; color: var(--color-primary); font-size: 0.95rem; font-weight: 700;">Envíame</h4>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Subir Nuevo PDF Desglose Envíame</label>
-          <input type="file" id="adj-env-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem; display: block;">PDFs Desglose Cargados (Envíame)</label>
-          <div id="adj-env-pdfs-list">
-            ${envPdfsHtml}
+    
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 0.35rem;">Factura Oficial (Envíame)</label>
+              <input type="file" id="adj-env-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 34px; border-radius: var(--radius-sm);">
+              ${facturaEnvPdfUrl ? `
+                <div id="adj-env-factura-pdf-status" style="margin-top: 0.5rem; display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+                    <div style="width: 28px; height: 28px; background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                      <i class="ri-file-text-line" style="font-size: 1.1rem;"></i>
+                    </div>
+                    <div style="text-align: left; overflow: hidden;">
+                      <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 120px;">Factura_Env.pdf</div>
+                      <div style="font-size: 0.65rem; color: var(--color-primary); font-weight: 500;"><i class="ri-checkbox-circle-line"></i> Cargado</div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${commerceName}', '${facturaEnvPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_enviame_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto;"><i class="ri-delete-bin-line"></i> Quitar</button>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
           </div>
         </div>
-
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); font-style: italic;">Factura Oficial Envíame (PDF)</label>
-          <input type="file" id="adj-env-factura-pdf" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.35rem; background: var(--color-surface);">
-          ${facturaEnvPdfUrl ? `
-            <div id="adj-env-factura-pdf-status" style="margin-top: 0.4rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.4rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-success);">
-              <span style="color: var(--color-success); font-weight: 600;"><i class="ri-file-pdf-line"></i> Factura PDF Cargada</span>
-              <div>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Factura Envíame - ${commerceName}', '${facturaEnvPdfUrl}')" style="padding: 0.15rem 0.35rem; font-size: 0.75rem;"><i class="ri-eye-line"></i> Ver</button>
-                <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentField('${recordId}', 'factura_enviame_pdf_url', this)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
-              </div>
-            </div>
-          ` : ''}
-        </div>
-
+    
         <!-- Notificación Automática -->
-        <div class="form-group" style="margin-top: 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.05); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.15);">
+        <div class="form-group" style="margin-top: 1.25rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.05); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.15);">
           <input type="checkbox" id="notify-client-new-invoice" checked style="width: 18px; height: 18px; margin: 0; accent-color: var(--color-success); cursor: pointer;">
           <label for="notify-client-new-invoice" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
             Notificar automáticamente al cliente por correo (Brevo) al guardar
@@ -16042,7 +16107,12 @@ function filterAndRenderExtraChargesTable(query) {
         <td style="vertical-align: middle; font-weight: 600; color: var(--color-text-main);">${c.comercio}</td>
         <td style="vertical-align: middle;">${c.detalle}</td>
         <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main); line-height: 1.3;">
-          <div>${window.formatCLP(c.monto)}</div>
+          <div style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: flex-end; width: 100%;">
+            <span>${window.formatCLP(c.monto)}</span>
+            <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${c.monto || 0}', this)" title="Copiar monto">
+              <i class="ri-file-copy-line"></i>
+            </button>
+          </div>
           ${ivaBadge}
         </td>
         <td style="vertical-align: middle;">${statusBadge}</td>
