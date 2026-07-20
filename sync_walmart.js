@@ -192,7 +192,7 @@ async function getValidAccessToken(integration) {
     return null;
   }
 
-  // Si tenemos refresh token, lo usamos para renovar
+  // Caso A: Si tenemos refresh token, lo usamos para renovar
   if (integration.refresh_token) {
     console.log(`🔄 Renovando access token Walmart para el comercio ${integration.comercio}...`);
     const params = new URLSearchParams({
@@ -210,7 +210,9 @@ async function getValidAccessToken(integration) {
           'Authorization': `Basic ${basicAuth}`,
           'Content-Type': 'application/x-www-form-urlencoded',
           'WM_SVC.NAME': 'Walmart Marketplace',
-          'WM_QOS.CORRELATION_ID': correlationId
+          'WM_QOS.CORRELATION_ID': correlationId,
+          'WM_MARKET': 'cl',
+          'Accept': 'application/json'
         },
         body: params.toString()
       });
@@ -239,63 +241,58 @@ async function getValidAccessToken(integration) {
     }
   }
 
-  // Caso B: Es una nueva integración y tenemos el authorization code en access_token
-  // (Nota: Si se usa el flujo donde guardamos el código inicial temporalmente en access_token)
-  if (integration.access_token && !integration.refresh_token) {
-    // Si la cadena parece un código OAuth (no un access_token JWT largo de Walmart)
-    if (integration.access_token.length < 100) {
-      console.log(`🔌 Realizando intercambio de código inicial (authorization_code) para Walmart - ${integration.comercio}...`);
-      const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: integration.access_token,
-        redirect_uri: integration.shop_url || 'https://www.google.com'
+  // Caso B: Es una nueva integración y tenemos el authorization code en access_token (diferente al client_secret)
+  if (integration.access_token && !integration.refresh_token && integration.access_token !== clientSecret && integration.access_token.length < 100) {
+    console.log(`🔌 Realizando intercambio de código inicial (authorization_code) para Walmart - ${integration.comercio}...`);
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: integration.access_token,
+      redirect_uri: integration.shop_url || 'https://www.google.com'
+    });
+
+    try {
+      const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      const correlationId = crypto.randomUUID();
+
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${basicAuth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'WM_SVC.NAME': 'Walmart Marketplace',
+          'WM_QOS.CORRELATION_ID': correlationId,
+          'WM_MARKET': 'cl',
+          'Accept': 'application/json'
+        },
+        body: params.toString()
       });
 
-      try {
-        const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-        const correlationId = crypto.randomUUID();
-
-        const res = await fetch(tokenUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${basicAuth}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'WM_SVC.NAME': 'Walmart Marketplace',
-            'WM_QOS.CORRELATION_ID': correlationId
-          },
-          body: params.toString()
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(`Error en authorization_code flow Walmart: ${res.status} - ${errorText}`);
-        }
-
-        const data = await res.json();
-        console.log(`✅ Código intercambiado correctamente. Registrando access_token y refresh_token...`);
-
-        // Guardar en Supabase
-        await supabase
-          .from('merchant_integrations')
-          .update({
-            access_token: data.access_token,
-            refresh_token: data.refresh_token || null
-          })
-          .eq('id', integration.id);
-
-        return data.access_token;
-      } catch (e) {
-        console.error(`❌ Error al intercambiar código Walmart:`, e.message);
-        return null;
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Error en authorization_code flow Walmart: ${res.status} - ${errorText}`);
       }
-    } else {
-      // Si es un access_token que ya parece estar configurado y no tenemos refresh token, lo devolvemos
-      return integration.access_token;
+
+      const data = await res.json();
+      console.log(`✅ Código intercambiado correctamente. Registrando access_token y refresh_token...`);
+
+      // Guardar en Supabase
+      await supabase
+        .from('merchant_integrations')
+        .update({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token || null
+        })
+        .eq('id', integration.id);
+
+      return data.access_token;
+    } catch (e) {
+      console.error(`❌ Error al intercambiar código Walmart:`, e.message);
+      return null;
     }
   }
 
-  // En Walmart, a veces se puede obtener un access token directamente usando client_credentials
-  // (Si el portal del vendedor permite Client Credentials directas, que es lo más común para apps customizadas)
+  // Caso C: En Walmart, se obtiene un access token directamente usando client_credentials
+  // (Si el portal del vendedor permite Client Credentials directas, que es el flujo por defecto para MAGIC MAKEUP)
   console.log(`🔄 Obteniendo access token usando client_credentials directas...`);
   const params = new URLSearchParams({
     grant_type: 'client_credentials'
@@ -311,7 +308,9 @@ async function getValidAccessToken(integration) {
         'Authorization': `Basic ${basicAuth}`,
         'Content-Type': 'application/x-www-form-urlencoded',
         'WM_SVC.NAME': 'Walmart Marketplace',
-        'WM_QOS.CORRELATION_ID': correlationId
+        'WM_QOS.CORRELATION_ID': correlationId,
+        'WM_MARKET': 'cl',
+        'Accept': 'application/json'
       },
       body: params.toString()
     });
@@ -408,7 +407,8 @@ async function syncMerchantOrders(integration) {
         'WM_SEC.ACCESS_TOKEN': accessToken,
         'WM_SVC.NAME': 'Walmart Marketplace',
         'WM_QOS.CORRELATION_ID': correlationId,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'WM_MARKET': 'cl'
       }
     });
 
@@ -745,7 +745,8 @@ async function syncMerchantProducts(integration) {
           'WM_SEC.ACCESS_TOKEN': accessToken,
           'WM_SVC.NAME': 'Walmart Marketplace',
           'WM_QOS.CORRELATION_ID': correlationId,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'WM_MARKET': 'cl'
         }
       });
 

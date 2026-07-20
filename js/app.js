@@ -10784,6 +10784,56 @@ window.renderDeclarations = async function() {
           totalQtyFromExcel = validationResult.totalQtyFromExcel;
         }
 
+        if (!isCatalogSource && errors.length === 0) {
+          try {
+            const { data: config } = await supabase
+              .from('comercios_adicional_config')
+              .select('inventario_seguimiento')
+              .eq('comercio', commerce)
+              .maybeSingle();
+
+            if (config && config.inventario_seguimiento) {
+              const { data: prods, error: prodsErr } = await supabase
+                .from('products')
+                .select('sku, price')
+                .eq('comercio', commerce);
+
+              if (prodsErr) {
+                console.error('Error fetching commerce products for SKU validation:', prodsErr);
+                errors.push("No se pudieron validar los SKUs contra el catálogo: " + prodsErr.message);
+              } else {
+                const catalogMap = new Map();
+                (prods || []).forEach(p => {
+                  if (p.sku) catalogMap.set(p.sku.trim().toLowerCase(), p.price || 0);
+                });
+
+                const missingSkus = [];
+                parsedProducts.forEach(p => {
+                  if (p.sku) {
+                    const skuNorm = p.sku.trim().toLowerCase();
+                    if (!catalogMap.has(skuNorm)) {
+                      missingSkus.push(p.sku);
+                    } else {
+                      // Si en la planilla no viene valor o es 0, auto-completar desde el catálogo
+                      if (!p.price || p.price === 0) {
+                        p.price = catalogMap.get(skuNorm);
+                        p.subtotal = p.qty * p.price;
+                      }
+                    }
+                  }
+                });
+
+                if (missingSkus.length > 0) {
+                  errors.push(`Los siguientes SKUs no existen en el catálogo del comercio (${commerce}): ${[...new Set(missingSkus)].join(', ')}. Por favor, regístrelos en el catálogo o corríjalos en la planilla.`);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Error in SKU validation:', e);
+            errors.push("Ocurrió un error al validar los SKUs de la planilla: " + e.message);
+          }
+        }
+
         if (errors.length > 0) {
           submitBtn.disabled = false;
           submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Vista previa de la declaración de ingreso';

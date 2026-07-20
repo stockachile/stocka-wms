@@ -115,7 +115,8 @@ async function syncWalmartProducts(integration: any): Promise<number> {
         'WM_SEC.ACCESS_TOKEN': accessToken,
         'WM_SVC.NAME': 'Walmart Marketplace',
         'WM_QOS.CORRELATION_ID': correlationId,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'WM_MARKET': 'cl'
       }
     });
 
@@ -189,7 +190,9 @@ async function getValidAccessToken(integration: any): Promise<string | null> {
           'Authorization': `Basic ${basicAuth}`,
           'Content-Type': 'application/x-www-form-urlencoded',
           'WM_SVC.NAME': 'Walmart Marketplace',
-          'WM_QOS.CORRELATION_ID': correlationId
+          'WM_QOS.CORRELATION_ID': correlationId,
+          'WM_MARKET': 'cl',
+          'Accept': 'application/json'
         },
         body: params.toString()
       });
@@ -215,51 +218,49 @@ async function getValidAccessToken(integration: any): Promise<string | null> {
   }
 
   // Authorization code exchange
-  if (integration.access_token && !integration.refresh_token) {
-    if (integration.access_token.length < 100) {
-      const params = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: integration.access_token,
-        redirect_uri: integration.shop_url || 'https://www.google.com'
+  if (integration.access_token && !integration.refresh_token && integration.access_token !== clientSecret && integration.access_token.length < 100) {
+    const params = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code: integration.access_token,
+      redirect_uri: integration.shop_url || 'https://www.google.com'
+    });
+
+    try {
+      const basicAuth = btoa(`${clientId}:${clientSecret}`);
+      const correlationId = crypto.randomUUID();
+
+      const res = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${basicAuth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'WM_SVC.NAME': 'Walmart Marketplace',
+          'WM_QOS.CORRELATION_ID': correlationId,
+          'WM_MARKET': 'cl',
+          'Accept': 'application/json'
+        },
+        body: params.toString()
       });
 
-      try {
-        const basicAuth = btoa(`${clientId}:${clientSecret}`);
-        const correlationId = crypto.randomUUID();
-
-        const res = await fetch(tokenUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Basic ${basicAuth}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'WM_SVC.NAME': 'Walmart Marketplace',
-            'WM_QOS.CORRELATION_ID': correlationId
-          },
-          body: params.toString()
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          throw new Error(`Error en authorization_code flow Walmart: ${res.status} - ${errorText}`);
-        }
-
-        const data = await res.json();
-
-        await supabase
-          .from('merchant_integrations')
-          .update({
-            access_token: data.access_token,
-            refresh_token: data.refresh_token || null
-          })
-          .eq('id', integration.id);
-
-        return data.access_token;
-      } catch (e) {
-        console.error(`❌ Error al intercambiar código Walmart:`, e.message);
-        return null;
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Error en authorization_code flow Walmart: ${res.status} - ${errorText}`);
       }
-    } else {
-      return integration.access_token;
+
+      const data = await res.json();
+
+      await supabase
+        .from('merchant_integrations')
+        .update({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token || null
+        })
+        .eq('id', integration.id);
+
+      return data.access_token;
+    } catch (e) {
+      console.error(`❌ Error al intercambiar código Walmart:`, e.message);
+      return null;
     }
   }
 
@@ -278,7 +279,9 @@ async function getValidAccessToken(integration: any): Promise<string | null> {
         'Authorization': `Basic ${basicAuth}`,
         'Content-Type': 'application/x-www-form-urlencoded',
         'WM_SVC.NAME': 'Walmart Marketplace',
-        'WM_QOS.CORRELATION_ID': correlationId
+        'WM_QOS.CORRELATION_ID': correlationId,
+        'WM_MARKET': 'cl',
+        'Accept': 'application/json'
       },
       body: params.toString()
     });
