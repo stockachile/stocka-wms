@@ -542,6 +542,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // --- ONBOARDING SLIDESHOW LOGIC ---
+  const initSlideshow = () => {
+    const slides = document.querySelectorAll('.onboarding-slideshow .slide');
+    const dots = document.querySelectorAll('.onboarding-slideshow .dot');
+    if (slides.length === 0) return;
+    
+    let currentSlide = 0;
+    let slideInterval;
+    
+    const showSlide = (index) => {
+      slides.forEach(slide => slide.classList.remove('active'));
+      dots.forEach(dot => dot.classList.remove('active'));
+      
+      slides[index].classList.add('active');
+      dots[index].classList.add('active');
+      currentSlide = index;
+    };
+    
+    const nextSlide = () => {
+      let next = (currentSlide + 1) % slides.length;
+      showSlide(next);
+    };
+    
+    const startInterval = () => {
+      slideInterval = setInterval(nextSlide, 5000); // Cambiar cada 5 segundos
+    };
+    
+    const resetInterval = () => {
+      clearInterval(slideInterval);
+      startInterval();
+    };
+    
+    // Eventos para los dots
+    dots.forEach((dot, idx) => {
+      dot.addEventListener('click', () => {
+        showSlide(idx);
+        resetInterval();
+      });
+    });
+    
+    // Iniciar temporizador
+    startInterval();
+  };
+  
+  // Inicializar slideshow
+  initSlideshow();
+
   // Botón Finalizar
   if (btnFinish) {
     btnFinish.addEventListener('click', () => {

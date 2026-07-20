@@ -389,3 +389,26 @@ Para mejorar la experiencia visual del usuario (UX) y transmitir mayor confianza
    - **Trazabilidad Inteligente de Iconos y Títulos:** El sistema analiza el contenido del mensaje en tiempo real para determinar dinámicamente si se trata de un mensaje de **Éxito** (`success`), **Error** (`error`), **Advertencia** (`warning`), o **Información** (`info`), personalizando el icono y el título de la alerta de forma adecuada.
    - **Estilo Coherente:** Las alertas ahora respetan el diseño de la aplicación, utilizando tipografía moderna, botones con estilo WMS y bordes redondeados.
    - **Mecanismo Fallback Seguro:** Si SweetAlert2 no está disponible o no ha terminado de cargar, el sistema usa el alert nativo sin generar recursividad.
+
+---
+
+## 20. Split-Screen Layout y Carrusel de Beneficios WMS en Onboarding
+
+Para brindar una experiencia de registro (onboarding) de primer nivel, hemos rediseñado la interfaz del asistente de alta comercial migrando a una pantalla dividida (Split-Screen) en computadoras y tablets grandes:
+
+1. **Diseño de Pantalla Dividida (`onboarding.html` y `js/onboarding.js`)**:
+   - **Columna Izquierda (60% ancho)**: Contiene el formulario del asistente en 5 pasos (Datos de contacto, Facturación, Configuración Comercial, Firma del Contrato y Pantalla Final de Éxito).
+   - **Columna Derecha (40% ancho)**: Un slideshow/carrusel de imágenes premium que rotan de manera interactiva mostrando los principales pilares del WMS y los beneficios del servicio.
+   - **Diseño Responsivo**: En pantallas móviles el carrusel se oculta automáticamente para priorizar el espacio de digitación del formulario, adaptándose en una sola columna limpia.
+
+2. **Rotación Interactiva y Automática de Slides**:
+   - **Ciclo Automático**: Las imágenes y los textos del carrusel transicionan con un efecto de fundido cruzado suave (Fading) cada 5 segundos de forma automatizada.
+   - **Controles de Indicadores (Dots)**: Se incluye un set de indicadores de posición interactivos en la parte inferior. Al hacer clic en un indicador, el carrusel cambia al slide seleccionado y reinicia el temporizador de forma inteligente.
+   - **Respaldo de Diseño (Fallback Gradient)**: En caso de que las imágenes del carrusel no estén subidas o no se localicen, cada slide cuenta con una configuración CSS de fondo con degradados de color modernos basados en los colores corporativos de Stocka, asegurando que la interfaz siempre luzca profesional y premium.
+
+3. **Ubicación de Imágenes Personalizadas**:
+   - Se creó la carpeta de destino [`img/onboarding/`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/img/onboarding/) con un archivo instructivo `README.txt` detallando los nombres exactos y resoluciones requeridas para que el usuario pueda subir sus propias fotos de logística:
+     * `slide1.jpg` -> Operaciones de Bodega y Despacho.
+     * `slide2.jpg` -> Conexión con Canales de Venta (Shopify, Mercado Libre, etc.).
+     * `slide3.jpg` -> Monitoreo de Stock e Inventario.
+     * `slide4.jpg` -> Same Day y Cobertura Multicourier.
