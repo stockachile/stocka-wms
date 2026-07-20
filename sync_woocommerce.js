@@ -214,6 +214,32 @@ async function saveProductToDb(integration, product, variation) {
  */
 async function syncOrders(integration, baseUrl, headers, warehouseId) {
   console.log('--> Extrayendo pedidos desde WooCommerce...');
+
+  // Obtener sigla del comercio y configuración de pedido_trae_sigla
+  let prefix = '';
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      const traeSigla = adicionalConfig ? adicionalConfig.pedido_trae_sigla : false;
+      if (configData && configData.sigla && !traeSigla) {
+        prefix = configData.sigla.trim().toUpperCase();
+      }
+      console.log(`ℹ️ Configuración de prefijo para WooCommerce: Sigla="${configData?.sigla || ''}", TraeSigla=${traeSigla} => Prefijo="${prefix}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
   
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
@@ -250,9 +276,10 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
     for (const order of orders) {
       const orderId = order.id.toString();
       const orderNumber = order.number || orderId;
+      const finalOrderNumber = prefix ? `${prefix}${orderNumber}` : orderNumber;
       const statusName = order.status; // e.g. processing, completed, cancelled, on-hold
 
-      console.log(`\nProcesando pedido WooCommerce ID: ${orderNumber} (Estado actual: ${statusName})`);
+      console.log(`\nProcesando pedido WooCommerce ID: ${finalOrderNumber} (Estado actual: ${statusName})`);
 
       // Clasificación de estados
       const isDelivered = statusName === 'completed';
@@ -264,7 +291,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         .from('orders')
         .select('id, status')
         .eq('merchant_id', integration.merchant_id)
-        .eq('external_order_number', orderNumber)
+        .eq('external_order_number', finalOrderNumber)
         .maybeSingle();
 
       // Mapear campos planos de la orden
@@ -289,7 +316,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
-        external_order_number: orderNumber,
+        external_order_number: finalOrderNumber,
         external_platform: 'WooCommerce',
         payment_status: order.date_paid ? 'PAID' : 'PENDING',
         total_value: totalValue,
@@ -316,14 +343,14 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
             .from('orders')
             .update({ ...orderDataToSave, status: 'cancelado' })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${orderNumber} cancelado en WooCommerce. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en WooCommerce. Actualizado en el WMS.`);
         } else {
           // Actualizar datos de pedido manteniendo el estado actual del WMS
           await supabase
             .from('orders')
             .update(orderDataToSave)
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${orderNumber}`);
+          console.log(`📝 Actualizado pedido local ${finalOrderNumber}`);
         }
         localOrderId = existingOrder.id;
 
@@ -334,7 +361,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           .eq('order_id', localOrderId);
 
         if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${orderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
           shouldInsertItems = true;
         }
       } else if (isActive) {
@@ -346,15 +373,15 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${orderNumber}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${finalOrderNumber}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${orderNumber} con estado 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
       } else {
-        console.log(`ℹ️ Pedido ${orderNumber} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
+        console.log(`ℹ️ Pedido ${finalOrderNumber} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
       }
 
       // Registrar ítems en order_items
