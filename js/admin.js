@@ -19650,6 +19650,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
           <select id="email-type-select" class="form-input" style="width: 100%;">
             <option value="billing_summary" selected>Desglose / Resumen de Facturación</option>
             <option value="invoice_uploaded">Notificación de Factura Cargada</option>
+            <option value="payment_overdue_manual">Aviso de Plazo de Pago Vencido</option>
             <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
           </select>
         </div>
@@ -20868,7 +20869,7 @@ window.loadNotificationLogsGrid = async function() {
       
       const summary = logsMap[`${commKey}_billing_summary`];
       const invoice = logsMap[`${commKey}_invoice_uploaded`];
-      const overdue = logsMap[`${commKey}_payment_overdue`];
+      const overdue = logsMap[`${commKey}_payment_overdue`] || logsMap[`${commKey}_payment_overdue_manual`];
       const received = logsMap[`${commKey}_payment_received`];
       const warning = logsMap[`${commKey}_suspension_warning`];
       const paused = logsMap[`${commKey}_service_paused`];
