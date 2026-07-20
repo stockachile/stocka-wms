@@ -141,7 +141,46 @@ DECLARE
   v_custom_message TEXT := '';
 BEGIN
   IF (TG_OP = 'INSERT') THEN
-    v_email_type := 'onboarding_received';
+    -- 1. Enviar correo de confirmación al cliente
+    PERFORM net.http_post(
+      url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8'
+      ),
+      body := jsonb_build_object(
+        'commerceName', NEW.nombre_fantasia,
+        'emailType', 'onboarding_received',
+        'emails', ARRAY[NEW.email]
+      )
+    );
+
+    -- 2. Enviar correo de notificación al administrador (stockachile@gmail.com) con los detalles
+    PERFORM net.http_post(
+      url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email',
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8'
+      ),
+      body := jsonb_build_object(
+        'commerceName', NEW.nombre_fantasia,
+        'emailType', 'onboarding_admin_notification',
+        'emails', ARRAY['stockachile@gmail.com'],
+        'onboardingDetails', jsonb_build_object(
+          'razonSocial', NEW.razon_social,
+          'rutEmpresa', NEW.rut_empresa,
+          'contactName', NEW.full_name,
+          'contactEmail', NEW.email,
+          'phone', NEW.phone,
+          'giroComercio', NEW.giro_comercio,
+          'direccion', NEW.direccion_facturacion,
+          'comuna', NEW.comuna,
+          'contratoUrl', NEW.contrato_url
+        )
+      )
+    );
+
+    RETURN NEW;
   ELSIF (TG_OP = 'UPDATE') THEN
     IF (OLD.status = NEW.status) THEN
       RETURN NEW; -- No cambió el estado, no hacer nada
@@ -159,7 +198,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Invocar la Edge Function para envío de correos usando pg_net
+  -- Invocar la Edge Function para envío de correos de actualización (aprobado u observado)
   PERFORM net.http_post(
     url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email',
     headers := jsonb_build_object(

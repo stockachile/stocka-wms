@@ -118,7 +118,15 @@ serve(async (req) => {
       })
     }
 
-    const { recordId, serviceType, emails, customMessage, emailType = 'billing_summary', commerceName: payloadCommerceName } = await req.json()
+    const { 
+      recordId, 
+      serviceType, 
+      emails, 
+      customMessage, 
+      emailType = 'billing_summary', 
+      commerceName: payloadCommerceName,
+      onboardingDetails
+    } = await req.json()
 
     // Cargar registro de facturación si se suministra, o buscar el más reciente si solo tenemos commerceName
     let record = null;
@@ -664,6 +672,72 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'onboarding_admin_notification') {
+      emailSubject = `[Onboarding WMS] Nueva Solicitud de Alta - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #4f46e5, #06b6d4)';
+      emailTitle = 'Nueva Solicitud de Onboarding';
+      
+      const details = onboardingDetails || {};
+      
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Se ha recibido una nueva solicitud de alta comercial en el portal de Onboarding. A continuación se detallan los datos registrados por el cliente:
+        </div>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+          <thead>
+            <tr style="background-color: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+              <th style="padding: 10px; text-align: left; color: #475569; font-weight: 700; width: 180px;">Campo</th>
+              <th style="padding: 10px; text-align: left; color: #475569; font-weight: 700;">Detalle Registrado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Marca / Fantasía:</td>
+              <td style="padding: 10px; color: #1e293b; font-weight: 700;">${commerceName}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Razón Social:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.razonSocial || 'No especificada'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">RUT Empresa:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.rutEmpresa || 'No especificado'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Contacto:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.contactName || 'No especificado'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Email Contacto:</td>
+              <td style="padding: 10px; color: #1e293b;"><a href="mailto:${details.contactEmail || ''}" style="color: #2563eb; text-decoration: none;">${details.contactEmail || 'No especificado'}</a></td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Teléfono:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.phone || 'No especificado'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Giro Comercial:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.giroComercio || 'No especificado'}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Dirección:</td>
+              <td style="padding: 10px; color: #1e293b;">${details.direccion || 'No especificada'}, ${details.comuna || ''}</td>
+            </tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569;">Contrato Firmado:</td>
+              <td style="padding: 10px; color: #1e293b;">
+                ${details.contratoUrl ? `<a href="${details.contratoUrl}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Descargar PDF Contrato</a>` : 'No adjuntado'}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-top: 20px;">
+          Por favor, inicia sesión como administrador en el portal WMS de Stocka para revisar, observar o aprobar esta solicitud.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `[Facturación] Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -756,7 +830,7 @@ serve(async (req) => {
 </html>
       `;
 
-    const isOnboarding = ['onboarding_received', 'onboarding_approved', 'onboarding_observed'].includes(emailType);
+    const isOnboarding = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification'].includes(emailType);
     const brevoPayload = {
       sender: {
         name: isOnboarding ? "Stocka" : "Finanzas Stocka",

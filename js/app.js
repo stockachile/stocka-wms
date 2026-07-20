@@ -3,6 +3,69 @@ import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
 
+// Redefinir window.alert globalmente con SweetAlert2 para estética premium y generar mayor confianza
+const nativeAlert = window.alert;
+window.alert = function(message) {
+  if (window.Swal) {
+    let icon = 'info';
+    let title = 'Notificación';
+    const lowerMessage = String(message).toLowerCase();
+
+    if (
+      lowerMessage.includes('exitosamente') || 
+      lowerMessage.includes('éxito') || 
+      lowerMessage.includes('correctamente') || 
+      lowerMessage.includes('sincronizado') || 
+      lowerMessage.includes('guardada') || 
+      lowerMessage.includes('conexión establecida') || 
+      lowerMessage.includes('conectada') ||
+      lowerMessage.includes('exitoso')
+    ) {
+      icon = 'success';
+      title = '¡Éxito!';
+    } else if (
+      lowerMessage.includes('error') || 
+      lowerMessage.includes('falla') || 
+      lowerMessage.includes('denegado') || 
+      lowerMessage.includes('no se pudo') || 
+      lowerMessage.includes('inválido') || 
+      lowerMessage.includes('incorrecto') || 
+      lowerMessage.includes('inactiva') || 
+      lowerMessage.includes('falló') || 
+      lowerMessage.includes('no autorizado') || 
+      lowerMessage.includes('unauthorized') ||
+      lowerMessage.includes('error al')
+    ) {
+      icon = 'error';
+      title = 'Error';
+    } else if (
+      lowerMessage.includes('seguro') || 
+      lowerMessage.includes('desea') || 
+      lowerMessage.includes('advertencia') || 
+      lowerMessage.includes('atención') || 
+      lowerMessage.includes('cuidado')
+    ) {
+      icon = 'warning';
+      title = 'Atención';
+    }
+
+    window.Swal.fire({
+      title: title,
+      text: message,
+      icon: icon,
+      confirmButtonText: 'Aceptar',
+      customClass: {
+        popup: 'swal2-popup',
+        title: 'swal2-title',
+        confirmButton: 'swal2-confirm swal2-styled'
+      },
+      buttonsStyling: true
+    });
+  } else {
+    nativeAlert(message);
+  }
+};
+
 window.roundUpVolume = function(val) {
   if (val === null || val === undefined || isNaN(val) || val === '') return null;
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
