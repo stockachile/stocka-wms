@@ -410,18 +410,18 @@ serve(async (req) => {
       `;
     }
     else if (emailType === 'suspension_warning') {
-      emailSubject = `[ALERTA CRÍTICA] Suspensión inmediata de servicio por no pago - ${commerceName}`;
+      emailSubject = `[ALERTA] Pausa de servicio por no pago - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #dc2626, #991b1b)';
-      emailTitle = 'Suspensión de Servicio';
+      emailTitle = 'Pausa Temporal de Servicio';
 
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Estimado equipo de <strong>${commerceName}</strong>,<br><br>
-          Nos comunicamos para informarte que debido a un retraso crítico en el pago de los servicios pendientes de <strong>${periodName}</strong>, <strong>tu servicio de WMS y despachos queda suspendido en este mismo instante</strong>.
+          Nos comunicamos para informarte que debido a un retraso crítico en el pago de los servicios pendientes de <strong>${periodName}</strong>, <strong>tu servicio de WMS y despachos quedará pausado desde este momento hasta que puedas regularizar</strong>.
         </div>
 
         <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #991b1b; line-height: 1.5; font-weight: 600; text-align: center; text-transform: uppercase;">
-          ⚠️ SERVICIO SUSPENDIDO DE MANERA INMEDIATA
+          ⚠️ SERVICIO PAUSADO DESDE ESTE MOMENTO
         </div>
         
         ${servicesHtml}
