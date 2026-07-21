@@ -10582,6 +10582,8 @@ window.renderDeclarations = async function() {
         if (generalErrorContainer) generalErrorContainer.style.display = 'none';
 
         const formErrors = [];
+        const selectComm = document.getElementById('dec-comercio');
+        const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
         const title = document.getElementById('dec-title').value.trim();
         const qtyDeclared = parseInt(document.getElementById('dec-qty-declared').value);
         const volumeDeclared = parseFloat(document.getElementById('dec-volume-declared').value);
@@ -10853,14 +10855,10 @@ window.renderDeclarations = async function() {
         submitBtn.disabled = false;
         submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Vista previa de la declaración de ingreso';
 
-        const selectedCommerce = document.getElementById('dec-comercio')
-          ? document.getElementById('dec-comercio').value
-          : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
-
         // Mostrar Vista Previa
         showDeclarationPreviewModal({
           title,
-          commerce: selectedCommerce,
+          commerce: commerce,
           dateText: dateMode === 'exact' ? `${estimatedArrivalDate.split('-')[2]}/${estimatedArrivalDate.split('-')[1]}/${estimatedArrivalDate.split('-')[0]}` : estimatedArrivalPeriod,
           deliveryMethod,
           volumeDeclared,
