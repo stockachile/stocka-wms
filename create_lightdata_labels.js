@@ -376,7 +376,7 @@ async function handleIndividualMode(idPedido) {
         tracking_number: trackingCode,
         courier: 'CARRIER EXTERNO',
         label_base64: pdfBase64,
-        estado_wms: 'preparado'
+        estado_wms: 'En preparación'
       })
       .eq('id', idPedido);
 
