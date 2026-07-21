@@ -209,13 +209,26 @@ async function handleIndividualMode(idPedido) {
       if (response.url().includes('altaEnvio')) {
         try {
           const text = await response.text();
-          const json = JSON.parse(text);
-          if (json && json.estado) {
-            createdDid = json.dids || json.did || (json.detalle && json.detalle.dids);
-            console.log(`🌐 API altaEnvio respondió con éxito. did/dids capturado: ${createdDid}`);
+          console.log(`🌐 Interceptada respuesta de altaEnvio. Status: ${response.status()}`);
+          console.log(`🌐 Contenido crudo de respuesta: ${text}`);
+          
+          let json;
+          try {
+            json = JSON.parse(text);
+          } catch (e) {
+            console.error('⚠️ Error al parsear JSON de respuesta:', e.message);
+          }
+
+          if (json) {
+            if (json.estado) {
+              createdDid = json.dids || json.did || (json.detalle && json.detalle.dids);
+              console.log(`🌐 API altaEnvio respondió con éxito. did/dids capturado: ${createdDid}`);
+            } else {
+              console.error(`❌ API altaEnvio reportó error interno en JSON:`, json.mensaje || json.error || json);
+            }
           }
         } catch (e) {
-          // Ignorar errores de parseo
+          console.error('⚠️ Error al leer respuesta de red:', e.message);
         }
       }
     });
