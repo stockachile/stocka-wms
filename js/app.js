@@ -10888,7 +10888,7 @@ window.renderDeclarations = async function() {
             });
 
             const updateData = {
-              comercio: selectedCommerce,
+              comercio: commerce,
               title: title,
               estimated_arrival_type: dateMode,
               estimated_arrival_date: estimatedArrivalDate,
@@ -10927,7 +10927,7 @@ window.renderDeclarations = async function() {
           } else {
             const insertData = {
               merchant_id: currentMerchantId,
-              comercio: selectedCommerce,
+              comercio: commerce,
               title: title,
               estimated_arrival_type: dateMode,
               estimated_arrival_date: estimatedArrivalDate,
