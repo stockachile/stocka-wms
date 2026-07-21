@@ -331,7 +331,7 @@ async function handleIndividualMode(idPedido) {
         const data = {
           "didEmpresa": 61,
           "didEnvios": [did],
-          "tipoEtiqueta": tipo,
+          "tipoEtiqueta": 1, // Cambiado a formato 10x15
           "calidad": 0,
           "quien": 108
         };
@@ -580,7 +580,7 @@ async function handleBulkMode(limiteCarga) {
         let data = {
           "didEmpresa": 61,
           "didEnvios": dids.split(','),
-          "tipoEtiqueta": 2,
+          "tipoEtiqueta": 1, // Cambiado a formato 10x15
           "calidad": 0,
           "quien": 108
         };
