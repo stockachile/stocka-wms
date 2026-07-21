@@ -313,27 +313,60 @@ async function handleIndividualMode(idPedido) {
       return;
     }
 
-    // Descargar etiqueta usando el did capturado
-    console.log(`📥 Descargando etiqueta para el did: ${createdDid}...`);
+    // Descargar etiqueta usando el did capturado (fetch directo en el navegador)
+    console.log(`📥 Descargando etiqueta desde el Print Server para el did: ${createdDid}...`);
     
     if (!fs.existsSync(DOWNLOADS_DIR)){
       fs.mkdirSync(DOWNLOADS_DIR);
     }
     const pdfPath = path.join(DOWNLOADS_DIR, `label_${createdDid}.pdf`);
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 30000 }),
-      page.evaluate((did) => {
-        window.g_did = did;
-        appEnvios.downloadEtiqueta();
-      }, createdDid)
-    ]);
+    let pdfBase64 = null;
+    try {
+      pdfBase64 = await page.evaluate(async (did) => {
+        const planPremiumOMayor = [11, 24, 19, 47, 36, 34, 35, 44, 40, 51, 52];
+        const plan = "16";
+        const tipo = planPremiumOMayor.includes(plan * 1) ? 1 : 2;
 
-    await download.saveAs(pdfPath);
-    console.log(`💾 Etiqueta guardada localmente en: ${pdfPath}`);
+        const data = {
+          "didEmpresa": 61,
+          "didEnvios": [did],
+          "tipoEtiqueta": tipo,
+          "calidad": 0,
+          "quien": 108
+        };
 
-    // Leer PDF y codificar en Base64
-    const pdfBase64 = fs.readFileSync(pdfPath, 'base64');
+        const response = await fetch("https://printserver.lightdata.app/print/etiqueta", {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const buffer = await response.arrayBuffer();
+        
+        // Convertir ArrayBuffer a Base64 en el navegador
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+      }, createdDid);
+
+      // Guardar localmente
+      fs.writeFileSync(pdfPath, Buffer.from(pdfBase64, 'base64'));
+      console.log(`💾 Etiqueta guardada localmente en: ${pdfPath} (Tamaño: ${pdfBase64.length} caracteres Base64)`);
+    } catch (downloadErr) {
+      console.error('❌ ERROR al descargar la etiqueta mediante fetch en página:', downloadErr.message);
+      return;
+    }
 
     // Actualizar el pedido en Supabase
     console.log('📡 Actualizando pedido en Supabase...');
