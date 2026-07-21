@@ -152,8 +152,17 @@ async function handleIndividualMode(idPedido) {
 
     // Rellenar formulario
     console.log('✏️ Rellenando campos del formulario...');
+    
+    // Formatear fecha de venta a DD/MM/YYYY
+    const dateObj = order.created_at ? new Date(order.created_at) : new Date();
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const year = dateObj.getFullYear();
+    const dateVentaFormatted = `${day}/${month}/${year}`;
+    
     await page.fill('#envio_altaIndividual_idml', order.external_order_number || '');
     await page.fill('#envio_altaIndividual_tracking', trackingCode);
+    await page.fill('#envio_altaIndividual_fechaventa', dateVentaFormatted); // Campo obligatorio corregido
     await page.fill('#envio_altaIndividual_destinatario_nombre', order.customer_name || 'Sin Nombre');
     await page.fill('#envio_altaIndividual_destinatario_telefono', String(order.customer_phone || '').replace(/[^\d+]/g, ''));
     await page.fill('#envio_altaIndividual_destinatario_email', order.customer_email || 'correo@temp.com');
@@ -163,7 +172,7 @@ async function handleIndividualMode(idPedido) {
     // Procesar dirección
     let address = order.shipping_address || '';
     let street = address;
-    let number = '.';
+    let number = 'S/N'; // Fallback a S/N
     const numMatch = address.match(/^(.*?)\s+(\d+)\s*(.*)$/);
     if (numMatch) {
       street = numMatch[1].trim();
