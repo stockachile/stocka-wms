@@ -261,6 +261,56 @@ window.downloadBase64Pdf = function(base64, filename) {
   }
 };
 
+// Función global para solicitar la generación de la etiqueta LightData vía Edge Function
+window.generarEtiquetaLightData = async function(orderId, btn) {
+  if (!confirm('¿Estás seguro de generar la etiqueta de envío en LightData para este pedido?')) {
+    return;
+  }
+  
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+  btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando...`;
+  
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No autenticado en el WMS.");
+    
+    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ mode: 'individual', orderId: orderId })
+    });
+    
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+    
+    Swal.fire({
+      icon: 'success',
+      title: 'Solicitud enviada',
+      text: 'La creación de la etiqueta se ha iniciado en segundo plano. La página se recargará automáticamente en unos minutos.',
+      confirmButtonColor: '#7117eb'
+    });
+    btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
+  } catch (err) {
+    console.error(err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al generar etiqueta',
+      text: err.message,
+      confirmButtonColor: '#7117eb'
+    });
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = originalHtml;
+  }
+};
+
 // Global function to toggle table action menus
 window.toggleTableActionMenu = function(event, btn) {
   event.stopPropagation();
@@ -1679,9 +1729,11 @@ window.applyWmsFiltersAndRender = function() {
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
     if (order.label_base64) {
-      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
     } else if (order.label_url) {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+    } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') {
+      labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05);"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
     }
 
     let courier_destino = '';
@@ -1978,6 +2030,7 @@ window.applyWmsFiltersAndRender = function() {
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;"><strong>Etiqueta:</strong> ${labelHtml}</p>
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
                   ${shipmentStatusHtml}
                 </div>
@@ -3615,6 +3668,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
       if (tabId === 'tab-catalog-packs') {
         renderPacksTab();
+      } else if (tabId === 'tab-catalog-campaigns') {
+        renderCampaignsTab(commerce);
       }
     });
   });
@@ -5890,6 +5945,9 @@ async function renderAdminCatalogWorkspace(commerce) {
         <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-stack-line"></i> Packs / Combos
         </button>
+        <button class="integration-tab catalog-tab" data-tab="tab-catalog-campaigns" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-gift-line"></i> Campañas
+        </button>
       </div>
 
       <div class="integration-content">
@@ -6033,6 +6091,41 @@ async function renderAdminCatalogWorkspace(commerce) {
                 <tbody id="catalog-packs-tbody">
                   <tr>
                     <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando packs...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-catalog-campaigns" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-gift-line" style="color: var(--color-primary);"></i> Campañas de Regalo (Admin: ${commerce})
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Administra y configura reglas de regalo para el comercio seleccionado.</p>
+              </div>
+              <div>
+                <button class="btn btn-primary" id="btn-new-campaign" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-add-line"></i>Nueva Campaña</button>
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Nombre Campaña</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto Regalo</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Condiciones</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Vigencia</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 100px;">Estado</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-campaigns-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando campañas...</td>
                   </tr>
                 </tbody>
               </table>
@@ -22435,6 +22528,358 @@ function showOnboardingObservationsModal(req) {
       alert('Ocurrió un error al procesar las observaciones: ' + err.message);
       btnSubmit.disabled = false;
       btnSubmit.innerHTML = '<i class="ri-mail-send-line"></i> Guardar y Notificar';
+    }
+  });
+}
+
+async function renderCampaignsTab(commerce) {
+  const tbody = document.getElementById('catalog-campaigns-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem;"></i>
+        Cargando campañas...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const { data: campaigns, error } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const isObserver = false;
+
+    if (!campaigns || campaigns.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+            No tienes ninguna campaña de regalo configurada.
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = campaigns.map(c => {
+        // Formatear vigencia
+        let datesText = 'Indefinida';
+        if (c.start_date || c.end_date) {
+          const start = c.start_date ? new Date(c.start_date).toLocaleDateString('es-CL') : '...';
+          const end = c.end_date ? new Date(c.end_date).toLocaleDateString('es-CL') : '...';
+          datesText = `${start} al ${end}`;
+        }
+
+        // Formatear condiciones
+        const conds = [];
+        if (c.trigger_skus && c.trigger_skus.length > 0) {
+          conds.push(`Contiene SKUs: <strong>${c.trigger_skus.join(', ')}</strong>`);
+        }
+        if (c.min_total_quantity && c.min_total_quantity > 0) {
+          conds.push(`Cant. total de ítems >= <strong>${c.min_total_quantity}</strong>`);
+        }
+        if (c.min_distinct_skus && c.min_distinct_skus > 0) {
+          conds.push(`SKUs distintos >= <strong>${c.min_distinct_skus}</strong>`);
+        }
+        const conditionsHtml = conds.length > 0 ? conds.join('<br>') : '<span style="color: var(--color-text-muted); font-style: italic;">Sin condiciones</span>';
+
+        // Botón de activación
+        const statusText = c.active ? 'Activa' : 'Inactiva';
+        const toggleBtnText = c.active ? 'Desactivar' : 'Activar';
+        const toggleBtnColor = c.active ? 'var(--color-text-muted)' : 'var(--color-success)';
+
+        const statusBadgeHtml = `
+          <span class="badge" style="background-color: ${c.active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)'}; color: ${c.active ? '#10b981' : '#6b7280'}; border: 1px solid ${c.active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.2)'}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+            ${statusText}
+          </span>
+        `;
+
+        const deleteBtn = isObserver 
+          ? '' 
+          : `<button class="btn btn-outline btn-delete-campaign" data-id="${c.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line"></i></button>`;
+        
+        const actionBtn = isObserver 
+          ? '' 
+          : `<button class="btn btn-outline btn-edit-campaign" data-id="${c.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line"></i></button>` +
+            `<button class="btn btn-outline btn-toggle-campaign" data-id="${c.id}" data-active="${c.active}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: ${toggleBtnColor}; color: ${toggleBtnColor}; margin-left: 0.5rem;">${toggleBtnText}</button>` + deleteBtn;
+
+        return `
+          <tr data-campaign-id="${c.id}">
+            <td style="padding: 0.75rem 2rem;"><strong>${c.name}</strong></td>
+            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> <span style="color: var(--color-primary); font-weight: bold;">(x${c.gift_quantity})</span></td>
+            <td style="padding: 0.75rem 2rem; font-size: 0.85rem; line-height: 1.4;">${conditionsHtml}</td>
+            <td style="padding: 0.75rem 2rem; font-size: 0.85rem;">${datesText}</td>
+            <td style="padding: 0.75rem 2rem;">${statusBadgeHtml}</td>
+            <td style="padding: 0.75rem 2rem;">${actionBtn}</td>
+          </tr>
+        `;
+      }).join('');
+
+      // Bind toggle active listener
+      tbody.querySelectorAll('.btn-toggle-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          const currentActive = e.currentTarget.getAttribute('data-active') === 'true';
+          const newActive = !currentActive;
+
+          try {
+            e.currentTarget.disabled = true;
+            const { error: updateErr } = await supabase
+              .from('campaigns')
+              .update({ active: newActive })
+              .eq('id', id);
+
+            if (updateErr) throw updateErr;
+            renderCampaignsTab(commerce);
+          } catch (err) {
+            alert('Error al cambiar estado de la campaña: ' + err.message);
+            e.currentTarget.disabled = false;
+          }
+        });
+      });
+
+      // Bind delete listener
+      tbody.querySelectorAll('.btn-delete-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          if (confirm('¿Estás seguro de que deseas eliminar esta campaña?')) {
+            try {
+              const { error: delErr } = await supabase
+                .from('campaigns')
+                .delete()
+                .eq('id', id);
+
+              if (delErr) throw delErr;
+              renderCampaignsTab(commerce);
+            } catch (err) {
+              alert('Error al eliminar campaña: ' + err.message);
+            }
+          }
+        });
+      });
+
+      // Bind edit listener
+      tbody.querySelectorAll('.btn-edit-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          const campaign = campaigns.find(item => item.id === id);
+          if (campaign) {
+            openCampaignModal(commerce, campaign);
+          }
+        });
+      });
+    }
+
+    // Bind "Nueva Campaña" button click listener
+    const btnNewCampaign = document.getElementById('btn-new-campaign');
+    if (btnNewCampaign) {
+      // Remove old listeners to avoid multiple binding
+      const newBtn = btnNewCampaign.cloneNode(true);
+      btnNewCampaign.parentNode.replaceChild(newBtn, btnNewCampaign);
+      newBtn.addEventListener('click', () => {
+        openCampaignModal(commerce);
+      });
+    }
+
+  } catch (err) {
+    console.error("Error loading campaigns:", err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          Error al cargar campañas: ${err.message}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+function openCampaignModal(commerce, campaign = null) {
+  const existing = document.getElementById('modal-campaign');
+  if (existing) existing.remove();
+
+  const isEdit = !!campaign;
+  const modalTitle = isEdit ? 'Editar Campaña' : 'Nueva Campaña de Regalo';
+
+  let startVal = '';
+  let endVal = '';
+  if (isEdit) {
+    if (campaign.start_date) {
+      startVal = campaign.start_date.split('T')[0];
+    }
+    if (campaign.end_date) {
+      endVal = campaign.end_date.split('T')[0];
+    }
+  }
+
+  const triggerSkusVal = isEdit && campaign.trigger_skus ? campaign.trigger_skus.join(', ') : '';
+  const giftSkuVal = isEdit ? campaign.gift_sku : '';
+  const giftQtyVal = isEdit ? campaign.gift_quantity : 1;
+  const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
+  const minSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
+  const nameVal = isEdit ? campaign.name : '';
+  const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'modal-campaign';
+  modal.style.zIndex = '1500';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">${modalTitle}</h3>
+        <button class="modal-close" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-campaign">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+          
+          <div>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Nombre de la Campaña *</label>
+            <input type="text" id="campaign-name" class="form-input" placeholder="Ej. Regalo Taza Día del Padre" value="${nameVal}" required style="width: 100%;">
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="campaign-active" ${activeChecked} style="width: 16px; height: 16px; cursor: pointer;">
+            <label for="campaign-active" style="font-weight: 600; cursor: pointer; user-select: none;">Campaña Activa</label>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Fecha Inicio</label>
+              <input type="date" id="campaign-start" class="form-input" value="${startVal}" style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Fecha Término</label>
+              <input type="date" id="campaign-end" class="form-input" value="${endVal}" style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-primary);">Condiciones (Se deben cumplir todas)</h4>
+
+          <div>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem;">SKUs Específicos Disparadores</label>
+            <p style="margin: 0 0 0.4rem 0; font-size: 0.75rem; color: var(--color-text-muted);">Separados por comas. El pedido debe contener al menos uno de estos SKUs.</p>
+            <input type="text" id="campaign-trigger-skus" class="form-input" placeholder="Ej. SKU-A, SKU-B" value="${triggerSkusVal}" style="width: 100%;">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad Mín. de Artículos</label>
+              <input type="number" id="campaign-min-total-qty" class="form-input" placeholder="Ej. 3" min="1" value="${minQtyVal}" style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKUs Distintos Mínimos</label>
+              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minSkusVal}" style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">Premio / Regalo a Añadir</h4>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKU de Regalo *</label>
+              <input type="text" id="campaign-gift-sku" list="master-skus-list" class="form-input" placeholder="Busca o ingresa SKU..." value="${giftSkuVal}" required style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad *</label>
+              <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" required style="width: 100%;">
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-campaign-submit" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">
+            ${isEdit ? 'Guardar Cambios' : 'Crear Campaña'}
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-campaign');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById('campaign-name').value.trim();
+    const active = document.getElementById('campaign-active').checked;
+    const startVal = document.getElementById('campaign-start').value;
+    const endVal = document.getElementById('campaign-end').value;
+    const triggerSkusRaw = document.getElementById('campaign-trigger-skus').value.trim();
+    const minTotalQtyRaw = document.getElementById('campaign-min-total-qty').value;
+    const minDistinctSkusRaw = document.getElementById('campaign-min-distinct-skus').value;
+    const giftSku = document.getElementById('campaign-gift-sku').value.trim();
+    const giftQty = parseInt(document.getElementById('campaign-gift-qty').value) || 1;
+
+    if (!name || !giftSku) {
+      alert('Nombre y SKU de Regalo son requeridos.');
+      return;
+    }
+
+    const masterProducts = window.currentMasterProducts || [];
+    const giftExists = masterProducts.some(p => p.sku.toLowerCase().trim() === giftSku.toLowerCase().trim());
+    if (!giftExists) {
+      alert(`El SKU de Regalo "${giftSku}" no existe en tu catálogo master. Por favor selecciona uno válido.`);
+      return;
+    }
+
+    let trigger_skus = null;
+    if (triggerSkusRaw) {
+      trigger_skus = triggerSkusRaw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    const min_total_quantity = minTotalQtyRaw ? parseInt(minTotalQtyRaw) : null;
+    const min_distinct_skus = minDistinctSkusRaw ? parseInt(minDistinctSkusRaw) : null;
+
+    const start_date = startVal ? new Date(startVal + 'T00:00:00').toISOString() : null;
+    const end_date = endVal ? new Date(endVal + 'T23:59:59').toISOString() : null;
+
+    const payload = {
+      comercio: commerce,
+      name,
+      active,
+      start_date,
+      end_date,
+      trigger_skus,
+      min_total_quantity,
+      min_distinct_skus,
+      gift_sku: giftSku,
+      gift_quantity: giftQty
+    };
+
+    const submitBtn = document.getElementById('btn-save-campaign-submit');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+    try {
+      let response;
+      if (isEdit) {
+        response = await supabase
+          .from('campaigns')
+          .update(payload)
+          .eq('id', campaign.id);
+      } else {
+        response = await supabase
+          .from('campaigns')
+          .insert(payload);
+      }
+
+      if (response.error) throw response.error;
+
+      alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      modal.remove();
+      renderCampaignsTab(commerce);
+    } catch (err) {
+      alert('Error al guardar campaña: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = isEdit ? 'Guardar Cambios' : 'Crear Campaña';
     }
   });
 }

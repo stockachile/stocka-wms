@@ -1,0 +1,77 @@
+name: Create LightData Labels
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modo de ejecución: individual o bulk'
+        required: true
+        default: 'individual'
+        type: choice
+        options:
+          - individual
+          - bulk
+      orderId:
+        description: 'ID de la orden (UUID) en Supabase (Solo modo individual)'
+        required: false
+        type: string
+      limit:
+        description: 'Límite de órdenes a procesar (Solo modo bulk)'
+        required: false
+        default: '10'
+        type: string
+
+  repository_dispatch:
+    types: [create_label]
+
+jobs:
+  create-labels:
+    name: Generate Labels in LightData
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Label Creation Script
+        env:
+          LIGHTDATA_USERNAME: ${{ secrets.LIGHTDATA_USERNAME }}
+          LIGHTDATA_PASSWORD: ${{ secrets.LIGHTDATA_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HEADLESS: 'true'
+        run: |
+          # Determinar origen de los inputs (manual vs webhook)
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            MODE="${{ github.event.client_payload.mode }}"
+            ORDER_ID="${{ github.event.client_payload.orderId }}"
+            LIMIT="${{ github.event.client_payload.limit }}"
+          else
+            MODE="${{ github.event.inputs.mode }}"
+            ORDER_ID="${{ github.event.inputs.orderId }}"
+            LIMIT="${{ github.event.inputs.limit }}"
+          fi
+
+          echo "Ejecutando en modo: $MODE"
+          
+          if [ "$MODE" = "individual" ]; then
+            node create_lightdata_labels.js --mode=individual --orderId="$ORDER_ID"
+          elif [ "$MODE" = "bulk" ]; then
+            LIMIT_VAL=${LIMIT:-10}
+            node create_lightdata_labels.js --mode=bulk --limit="$LIMIT_VAL"
+          else
+            echo "❌ Modo no válido especificado."
+            exit 1
+          fi
