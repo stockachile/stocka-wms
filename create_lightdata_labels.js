@@ -404,14 +404,14 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  // Obtener pedidos en estado 'preparado' que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' y no tengan tracking ni etiqueta
+  // Obtener pedidos en estado 'En preparación' que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' y no tengan tracking ni etiqueta
   const { data: pendingOrders, error: fetchError } = await supabase
     .from('orders')
     .select('*')
     .or('courier.eq.LIGHTDATA,courier.eq.PENDIENTE_LIGHTDATA,operador.eq.ALPHA')
     .is('tracking_number', null)
     .is('label_base64', null)
-    .eq('estado_wms', 'preparado')
+    .eq('estado_wms', 'En preparación')
     .limit(limiteCarga);
 
   if (fetchError) {
@@ -629,9 +629,8 @@ async function handleBulkMode(limiteCarga) {
         .update({
           tracking_number: trackingCode,
           courier: 'CARRIER EXTERNO',
-          servicio_tipo_envio: 'SAME DAY/24 HRS',
           label_base64: consolidatedBase64, // Etiqueta base64 guardada
-          estado_wms: 'preparado'
+          estado_wms: 'En preparación'
         })
         .eq('id', order.id);
 
