@@ -375,7 +375,6 @@ async function handleIndividualMode(idPedido) {
       .update({
         tracking_number: trackingCode,
         courier: 'CARRIER EXTERNO',
-        servicio_tipo_envio: 'SAME DAY/24 HRS',
         label_base64: pdfBase64,
         estado_wms: 'preparado'
       })
