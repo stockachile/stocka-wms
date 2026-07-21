@@ -10966,6 +10966,26 @@ window.renderDeclarations = async function() {
 
             if (insertError) throw insertError;
 
+            // Enviar notificación por correo del nuevo ingreso
+            fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                emailType: 'stock_inbound_created',
+                comercio: commerce,
+                title: title,
+                quantityDeclared: qtyDeclared,
+                packageCount: totalPackages,
+                packageType: packageType,
+                estimatedArrivalDate: estimatedArrivalDate,
+                estimatedArrivalPeriod: estimatedArrivalPeriod,
+                deliveryMethod: deliveryMethod,
+                carrierInfo: carrierInfo,
+                contactInfo: contactInfo,
+                notes: notes
+              })
+            }).catch(e => console.warn('Error al despachar correo de nuevo ingreso:', e));
+
             alert('¡Declaración de ingreso de stock creada con éxito!');
             form.reset();
             

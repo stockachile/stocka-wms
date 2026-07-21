@@ -118,6 +118,7 @@ serve(async (req) => {
       })
     }
 
+    const payload = await req.json()
     const { 
       recordId, 
       serviceType, 
@@ -125,11 +126,13 @@ serve(async (req) => {
       customMessage, 
       emailType = 'billing_summary', 
       commerceName: payloadCommerceName,
+      comercio,
       onboardingDetails
-    } = await req.json()
+    } = payload;
 
     // Cargar registro de facturación si se suministra, o buscar el más reciente si solo tenemos commerceName
     let record = null;
+    const targetCommerce = payloadCommerceName || comercio;
     if (recordId) {
       const { data } = await supabaseClient
         .from('billing_records')
@@ -137,20 +140,20 @@ serve(async (req) => {
         .eq('id', recordId)
         .maybeSingle()
       record = data;
-    } else if (payloadCommerceName) {
+    } else if (targetCommerce) {
       const { data } = await supabaseClient
         .from('billing_records')
         .select('*, billing_periods(name)')
-        .eq('comercio', payloadCommerceName)
+        .eq('comercio', targetCommerce)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
       record = data;
     }
 
-    const commerceName = record?.comercio || payloadCommerceName;
+    const commerceName = record?.comercio || targetCommerce;
 
-    if (!commerceName) {
+    if (!commerceName && emailType !== 'stock_inbound_created') {
       return new Response(JSON.stringify({ error: 'Falta parámetro recordId o commerceName' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -160,30 +163,16 @@ serve(async (req) => {
     const periodName = record?.billing_periods?.name || 'Periodo Actual';
 
     // Obtener los contactos de facturación activos para este comercio
-    const { data: contacts, error: contactsErr } = await supabaseClient
+    const { data: contacts } = await supabaseClient
       .from('billing_contacts')
       .select('email, nombre')
-      .eq('comercio', commerceName)
+      .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    if (contactsErr) {
-      return new Response(JSON.stringify({ error: 'Error al obtener contactos de facturación: ' + contactsErr.message }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      })
-    }
+    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created'].includes(emailType);
 
-    if (!contacts || contacts.length === 0) {
-      if (!Array.isArray(emails) || emails.length === 0) {
-        return new Response(JSON.stringify({ error: 'No existen contactos de facturación activos para ' + commerceName }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
-    }
-
-    const validEmails = (contacts || []).map(c => c.email.toLowerCase().trim())
-    const recipientEmails: string[] = []
+    const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
+    let recipientEmails: string[] = []
 
     if (Array.isArray(emails) && emails.length > 0) {
       emails.forEach((email: string) => {
@@ -196,8 +185,8 @@ serve(async (req) => {
       recipientEmails.push(...validEmails)
     }
 
-    if (recipientEmails.length === 0) {
-      return new Response(JSON.stringify({ error: 'Ninguno de los correos suministrados es un contacto activo válido para el comercio.' }), {
+    if (recipientEmails.length === 0 && !isSystemNotif) {
+      return new Response(JSON.stringify({ error: `El comercio '${commerceName}' no tiene correos de facturación configurados ni se especificaron destinatarios.` }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
@@ -738,6 +727,55 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'stock_inbound_created') {
+      const decTitle = payload.title || "Ingreso de Stock";
+      const decCommerce = payload.comercio || commerceName || "Cliente WMS";
+      const qtyDeclared = payload.quantityDeclared || payload.quantity_declared || 0;
+      const packageCount = payload.packageCount || payload.package_count || 0;
+      const packageType = payload.packageType || payload.package_type || "Cajas";
+      const deliveryMethod = payload.deliveryMethod || payload.delivery_method || "No especificado";
+      const carrierInfo = payload.carrierInfo || payload.carrier_info || payload.contactInfo || payload.contact_info || "No especificado";
+      const notes = payload.notes || "Sin observaciones del cliente";
+
+      let arrivalInfo = "No especificado";
+      if (payload.estimatedArrivalDate || payload.estimated_arrival_date) {
+        arrivalInfo = `Fecha exacta: ${payload.estimatedArrivalDate || payload.estimated_arrival_date}`;
+      } else if (payload.estimatedArrivalPeriod || payload.estimated_arrival_period) {
+        arrivalInfo = `Plazo estimado: ${payload.estimatedArrivalPeriod || payload.estimated_arrival_period}`;
+      }
+
+      emailSubject = `[NUEVO INGRESO DE STOCK] ${decCommerce} - ${decTitle}`;
+      headerGradient = 'linear-gradient(135deg, #0d9488, #0f766e)';
+      emailTitle = 'Nuevo Ingreso de Stock Creado';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo <strong>Stocka</strong>,<br><br>
+          El usuario del comercio <strong>${decCommerce}</strong> acaba de registrar una nueva declaración de <strong>ingreso de stock</strong> en la plataforma WMS.
+        </div>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #ccfbf1; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <h4 style="margin: 0 0 12px 0; font-size: 15px; color: #0f766e; font-weight: 700;">Detalles del Ingreso Registrado:</h4>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">Comercio / Cliente:</td><td style="padding: 8px 0; font-weight: 700; color: #1e293b;">${decCommerce}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Título / Referencia:</td><td style="padding: 8px 0; font-weight: 600; color: #0f766e;">${decTitle}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Unidades Declaradas:</td><td style="padding: 8px 0;"><span style="background-color: #ccfbf1; color: #0f766e; padding: 3px 8px; border-radius: 4px; font-weight: 700;">${qtyDeclared} unidades</span></td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Bultos / Empaque:</td><td style="padding: 8px 0;">${packageCount} (${packageType})</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Fecha / Plazo de Arribo:</td><td style="padding: 8px 0;">${arrivalInfo}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Método de Entrega:</td><td style="padding: 8px 0;">${deliveryMethod}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Transporte / Contacto:</td><td style="padding: 8px 0;">${carrierInfo}</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 600;">Notas del Cliente:</td><td style="padding: 8px 0; font-style: italic;">${notes}</td></tr>
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Gestión en Bodega:</strong><br>
+          Puedes revisar, asignar bodega o recepcionar esta declaración directamente ingresando al módulo de <strong>Ingresos de Stock</strong> en el panel WMS Admin.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `[Facturación] Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -830,13 +868,15 @@ serve(async (req) => {
 </html>
       `;
 
-    const isOnboarding = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification'].includes(emailType);
+    const useInfoSender = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created'].includes(emailType);
+    const finalRecipients = emailType === 'stock_inbound_created' ? ["stockachile@gmail.com"] : recipientEmails;
+
     const brevoPayload = {
       sender: {
-        name: isOnboarding ? "Stocka" : "Finanzas Stocka",
-        email: isOnboarding ? "info@stocka.cl" : "finanzas@stocka.cl"
+        name: emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"),
+        email: useInfoSender ? "info@stocka.cl" : "finanzas@stocka.cl"
       },
-      to: recipientEmails.map(email => ({ email })),
+      to: finalRecipients.map(email => ({ email })),
       subject: emailSubject,
       htmlContent: htmlBody
     };
@@ -862,8 +902,8 @@ serve(async (req) => {
 
     const brevoData = await brevoRes.json();
 
-    // Registrar log de notificación en la base de datos si no es onboarding
-    if (!isOnboarding) {
+    // Registrar log de notificación en la base de datos si no es onboarding ni notificaciones internas de stock
+    if (!useInfoSender) {
       try {
         const { error: logErr } = await supabaseClient
           .from('billing_notification_logs')
@@ -887,7 +927,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({ 
       success: true, 
       message: 'Correo enviado exitosamente', 
-      recipients: recipientEmails,
+      recipients: finalRecipients,
       messageId: brevoData.messageId 
     }), {
       status: 200,
