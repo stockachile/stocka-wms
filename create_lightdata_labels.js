@@ -236,24 +236,66 @@ async function handleIndividualMode(idPedido) {
     console.log('💾 Presionando guardar...');
     await page.click('#btnguardarrenvioI');
     
+    // Esperar a que aparezca cualquier modal de alerta (SweetAlert)
+    console.log('⏳ Esperando modal de SweetAlert...');
+    const swalPopupSelector = '.swal2-popup, .swal-modal, .sweet-alert';
+    await page.waitForSelector(swalPopupSelector, { state: 'visible', timeout: 5000 }).catch(() => {
+      console.warn('⚠️ No se detectó SweetAlert visible en 5 segundos.');
+    });
+
+    // Leer el título y texto de la alerta para diagnóstico
+    const swalTitle = await page.evaluate(() => {
+      const el = document.querySelector('.swal2-title, .swal-title, .sweet-alert h2');
+      return el ? el.innerText.trim() : null;
+    });
+    const swalText = await page.evaluate(() => {
+      const el = document.querySelector('.swal2-html-container, .swal2-content, .swal-text, .sweet-alert p');
+      return el ? el.innerText.trim() : null;
+    });
+    console.log(`💬 Alerta SweetAlert detectada: [Título: "${swalTitle}"] [Texto: "${swalText}"]`);
+
     if (args.dryRun) {
-      console.log('🔍 [Dry Run] Esperando confirmación SweetAlert...');
-      await page.waitForSelector('button:has-text("Si, subir"), button.swal2-confirm', { state: 'visible', timeout: 5000 });
       console.log('🚫 [Dry Run] Cancelando subida para evitar crear envíos reales de prueba.');
-      await page.click('button:has-text("Volver"), button.swal2-cancel').catch(() => {});
+      await page.click('button:has-text("Volver"), button.swal2-cancel, button.swal-button--cancel').catch(() => {});
       console.log('🏁 [Dry Run] Prueba individual finalizada con éxito (datos correctos y formulario rellenado).');
       return;
     }
 
-    // Confirmar en el diálogo Swal
+    // Si es una alerta de advertencia o error, no continuar
+    const isErrorOrWarning = swalTitle && (
+      swalTitle.toLowerCase().includes('error') || 
+      swalTitle.toLowerCase().includes('debe') || 
+      swalTitle.toLowerCase().includes('vac') ||
+      swalTitle.toLowerCase().includes('obligatorio')
+    );
+    if (isErrorOrWarning) {
+      console.error(`❌ ERROR: El alta no pudo continuar debido a una validación fallida de LightData: "${swalTitle}" - "${swalText}"`);
+      await page.click('button:has-text("Volver"), button:has-text("OK"), button.swal2-confirm').catch(() => {});
+      return;
+    }
+
+    // Confirmar en el diálogo Swal si es confirmación
     console.log('🤝 Confirmando alerta SweetAlert...');
-    await page.click('button:has-text("Si, subir"), button.swal2-confirm', { timeout: 5000 }).catch(() => {});
+    const confirmButton = page.locator('button:has-text("Si, subir"), button.swal2-confirm, button.swal-button--confirm').first();
+    if (await confirmButton.isVisible()) {
+      await confirmButton.click();
+    } else {
+      console.warn('⚠️ No se encontró el botón de confirmación "Si, subir". Intentando hacer clic en el botón confirm predeterminado.');
+      await page.click('button.swal2-confirm, button.swal-button--confirm').catch(() => {});
+    }
 
     // Esperar un momento a que termine el AJAX
-    await page.waitForTimeout(4000);
+    console.log('⏳ Esperando respuesta de la creación (AJAX)...');
+    await page.waitForTimeout(6000);
 
     if (!createdDid) {
       console.error('❌ ERROR: No se pudo capturar el ID de envío (did) desde la respuesta de red de altaEnvio.');
+      // Imprimir el estado actual del DOM de SweetAlert por si cambió
+      const postSwalTitle = await page.evaluate(() => {
+        const el = document.querySelector('.swal2-title, .swal-title');
+        return el ? el.innerText.trim() : null;
+      });
+      console.log(`💬 Estado final de alerta SweetAlert: [${postSwalTitle}]`);
       return;
     }
 
