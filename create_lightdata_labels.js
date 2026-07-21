@@ -163,8 +163,13 @@ async function handleIndividualMode(idPedido) {
     await page.fill('#envio_altaIndividual_idml', order.external_order_number || '');
     await page.fill('#envio_altaIndividual_tracking', trackingCode);
     await page.fill('#envio_altaIndividual_fechaventa', dateVentaFormatted); // Campo obligatorio corregido
+    let cleanPhone = String(order.customer_phone || '').replace(/[^\d+]/g, '');
+    if (cleanPhone.length < 6) {
+      cleanPhone = '999999999';
+    }
+    
     await page.fill('#envio_altaIndividual_destinatario_nombre', order.customer_name || 'Sin Nombre');
-    await page.fill('#envio_altaIndividual_destinatario_telefono', String(order.customer_phone || '').replace(/[^\d+]/g, ''));
+    await page.fill('#envio_altaIndividual_destinatario_telefono', cleanPhone);
     await page.fill('#envio_altaIndividual_destinatario_email', order.customer_email || 'correo@temp.com');
     await page.fill('#envio_altaIndividual_referencia', 'CARRIER EXTERNO');
     await page.fill('#envio_altaIndividual_observacion', order.shipping_complement || '');
