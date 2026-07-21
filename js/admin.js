@@ -311,6 +311,64 @@ window.generarEtiquetaLightData = async function(orderId, btn) {
   }
 };
 
+// Función global para solicitar la generación masiva de etiquetas en LightData
+window.bulkCreateLightDataLabels = async function(btn) {
+  const ids = Array.from(window.wmsSelectedOrderIds || []);
+  if (ids.length === 0) {
+    alert('No has seleccionado ningún pedido.');
+    return;
+  }
+  
+  if (!confirm(`¿Estás seguro de generar las etiquetas de LightData para los ${ids.length} pedidos seleccionados?`)) {
+    return;
+  }
+  
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+  btn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Solicitando masivo...`;
+  
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("No autenticado en el WMS.");
+    
+    const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ mode: 'bulk', orderIds: ids.join(',') })
+    });
+    
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Error del servidor: ${response.status}`);
+    }
+    
+    Swal.fire({
+      icon: 'success',
+      title: 'Creación masiva iniciada',
+      text: `Se ha solicitado la generación de etiquetas para los ${ids.length} pedidos. El proceso se ejecutará en segundo plano y las etiquetas se actualizarán en minutos.`,
+      confirmButtonColor: '#7117eb'
+    });
+    
+    btn.innerHTML = `<i class="ri-checkbox-circle-line"></i> Solicitado`;
+    window.clearWmsSelection();
+  } catch (err) {
+    console.error(err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al generar etiquetas masivas',
+      text: err.message,
+      confirmButtonColor: '#7117eb'
+    });
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.innerHTML = originalHtml;
+  }
+};
+
 // Global function to toggle table action menus
 window.toggleTableActionMenu = function(event, btn) {
   event.stopPropagation();
@@ -496,6 +554,9 @@ async function init() {
           if (view === 'dashboard') {
             viewTitle.textContent = 'Dashboard Admin';
             renderAdminDashboard();
+          } else if (view === 'notifications_admin') {
+            viewTitle.textContent = 'Notificaciones y Avisos';
+            renderNotificationsAdmin();
           } else if (view === 'orders_admin') {
             viewTitle.textContent = 'Gestor de Pedidos';
             renderAdminOrders();
@@ -577,7 +638,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -745,7 +806,19 @@ window.updateAdminBadges = async function() {
       badgeIntegrations.style.display = integrationsCount > 0 ? 'inline-flex' : 'none';
     }
 
-    // 6. Incidencias Admin
+    // 6. Configuración Group Badge
+    const configGroupBadge = document.getElementById('badge-config-group');
+    if (configGroupBadge) {
+      let totalConfigNotifs = (usersCount !== null ? usersCount : 0);
+      if (totalConfigNotifs > 0) {
+        configGroupBadge.textContent = '!';
+        configGroupBadge.style.display = 'inline-flex';
+      } else {
+        configGroupBadge.style.display = 'none';
+      }
+    }
+
+    // 7. Incidencias Admin
     try {
       const { count: incidenciasCount, error: incErr } = await supabase
         .from('incidencias')
@@ -786,7 +859,68 @@ window.updateAdminBadges = async function() {
 
 // Ejecutar inicialización
 init();
+// Inicializar acordeones de la barra lateral
+window.initSidebarAccordions = function() {
+  const triggers = document.querySelectorAll('.accordion-trigger');
+  const accordions = document.querySelectorAll('.sidebar-accordion');
+  
+  // Open the first 3 subgroups by default
+  accordions.forEach((acc, index) => {
+    if (index < 3) {
+      acc.classList.add('open');
+      const content = acc.querySelector('.accordion-content');
+      if (content) {
+        setTimeout(() => {
+          content.style.maxHeight = content.scrollHeight + "px";
+        }, 50);
+      }
+    }
+  });
+
+  // Find which accordion should be open initially based on the active nav-item
+  const activeNavItem = document.querySelector('.nav-item.active');
+  if (activeNavItem) {
+    const parentAccordion = activeNavItem.closest('.sidebar-accordion');
+    if (parentAccordion && !parentAccordion.classList.contains('open')) {
+      parentAccordion.classList.add('open');
+      const content = parentAccordion.querySelector('.accordion-content');
+      if (content) {
+        setTimeout(() => {
+          content.style.maxHeight = content.scrollHeight + "px";
+        }, 50);
+      }
+    }
+  }
+
+  triggers.forEach(trigger => {
+    trigger.addEventListener('click', function(e) {
+      e.preventDefault();
+      
+      const parentLi = this.parentElement;
+      const content = this.nextElementSibling;
+      const isOpen = parentLi.classList.contains('open');
+      
+      // If sidebar is collapsed, expand it first
+      const sidebar = document.querySelector('.sidebar');
+      if (sidebar && sidebar.classList.contains('collapsed')) {
+        document.getElementById('toggle-sidebar')?.click();
+      }
+
+      // Toggle current
+      if (isOpen) {
+        parentLi.classList.remove('open');
+        content.style.maxHeight = null;
+      } else {
+        parentLi.classList.add('open');
+        // Calculate the height needed by its children
+        content.style.maxHeight = content.scrollHeight + "px";
+      }
+    });
+  });
+};
+
 initChatWidget();
+window.initSidebarAccordions();
 
 const ALL_STATUSES = [
   'para procesar', 
@@ -2212,6 +2346,9 @@ function renderWmsBulkActionsBar() {
           </button>
           <button onclick="window.bulkSetWmsOrderOperador()" class="btn" style="background: #00bcd4; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-truck-line"></i> Asignar Operador
+          </button>
+          <button onclick="window.bulkCreateLightDataLabels(this)" class="btn" style="background: #e91e63; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-barcode-box-line"></i> Crear Etiquetas LightData
           </button>
           <button onclick="window.bulkSetWmsOrderBillingPeriod()" class="btn" style="background: #9c27b0; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-price-tag-3-line"></i> Asignar Facturación
@@ -9079,9 +9216,649 @@ async function initNotifications(userId) {
 async function renderAdminDashboard() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
+    <p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando dashboard...</p>
+  `;
+
+  try {
+    // 1. Obtener la lista de comercios para el selector
+    const { data: comercios, error: comerciosErr } = await supabase
+      .from('v_comercios_config')
+      .select('nombre')
+      .order('nombre', { ascending: true });
+
+    if (comerciosErr) throw comerciosErr;
+
+    // 2. Renderizar contenedor base
+    appContent.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 2rem; background: var(--color-surface); padding: 1rem; border-radius: 8px; border: 1px solid var(--color-border);">
+        <div>
+          <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--color-text-main);">Dashboard Admin</h2>
+          <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.25rem 0 0 0;">Métricas y operaciones logísticas consolidadas en tiempo real.</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <label style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); white-space: nowrap; margin: 0;">Comercio:</label>
+          <select id="admin-dashboard-commerce-select" class="form-input" style="width: 250px; margin: 0; height: 38px; padding: 0.375rem 0.75rem;">
+            <option value="">-- Todos los Comercios --</option>
+            ${(comercios || []).map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div id="admin-metrics-dashboard-content">
+        <!-- Dashboard metrics split layout will load here -->
+      </div>
+    `;
+
+    const commerceSelect = document.getElementById('admin-dashboard-commerce-select');
+    if (commerceSelect) {
+      commerceSelect.addEventListener('change', (e) => {
+        const val = e.target.value;
+        fetchAndRenderAdminMetrics(val);
+      });
+    }
+
+    // Inicializar el dashboard con todos los comercios
+    await fetchAndRenderAdminMetrics('');
+
+  } catch (err) {
+    console.error('Error rendering Admin Dashboard:', err);
+    appContent.innerHTML = `<p style="color: red; padding: 2rem;">Error al renderizar el Dashboard: ${err.message}</p>`;
+  }
+}
+
+async function fetchAndRenderAdminMetrics(selectedCommerce) {
+  const contentDiv = document.getElementById('admin-metrics-dashboard-content');
+  if (!contentDiv) return;
+
+  contentDiv.innerHTML = '<p class="text-center" style="padding: 3rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite; margin-right: 0.5rem;"></i> Cargando métricas y estadísticas...</p>';
+
+  try {
+    // 1. Construir las consultas de Supabase
+    let invQuery = supabase.from('inventory').select('quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)');
+    let ordQuery = supabase.from('orders').select('id, status, comercio');
+    let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
+    let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
+
+    // 2. Aplicar filtro por comercio si corresponde
+    if (selectedCommerce) {
+      invQuery = invQuery.eq('products.comercio', selectedCommerce);
+      ordQuery = ordQuery.eq('comercio', selectedCommerce);
+      intQuery = intQuery.eq('comercio', selectedCommerce);
+      decQuery = decQuery.eq('comercio', selectedCommerce);
+    }
+
+    decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
+
+    // 3. Consultar datos
+    const results = await Promise.all([invQuery, ordQuery, intQuery, decQuery]);
+    const invRes = results[0];
+    const ordRes = results[1];
+    const intRes = results[2];
+    const decRes = results[3];
+
+    if (invRes.error) throw invRes.error;
+    if (ordRes.error) throw ordRes.error;
+    if (intRes.error) throw intRes.error;
+    if (decRes.error) throw decRes.error;
+
+    // 4. Calcular métricas de inventario
+    let totalStock = 0;
+    let availableStock = 0;
+    let lowStockCount = 0;
+    let totalVolume = 0;
+    const lowStockItems = [];
+    const productVolumeMap = {};
+
+    if (invRes.data) {
+      invRes.data.forEach(i => {
+        totalStock += i.quantity;
+        const available = i.quantity - i.committed_quantity;
+        availableStock += available;
+        
+        const critico = i.products ? i.products.stock_critico : 0;
+        const vol = i.products ? parseFloat(i.products.volumen || 0) : 0;
+        totalVolume += i.quantity * vol;
+
+        if (critico > 0 && available <= critico) {
+          lowStockCount++;
+          lowStockItems.push({
+            sku: i.products.sku,
+            name: i.products.name,
+            available: available,
+            critico: critico
+          });
+        }
+
+        if (i.products) {
+          const sku = i.products.sku || 'N/A';
+          const name = i.products.name || 'Sin Nombre';
+          const qty = i.quantity || 0;
+          const totalVol = qty * vol;
+          
+          if (!productVolumeMap[sku]) {
+            productVolumeMap[sku] = {
+              sku: sku,
+              name: name,
+              quantity: 0,
+              volumenUnitario: vol,
+              volumenTotal: 0
+            };
+          }
+          productVolumeMap[sku].quantity += qty;
+          productVolumeMap[sku].volumenTotal += totalVol;
+        }
+      });
+    }
+
+    const topVolumeProducts = Object.values(productVolumeMap)
+      .sort((a, b) => b.volumenTotal - a.volumenTotal)
+      .slice(0, 10);
+
+    // 5. Calcular métricas de órdenes
+    let activeOrders = 0;
+    let completedOrders = 0;
+    if (ordRes.data) {
+      ordRes.data.forEach(o => {
+        if (['en preparación', 'para procesar', 'preparado'].includes(o.status)) activeOrders++;
+        if (['despachado', 'entregado', 'retirado'].includes(o.status)) completedOrders++;
+      });
+    }
+
+    // 6. Construir tablas HTML secundarias
+    // Alertas de Stock Crítico
+    let lowStockHtml = '';
+    if (lowStockItems.length === 0) {
+      lowStockHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-checkbox-circle-line" style="color: var(--color-success); margin-right: 0.5rem; font-size: 1.2rem; vertical-align: middle;"></i>Todos los productos tienen stock suficiente.</div>';
+    } else {
+      lowStockHtml = `
+        <table class="table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">SKU</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">Producto</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Stock Disp.</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lowStockItems.slice(0, 5).map(item => {
+              const pct = item.critico > 0 ? (item.available / item.critico) * 100 : 0;
+              let badgeColor = 'var(--color-danger)';
+              let badgeText = 'Crítico';
+              if (item.available === 0) {
+                badgeColor = '#ef4444';
+                badgeText = 'Sin Stock';
+              } else if (pct > 50) {
+                badgeColor = 'var(--color-warning)';
+                badgeText = 'Advertencia';
+              }
+              return `
+                <tr style="border-bottom: 1px solid var(--color-border);">
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">${item.name}</td>
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available === 0 ? 'red' : 'inherit'}">${item.available} <span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span></td>
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center;">
+                    <span style="background: ${badgeColor}22; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${badgeText}</span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Últimos Ingresos (Declaraciones)
+    function getDeclarationStatusBadge(status) {
+      let bg = 'var(--badge-neutral-bg)';
+      let color = 'var(--badge-neutral-text)';
+      let border = '1px solid var(--color-border)';
+      let displayName = status;
+      
+      switch (status) {
+        case 'Creada':
+          bg = 'rgba(59, 130, 246, 0.1)';
+          color = 'var(--color-primary)';
+          border = '1px solid rgba(59, 130, 246, 0.2)';
+          break;
+        case 'Bodega Asignada':
+          bg = 'rgba(79, 70, 229, 0.1)';
+          color = '#4f46e5';
+          border = '1px solid rgba(79, 70, 229, 0.2)';
+          displayName = 'Asignada';
+          break;
+        case 'En Recepción - Pendiente Conteo':
+          bg = 'rgba(245, 158, 11, 0.1)';
+          color = 'var(--color-warning)';
+          border = '1px solid rgba(245, 158, 11, 0.2)';
+          displayName = 'En Recepción';
+          break;
+        case 'En proceso de conteo/clasificación':
+          bg = 'rgba(6, 182, 212, 0.1)';
+          color = '#06b6d4';
+          border = '1px solid rgba(6, 182, 212, 0.2)';
+          displayName = 'En Conteo';
+          break;
+        case 'Recibido Conforme':
+          bg = 'rgba(16, 185, 129, 0.1)';
+          color = 'var(--color-success)';
+          border = '1px solid rgba(16, 185, 129, 0.2)';
+          displayName = 'Recibido';
+          break;
+        case 'Recibido con Incidencias':
+          bg = 'rgba(239, 68, 68, 0.1)';
+          color = 'var(--color-danger)';
+          border = '1px solid rgba(239, 68, 68, 0.2)';
+          displayName = 'Incidencias';
+          break;
+      }
+      
+      return `<span style="background: ${bg}; color: ${color}; border: ${border}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.72rem; font-weight: 600; display: inline-block; white-space: nowrap; vertical-align: middle;">${displayName}</span>`;
+    }
+
+    let recentDeclarationsHtml = '';
+    const recentDecs = decRes.data || [];
+    if (recentDecs.length === 0) {
+      recentDeclarationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;">No hay ingresos declarados recientes.</div>';
+    } else {
+      recentDeclarationsHtml = `
+        <table class="table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle;">Ingreso</th>
+              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">ETA / Llegada</th>
+              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Cant.</th>
+              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: right; vertical-align: middle; white-space: nowrap;">Volumen</th>
+              <th style="padding: 0.5rem 0.6rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; vertical-align: middle; white-space: nowrap;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recentDecs.map(dec => {
+              let etaText = '';
+              if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+                const parts = dec.estimated_arrival_date.split('-');
+                etaText = parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : dec.estimated_arrival_date;
+              } else {
+                etaText = dec.estimated_arrival_period || '—';
+              }
+              const vol = parseFloat(dec.volume_declared || 0);
+              return `
+                <tr style="border-bottom: 1px solid var(--color-border);">
+                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle; max-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${dec.title}">${dec.title}</td>
+                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${etaText}</td>
+                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; color: var(--color-text-main); vertical-align: middle; white-space: nowrap;">${(dec.quantity_declared || 0).toLocaleString()}</td>
+                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: right; color: var(--color-text-muted); vertical-align: middle; white-space: nowrap;">${vol.toFixed(2)} m³</td>
+                  <td style="padding: 0.5rem 0.6rem; font-size: 0.8rem; text-align: center; vertical-align: middle; white-space: nowrap;">${getDeclarationStatusBadge(dec.status)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Integraciones Activas
+    function getPlatformBadge(platform) {
+      if (!platform) return '';
+      const pLower = platform.toLowerCase();
+      let src = '';
+      if (pLower.includes('shopify')) src = 'img/shopify.png';
+      else if (pLower.includes('falabella')) src = 'img/falabella.png';
+      else if (pLower.includes('mercadolibre') || pLower.includes('meli')) src = 'img/mercadolibre.png';
+      else if (pLower.includes('paris')) src = 'img/paris.png';
+      else if (pLower.includes('woocommerce')) src = 'img/woocommerce.png';
+      
+      if (src) {
+        return `<img src="${src}" alt="${platform}" style="height: 24px; max-height: 24px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
+      }
+      return `<span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; color: var(--color-primary); background: rgba(59, 130, 246, 0.1); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.8rem; vertical-align: middle;"><i class="ri-links-line"></i> ${platform}</span>`;
+    }
+
+    let integrationsHtml = '';
+    const activeIntList = intRes.data || [];
+    if (activeIntList.length === 0) {
+      integrationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-links-off" style="margin-right: 0.5rem; font-size: 1.25rem; vertical-align: middle;"></i>No hay integraciones activas.</div>';
+    } else {
+      integrationsHtml = `
+        <table class="table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Comercio</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Plataforma</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${activeIntList.slice(0, 5).map(item => `
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle;">${item.comercio}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; vertical-align: middle;">${getPlatformBadge(item.platform)}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; vertical-align: middle;">
+                  <span style="background: rgba(16, 185, 129, 0.1); color: var(--color-success); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; vertical-align: middle;">
+                    <i class="ri-checkbox-circle-fill"></i> Activa
+                  </span>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Top 10 Productos por Volumen
+    let topVolumeHtml = '';
+    if (topVolumeProducts.length === 0) {
+      topVolumeHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;"><i class="ri-information-line" style="margin-right: 0.5rem; font-size: 1.25rem; vertical-align: middle;"></i>No hay datos de inventario.</div>';
+    } else {
+      topVolumeHtml = `
+        <table class="table" style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">SKU</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); vertical-align: middle;">Producto</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: center; vertical-align: middle;">Stock</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Unit.</th>
+              <th style="padding: 0.75rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); text-align: right; vertical-align: middle;">Vol. Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${topVolumeProducts.map(item => `
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); vertical-align: middle;">${item.sku}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-muted); vertical-align: middle; max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${item.name}">${item.name}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; color: var(--color-text-main); vertical-align: middle;">${item.quantity.toLocaleString()}</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: right; color: var(--color-text-muted); vertical-align: middle;">${item.volumenUnitario.toFixed(5)} m³</td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: right; font-weight: 700; color: var(--color-primary); vertical-align: middle;">${item.volumenTotal.toFixed(3)} m³</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // 7. Cargar Noticias Recientes para el Sidebar
+    const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    let newsHtml = '';
+    if (!news || news.length === 0) {
+      newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
+    } else {
+      newsHtml = news.map(n => `
+        <div class="news-post-card news-item-clickable" data-id="${n.id}" style="cursor: pointer; padding: 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
+            <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 500;"><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString()}</span>
+            ${n.subtitle ? `<span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; font-size: 0.7rem; text-transform: uppercase;">${n.subtitle}</span>` : ''}
+          </div>
+          <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
+          <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${n.body}</p>
+          <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--color-primary); font-weight: 600; margin-top: 0.25rem;">
+            Leer noticia completa <i class="ri-arrow-right-line" style="font-size: 0.9rem;"></i>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // 8. Renderizar el HTML completo del dashboard
+    contentDiv.innerHTML = `
+      <div class="dashboard-layout-split">
+        <!-- Columna Izquierda: Área Principal -->
+        <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
+          
+          <!-- Hero Banner -->
+          <div class="dashboard-hero" style="margin-bottom: 0;">
+            <div class="dashboard-hero-content">
+              <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
+              <p>Vista consolidada de control administrativo. Selecciona un comercio del filtro superior si deseas analizar los datos operacionales de una tienda en particular.</p>
+            </div>
+            <div class="dashboard-hero-image"></div>
+          </div>
+
+          <!-- Métricas Principales -->
+          <div>
+            <h3 style="margin-bottom: 1rem; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">Métricas Principales</h3>
+            <div class="stat-grid-modern">
+              <div class="stat-card-modern blue">
+                <div class="icon-wrapper"><i class="ri-box-3-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${totalStock}</div>
+                  <div class="stat-label-modern">Stock Físico Total</div>
+                </div>
+              </div>
+              <div class="stat-card-modern green">
+                <div class="icon-wrapper"><i class="ri-check-double-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${availableStock}</div>
+                  <div class="stat-label-modern">Stock Disponible</div>
+                </div>
+              </div>
+              <div class="stat-card-modern yellow">
+                <div class="icon-wrapper"><i class="ri-time-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${activeOrders}</div>
+                  <div class="stat-label-modern">Pedidos en Proceso</div>
+                </div>
+              </div>
+              <div class="stat-card-modern purple">
+                <div class="icon-wrapper"><i class="ri-truck-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${completedOrders}</div>
+                  <div class="stat-label-modern">Pedidos Completados</div>
+                </div>
+              </div>
+              <div class="stat-card-modern indigo">
+                <div class="icon-wrapper"><i class="ri-ruler-2-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${totalVolume.toFixed(2)} m³</div>
+                  <div class="stat-label-modern">Volumen Ocupado</div>
+                </div>
+              </div>
+              <div class="stat-card-modern red">
+                <div class="icon-wrapper"><i class="ri-error-warning-line"></i></div>
+                <div>
+                  <div class="stat-value-modern">${lowStockCount}</div>
+                  <div class="stat-label-modern">Stock Crítico</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila con Stock Crítico (50%) y Últimos Ingresos (50%) -->
+          <div class="dashboard-tables-split-half">
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-alert-line" style="margin-right: 0.5rem; color: var(--color-danger);"></i> Alertas de Stock Crítico</h3>
+              </div>
+              <div class="card-body table-responsive" style="padding: 0;">
+                ${lowStockHtml}
+              </div>
+            </div>
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-history-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Últimos Ingresos de Stock</h3>
+              </div>
+              <div class="card-body table-responsive" style="padding: 0;">
+                ${recentDeclarationsHtml}
+              </div>
+            </div>
+          </div>
+
+          <!-- Fila con Integraciones (35%) y Top 10 Volumen (65%) -->
+          <div class="dashboard-tables-split">
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-links-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Integraciones</h3>
+              </div>
+              <div class="card-body table-responsive" style="padding: 0;">
+                ${integrationsHtml}
+              </div>
+            </div>
+            <div class="card" style="display: flex; flex-direction: column; margin-bottom: 0;">
+              <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1rem;"><i class="ri-ruler-2-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Top 10 Productos por Volumen (m³)</h3>
+              </div>
+              <div class="card-body table-responsive" style="padding: 0;">
+                ${topVolumeHtml}
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Columna Derecha: Sidebar (Calendario + Noticias) -->
+        <div class="dashboard-sidebar-col" style="display: flex; flex-direction: column; gap: 2rem;">
+          <!-- Calendario de Operaciones -->
+          <div class="card" style="display: flex; flex-direction: column;">
+            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-calendar-event-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Calendario</h3>
+            </div>
+            <div class="card-body" style="padding: 0;">
+              <div id="admin-dashboard-calendar-grid" style="border-bottom: 1px solid var(--color-border); padding: 1rem;">
+                <div style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando calendario...</div>
+              </div>
+              <div id="admin-dashboard-calendar-list"></div>
+            </div>
+          </div>
+
+          <!-- Noticias Recientes -->
+          <div class="card" style="display: flex; flex-direction: column;">
+            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <h3 style="margin: 0; font-size: 1rem;"><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-primary);"></i> Noticias Recientes</h3>
+            </div>
+            <div class="card-body" style="padding: 0; display: flex; flex-direction: column; max-height: 480px; overflow-y: auto;">
+              ${newsHtml}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // 9. Inicializar Calendario
+    if (!window.adminCalendarState) {
+      window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
+    }
+    await window.updateDashboardCalendarView_admin();
+
+    // 10. Escuchar click en noticias para abrir modal
+    const newsCards = contentDiv.querySelectorAll('.news-item-clickable');
+    newsCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const notifId = card.getAttribute('data-id');
+        const clickedItem = news.find(n => n.id === notifId);
+        if (clickedItem) openNewsModal(clickedItem);
+      });
+    });
+
+  } catch (e) {
+    console.error('Error fetching admin dashboard metrics:', e);
+    contentDiv.innerHTML = `<p style="color: red; padding: 2rem;">Error al cargar las métricas operativas: ${e.message}</p>`;
+  }
+}
+
+window.updateDashboardCalendarView_admin = async function() {
+  const startOfMonth = new Date(window.adminCalendarState.currentDate.getFullYear(), window.adminCalendarState.currentDate.getMonth(), 1).toISOString();
+  
+  const { data: events } = await supabase
+    .from('dashboard_events')
+    .select('*')
+    .gte('event_date', startOfMonth)
+    .order('event_date', { ascending: true });
+    
+  window.adminCalendarState.events = events || [];
+  
+  const gridContainer = document.getElementById('admin-dashboard-calendar-grid');
+  const listContainer = document.getElementById('admin-dashboard-calendar-list');
+  
+  if (gridContainer && listContainer && window.renderCalendarUI) {
+    gridContainer.innerHTML = window.renderCalendarUI(window.adminCalendarState.events, window.adminCalendarState.currentDate, window.adminCalendarState.selectedDateStr);
+    listContainer.innerHTML = window.renderEventsListUI(window.adminCalendarState.events, window.adminCalendarState.selectedDateStr);
+    window.setupDashboardCalendarListeners_admin();
+  }
+};
+
+window.setupDashboardCalendarListeners_admin = function() {
+  const prevBtn = document.getElementById('cal-prev-month');
+  if (prevBtn) {
+    prevBtn.addEventListener('click', () => {
+      window.adminCalendarState.currentDate.setMonth(window.adminCalendarState.currentDate.getMonth() - 1);
+      window.adminCalendarState.selectedDateStr = null;
+      window.updateDashboardCalendarView_admin();
+    });
+  }
+  
+  const nextBtn = document.getElementById('cal-next-month');
+  if (nextBtn) {
+    nextBtn.addEventListener('click', () => {
+      window.adminCalendarState.currentDate.setMonth(window.adminCalendarState.currentDate.getMonth() + 1);
+      window.adminCalendarState.selectedDateStr = null;
+      window.updateDashboardCalendarView_admin();
+    });
+  }
+
+  document.querySelectorAll('.cal-day-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const dateStr = cell.getAttribute('data-date');
+      if (window.adminCalendarState.selectedDateStr === dateStr) {
+        window.adminCalendarState.selectedDateStr = null;
+      } else {
+        window.adminCalendarState.selectedDateStr = dateStr;
+      }
+      
+      const gridContainer = document.getElementById('admin-dashboard-calendar-grid');
+      const listContainer = document.getElementById('admin-dashboard-calendar-list');
+      if (gridContainer && listContainer && window.renderCalendarUI) {
+        gridContainer.innerHTML = window.renderCalendarUI(window.adminCalendarState.events, window.adminCalendarState.currentDate, window.adminCalendarState.selectedDateStr);
+        listContainer.innerHTML = window.renderEventsListUI(window.adminCalendarState.events, window.adminCalendarState.selectedDateStr);
+        window.setupDashboardCalendarListeners_admin();
+      }
+    });
+  });
+};
+
+function openNewsModal(newsItem) {
+  let overlay = document.getElementById('news-detail-modal-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'news-detail-modal-overlay';
+    overlay.className = 'modal-overlay';
+    document.body.appendChild(overlay);
+  }
+  
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 90%;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border);">
+        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">${newsItem.title}</h3>
+        <button class="modal-close" id="close-news-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.25rem;"><i class="ri-close-line"></i></button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+        ${newsItem.subtitle ? `<h4 style="margin: 0 0 1rem 0; font-weight: 600; color: var(--color-primary); font-size: 1rem;">${newsItem.subtitle}</h4>` : ''}
+        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;">
+          <i class="ri-calendar-line" style="margin-right: 0.25rem;"></i>${new Date(newsItem.created_at).toLocaleString()}
+        </span>
+        <div style="font-size: 0.9rem; color: var(--color-text-main); line-height: 1.6; white-space: pre-wrap;">${newsItem.body}</div>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end;">
+        <button class="btn btn-outline" id="close-news-modal-footer-btn" style="padding: 0.5rem 1rem;">Cerrar</button>
+      </div>
+    </div>
+  `;
+  
+  overlay.classList.add('active');
+  
+  const close = () => {
+    overlay.classList.remove('active');
+  };
+  
+  document.getElementById('close-news-modal-btn').addEventListener('click', close);
+  document.getElementById('close-news-modal-footer-btn').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) close();
+  });
+}
+
+async function renderNotificationsAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = `
     <div style="margin-bottom: 2rem;">
-      <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Gestión de Dashboard</h2>
-      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra las noticias, eventos y envía notificaciones a los usuarios.</p>
+      <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Notificaciones y Comunicaciones</h2>
+      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra las noticias, eventos del calendario y envía notificaciones a los usuarios.</p>
     </div>
 
     <div class="dashboard-grid">
@@ -22533,6 +23310,16 @@ function showOnboardingObservationsModal(req) {
 }
 
 async function renderCampaignsTab(commerce) {
+  // Bind "Nueva Campaña" button click listener first so it always works
+  const btnNewCampaign = document.getElementById('btn-new-campaign');
+  if (btnNewCampaign) {
+    const newBtn = btnNewCampaign.cloneNode(true);
+    btnNewCampaign.parentNode.replaceChild(newBtn, btnNewCampaign);
+    newBtn.addEventListener('click', () => {
+      openCampaignModal(commerce);
+    });
+  }
+
   const tbody = document.getElementById('catalog-campaigns-tbody');
   if (!tbody) return;
 
@@ -22674,17 +23461,6 @@ async function renderCampaignsTab(commerce) {
       });
     }
 
-    // Bind "Nueva Campaña" button click listener
-    const btnNewCampaign = document.getElementById('btn-new-campaign');
-    if (btnNewCampaign) {
-      // Remove old listeners to avoid multiple binding
-      const newBtn = btnNewCampaign.cloneNode(true);
-      btnNewCampaign.parentNode.replaceChild(newBtn, btnNewCampaign);
-      newBtn.addEventListener('click', () => {
-        openCampaignModal(commerce);
-      });
-    }
-
   } catch (err) {
     console.error("Error loading campaigns:", err);
     tbody.innerHTML = `
@@ -22724,7 +23500,7 @@ function openCampaignModal(commerce, campaign = null) {
   const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
 
   const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
+  modal.className = 'modal-overlay active';
   modal.id = 'modal-campaign';
   modal.style.zIndex = '1500';
   modal.innerHTML = `

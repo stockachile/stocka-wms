@@ -37,7 +37,7 @@ serve(async (req) => {
     }
 
     // Parsear cuerpo de la petición
-    const { orderId, mode, limit } = await req.json()
+    const { orderId, mode, limit, orderIds } = await req.json()
 
     // Validar perfil del usuario
     const { data: profile, error: profErr } = await supabaseClient
@@ -79,7 +79,8 @@ serve(async (req) => {
         inputs: {
           mode: mode || 'individual',
           orderId: orderId || '',
-          limit: String(limit || '10')
+          limit: String(limit || '10'),
+          orderIds: orderIds || ''
         }
       })
     })

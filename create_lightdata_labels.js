@@ -404,15 +404,23 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  // Obtener pedidos en estado 'En preparación' que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' y no tengan tracking ni etiqueta
-  const { data: pendingOrders, error: fetchError } = await supabase
-    .from('orders')
-    .select('*')
-    .or('courier.eq.LIGHTDATA,courier.eq.PENDIENTE_LIGHTDATA,operador.eq.ALPHA')
-    .is('tracking_number', null)
-    .is('label_base64', null)
-    .eq('estado_wms', 'En preparación')
-    .limit(limiteCarga);
+  let query = supabase.from('orders').select('*');
+
+  if (args.orderIds && args.orderIds.trim() !== '') {
+    const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
+    console.log(`🔍 Filtrando búsqueda por ${idsList.length} IDs específicos seleccionados en el WMS...`);
+    query = query.in('id', idsList);
+  } else {
+    // Obtener pedidos en estado 'En preparación' que tengan courier 'LIGHTDATA' o 'PENDIENTE_LIGHTDATA' y no tengan tracking ni etiqueta
+    query = query
+      .or('courier.eq.LIGHTDATA,courier.eq.PENDIENTE_LIGHTDATA,operador.eq.ALPHA')
+      .is('tracking_number', null)
+      .is('label_base64', null)
+      .eq('estado_wms', 'En preparación')
+      .limit(limiteCarga);
+  }
+
+  const { data: pendingOrders, error: fetchError } = await query;
 
   if (fetchError) {
     console.error('❌ Error al recuperar pedidos pendientes:', fetchError.message);

@@ -20,6 +20,10 @@ on:
         required: false
         default: '10'
         type: string
+      orderIds:
+        description: 'Lista de IDs de ordenes separados por comas (Solo modo bulk específico)'
+        required: false
+        type: string
 
   repository_dispatch:
     types: [create_label]
@@ -53,15 +57,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           HEADLESS: 'true'
         run: |
-          # Determinar origen de los inputs (manual vs webhook)
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             MODE="${{ github.event.client_payload.mode }}"
             ORDER_ID="${{ github.event.client_payload.orderId }}"
             LIMIT="${{ github.event.client_payload.limit }}"
+            ORDER_IDS="${{ github.event.client_payload.orderIds }}"
           else
             MODE="${{ github.event.inputs.mode }}"
             ORDER_ID="${{ github.event.inputs.orderId }}"
             LIMIT="${{ github.event.inputs.limit }}"
+            ORDER_IDS="${{ github.event.inputs.orderIds }}"
           fi
 
           echo "Ejecutando en modo: $MODE"
@@ -70,7 +75,7 @@ jobs:
             node create_lightdata_labels.js --mode=individual --orderId="$ORDER_ID"
           elif [ "$MODE" = "bulk" ]; then
             LIMIT_VAL=${LIMIT:-10}
-            node create_lightdata_labels.js --mode=bulk --limit="$LIMIT_VAL"
+            node create_lightdata_labels.js --mode=bulk --limit="$LIMIT_VAL" --orderIds="$ORDER_IDS"
           else
             echo "❌ Modo no válido especificado."
             exit 1
