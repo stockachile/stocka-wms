@@ -462,9 +462,9 @@
 
   <!-- Modal Gestionar Declaración (Admin) -->
   <div class="modal-overlay" id="modal-manage-declaration">
-    <div class="modal-content" style="max-width: 600px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+    <div class="modal-content" style="max-width: 800px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
       <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
-        <h3 style="margin: 0;">Gestionar Recepción de Stock</h3>
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-settings-4-line" style="color: var(--color-primary);"></i> Gestionar Recepción de Stock</h3>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-manage-declaration').classList.remove('active')">&times;</button>
       </div>
       <form id="form-manage-declaration" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
@@ -472,23 +472,118 @@
         <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem;">
           <div id="modal-dec-alert-container"></div>
           
-          <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.9rem; line-height: 1.6;">
-            <div><strong>Comercio:</strong> <span id="manage-dec-merchant"></span></div>
-            <div><strong>Título/Descripción:</strong> <span id="manage-dec-title"></span></div>
-            <div><strong>Fecha Estimada:</strong> <span id="manage-dec-date"></span></div>
-            <div><strong>Cantidad Declarada:</strong> <span id="manage-dec-qty-declared"></span> uds</div>
-            <div><strong>Volumen Declarado:</strong> <span id="manage-dec-volume-declared"></span> m³</div>
-            <div><strong>Bultos Totales:</strong> <span id="manage-dec-packages"></span> (<span id="manage-dec-package-type"></span>)</div>
-            <div id="manage-dec-breakdown-section" style="font-size: 0.85rem; color: var(--color-text-muted); margin-left: 1rem; margin-top: -0.2rem; margin-bottom: 0.2rem;">
-              • Contenedores: <strong id="manage-dec-container-count">0</strong> | Pallets: <strong id="manage-dec-pallet-count">0</strong> | Cajas: <strong id="manage-dec-box-count">0</strong>
+          <!-- Grid Informativo del Ingreso -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+            <!-- Column 1: Logística y Origen -->
+            <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-truck-line" style="color: var(--color-primary);"></i> Detalles de Envío
+              </h4>
+              
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Comercio</span>
+                <div id="manage-dec-merchant" style="color: var(--color-text-main); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"></div>
+              </div>
+
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Título / Descripción</span>
+                <div id="manage-dec-title" style="color: var(--color-text-main); font-weight: 500;"></div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Fecha Estimada (ETA)</span>
+                  <div style="color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                    <i class="ri-calendar-event-line" style="color: var(--color-primary);"></i>
+                    <span id="manage-dec-date"></span>
+                  </div>
+                </div>
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Método de Ingreso</span>
+                  <span id="manage-dec-method" class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); font-weight: 500; font-size: 0.75rem; padding: 2px 6px; display: inline-block;"></span>
+                </div>
+              </div>
+
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Bodega Asignada</span>
+                <div id="manage-dec-warehouse-name" style="color: var(--color-text-main); font-weight: 500;"></div>
+              </div>
+
+              <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                <div id="manage-dec-contact-section">
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Contacto Comercio</span>
+                  <div id="manage-dec-contact" style="color: var(--color-text-main); font-size: 0.8rem; word-break: break-all;"></div>
+                </div>
+                <div id="manage-dec-carrier-section">
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Transportista</span>
+                  <div id="manage-dec-carrier" style="color: var(--color-text-main); font-size: 0.8rem;"></div>
+                </div>
+              </div>
             </div>
-            <div><strong>Servicio Descarga Bodega:</strong> <span id="manage-dec-unloading"></span></div>
-            <div><strong>Costo Estimado Ingreso (UF):</strong> <span id="manage-dec-estimated-cost" style="color: var(--color-success); font-weight: bold;"></span></div>
-            <div><strong>Método de Ingreso:</strong> <span id="manage-dec-method"></span></div>
-            <div><strong>Bodega Asignada:</strong> <span id="manage-dec-warehouse-name">No asignada</span></div>
-            <div id="manage-dec-contact-section"><strong>Contacto Comercio:</strong> <span id="manage-dec-contact"></span></div>
-            <div id="manage-dec-carrier-section"><strong>Transportista:</strong> <span id="manage-dec-carrier"></span></div>
-            <div><strong>Notas Cliente:</strong> <span id="manage-dec-notes" style="font-style: italic; color: var(--color-text-muted);"></span></div>
+
+            <!-- Column 2: Carga y Finanzas -->
+            <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.85rem;">
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-checkbox-multiple-line" style="color: var(--color-primary);"></i> Carga y Costos
+              </h4>
+
+              <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 0.75rem;">
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Cantidad Declarada</span>
+                  <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-primary);">
+                    <span id="manage-dec-qty-declared"></span> <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">uds</span>
+                  </div>
+                </div>
+                <div>
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Volumen Declarado</span>
+                  <div style="font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">
+                    <span id="manage-dec-volume-declared"></span> <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">m³</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Bultos Totales</span>
+                <div style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 4px;">
+                  <span id="manage-dec-packages"></span> <span style="font-size: 0.8rem; font-weight: 500; color: var(--color-text-muted);">tipo</span> (<span id="manage-dec-package-type"></span>)
+                </div>
+                
+                <!-- Desglose de bultos in line cards -->
+                <div id="manage-dec-breakdown-section" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.35rem; margin-top: 0.4rem; text-align: center;">
+                  <div style="background: var(--color-surface); padding: 4px; border: 1px solid var(--color-border); border-radius: 4px;">
+                    <div style="font-size: 0.65rem; color: var(--color-text-muted);">Contenedor</div>
+                    <strong id="manage-dec-container-count" style="font-size: 0.8rem;">0</strong>
+                  </div>
+                  <div style="background: var(--color-surface); padding: 4px; border: 1px solid var(--color-border); border-radius: 4px;">
+                    <div style="font-size: 0.65rem; color: var(--color-text-muted);">Pallets</div>
+                    <strong id="manage-dec-pallet-count" style="font-size: 0.8rem;">0</strong>
+                  </div>
+                  <div style="background: var(--color-surface); padding: 4px; border: 1px solid var(--color-border); border-radius: 4px;">
+                    <div style="font-size: 0.65rem; color: var(--color-text-muted);">Cajas</div>
+                    <strong id="manage-dec-box-count" style="font-size: 0.8rem;">0</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px;">Servicio Descarga Bodega</span>
+                <div id="manage-dec-unloading" style="font-size: 0.85rem; color: var(--color-text-main); font-weight: 500;"></div>
+              </div>
+
+              <div style="background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
+                <span style="font-weight: 600; font-size: 0.8rem; color: var(--color-text-main);">Costo Estimado</span>
+                <span id="manage-dec-estimated-cost" style="font-size: 1.05rem; font-weight: 800; color: var(--color-success);"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row for Notes -->
+          <div style="background-color: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.85rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+            <i class="ri-chat-quote-line" style="color: var(--color-primary); font-size: 1.15rem; margin-top: 2px;"></i>
+            <div style="flex: 1;">
+              <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;">Notas Cliente</span>
+              <div id="manage-dec-notes" style="font-style: italic; color: var(--color-text-main); line-height: 1.45;"></div>
+            </div>
           </div>
 
           <!-- Campo oculto de Estado -->
@@ -496,38 +591,39 @@
           
           <!-- Selector Dinámico de Estado -->
           <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.75rem; display: block;">Avance del Proceso de Recepción *</label>
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-git-commit-line" style="color: var(--color-primary);"></i> Avance del Proceso de Recepción *</label>
             <div id="manage-dec-actions-buttons" style="display: flex; gap: 0.75rem; flex-direction: column;">
               <!-- Botones dinámicos generados por JS -->
             </div>
           </div>
 
-          <div class="form-group" id="manage-dec-group-received">
-            <label class="form-label">Cantidad Total Recepcionada (Física)</label>
-            <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required>
-          </div>
+          <!-- Panel de Ajustes / Ingreso de Conteo -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+            <div class="form-group" id="manage-dec-group-received" style="margin-bottom: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Cant. Recepcionada (Física) *</label>
+              <input type="number" id="manage-dec-qty-received" class="form-input" min="0" required style="width: 100%;">
+            </div>
 
-          <div class="form-group" id="manage-dec-group-volume-confirmed" style="display: none;">
-            <label class="form-label">Volumen Confirmado Recepcionado (m³) *</label>
-            <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0.01" step="0.01">
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Indica el volumen verificado físicamente en la bodega en m³.</p>
-          </div>
+            <div class="form-group" id="manage-dec-group-volume-confirmed" style="display: none; margin-bottom: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Volumen Confirmado (m³) *</label>
+              <input type="number" id="manage-dec-volume-confirmed" class="form-input" min="0.01" step="0.01" style="width: 100%;">
+            </div>
 
-          <div class="form-group" id="manage-dec-group-real-cost">
-            <label class="form-label">Costo Real Confirmado (UF) *</label>
-            <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.01" required>
-            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">Confirma el costo real definitivo de este ingreso. (Sugerido: costo estimado).</p>
-          </div>
+            <div class="form-group" id="manage-dec-group-real-cost" style="margin-bottom: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Costo Real Confirmado (UF) *</label>
+              <input type="number" id="manage-dec-real-cost" class="form-input" min="0" step="0.0001" required style="width: 100%;">
+            </div>
 
-          <div class="form-group" id="manage-dec-group-incidents">
-            <label class="form-label">Cantidad de Incidencias (Unidades dañadas/faltantes)</label>
-            <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required>
+            <div class="form-group" id="manage-dec-group-incidents" style="margin-bottom: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Cant. Incidencias *</label>
+              <input type="number" id="manage-dec-qty-incidents" class="form-input" min="0" required style="width: 100%;">
+            </div>
           </div>
 
           <!-- Panel de Incidencias Detalladas -->
           <div id="manage-dec-incidents-panel" style="display: none; background: rgba(239, 68, 68, 0.05); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: var(--radius-md); padding: 1rem; margin-top: 1rem; margin-bottom: 1rem;">
             <label class="form-label" style="color: var(--color-danger); font-weight: 600; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <span>Enumerar Incidencias Detalladas</span>
+              <span style="display: flex; align-items: center; gap: 0.35rem;"><i class="ri-error-warning-line"></i> Enumerar Incidencias Detalladas</span>
               <button type="button" id="btn-add-incident-item" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: rgba(239, 68, 68, 0.3); color: var(--color-danger); height: auto; margin: 0; line-height: 1;">+ Agregar</button>
             </label>
             <div id="manage-dec-incidents-list-container" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.25rem;">
@@ -538,19 +634,19 @@
 
           <!-- Asignación de Bodega -->
           <div class="form-group" id="manage-dec-group-warehouse" style="display: none;">
-            <label class="form-label">Asignar Bodega *</label>
+            <label class="form-label" style="font-weight: 600;">Asignar Bodega *</label>
             <select id="manage-dec-warehouse-select" class="form-input">
               <option value="">-- Selecciona una Bodega --</option>
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Comentario de la Etapa / Notas de Avance *</label>
+          <div class="form-group" style="margin-top: 1.25rem;">
+            <label class="form-label" style="font-weight: 600;">Comentario de la Etapa / Notas de Avance *</label>
             <textarea id="manage-dec-stage-comment" class="form-input" rows="2" placeholder="Describe qué ocurrió o se realizó en esta etapa... (Ej: Carga recibida en andén, se inicia conteo)" required></textarea>
           </div>
 
           <div class="form-group">
-            <label class="form-label">Comentarios / Notas Finales de Recepción</label>
+            <label class="form-label" style="font-weight: 600;">Comentarios / Notas Finales de Recepción</label>
             <textarea id="manage-dec-admin-notes" class="form-input" rows="2" placeholder="Ej. Se reciben conformes, sin diferencias o se detectaron cajas rotas..."></textarea>
           </div>
         </div>
