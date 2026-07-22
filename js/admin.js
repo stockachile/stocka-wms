@@ -923,6 +923,7 @@ initChatWidget();
 window.initSidebarAccordions();
 
 const ALL_STATUSES = [
+  'creado',
   'para procesar', 
   'en preparación', 
   'preparado', 
@@ -947,6 +948,49 @@ async function updateOrderStatus(orderId, newStatus) {
     renderAdminOrders();
   } catch (err) {
     console.error(err);
+    if (err.message && err.message.includes('inventory_quantity_check')) {
+      try {
+        const { data: order } = await supabase
+          .from('orders')
+          .select('*')
+          .eq('id', orderId)
+          .single();
+
+        if (order) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('comercio', order.comercio)
+            .maybeSingle();
+
+          const userId = profile?.id || order.merchant_id;
+
+          await supabase
+            .from('incidencias')
+            .insert({
+              user_id: userId,
+              comercio: order.comercio,
+              title: `Falta de stock crítico - Pedido ${order.external_order_number}`,
+              description: `El pedido ${order.external_order_number} no se pudo despachar por falta de stock en la bodega de uno o más productos.`,
+              type: 'stock',
+              severity: 'critico',
+              status: 'pendiente',
+              solution: ''
+            });
+
+          await supabase
+            .from('orders')
+            .update({ estado_wms: 'En procesamiento' })
+            .eq('id', orderId);
+
+          alert(`Alerta Crítica: No hay suficiente stock para despachar el pedido ${order.external_order_number}. El pedido permanecerá en procesamiento y se ha generado una incidencia crítica.`);
+          if (typeof renderAdminOrders === 'function') renderAdminOrders();
+          return;
+        }
+      } catch (innerErr) {
+        console.error('Error al registrar incidencia de stock insuficiente:', innerErr);
+      }
+    }
     alert('Error al actualizar estado: ' + err.message);
   }
 }
@@ -2348,7 +2392,7 @@ function renderWmsBulkActionsBar() {
             <i class="ri-truck-line"></i> Asignar Operador
           </button>
           <button onclick="window.bulkCreateLightDataLabels(this)" class="btn" style="background: #e91e63; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-barcode-box-line"></i> Crear Etiquetas LightData
+            <i class="ri-barcode-box-line"></i> Etiqueta Alpha
           </button>
           <button onclick="window.bulkSetWmsOrderBillingPeriod()" class="btn" style="background: #9c27b0; color: white; border: none; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
             <i class="ri-price-tag-3-line"></i> Asignar Facturación
@@ -3649,9 +3693,38 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
 
   tbody.innerHTML = unmappedProducts.map(sp => {
     const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
+    
+    let statusBadge = '';
+    if (sp.status) {
+      const s = sp.status.toLowerCase().trim();
+      let bgColor = 'rgba(107, 114, 128, 0.1)';
+      let textColor = '#6b7280';
+      let borderClr = 'rgba(107, 114, 128, 0.2)';
+      let label = sp.status;
+
+      if (s === 'active' || s === 'publish') {
+        bgColor = 'rgba(16, 185, 129, 0.1)';
+        textColor = '#10b981';
+        borderClr = 'rgba(16, 185, 129, 0.2)';
+        label = 'Activo';
+      } else if (s === 'draft' || s === 'borrador') {
+        bgColor = 'rgba(245, 158, 11, 0.1)';
+        textColor = '#f59e0b';
+        borderClr = 'rgba(245, 158, 11, 0.2)';
+        label = 'Borrador';
+      } else if (s === 'archived' || s === 'archivado' || s === 'inactive') {
+        bgColor = 'rgba(239, 68, 68, 0.1)';
+        textColor = '#ef4444';
+        borderClr = 'rgba(239, 68, 68, 0.2)';
+        label = 'Archivado';
+      }
+
+      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${label}</span>`;
+    }
+
     return `
       <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
           <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
         </td>
