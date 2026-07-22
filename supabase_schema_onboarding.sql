@@ -124,10 +124,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION public.check_email_exists TO anon, authenticated;
 
 -- 3. Políticas de Storage sobre el bucket 'service_docs'
--- Permite que los usuarios autenticados (incluso con rol inicial 'observer') puedan subir archivos en la carpeta onboarding/
+-- Permite que cualquiera (incluyendo usuarios anónimos durante el proceso de registro) pueda subir archivos en la carpeta onboarding/
 DROP POLICY IF EXISTS "Permitir subir onboarding a autenticados" ON storage.objects;
-CREATE POLICY "Permitir subir onboarding a autenticados" ON storage.objects
-    FOR INSERT TO authenticated
+DROP POLICY IF EXISTS "Permitir subir onboarding a cualquiera" ON storage.objects;
+CREATE POLICY "Permitir subir onboarding a cualquiera" ON storage.objects
+    FOR INSERT TO public
     WITH CHECK (
         bucket_id = 'service_docs' AND
         (storage.foldername(name))[1] = 'onboarding'

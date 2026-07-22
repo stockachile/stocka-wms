@@ -23772,18 +23772,25 @@ function showOnboardingApproveConfigModal(req) {
       const { data: existingCom, error: checkErr } = await supabase
         .from('v_comercios_config')
         .select('*')
-        .or(`comercio.eq.${commerceName},sigla.eq.${commerceSigla}`);
+        .or(`nombre.eq.${commerceName},sigla.eq.${commerceSigla}`);
 
       if (checkErr) throw checkErr;
       if (existingCom && existingCom.length > 0) {
         throw new Error('El nombre de comercio o la sigla ya están registrados.');
       }
 
+      // Generar UUID para id del comercio
+      const newComerId = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+
       // 2. Crear comercio en v_comercios_config
       const { error: insertComErr } = await supabase
         .from('v_comercios_config')
         .insert([{
-          comercio: commerceName,
+          id: newComerId,
+          nombre: commerceName,
           sigla: commerceSigla
         }]);
 
@@ -23794,7 +23801,7 @@ function showOnboardingApproveConfigModal(req) {
         .from('commerce_billing_status')
         .insert([{
           comercio: commerceName,
-          status: 'Activo'
+          al_dia: true
         }]);
 
       // 4. Inicializar configuraciones adicionales

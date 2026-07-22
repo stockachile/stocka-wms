@@ -506,3 +506,18 @@ Para garantizar que los pedidos de Shopify (como `HIT1017`) ingresen y se actual
    - En la función Edge de Supabase [sync-integrations/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/sync-integrations/index.ts), agregamos el mapeo para la plataforma `'Shopify'` asociándola a su respectivo archivo de workflow.
    - En [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), incluimos `'Shopify'` en el listado de plataformas soportadas para sincronización manual (`supportManualSync`).
    - Esto habilita el botón de **"Sincronizar"** en el panel de integraciones del administrador para las tiendas Shopify, permitiendo forzar la actualización inmediata en caliente desde la interfaz web.
+
+---
+
+## 27. Corrección de RLS (Row-Level Security) en Carga de Contratos (Storage)
+
+Hemos corregido el error `new row violates row-level security policy` que se producía cuando un usuario intentaba registrarse y subir su contrato firmado en el paso 4 del Onboarding:
+
+1. **Origen del Problema**:
+   - Al registrarse (`signUp`), el proceso de autenticación de Supabase requiere por defecto la confirmación del correo electrónico. Esto significa que a nivel de cliente el usuario **aún no tiene una sesión autenticada activa** (su sesión es anónima) al momento en que el código intenta subir el contrato PDF a Supabase Storage.
+   - La política RLS anterior del bucket `service_docs` exigía que el rol del remitente fuera obligatoriamente `authenticated` para realizar subidas (`FOR INSERT TO authenticated`). Al no existir una sesión confirmada, el motor de Supabase bloqueaba la subida del archivo por seguridad RLS.
+
+2. **Solución Aplicada**:
+   - Modificamos la política RLS del bucket `service_docs` en [`supabase_schema_onboarding.sql`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_onboarding.sql) cambiándola a `FOR INSERT TO public`.
+   - Esto permite que tanto usuarios autenticados como usuarios anónimos (durante su proceso de registro) puedan subir archivos, con la restricción de seguridad obligatoria de que la subida esté acotada únicamente a la carpeta segura `onboarding/` (`WITH CHECK (bucket_id = 'service_docs' AND (storage.foldername(name))[1] = 'onboarding')`).
+   - Dado que los usuarios anónimos no tienen permisos de lectura (`SELECT`) sobre esta carpeta, no pueden listar ni descargar contratos ajenos, garantizando la confidencialidad de la información y solucionando el bloqueo en el flujo de registro.
