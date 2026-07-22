@@ -350,7 +350,8 @@ async function syncProducts(integration) {
           platform: 'Shopify',
           sku: cleanSku,
           name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`,
-          image_url: varImageUrl
+          image_url: varImageUrl,
+          status: product.status
         });
       }
     }

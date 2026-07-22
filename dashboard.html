@@ -433,11 +433,17 @@
 
             <!-- Selector de Producto a agregar -->
             <div style="display: flex; gap: 0.5rem; align-items: flex-end; flex-wrap: wrap;">
-              <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px;">
+              <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px; position: relative;">
                 <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Seleccionar Producto</label>
-                <select id="order-product" class="form-input" style="font-size: 0.85rem; height: auto; padding: 0.45rem;">
-                  <option value="">Cargando productos...</option>
-                </select>
+                <div style="position: relative; width: 100%;">
+                  <input type="text" id="order-product-search" class="form-input" placeholder="🔍 Escribe SKU o nombre para buscar..." style="font-size: 0.85rem; padding: 0.45rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%; box-sizing: border-box; background-color: var(--color-surface);" autocomplete="off">
+                  <input type="hidden" id="order-product" value="">
+                  <div id="order-product-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;">
+                    <div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+                      Cargando productos...
+                    </div>
+                  </div>
+                </div>
               </div>
               <div class="form-group" style="margin: 0; width: 90px;">
                 <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Cantidad</label>

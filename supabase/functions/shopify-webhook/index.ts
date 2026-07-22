@@ -430,7 +430,8 @@ async function handleProductSave(merchantId, comercio, product) {
       platform: "Shopify",
       sku: variant.sku || variant.id.toString(),
       name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
-      image_url: varImageUrl
+      image_url: varImageUrl,
+      status: product.status
     };
 
     const { error } = await supabase

@@ -316,6 +316,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
+        comercio: integration.comercio,
         external_order_number: finalOrderNumber,
         external_platform: 'WooCommerce',
         payment_status: order.date_paid ? 'PAID' : 'PENDING',
@@ -326,6 +327,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         shipping_address: order.shipping?.address_1 || order.billing?.address_1 || 'No especificada',
         shipping_city: order.shipping?.city || order.billing?.city || 'No especificada',
         shipping_complement: [order.shipping?.address_2, order.shipping?.state, order.shipping?.postcode].filter(Boolean).join(', ') || '',
+        shipping_method: order.shipping_lines?.[0]?.method_title || 'Por definir',
         raw_woocommerce_data: order,
         origen: 'WooCommerce',
         item: flatItemName,

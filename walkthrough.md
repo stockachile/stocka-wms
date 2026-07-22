@@ -412,3 +412,82 @@ Para brindar una experiencia de registro (onboarding) de primer nivel, hemos red
      * `slide2.jpg` -> Conexión con Canales de Venta (Shopify, Mercado Libre, etc.).
      * `slide3.jpg` -> Monitoreo de Stock e Inventario.
      * `slide4.jpg` -> Same Day y Cobertura Multicourier.
+
+---
+
+## 21. Asignación de Comercio en Sincronización WooCommerce
+
+Hemos solucionado el problema que provocaba que las órdenes importadas automáticamente desde tiendas **WooCommerce** se mostraran como pertenecientes a un comercio **"Desconocido"** en el panel de control de pedidos:
+
+1. **Corrección de la Estructura de Datos de Sincronización:**
+   - En el archivo de tareas programadas [sync_woocommerce.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_woocommerce.js), se detectó que al estructurar el objeto de datos a guardar (`orderDataToSave`) no se estaba incluyendo la propiedad `comercio` de la integración. Esto causaba que la columna `comercio` en la tabla `orders` se guardara vacía (`null`).
+   - Añadimos la línea `comercio: integration.comercio,` para garantizar que toda orden entrante de WooCommerce quede correctamente asociada al comercio correspondiente (ej: `'SIMPLEMENTE CAFE'`).
+
+2. **Reparación y Corrección de Registros Existentes:**
+   - Ejecutamos un script de base de datos a medida para buscar y corregir retroactivamente todos los pedidos de WooCommerce huérfanos. Las órdenes existentes asociadas al comercio de Eduardo Guaita (Simplemente Café) fueron actualizadas y asignadas correctamente a `'SIMPLEMENTE CAFE'`, normalizando por completo la visualización en las pantallas del WMS.
+
+---
+
+## 22. Visualización e Indicador de Stock Insuficiente en Pedidos (Admin y Cliente)
+
+Hemos implementado un sistema visual de alertas en tiempo real para notificar tanto a los administradores del WMS como a los clientes cuando un pedido no tiene stock físico disponible suficiente en la bodega asignada:
+
+1. **Restricción por Configuración de Comercio (`inventario_seguimiento`)**:
+   - Para evitar ruido visual innecesario, estas alertas **solo se muestran para los comercios que tienen activa la opción de seguimiento de inventario** (`inventario_seguimiento: true` en la tabla `comercios_adicional_config`).
+
+2. **Visibilidad en el Panel del Administrador (`js/admin.js`) y del Cliente (`js/app.js`)**:
+   - **Badge en Ficha de Pedido (SIN STOCK)**: Si se detecta stock insuficiente, se renderiza un badge rojo **`SIN STOCK`** junto al número del pedido. Al pasar el cursor por encima (hover), un tooltip indica detalladamente qué SKUs están en falta y cuántas unidades se necesitan.
+   - **Columna de Stock en el Desglose de Ítems**: Se incorporó una columna de **Stock** en la tabla detallada de ítems dentro del desplegable de cada pedido:
+     * **Disponible**: Badge verde con el stock físico disponible en bodega.
+     * **Insuficiente**: Badge rojo detallando las unidades disponibles vs. necesarias, y sombreado rojo en toda la fila para alertar al usuario.
+     * **Virtual**: Los productos marcados como virtuales se eximen de la validación física y muestran un badge gris `Virtual`.
+
+3. **Carga Optimizada en Lotes**:
+   - Ambas vistas consultan la disponibilidad física de los productos en lotes agrupados (queries `IN` de Supabase) para evitar realizar peticiones individuales por fila, garantizando máxima velocidad y rendimiento en la carga del dashboard.
+
+4. **Reglas de Exclusión Dinámica en Frontend (`shouldProcessOrderStockLocal`)**:
+   - Se implementó la lógica en `js/admin.js` y `js/app.js` para ocultar proactivamente la alerta de **SIN STOCK** y el sombreado de filas insuficientes en:
+     - Pedidos que se encuentren en estados terminales (`despachado`, `cancelado`, `entregado`, `retirado`).
+     - Pedidos que sean anteriores al número de pedido inicial configurado para descontar stock (respetando la opción de incluir/excluir dicho pedido inicial configurada en el panel del administrador). Esto asegura consistencia total entre las alertas del frontend y el flujo del inventario.
+
+---
+
+## 23. Mapeo de Métodos de Envío desde WooCommerce
+
+Hemos corregido la sincronización para extraer y mostrar de forma correcta el **Método de Envío** configurado por los clientes finales al comprar en tiendas WooCommerce (anteriormente figuraba como `"Por definir"`):
+
+1. **Extracción Automática en la Sincronización:**
+   - En el archivo [sync_woocommerce.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_woocommerce.js), agregamos el campo `shipping_method` en el mapeo de órdenes (`orderDataToSave`).
+   - Extraemos de manera dinámica el título legible de la primera línea de despacho de la orden utilizando: `order.shipping_lines?.[0]?.method_title || 'Por definir'`.
+
+2. **Soporte Retroactivo en la Base de Datos:**
+   - Escribimos y ejecutamos un script corrector (`scratch/fix_null_woocommerce_shipping.js`) para parsear las órdenes ya sincronizadas de WooCommerce.
+   - Esto corrigió de manera inmediata el método de envío de los pedidos en el WMS: por ejemplo, actualizando `SIM3478` a `"Retiro Gratis (Av. Campos de Deportes 405. Ñuñoa)"` y `SIM3479` a `"Envío gratis"`.
+
+---
+
+## 24. Visualización de Ciudad/Comuna en Columna de Envío (Admin)
+
+Para agilizar la revisión logística de despachos desde el panel de control de pedidos, hemos incorporado la visualización de la ciudad o comuna de destino directamente en la tabla principal del Administrador:
+
+1. **Rediseño de la Celda "Envío":**
+   - En [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), modificamos la renderización de la columna **Envío** para cambiar de una sola línea de texto a un contenedor flexible de dos líneas (`flex-direction: column`).
+   - La primera línea sigue mostrando en negrita y tamaño destacado el **Método de Envío** de origen (ej: *Envío gratis* o *Retiro Gratis...*).
+   - La segunda línea ahora muestra en tamaño más pequeño y color atenuado (`var(--color-text-muted)`) la **Ciudad/Comuna** registrada para el despacho (`order.shipping_city`), permitiendo a los operadores identificar el destino geográfico de un vistazo sin necesidad de abrir el detalle del pedido.
+
+---
+
+## 25. Autocompletado y Buscador Integrado de Productos en Pedidos Manuales
+
+Hemos unificado la caja de búsqueda y el listado de resultados en un único componente de autocompletado nativo y fluido, evitando que el usuario tenga que interactuar con dos campos distintos (un input de búsqueda y un select):
+
+1. **Diseño de Entrada Unificada (Single-Input Autocomplete):**
+   - En [dashboard.html](file:///c:/Users/felip/Desktop/WMS%20STOCKA/dashboard.html), eliminamos el selector `<select>` apilado.
+   - En su lugar, colocamos un campo de texto principal `#order-product-search` junto con un elemento flotante absoluto `#order-product-dropdown-list` para renderizar el menú desplegable de sugerencias y un input oculto `#order-product` para almacenar el UUID del producto seleccionado de forma transparente.
+
+2. **Interacciones y Comportamiento Premium:**
+   - En [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js), registramos delegación de eventos para sincronizar el ciclo de vida del dropdown:
+     * **Mostrar al enfocar/escribir:** Al dar clic o foco en el buscador, o al comenzar a escribir, el dropdown flotante se despliega mostrando el listado filtrado por SKU o Nombre.
+     * **Selección con un clic:** Al hacer clic en cualquier opción sugerida, el valor visual se asigna al input de búsqueda (ej: *SKU - Nombre (Precio)*), el UUID se guarda en el campo oculto y el dropdown se cierra inmediatamente.
+     * **Cerrar al hacer clic fuera:** Si el usuario hace clic en cualquier otra parte de la pantalla fuera del buscador o del menú flotante, el dropdown se cierra de manera limpia.
+     * **Reinicio Automático:** Al hacer clic en "Añadir", el valor seleccionado y el campo de búsqueda se limpian por completo y el dropdown vuelve a ocultarse para permitir un nuevo ingreso limpio.

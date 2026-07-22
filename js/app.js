@@ -2,6 +2,7 @@ import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
+import { renderNotifications } from './notifications.js';
 
 // Redefinir window.alert globalmente con SweetAlert2 para estética premium y generar mayor confianza
 const nativeAlert = window.alert;
@@ -133,6 +134,84 @@ window.formatCLP = function(value) {
     return '-';
   }
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
+};
+
+window.shouldProcessOrderStockLocal = function(order, config, allOrdersList) {
+  // Si no hay configuración para este comercio, por defecto no hacemos seguimiento
+  if (!config) return false;
+
+  // A. Check if tracking is active
+  if (!config.inventario_seguimiento) return false;
+
+  // B. Check if order state is terminal (despachado, retirado, entregado, cancelado)
+  const orderStatus = (order.status || '').toLowerCase().trim();
+  const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
+  const terminalStatuses = ['despachado', 'retirado', 'entregado', 'cancelado'];
+  if (terminalStatuses.includes(orderStatus) || terminalStatuses.includes(orderWmsStatus)) {
+    return false;
+  }
+
+  // C. Check start conditions
+  const startConfig = config.inventario_inicio_pedidos;
+  if (!startConfig || typeof startConfig !== 'object') {
+    return true;
+  }
+
+  const platform = order.external_platform || order.origen || 'Manual';
+  const platformStart = startConfig[platform];
+  if (!platformStart) {
+    return true;
+  }
+
+  const startOrderNum = String(platformStart.external_order_number || '').trim();
+  if (!startOrderNum) {
+    return true;
+  }
+
+  const include = platformStart.incluir !== false;
+
+  // Try to find the start order in the loaded orders list to get its created_at
+  const startOrder = (allOrdersList || []).find(o => 
+    o.comercio === order.comercio && 
+    (o.external_platform || o.origen || 'Manual') === platform && 
+    String(o.external_order_number || '').trim() === startOrderNum
+  );
+
+  if (startOrder && startOrder.created_at) {
+    const orderTime = new Date(order.created_at).getTime();
+    const startTime = new Date(startOrder.created_at).getTime();
+    if (include) {
+      return orderTime >= startTime;
+    } else {
+      if (order.id === startOrder.id || String(order.external_order_number || '').trim() === startOrderNum) {
+        return false;
+      }
+      return orderTime > startTime;
+    }
+  }
+
+  // Numeric fallback if start order is not in memory
+  const startVal = parseInt(startOrderNum.replace(/[^0-9]/g, ''), 10);
+  const orderVal = parseInt(String(order.external_order_number || '').replace(/[^0-9]/g, ''), 10);
+
+  if (isNaN(startVal) || isNaN(orderVal)) {
+    // Lexicographical fallback
+    const startStr = startOrderNum;
+    const orderStr = String(order.external_order_number || '');
+    if (include) {
+      return orderStr >= startStr;
+    } else {
+      if (orderStr === startStr) return false;
+      return orderStr > startStr;
+    }
+  } else {
+    if (include) {
+      return orderVal >= startVal;
+    } else {
+      if (orderVal === startVal) return false;
+      return orderVal > startVal;
+    }
+  }
 };
 
 // Capturador de errores global para depuración en tiempo real
@@ -1112,6 +1191,10 @@ async function renderDashboard() {
         src = 'img/mercadolibre.png';
       } else if (pLower.includes('paris')) {
         src = 'img/paris.png';
+      } else if (pLower.includes('woocommerce')) {
+        src = 'img/woocommerce.png';
+      } else if (pLower.includes('walmart')) {
+        src = 'img/walmart.png';
       }
       
       if (src) {
@@ -1695,6 +1778,9 @@ async function renderCatalog() {
           <button class="integration-tab catalog-tab" data-tab="tab-catalog-packs" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-stack-line"></i> Packs / Combos
           </button>
+          <button class="integration-tab catalog-tab" data-tab="tab-catalog-campaigns" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--color-text-muted); font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-gift-line"></i> Campañas
+          </button>
         </div>
         <button id="btn-catalog-help" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.5rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1rem; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; cursor: pointer; height: 36px; margin-bottom: -1px; transition: all 0.2s; border-bottom-left-radius: 0; border-bottom-right-radius: 0;">
           <i class="ri-question-line" style="font-size: 1.1rem;"></i> Guía de Uso
@@ -1842,6 +1928,41 @@ async function renderCatalog() {
                 <tbody id="catalog-packs-tbody">
                   <tr>
                     <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando packs...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-catalog-campaigns" class="catalog-tab-pane" style="display: none; animation: fadeIn 0.3s ease;">
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-gift-line" style="color: var(--color-primary);"></i> Campañas de Regalo
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Configura reglas para añadir regalos automáticos en base a condiciones del pedido.</p>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                ${isObserver ? '' : '<button class="btn btn-primary" id="btn-new-campaign" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-add-line"></i>Nueva Campaña</button>'}
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Nombre Campaña</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Producto Regalo</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Condiciones</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Vigencia</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 100px;">Estado</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="catalog-campaigns-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando campañas...</td>
                   </tr>
                 </tbody>
               </table>
@@ -3706,6 +3827,41 @@ async function renderWarehouses() {
   }
 }
 
+window.fetchInventoryForClientOrders = async function(orders) {
+  window.clientOrdersInventoryMap = window.clientOrdersInventoryMap || {};
+  if (!orders || orders.length === 0) return;
+
+  const allProductIds = [];
+  orders.forEach(o => {
+    (o.order_items || []).forEach(oi => {
+      if (oi.product_id && !oi.products?.is_virtual) {
+        allProductIds.push(oi.product_id);
+      }
+    });
+  });
+
+  const uniqueProductIds = [...new Set(allProductIds)].filter(id => {
+    return !Object.keys(window.clientOrdersInventoryMap).some(key => key.startsWith(id + '_'));
+  });
+
+  if (uniqueProductIds.length === 0) return;
+
+  try {
+    const { data: invData } = await supabase
+      .from('inventory')
+      .select('product_id, warehouse_id, quantity')
+      .in('product_id', uniqueProductIds);
+
+    if (invData) {
+      invData.forEach(inv => {
+        window.clientOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+      });
+    }
+  } catch (e) {
+    console.error('Error fetching inventory for client order stock check:', e);
+  }
+};
+
 async function renderOrders() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `
@@ -3812,7 +3968,7 @@ async function renderOrders() {
         agenda,
         operador,
         fecha_procesamiento,
-        order_items (quantity, products(sku, name))
+        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
       `)
       .gte('created_at', startOfMonth);
 
@@ -3829,6 +3985,26 @@ async function renderOrders() {
     if (error) throw error;
 
     window.clientLoadedOrders = orders || [];
+
+    // Cargar configuraciones adicionales de los comercios para el cliente
+    let commerceConfigMap = {};
+    try {
+      const { data: configData } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos');
+      if (configData) {
+        configData.forEach(cfg => {
+          commerceConfigMap[cfg.comercio] = cfg;
+        });
+      }
+    } catch (e) {
+      console.error('Error fetching commerce configs for client stock tracking check:', e);
+    }
+    window.clientCommerceConfigsMap = commerceConfigMap;
+
+    if (window.fetchInventoryForClientOrders) {
+      await window.fetchInventoryForClientOrders(window.clientLoadedOrders);
+    }
 
     // Obtener los despachos correspondientes de la tabla envios_unificados
     let shipments = [];
@@ -3891,7 +4067,7 @@ async function renderOrders() {
             agenda,
             operador,
             fecha_procesamiento,
-            order_items (quantity, products(sku, name))
+            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth);
 
@@ -3908,6 +4084,10 @@ async function renderOrders() {
 
         if (histOrders && histOrders.length > 0) {
           window.clientLoadedOrders = [...(window.clientLoadedOrders || []), ...histOrders];
+
+          if (window.fetchInventoryForClientOrders) {
+            await window.fetchInventoryForClientOrders(histOrders);
+          }
 
           // Cargar despachos del historial
           const orderRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
@@ -4592,6 +4772,10 @@ window.applyClientWmsFiltersAndRender = function() {
 
     // Generar ítems detallados para el desplegable (Agrupando repetidos)
     let itemsRowsHtml = '';
+    const config = window.clientCommerceConfigsMap ? window.clientCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.clientLoadedOrders) : isStockTrackingActive;
+
     if (order.order_items && order.order_items.length > 0) {
       const grouped = {};
       order.order_items.forEach(oi => {
@@ -4612,11 +4796,33 @@ window.applyClientWmsFiltersAndRender = function() {
       Object.values(grouped).forEach(item => {
         const pPrice = item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0;
         const subtotal = item.quantity * pPrice;
+
+        // Determinar stock de bodega para el cliente
+        const origItem = order.order_items.find(oi => oi.products?.sku === item.sku);
+        let stockCellHtml = '';
+        let rowStyle = 'border-bottom: 1px solid var(--color-border);';
+
+        if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
+          const key = `${origItem.product_id}_${origItem.warehouse_id}`;
+          const available = (window.clientOrdersInventoryMap || {})[key] || 0;
+          if (available < item.quantity) {
+            rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
+            stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
+          } else {
+            stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Disponible (${available} disp.)</span>`;
+          }
+        } else if (origItem?.products?.is_virtual) {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
+        }
+
         itemsRowsHtml += `
-          <tr style="border-bottom: 1px solid var(--color-border);">
+          <tr style="${rowStyle}">
             <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
             <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
+            <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
           </tr>
@@ -4630,6 +4836,7 @@ window.applyClientWmsFiltersAndRender = function() {
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
           <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: center;">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
         </tr>
@@ -4682,6 +4889,28 @@ window.applyClientWmsFiltersAndRender = function() {
       shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.2rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
     }
 
+    // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
+    let hasStockAlert = false;
+    let stockAlertDetails = [];
+    if (shouldProcessStock) {
+      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+      if (itemsToCheck.length > 0) {
+        const invMap = window.clientOrdersInventoryMap || {};
+        itemsToCheck.forEach(item => {
+          const key = `${item.product_id}_${item.warehouse_id}`;
+          const availableQty = invMap[key] || 0;
+          if (availableQty < item.quantity) {
+            hasStockAlert = true;
+            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - availableQty} un.)`);
+          }
+        });
+      }
+    }
+
+    const stockAlertBadgeHtml = hasStockAlert
+      ? `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: help;" title="Falta stock: ${stockAlertDetails.join(', ')}"><i class="ri-alert-line"></i> SIN STOCK</span>`
+      : '';
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
         <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary); padding: 0.45rem 0.75rem;" onclick="window.toggleClientOrderRow('${order.id}')">
@@ -4698,6 +4927,7 @@ window.applyClientWmsFiltersAndRender = function() {
               ${exportBadgeHtml}
               ${packBadgeHtml}
               ${shipmentBadgeHtml}
+              ${stockAlertBadgeHtml}
             </div>
           </div>
         </td>
@@ -4757,6 +4987,7 @@ window.applyClientWmsFiltersAndRender = function() {
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                      <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                       <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
                     </tr>
@@ -6717,8 +6948,57 @@ async function renderIntegrations() {
   // Modal & Forms Logic
   // ==========================================
 
+  // Filtrado instantáneo de productos en modal de nuevo pedido
+  document.addEventListener('input', (e) => {
+    if (e.target && e.target.id === 'order-product-search') {
+      const dropdownList = document.getElementById('order-product-dropdown-list');
+      if (dropdownList) {
+        dropdownList.style.display = 'block';
+        if (window.filterClientNewOrderProducts) {
+          window.filterClientNewOrderProducts();
+        }
+      }
+    }
+  });
+
+  document.addEventListener('focusin', (e) => {
+    if (e.target && e.target.id === 'order-product-search') {
+      const dropdownList = document.getElementById('order-product-dropdown-list');
+      if (dropdownList) {
+        if (window.filterClientNewOrderProducts) {
+          window.filterClientNewOrderProducts();
+        }
+        dropdownList.style.display = 'block';
+      }
+    }
+  });
+
   // Handle opening modals dynamically from injected buttons
   document.addEventListener('click', async (e) => {
+    // Si hace click en una opción del dropdown de autocompletado de productos
+    const option = e.target.closest('.order-product-option');
+    if (option) {
+      const prodId = option.getAttribute('data-id');
+      const displayVal = option.getAttribute('data-display');
+      
+      const selectProd = document.getElementById('order-product');
+      const searchInput = document.getElementById('order-product-search');
+      const dropdownList = document.getElementById('order-product-dropdown-list');
+      
+      if (selectProd) selectProd.value = prodId;
+      if (searchInput) searchInput.value = displayVal;
+      if (dropdownList) dropdownList.style.display = 'none';
+      return;
+    }
+
+    // Cerrar dropdown si hace click afuera del buscador y del dropdown
+    const dropdownList = document.getElementById('order-product-dropdown-list');
+    if (dropdownList && dropdownList.style.display === 'block') {
+      if (!e.target.closest('#order-product-search') && !e.target.closest('#order-product-dropdown-list')) {
+        dropdownList.style.display = 'none';
+      }
+    }
+
     // Abrir modal de nuevo producto
     if (e.target && e.target.id === 'btn-new-product') {
       if (userRole === 'observer') {
@@ -6735,14 +7015,21 @@ async function renderIntegrations() {
         return;
       }
       const modalOrder = document.getElementById('modal-order');
-      const selectProd = document.getElementById('order-product');
-      selectProd.innerHTML = '<option value="">Cargando productos...</option>';
+      const dropdownListEl = document.getElementById('order-product-dropdown-list');
+      if (dropdownListEl) {
+        dropdownListEl.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">Cargando productos...</div>';
+        dropdownListEl.style.display = 'none';
+      }
       modalOrder.classList.add('active');
 
       // Reset form and temporary items
       window.tempClientNewOrderItems = [];
       const form = document.getElementById('form-new-order');
       if (form) form.reset();
+      const searchInput = document.getElementById('order-product-search');
+      if (searchInput) searchInput.value = '';
+      const hiddenInput = document.getElementById('order-product');
+      if (hiddenInput) hiddenInput.value = '';
       window.renderClientNewOrderItemsTable();
 
       // Cargar productos del usuario
@@ -6757,11 +7044,8 @@ async function renderIntegrations() {
         }
         const { data: products } = await query;
         window.tempClientProductsList = products || [];
-        if(products) {
-          selectProd.innerHTML = '<option value="">Selecciona un producto</option>';
-          products.forEach(p => {
-            selectProd.innerHTML += `<option value="${p.id}">${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})</option>`;
-          });
+        if (window.filterClientNewOrderProducts) {
+          window.filterClientNewOrderProducts();
         }
       }
     }
@@ -8340,6 +8624,28 @@ async function renderProfile() {
 
     if (error) throw error;
 
+    // Cargar config adicional de comercio para saber si tiene seguimiento de stock activo
+    let hasStockTracking = false;
+    try {
+      const commerceList = (profile.comercio || '')
+        .split(',')
+        .map(c => c.trim())
+        .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+      if (commerceList.length > 0) {
+        const { data: configData } = await supabase
+          .from('comercios_adicional_config')
+          .select('inventario_seguimiento')
+          .in('comercio', commerceList);
+        
+        if (configData) {
+          hasStockTracking = configData.some(cfg => cfg.inventario_seguimiento === true);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching commerce configs for stock tracking check in profile:', e);
+    }
+
     // Valores por defecto
     const fullName = profile.full_name || '';
     const companyName = profile.company_name || '';
@@ -8350,69 +8656,93 @@ async function renderProfile() {
     const roleText = profile.role === 'admin' ? 'Administrador' : (profile.role === 'client' ? 'Cliente' : 'Observador');
 
     appContent.innerHTML = `
-      <div style="max-width: 700px; margin: 0 auto;">
+      <div style="max-width: 800px; margin: 0 auto;">
         ${getObserverBanner()}
-        <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem;">
-            <div id="profile-avatar-preview" style="width: 80px; height: 80px; border-radius: var(--radius-full); background-color: var(--color-gray); background-image: url('${avatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}'); background-size: cover; background-position: center; border: 3px solid var(--color-primary); box-shadow: var(--shadow-sm);"></div>
+        <div class="card" style="border: none; box-shadow: var(--shadow-md); overflow: hidden;">
+          <!-- Card Header with User Info -->
+          <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; align-items: center; gap: 1.5rem;">
+            <div id="profile-avatar-preview" style="width: 80px; height: 80px; border-radius: var(--radius-full); background-color: var(--color-gray); background-image: url('${avatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'}'); background-size: cover; background-position: center; border: 3px solid var(--color-primary); box-shadow: var(--shadow-sm); flex-shrink: 0;"></div>
             <div>
               <h3 style="margin: 0; font-size: 1.35rem;">${fullName || 'Mi Perfil'}</h3>
               <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">${roleText} - ${companyName}</p>
             </div>
           </div>
           
-          <form id="form-edit-profile" class="card-body" style="padding: 1.5rem;">
-            <div id="profile-alert-container"></div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-              <div class="form-group" style="margin-bottom: 1rem;">
-                <label class="form-label" style="font-weight: 600;">Nombre Completo</label>
-                <input type="text" id="profile-name" class="form-input" value="${fullName}" placeholder="Tu nombre" required>
-              </div>
-              <div class="form-group" style="margin-bottom: 1rem;">
-                <label class="form-label" style="font-weight: 600;">Empresa</label>
-                <input type="text" class="form-input" value="${companyName}" disabled style="background-color: #f1f5f9; cursor: not-allowed;">
-              </div>
-            </div>
+          ${hasStockTracking ? `
+          <!-- Tabs Navigation -->
+          <div class="profile-tabs" style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-bg); padding: 0.75rem 1.5rem 0 1.5rem;">
+            <button type="button" class="profile-tab-btn active" data-tab="details" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-primary); font-weight: 600; cursor: pointer; border-bottom: 3px solid var(--color-primary); font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
+              <i class="ri-user-settings-line"></i> Datos de Perfil
+            </button>
+            <button type="button" class="profile-tab-btn" data-tab="notifications" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
+              <i class="ri-notification-3-line"></i> Preferencias de Notificación
+            </button>
+          </div>
+          ` : ''}
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-              <div class="form-group" style="margin-bottom: 1rem;">
-                <label class="form-label" style="font-weight: 600;">Teléfono de Contacto</label>
-                <input type="text" id="profile-phone" class="form-input" value="${phone}" placeholder="Ej. +56912345678">
-              </div>
-              <div class="form-group" style="margin-bottom: 1rem;">
-                <label class="form-label" style="font-weight: 600;">Correo de Contacto</label>
-                <input type="email" id="profile-contact-email" class="form-input" value="${contactEmail}" placeholder="correo@ejemplo.com">
-              </div>
-            </div>
-
-            <div class="form-group" style="margin-bottom: 1.25rem;">
-              <label class="form-label" style="font-weight: 600;">URL Imagen de Perfil</label>
-              <input type="url" id="profile-avatar-url" class="form-input" value="${avatarUrl}" placeholder="https://ejemplo.com/mi-avatar.jpg">
-            </div>
-
-            <div style="background-color: var(--color-bg); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin: 1.5rem 0;">
-              <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1.25rem; color: var(--color-text-main); text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shield-user-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Atributos del Sistema</h4>
+          <!-- Tab 1: Formulario de Perfil -->
+          <div id="profile-tab-content-details" class="profile-tab-content" style="padding: 1.5rem; background: var(--color-surface);">
+            <form id="form-edit-profile">
+              <div id="profile-alert-container"></div>
               
-              <div style="display: flex; flex-direction: column; gap: 1.25rem;">
-                <div>
-                  <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Rol Asignado</span>
-                  <span style="background-color: rgba(139, 92, 246, 0.15); color: #8b5cf6; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.85rem; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.3); display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-user-star-line"></i> ${roleText}</span>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label class="form-label" style="font-weight: 600;">Nombre Completo</label>
+                  <input type="text" id="profile-name" class="form-input" value="${fullName}" placeholder="Tu nombre" required>
                 </div>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label class="form-label" style="font-weight: 600;">Empresa</label>
+                  <input type="text" class="form-input" value="${companyName}" disabled style="background-color: #f1f5f9; cursor: not-allowed;">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label class="form-label" style="font-weight: 600;">Teléfono de Contacto</label>
+                  <input type="text" id="profile-phone" class="form-input" value="${phone}" placeholder="Ej. +56912345678">
+                </div>
+                <div class="form-group" style="margin-bottom: 1rem;">
+                  <label class="form-label" style="font-weight: 600;">Correo de Contacto</label>
+                  <input type="email" id="profile-contact-email" class="form-input" value="${contactEmail}" placeholder="correo@ejemplo.com">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom: 1.25rem;">
+                <label class="form-label" style="font-weight: 600;">URL Imagen de Perfil</label>
+                <input type="url" id="profile-avatar-url" class="form-input" value="${avatarUrl}" placeholder="https://ejemplo.com/mi-avatar.jpg">
+              </div>
+
+              <div style="background-color: var(--color-bg); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin: 1.5rem 0;">
+                <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1.25rem; color: var(--color-text-main); text-transform: uppercase; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-shield-user-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> Atributos del Sistema</h4>
                 
-                <div>
-                  <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Comercios Asociados</span>
-                  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                    ${assignedComercios.split(',').map(c => `<span style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line" style="color: var(--color-primary);"></i> ${c.trim()}</span>`).join('')}
+                <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+                  <div>
+                    <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Rol Asignado</span>
+                    <span style="background-color: rgba(139, 92, 246, 0.15); color: #8b5cf6; padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.85rem; font-weight: 700; border: 1px solid rgba(139, 92, 246, 0.3); display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-user-star-line"></i> ${roleText}</span>
+                  </div>
+                  
+                  <div>
+                    <span style="display: block; color: var(--color-text-muted); font-size: 0.8rem; margin-bottom: 0.5rem; text-transform: uppercase; font-weight: 600;">Comercios Asociados</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                      ${assignedComercios.split(',').map(c => `<span style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-2-line" style="color: var(--color-primary);"></i> ${c.trim()}</span>`).join('')}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div style="text-align: right;">
-              <button type="submit" class="btn btn-primary" id="btn-save-profile" style="background-color: var(--color-accent); color: white;">Guardar Cambios</button>
-            </div>
-          </form>
+              <div style="text-align: right;">
+                <button type="submit" class="btn btn-primary" id="btn-save-profile" style="background-color: var(--color-accent); color: white;">Guardar Perfil</button>
+              </div>
+            </form>
+          </div>
+
+          ${hasStockTracking ? `
+          <!-- Tab 2: Configuración de Notificaciones -->
+          <div id="profile-tab-content-notifications" class="profile-tab-content" style="display: none; padding: 1.5rem; background: var(--color-surface);">
+            <!-- Se inyecta dinámicamente -->
+          </div>
+          ` : ''}
+
         </div>
       </div>
     `;
@@ -8469,6 +8799,44 @@ async function renderProfile() {
         saveBtn.textContent = 'Guardar Cambios';
       }
     });
+
+    if (hasStockTracking) {
+      // Manejar el cambio de pestañas (Tabs)
+      const tabButtons = document.querySelectorAll('.profile-tab-btn');
+      const tabContents = document.querySelectorAll('.profile-tab-content');
+
+      tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const targetTab = btn.getAttribute('data-tab');
+
+          tabButtons.forEach(b => {
+            b.classList.remove('active');
+            b.style.color = 'var(--color-text-muted)';
+            b.style.borderBottomColor = 'transparent';
+            b.style.fontWeight = '500';
+          });
+
+          btn.classList.add('active');
+          btn.style.color = 'var(--color-primary)';
+          btn.style.borderBottomColor = 'var(--color-primary)';
+          btn.style.fontWeight = '600';
+
+          tabContents.forEach(content => {
+            content.style.display = 'none';
+          });
+
+          const activeContent = document.getElementById(`profile-tab-content-${targetTab}`);
+          if (activeContent) {
+            activeContent.style.display = 'block';
+          }
+
+          if (targetTab === 'notifications') {
+            const notificationsContainer = document.getElementById('profile-tab-content-notifications');
+            renderNotifications(notificationsContainer);
+          }
+        });
+      });
+    }
 
   } catch (err) {
     console.error("Error rendering profile view:", err);
@@ -14895,9 +15263,38 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
 
   tbody.innerHTML = unmappedProducts.map(sp => {
     const currentMapping = (mappingsMap[sp.platform] && mappingsMap[sp.platform][sp.sku]) || '';
+    
+    let statusBadge = '';
+    if (sp.status) {
+      const s = sp.status.toLowerCase().trim();
+      let bgColor = 'rgba(107, 114, 128, 0.1)';
+      let textColor = '#6b7280';
+      let borderClr = 'rgba(107, 114, 128, 0.2)';
+      let label = sp.status;
+
+      if (s === 'active' || s === 'publish') {
+        bgColor = 'rgba(16, 185, 129, 0.1)';
+        textColor = '#10b981';
+        borderClr = 'rgba(16, 185, 129, 0.2)';
+        label = 'Activo';
+      } else if (s === 'draft' || s === 'borrador') {
+        bgColor = 'rgba(245, 158, 11, 0.1)';
+        textColor = '#f59e0b';
+        borderClr = 'rgba(245, 158, 11, 0.2)';
+        label = 'Borrador';
+      } else if (s === 'archived' || s === 'archivado' || s === 'inactive') {
+        bgColor = 'rgba(239, 68, 68, 0.1)';
+        textColor = '#ef4444';
+        borderClr = 'rgba(239, 68, 68, 0.2)';
+        label = 'Archivado';
+      }
+
+      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${label}</span>`;
+    }
+
     return `
       <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
           <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
         </td>
@@ -15211,6 +15608,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
       if (tabId === 'tab-catalog-packs') {
         renderPacksTab();
+      } else if (tabId === 'tab-catalog-campaigns') {
+        renderCampaignsTab(commerce);
       }
     });
   });
@@ -16910,8 +17309,46 @@ window.openClientBillingObservationModal = async function(recordId) {
   }
 };
 
+window.filterClientNewOrderProducts = function() {
+  const searchInput = document.getElementById('order-product-search');
+  const dropdownList = document.getElementById('order-product-dropdown-list');
+  if (!dropdownList) return;
+
+  const searchTerm = searchInput ? searchInput.value.toLowerCase().trim() : '';
+  const products = window.tempClientProductsList || [];
+
+  const filtered = products.filter(p => {
+    const sku = (p.sku || '').toLowerCase();
+    const name = (p.name || '').toLowerCase();
+    return sku.includes(searchTerm) || name.includes(searchTerm);
+  });
+
+  if (filtered.length === 0) {
+    dropdownList.innerHTML = `
+      <div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+        No se encontraron productos
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(p => {
+    const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    html += `
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.85rem; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+        <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+        <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
+      </div>
+    `;
+  });
+  
+  dropdownList.innerHTML = html;
+};
+
 window.addClientNewOrderItem = function() {
-  const selectProd = document.getElementById('order-product');
+  const selectProd = document.getElementById('order-product'); // Hidden input
   const qtyInput = document.getElementById('order-qty');
   if (!selectProd || !qtyInput) return;
 
@@ -16919,7 +17356,7 @@ window.addClientNewOrderItem = function() {
   const qty = parseInt(qtyInput.value, 10);
 
   if (!prodId) {
-    alert('Por favor selecciona un producto.');
+    alert('Por favor selecciona un producto escribiendo y eligiéndolo de la lista.');
     return;
   }
   if (isNaN(qty) || qty < 1) {
@@ -16948,6 +17385,10 @@ window.addClientNewOrderItem = function() {
   }
 
   selectProd.value = '';
+  const searchInput = document.getElementById('order-product-search');
+  if (searchInput) searchInput.value = '';
+  const dropdownList = document.getElementById('order-product-dropdown-list');
+  if (dropdownList) dropdownList.style.display = 'none';
   qtyInput.value = '1';
 
   window.renderClientNewOrderItemsTable();
@@ -18665,5 +19106,356 @@ function renderOnboardingStatus(request) {
       </div>
     </div>
   `;
+}
+
+async function renderCampaignsTab(commerce) {
+  // Bind "Nueva Campaña" button click listener first so it always works
+  const btnNewCampaign = document.getElementById('btn-new-campaign');
+  if (btnNewCampaign) {
+    const newBtn = btnNewCampaign.cloneNode(true);
+    btnNewCampaign.parentNode.replaceChild(newBtn, btnNewCampaign);
+    newBtn.addEventListener('click', () => {
+      openCampaignModal(commerce);
+    });
+  }
+
+  const tbody = document.getElementById('catalog-campaigns-tbody');
+  if (!tbody) return;
+
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin: 0 auto 0.5rem;"></i>
+        Cargando campañas...
+      </td>
+    </tr>
+  `;
+
+  try {
+    const { data: campaigns, error } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('comercio', commerce)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const isObserver = userRole === 'observer';
+
+    if (!campaigns || campaigns.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+            No tienes ninguna campaña de regalo configurada.
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = campaigns.map(c => {
+        // Formatear vigencia
+        let datesText = 'Indefinida';
+        if (c.start_date || c.end_date) {
+          const start = c.start_date ? new Date(c.start_date).toLocaleDateString('es-CL') : '...';
+          const end = c.end_date ? new Date(c.end_date).toLocaleDateString('es-CL') : '...';
+          datesText = `${start} al ${end}`;
+        }
+
+        // Formatear condiciones
+        const conds = [];
+        if (c.trigger_skus && c.trigger_skus.length > 0) {
+          conds.push(`Contiene SKUs: <strong>${c.trigger_skus.join(', ')}</strong>`);
+        }
+        if (c.min_total_quantity && c.min_total_quantity > 0) {
+          conds.push(`Cant. total de ítems >= <strong>${c.min_total_quantity}</strong>`);
+        }
+        if (c.min_distinct_skus && c.min_distinct_skus > 0) {
+          conds.push(`SKUs distintos >= <strong>${c.min_distinct_skus}</strong>`);
+        }
+        const conditionsHtml = conds.length > 0 ? conds.join('<br>') : '<span style="color: var(--color-text-muted); font-style: italic;">Sin condiciones</span>';
+
+        // Botón de activación
+        const statusText = c.active ? 'Activa' : 'Inactiva';
+        const toggleBtnText = c.active ? 'Desactivar' : 'Activar';
+        const toggleBtnColor = c.active ? 'var(--color-text-muted)' : 'var(--color-success)';
+
+        const statusBadgeHtml = `
+          <span class="badge" style="background-color: ${c.active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)'}; color: ${c.active ? '#10b981' : '#6b7280'}; border: 1px solid ${c.active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(107, 114, 128, 0.2)'}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">
+            ${statusText}
+          </span>
+        `;
+
+        const deleteBtn = isObserver 
+          ? '' 
+          : `<button class="btn btn-outline btn-delete-campaign" data-id="${c.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line"></i></button>`;
+        
+        const actionBtn = isObserver 
+          ? '' 
+          : `<button class="btn btn-outline btn-edit-campaign" data-id="${c.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line"></i></button>` +
+            `<button class="btn btn-outline btn-toggle-campaign" data-id="${c.id}" data-active="${c.active}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: ${toggleBtnColor}; color: ${toggleBtnColor}; margin-left: 0.5rem;">${toggleBtnText}</button>` + deleteBtn;
+
+        return `
+          <tr data-campaign-id="${c.id}">
+            <td style="padding: 0.75rem 2rem;"><strong>${c.name}</strong></td>
+            <td style="padding: 0.75rem 2rem;"><strong>${c.gift_sku}</strong> <span style="color: var(--color-primary); font-weight: bold;">(x${c.gift_quantity})</span></td>
+            <td style="padding: 0.75rem 2rem; font-size: 0.85rem; line-height: 1.4;">${conditionsHtml}</td>
+            <td style="padding: 0.75rem 2rem; font-size: 0.85rem;">${datesText}</td>
+            <td style="padding: 0.75rem 2rem;">${statusBadgeHtml}</td>
+            <td style="padding: 0.75rem 2rem;">${actionBtn}</td>
+          </tr>
+        `;
+      }).join('');
+
+      // Bind toggle active listener
+      tbody.querySelectorAll('.btn-toggle-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          const currentActive = e.currentTarget.getAttribute('data-active') === 'true';
+          const newActive = !currentActive;
+
+          try {
+            e.currentTarget.disabled = true;
+            const { error: updateErr } = await supabase
+              .from('campaigns')
+              .update({ active: newActive })
+              .eq('id', id);
+
+            if (updateErr) throw updateErr;
+            renderCampaignsTab(commerce);
+          } catch (err) {
+            alert('Error al cambiar estado de la campaña: ' + err.message);
+            e.currentTarget.disabled = false;
+          }
+        });
+      });
+
+      // Bind delete listener
+      tbody.querySelectorAll('.btn-delete-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          if (confirm('¿Estás seguro de que deseas eliminar esta campaña?')) {
+            try {
+              const { error: delErr } = await supabase
+                .from('campaigns')
+                .delete()
+                .eq('id', id);
+
+              if (delErr) throw delErr;
+              renderCampaignsTab(commerce);
+            } catch (err) {
+              alert('Error al eliminar campaña: ' + err.message);
+            }
+          }
+        });
+      });
+
+      // Bind edit listener
+      tbody.querySelectorAll('.btn-edit-campaign').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.currentTarget.getAttribute('data-id');
+          const campaign = campaigns.find(item => item.id === id);
+          if (campaign) {
+            openCampaignModal(commerce, campaign);
+          }
+        });
+      });
+    }
+
+  } catch (err) {
+    console.error("Error loading campaigns:", err);
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          Error al cargar campañas: ${err.message}
+        </td>
+      </tr>
+    `;
+  }
+}
+
+function openCampaignModal(commerce, campaign = null) {
+  const existing = document.getElementById('modal-campaign');
+  if (existing) existing.remove();
+
+  const isEdit = !!campaign;
+  const modalTitle = isEdit ? 'Editar Campaña' : 'Nueva Campaña de Regalo';
+
+  let startVal = '';
+  let endVal = '';
+  if (isEdit) {
+    if (campaign.start_date) {
+      startVal = campaign.start_date.split('T')[0];
+    }
+    if (campaign.end_date) {
+      endVal = campaign.end_date.split('T')[0];
+    }
+  }
+
+  const triggerSkusVal = isEdit && campaign.trigger_skus ? campaign.trigger_skus.join(', ') : '';
+  const giftSkuVal = isEdit ? campaign.gift_sku : '';
+  const giftQtyVal = isEdit ? campaign.gift_quantity : 1;
+  const minQtyVal = isEdit && campaign.min_total_quantity !== null ? campaign.min_total_quantity : '';
+  const minSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
+  const nameVal = isEdit ? campaign.name : '';
+  const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-campaign';
+  modal.style.zIndex = '1500';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">${modalTitle}</h3>
+        <button class="modal-close" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <form id="form-campaign">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+          
+          <div>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Nombre de la Campaña *</label>
+            <input type="text" id="campaign-name" class="form-input" placeholder="Ej. Regalo Taza Día del Padre" value="${nameVal}" required style="width: 100%;">
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="checkbox" id="campaign-active" ${activeChecked} style="width: 16px; height: 16px; cursor: pointer;">
+            <label for="campaign-active" style="font-weight: 600; cursor: pointer; user-select: none;">Campaña Activa</label>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Fecha Inicio</label>
+              <input type="date" id="campaign-start" class="form-input" value="${startVal}" style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Fecha Término</label>
+              <input type="date" id="campaign-end" class="form-input" value="${endVal}" style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-primary);">Condiciones (Se deben cumplir todas)</h4>
+
+          <div>
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem;">SKUs Específicos Disparadores</label>
+            <p style="margin: 0 0 0.4rem 0; font-size: 0.75rem; color: var(--color-text-muted);">Separados por comas. El pedido debe contener al menos uno de estos SKUs.</p>
+            <input type="text" id="campaign-trigger-skus" class="form-input" placeholder="Ej. SKU-A, SKU-B" value="${triggerSkusVal}" style="width: 100%;">
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad Mín. de Artículos</label>
+              <input type="number" id="campaign-min-total-qty" class="form-input" placeholder="Ej. 3" min="1" value="${minQtyVal}" style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKUs Distintos Mínimos</label>
+              <input type="number" id="campaign-min-distinct-skus" class="form-input" placeholder="Ej. 2" min="1" value="${minSkusVal}" style="width: 100%;">
+            </div>
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">Premio / Regalo a Añadir</h4>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">SKU de Regalo *</label>
+              <input type="text" id="campaign-gift-sku" list="master-skus-list" class="form-input" placeholder="Busca o ingresa SKU..." value="${giftSkuVal}" required style="width: 100%;">
+            </div>
+            <div>
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Cantidad *</label>
+              <input type="number" id="campaign-gift-qty" class="form-input" min="1" value="${giftQtyVal}" required style="width: 100%;">
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-campaign-submit" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">
+            ${isEdit ? 'Guardar Cambios' : 'Crear Campaña'}
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-campaign');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const name = document.getElementById('campaign-name').value.trim();
+    const active = document.getElementById('campaign-active').checked;
+    const startVal = document.getElementById('campaign-start').value;
+    const endVal = document.getElementById('campaign-end').value;
+    const triggerSkusRaw = document.getElementById('campaign-trigger-skus').value.trim();
+    const minTotalQtyRaw = document.getElementById('campaign-min-total-qty').value;
+    const minDistinctSkusRaw = document.getElementById('campaign-min-distinct-skus').value;
+    const giftSku = document.getElementById('campaign-gift-sku').value.trim();
+    const giftQty = parseInt(document.getElementById('campaign-gift-qty').value) || 1;
+
+    if (!name || !giftSku) {
+      alert('Nombre y SKU de Regalo son requeridos.');
+      return;
+    }
+
+    const masterProducts = window.currentMasterProducts || [];
+    const giftExists = masterProducts.some(p => p.sku.toLowerCase().trim() === giftSku.toLowerCase().trim());
+    if (!giftExists) {
+      alert(`El SKU de Regalo "${giftSku}" no existe en tu catálogo master. Por favor selecciona uno válido.`);
+      return;
+    }
+
+    let trigger_skus = null;
+    if (triggerSkusRaw) {
+      trigger_skus = triggerSkusRaw.split(',').map(s => s.trim()).filter(Boolean);
+    }
+
+    const min_total_quantity = minTotalQtyRaw ? parseInt(minTotalQtyRaw) : null;
+    const min_distinct_skus = minDistinctSkusRaw ? parseInt(minDistinctSkusRaw) : null;
+
+    const start_date = startVal ? new Date(startVal + 'T00:00:00').toISOString() : null;
+    const end_date = endVal ? new Date(endVal + 'T23:59:59').toISOString() : null;
+
+    const payload = {
+      comercio: commerce,
+      name,
+      active,
+      start_date,
+      end_date,
+      trigger_skus,
+      min_total_quantity,
+      min_distinct_skus,
+      gift_sku: giftSku,
+      gift_quantity: giftQty
+    };
+
+    const submitBtn = document.getElementById('btn-save-campaign-submit');
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+    try {
+      let response;
+      if (isEdit) {
+        response = await supabase
+          .from('campaigns')
+          .update(payload)
+          .eq('id', campaign.id);
+      } else {
+        response = await supabase
+          .from('campaigns')
+          .insert(payload);
+      }
+
+      if (response.error) throw response.error;
+
+      alert(isEdit ? 'Campaña actualizada correctamente.' : 'Campaña creada correctamente.');
+      modal.remove();
+      renderCampaignsTab(commerce);
+    } catch (err) {
+      alert('Error al guardar campaña: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = isEdit ? 'Guardar Cambios' : 'Crear Campaña';
+    }
+  });
 }
 

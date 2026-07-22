@@ -73,6 +73,41 @@ window.fetchPickerOperators = async function(ordersList) {
   }
 };
 
+window.fetchInventoryForOrders = async function(orders) {
+  window.loadedOrdersInventoryMap = window.loadedOrdersInventoryMap || {};
+  if (!orders || orders.length === 0) return;
+
+  const allProductIds = [];
+  orders.forEach(o => {
+    (o.order_items || []).forEach(oi => {
+      if (oi.product_id && !oi.products?.is_virtual) {
+        allProductIds.push(oi.product_id);
+      }
+    });
+  });
+
+  const uniqueProductIds = [...new Set(allProductIds)].filter(id => {
+    return !Object.keys(window.loadedOrdersInventoryMap).some(key => key.startsWith(id + '_'));
+  });
+
+  if (uniqueProductIds.length === 0) return;
+
+  try {
+    const { data: invData } = await supabase
+      .from('inventory')
+      .select('product_id, warehouse_id, quantity')
+      .in('product_id', uniqueProductIds);
+
+    if (invData) {
+      invData.forEach(inv => {
+        window.loadedOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+      });
+    }
+  } catch (e) {
+    console.error('Error fetching inventory for order stock check:', e);
+  }
+};
+
 window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
 window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
 
@@ -395,6 +430,84 @@ window.formatCLP = function(value) {
     return '-';
   }
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
+};
+
+window.shouldProcessOrderStockLocal = function(order, config, allOrdersList) {
+  // Si no hay configuración para este comercio, por defecto no hacemos seguimiento
+  if (!config) return false;
+
+  // A. Check if tracking is active
+  if (!config.inventario_seguimiento) return false;
+
+  // B. Check if order state is terminal (despachado, retirado, entregado, cancelado)
+  const orderStatus = (order.status || '').toLowerCase().trim();
+  const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
+  const terminalStatuses = ['despachado', 'retirado', 'entregado', 'cancelado'];
+  if (terminalStatuses.includes(orderStatus) || terminalStatuses.includes(orderWmsStatus)) {
+    return false;
+  }
+
+  // C. Check start conditions
+  const startConfig = config.inventario_inicio_pedidos;
+  if (!startConfig || typeof startConfig !== 'object') {
+    return true;
+  }
+
+  const platform = order.external_platform || order.origen || 'Manual';
+  const platformStart = startConfig[platform];
+  if (!platformStart) {
+    return true;
+  }
+
+  const startOrderNum = String(platformStart.external_order_number || '').trim();
+  if (!startOrderNum) {
+    return true;
+  }
+
+  const include = platformStart.incluir !== false;
+
+  // Try to find the start order in the loaded orders list to get its created_at
+  const startOrder = (allOrdersList || []).find(o => 
+    o.comercio === order.comercio && 
+    (o.external_platform || o.origen || 'Manual') === platform && 
+    String(o.external_order_number || '').trim() === startOrderNum
+  );
+
+  if (startOrder && startOrder.created_at) {
+    const orderTime = new Date(order.created_at).getTime();
+    const startTime = new Date(startOrder.created_at).getTime();
+    if (include) {
+      return orderTime >= startTime;
+    } else {
+      if (order.id === startOrder.id || String(order.external_order_number || '').trim() === startOrderNum) {
+        return false;
+      }
+      return orderTime > startTime;
+    }
+  }
+
+  // Numeric fallback if start order is not in memory
+  const startVal = parseInt(startOrderNum.replace(/[^0-9]/g, ''), 10);
+  const orderVal = parseInt(String(order.external_order_number || '').replace(/[^0-9]/g, ''), 10);
+
+  if (isNaN(startVal) || isNaN(orderVal)) {
+    // Lexicographical fallback
+    const startStr = startOrderNum;
+    const orderStr = String(order.external_order_number || '');
+    if (include) {
+      return orderStr >= startStr;
+    } else {
+      if (orderStr === startStr) return false;
+      return orderStr > startStr;
+    }
+  } else {
+    if (include) {
+      return orderVal >= startVal;
+    } else {
+      if (orderVal === startVal) return false;
+      return orderVal > startVal;
+    }
+  }
 };
 
 // Capturador de errores global para depuración en tiempo real
@@ -806,18 +919,6 @@ window.updateAdminBadges = async function() {
       badgeIntegrations.style.display = integrationsCount > 0 ? 'inline-flex' : 'none';
     }
 
-    // 6. Configuración Group Badge
-    const configGroupBadge = document.getElementById('badge-config-group');
-    if (configGroupBadge) {
-      let totalConfigNotifs = (usersCount !== null ? usersCount : 0);
-      if (totalConfigNotifs > 0) {
-        configGroupBadge.textContent = '!';
-        configGroupBadge.style.display = 'inline-flex';
-      } else {
-        configGroupBadge.style.display = 'none';
-      }
-    }
-
     // 7. Incidencias Admin
     try {
       const { count: incidenciasCount, error: incErr } = await supabase
@@ -859,68 +960,8 @@ window.updateAdminBadges = async function() {
 
 // Ejecutar inicialización
 init();
-// Inicializar acordeones de la barra lateral
-window.initSidebarAccordions = function() {
-  const triggers = document.querySelectorAll('.accordion-trigger');
-  const accordions = document.querySelectorAll('.sidebar-accordion');
-  
-  // Open the first 3 subgroups by default
-  accordions.forEach((acc, index) => {
-    if (index < 3) {
-      acc.classList.add('open');
-      const content = acc.querySelector('.accordion-content');
-      if (content) {
-        setTimeout(() => {
-          content.style.maxHeight = content.scrollHeight + "px";
-        }, 50);
-      }
-    }
-  });
-
-  // Find which accordion should be open initially based on the active nav-item
-  const activeNavItem = document.querySelector('.nav-item.active');
-  if (activeNavItem) {
-    const parentAccordion = activeNavItem.closest('.sidebar-accordion');
-    if (parentAccordion && !parentAccordion.classList.contains('open')) {
-      parentAccordion.classList.add('open');
-      const content = parentAccordion.querySelector('.accordion-content');
-      if (content) {
-        setTimeout(() => {
-          content.style.maxHeight = content.scrollHeight + "px";
-        }, 50);
-      }
-    }
-  }
-
-  triggers.forEach(trigger => {
-    trigger.addEventListener('click', function(e) {
-      e.preventDefault();
-      
-      const parentLi = this.parentElement;
-      const content = this.nextElementSibling;
-      const isOpen = parentLi.classList.contains('open');
-      
-      // If sidebar is collapsed, expand it first
-      const sidebar = document.querySelector('.sidebar');
-      if (sidebar && sidebar.classList.contains('collapsed')) {
-        document.getElementById('toggle-sidebar')?.click();
-      }
-
-      // Toggle current
-      if (isOpen) {
-        parentLi.classList.remove('open');
-        content.style.maxHeight = null;
-      } else {
-        parentLi.classList.add('open');
-        // Calculate the height needed by its children
-        content.style.maxHeight = content.scrollHeight + "px";
-      }
-    });
-  });
-};
 
 initChatWidget();
-window.initSidebarAccordions();
 
 const ALL_STATUSES = [
   'creado',
@@ -937,6 +978,74 @@ const ALL_STATUSES = [
 ];
 
 async function updateOrderStatus(orderId, newStatus) {
+  const order = window.loadedOrders.find(o => o.id === orderId);
+  if (order && (newStatus === 'en preparación' || newStatus === 'despachado')) {
+    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+    if (itemsToCheck.length > 0) {
+      const productIds = itemsToCheck.map(item => item.product_id);
+      const { data: invData, error: invErr } = await supabase
+        .from('inventory')
+        .select('product_id, warehouse_id, quantity')
+        .in('product_id', productIds);
+
+      if (invErr) {
+        console.error('Error al consultar inventario:', invErr);
+      } else {
+        const invMap = {};
+        (invData || []).forEach(inv => {
+          invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+        });
+
+        let insufficientItem = null;
+        for (const item of itemsToCheck) {
+          const key = `${item.product_id}_${item.warehouse_id}`;
+          const availableQty = invMap[key] || 0;
+          if (availableQty < item.quantity) {
+            insufficientItem = {
+              sku: item.products?.sku || 'Sin SKU',
+              name: item.products?.name || 'Producto',
+              requested: item.quantity,
+              available: availableQty
+            };
+            break;
+          }
+        }
+
+        if (insufficientItem) {
+          alert(`Alerta Crítica: No hay suficiente stock para despachar/procesar el pedido ${order.external_order_number || order.id}. El pedido permanecerá en procesamiento y se ha generado una incidencia crítica. (SKU: ${insufficientItem.sku}, Requerido: ${insufficientItem.requested}, Disponible: ${insufficientItem.available})`);
+
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('id')
+              .eq('comercio', order.comercio)
+              .maybeSingle();
+
+            const userId = profile?.id || order.merchant_id;
+
+            await supabase
+              .from('incidencias')
+              .insert({
+                user_id: userId,
+                comercio: order.comercio,
+                title: `Falta de stock crítico - Pedido ${order.external_order_number || order.id}`,
+                description: `El pedido ${order.external_order_number || order.id} no se pudo despachar/procesar por falta de stock del SKU ${insufficientItem.sku} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
+                type: 'stock',
+                severity: 'critico',
+                status: 'pendiente',
+                solution: ''
+              });
+          } catch (innerErr) {
+            console.error('Error al registrar incidencia de stock insuficiente:', innerErr);
+          }
+
+          renderAdminOrders();
+          return;
+        }
+      }
+    }
+  }
+
   try {
     const { error } = await supabase
       .from('orders')
@@ -1141,7 +1250,7 @@ async function renderAdminOrders() {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        order_items (quantity, products(sku, name, price, image_url, options))
+        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
       `)
       .gte('created_at', startOfMonth)
       .order('created_at', { ascending: false });
@@ -1173,6 +1282,26 @@ async function renderAdminOrders() {
     if (window.fetchPickerOperators) {
       await window.fetchPickerOperators(window.loadedOrders);
     }
+
+    if (window.fetchInventoryForOrders) {
+      await window.fetchInventoryForOrders(window.loadedOrders);
+    }
+
+    // Cargar configuraciones adicionales de los comercios
+    let commerceConfigMap = {};
+    try {
+      const { data: configData } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, inventario_seguimiento, inventario_inicio_pedidos');
+      if (configData) {
+        configData.forEach(cfg => {
+          commerceConfigMap[cfg.comercio] = cfg;
+        });
+      }
+    } catch (e) {
+      console.error('Error fetching commerce configs for stock tracking check:', e);
+    }
+    window.loadedCommerceConfigsMap = commerceConfigMap;
 
     // Obtener las opciones únicas de Comercios/Clientes para el filtro
     const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
@@ -1234,7 +1363,7 @@ async function renderAdminOrders() {
             fecha_procesamiento,
             sucursal_pickeo,
             periodo_facturacion,
-            order_items (quantity, products(sku, name, price, image_url, options))
+            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth)
           .order('created_at', { ascending: false });
@@ -1261,6 +1390,10 @@ async function renderAdminOrders() {
 
           if (window.fetchPickerOperators) {
             await window.fetchPickerOperators(histOrders);
+          }
+
+          if (window.fetchInventoryForOrders) {
+            await window.fetchInventoryForOrders(histOrders);
           }
 
           updateMerchantFilterOptions();
@@ -1876,6 +2009,33 @@ window.applyWmsFiltersAndRender = function() {
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
     const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items?.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
+    // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
+    // Solo si el comercio tiene habilitado el seguimiento de inventario y el pedido es posterior al inicio
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    const shouldProcessStock = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : isStockTrackingActive;
+
+    let hasStockAlert = false;
+    let stockAlertDetails = [];
+    if (shouldProcessStock) {
+      const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+      if (itemsToCheck.length > 0) {
+        const invMap = window.loadedOrdersInventoryMap || {};
+        itemsToCheck.forEach(item => {
+          const key = `${item.product_id}_${item.warehouse_id}`;
+          const availableQty = invMap[key] || 0;
+          if (availableQty < item.quantity) {
+            hasStockAlert = true;
+            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - availableQty} un.)`);
+          }
+        });
+      }
+    }
+
+    const stockAlertBadgeHtml = hasStockAlert
+      ? `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: help;" title="Falta stock: ${stockAlertDetails.join(', ')}"><i class="ri-alert-line"></i> SIN STOCK</span>`
+      : '';
+
     const exportBadgeHtml = order.shopify_exported 
       ? `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem;"><i class="ri-check-line"></i> Exportado</span>`
       : '';
@@ -1900,8 +2060,8 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}</div></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}</div></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}</div></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -2010,11 +2170,33 @@ window.applyWmsFiltersAndRender = function() {
       Object.values(grouped).forEach(item => {
         const pPrice = item.price || (item.quantity > 0 ? (Number(order.total_value) / item.quantity) : 0) || 0;
         const subtotal = item.quantity * pPrice;
+
+        // Determinar stock de bodega
+        const origItem = order.order_items.find(oi => oi.products?.sku === item.sku);
+        let stockCellHtml = '';
+        let rowStyle = 'border-bottom: 1px solid var(--color-border);';
+
+        if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
+          const key = `${origItem.product_id}_${origItem.warehouse_id}`;
+          const available = (window.loadedOrdersInventoryMap || {})[key] || 0;
+          if (available < item.quantity) {
+            rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
+            stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
+          } else {
+            stockCellHtml = `<span style="color: #10b981; font-weight: 600; font-size: 0.8rem;"><i class="ri-checkbox-circle-line"></i> Disponible (${available} disp.)</span>`;
+          }
+        } else if (origItem?.products?.is_virtual) {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else {
+          stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
+        }
+
         itemsRowsHtml += `
-          <tr style="border-bottom: 1px solid var(--color-border);">
+          <tr style="${rowStyle}">
             <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
             <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
+            <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
             <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(subtotal)}</td>
           </tr>
@@ -2028,6 +2210,7 @@ window.applyWmsFiltersAndRender = function() {
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
           <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
+          <td style="padding: 0.5rem; text-align: center; color: var(--color-text-muted);">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
           <td style="padding: 0.5rem; text-align: right; font-weight: 600;">${window.formatCLP(order.total_value)}</td>
         </tr>
@@ -2124,7 +2307,12 @@ window.applyWmsFiltersAndRender = function() {
         <td>${fechaProcHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
-        <td><span style="font-size:0.8rem; font-weight:600; color:var(--color-text-main); white-space:nowrap;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span></td>
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.8rem; white-space:nowrap;">
+            <span style="font-weight:600; color:var(--color-text-main);" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
+            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500;" title="${order.shipping_city || ''}">${order.shipping_city || 'Por definir'}</span>
+          </div>
+        </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
         <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
         <td>
@@ -2187,6 +2375,7 @@ window.applyWmsFiltersAndRender = function() {
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">SKU</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem;">Producto</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Cant</th>
+                        <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: center;">Stock</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">P. Unit</th>
                         <th style="padding: 0.25rem 0.5rem 0.5rem 0.5rem; text-align: right;">Total</th>
                       </tr>
@@ -2473,6 +2662,120 @@ window.applyBulkWmsStatus = async function() {
 
     if (!formValues) return;
 
+    // A. Validar stock físico disponible para cada pedido (excluyendo virtuales)
+    const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+    const allItemsToCheck = [];
+    selectedOrders.forEach(order => {
+      (order.order_items || []).forEach(item => {
+        if (!item.products?.is_virtual) {
+          allItemsToCheck.push({
+            orderId: order.id,
+            orderNum: order.external_order_number || order.id,
+            comercio: order.comercio,
+            merchant_id: order.merchant_id,
+            product_id: item.product_id,
+            warehouse_id: item.warehouse_id,
+            quantity: item.quantity,
+            sku: item.products?.sku || 'Sin SKU',
+            name: item.products?.name || 'Producto'
+          });
+        }
+      });
+    });
+
+    if (allItemsToCheck.length > 0) {
+      const productIds = Array.from(new Set(allItemsToCheck.map(item => item.product_id)));
+      const { data: invData, error: invErr } = await supabase
+        .from('inventory')
+        .select('product_id, warehouse_id, quantity')
+        .in('product_id', productIds);
+
+      if (invErr) {
+        console.error('Error al consultar inventario:', invErr);
+      } else {
+        const invMap = {};
+        (invData || []).forEach(inv => {
+          invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+        });
+
+        const tempInv = { ...invMap };
+        const failedOrders = new Set();
+        const failedDetails = [];
+
+        for (const item of allItemsToCheck) {
+          const key = `${item.product_id}_${item.warehouse_id}`;
+          const available = tempInv[key] || 0;
+          if (available < item.quantity) {
+            failedOrders.add(item.orderId);
+            failedDetails.push({
+              orderNum: item.orderNum,
+              sku: item.sku,
+              requested: item.quantity,
+              available: available,
+              comercio: item.comercio,
+              merchant_id: item.merchant_id,
+              orderId: item.orderId
+            });
+          } else {
+            tempInv[key] -= item.quantity;
+          }
+        }
+
+        if (failedOrders.size > 0) {
+          const failedNums = Array.from(failedOrders).map(id => {
+            const o = selectedOrders.find(order => order.id === id);
+            return o ? o.external_order_number : id;
+          }).join(', ');
+
+          await Swal.fire({
+            icon: 'error',
+            title: 'Stock Insuficiente Detectado',
+            text: `Los siguientes pedidos no tienen stock suficiente y no serán enviados al Picker: ${failedNums}. El resto de los pedidos (si los hay) continuarán el proceso.`,
+            confirmButtonText: 'Continuar'
+          });
+
+          for (const f of failedDetails) {
+            try {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('comercio', f.comercio)
+                .maybeSingle();
+
+              const userId = profile?.id || f.merchant_id;
+
+              await supabase
+                .from('incidencias')
+                .insert({
+                  user_id: userId,
+                  comercio: f.comercio,
+                  title: `Falta de stock crítico - Pedido ${f.orderNum}`,
+                  description: `El pedido ${f.orderNum} no se pudo despachar por falta de stock del SKU ${f.sku} (Faltan ${f.requested - f.available} un.).`,
+                  type: 'stock',
+                  severity: 'critico',
+                  status: 'pendiente',
+                  solution: ''
+                });
+            } catch (innerErr) {
+              console.error('Error al registrar incidencia masiva:', innerErr);
+            }
+          }
+
+          const successIds = ids.filter(id => !failedOrders.has(id));
+          if (successIds.length === 0) {
+            window.wmsSelectedOrderIds.clear();
+            const cbAll = document.getElementById('wms-select-all');
+            if (cbAll) cbAll.checked = false;
+            applyWmsFiltersAndRender();
+            return;
+          }
+
+          ids.length = 0;
+          ids.push(...successIds);
+        }
+      }
+    }
+
     try {
       Swal.fire({
         title: 'Enviando pedidos al Picker...',
@@ -2616,6 +2919,77 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     if (!formValues) {
       applyWmsFiltersAndRender();
       return;
+    }
+
+    // Validar stock físico disponible para cada ítem (excluyendo virtuales)
+    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+    if (itemsToCheck.length > 0) {
+      const productIds = itemsToCheck.map(item => item.product_id);
+      const { data: invData, error: invErr } = await supabase
+        .from('inventory')
+        .select('product_id, warehouse_id, quantity')
+        .in('product_id', productIds);
+
+      if (invErr) {
+        console.error('Error al consultar inventario para validación:', invErr);
+      } else {
+        const invMap = {};
+        (invData || []).forEach(inv => {
+          invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+        });
+
+        let insufficientItem = null;
+        for (const item of itemsToCheck) {
+          const key = `${item.product_id}_${item.warehouse_id}`;
+          const availableQty = invMap[key] || 0;
+          if (availableQty < item.quantity) {
+            insufficientItem = {
+              sku: item.products?.sku || 'Sin SKU',
+              name: item.products?.name || 'Producto',
+              requested: item.quantity,
+              available: availableQty
+            };
+            break;
+          }
+        }
+
+        if (insufficientItem) {
+          await Swal.fire({
+            icon: 'error',
+            title: 'Falta de Stock Crítico',
+            text: `No hay suficiente stock para despachar el pedido ${order.external_order_number || order.id}. El pedido permanecerá en procesamiento. (SKU: ${insufficientItem.sku}, Requerido: ${insufficientItem.requested}, Disponible: ${insufficientItem.available})`,
+            confirmButtonText: 'Entendido'
+          });
+
+          try {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('id')
+              .eq('comercio', order.comercio)
+              .maybeSingle();
+
+            const userId = profile?.id || order.merchant_id;
+
+            await supabase
+              .from('incidencias')
+              .insert({
+                user_id: userId,
+                comercio: order.comercio,
+                title: `Falta de stock crítico - Pedido ${order.external_order_number || order.id}`,
+                description: `El pedido ${order.external_order_number || order.id} no se pudo despachar por falta de stock del SKU ${insufficientItem.sku} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
+                type: 'stock',
+                severity: 'critico',
+                status: 'pendiente',
+                solution: ''
+              });
+          } catch (innerErr) {
+            console.error('Error al registrar incidencia de stock insuficiente:', innerErr);
+          }
+
+          applyWmsFiltersAndRender();
+          return;
+        }
+      }
     }
 
     try {
@@ -3854,6 +4228,44 @@ window.showStockAndDimensionsPreviewModal = function({ title, headers, rows, onC
 };
 
 function setupCatalogListeners(commerce, mainPlatform) {
+  // 1.5. Configuración de Plataforma Principal
+  const btnSaveMain = document.getElementById('btn-save-main-platform');
+  if (btnSaveMain) {
+    btnSaveMain.addEventListener('click', async () => {
+      const selected = document.getElementById('eq-main-platform-select').value;
+      
+      btnSaveMain.disabled = true;
+      btnSaveMain.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
+
+      try {
+        const { error: resetErr } = await supabase
+          .from('merchant_integrations')
+          .update({ is_main: false })
+          .eq('comercio', commerce);
+
+        if (resetErr) throw resetErr;
+
+        if (selected) {
+          const { error: setErr } = await supabase
+            .from('merchant_integrations')
+            .update({ is_main: true })
+            .eq('comercio', commerce)
+            .eq('platform', selected);
+
+          if (setErr) throw setErr;
+        }
+
+        alert('Plataforma principal actualizada correctamente.');
+        renderAdminCatalogWorkspace(commerce);
+      } catch (err) {
+        alert('Error al actualizar plataforma principal: ' + err.message);
+      } finally {
+        btnSaveMain.disabled = false;
+        btnSaveMain.innerHTML = `<i class="ri-save-line"></i> Guardar`;
+      }
+    });
+  }
+
   // 1. Tab switching
   const tabs = document.querySelectorAll('.catalog-tab');
   const panes = document.querySelectorAll('.catalog-tab-pane');
@@ -6145,6 +6557,31 @@ async function renderAdminCatalogWorkspace(commerce) {
     const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
     workspace.innerHTML = `
+      <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.2rem; color: var(--color-text-main); font-size: 0.9rem;">
+            <i class="ri-settings-4-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Plataforma Principal de Ventas (Catálogo Maestro)
+          </label>
+          <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Establece la plataforma de donde proviene tu catálogo maestro de productos.
+          </p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <select id="eq-main-platform-select" class="form-input" style="min-width: 180px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; height: 34px; font-size: 0.85rem;">
+            <option value="" ${mainPlatform === '' ? 'selected' : ''}>Ninguna (Usar WMS)</option>
+            <option value="Shopify" ${mainPlatform === 'Shopify' ? 'selected' : ''}>Shopify</option>
+            <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
+            <option value="Falabella" ${mainPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
+            <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
+            <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
+            <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+          </select>
+          <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-md); padding: 0.45rem 1rem; font-weight: 500; height: 34px; font-size: 0.85rem;">
+            <i class="ri-save-line"></i> Guardar
+          </button>
+        </div>
+      </div>
+
       <div class="integration-tabs" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0px;">
         <button class="integration-tab catalog-tab active" data-tab="tab-catalog-master" style="padding: 0.75rem 1.5rem; border: none; background: transparent; border-bottom: 2px solid var(--color-primary); color: var(--color-text-main); font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-list-check"></i> Catálogo Master
@@ -9579,6 +10016,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       else if (pLower.includes('mercadolibre') || pLower.includes('meli')) src = 'img/mercadolibre.png';
       else if (pLower.includes('paris')) src = 'img/paris.png';
       else if (pLower.includes('woocommerce')) src = 'img/woocommerce.png';
+      else if (pLower.includes('walmart')) src = 'img/walmart.png';
       
       if (src) {
         return `<img src="${src}" alt="${platform}" style="height: 24px; max-height: 24px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
@@ -15325,38 +15763,197 @@ window.clearPendingInvoiceFilters = function() {
 })();
 
 window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
-  const invoiceNumStr = prompt('Introduce el Número de Factura emitida:');
-  if (invoiceNumStr === null) return;
-  const num = parseInt(invoiceNumStr.trim(), 10);
-  if (isNaN(num) || num <= 0) {
-    alert('Número de factura no válido.');
-    return;
-  }
-  
   showSavingBadge(true);
   try {
-    const updateObj = {};
-    if (serviceType === 'fulfillment') {
-      updateObj.factura_fulfillment = 'Emitida';
-      updateObj.num_factura = num;
-    } else {
-      updateObj.factura_enviame = 'Emitida';
-      updateObj.num_factura_enviame = num;
-    }
-    
-    const { error } = await supabase
+    // 1. Obtener detalles del registro de facturación
+    const { data: record, error: getRecErr } = await supabase
       .from('billing_records')
-      .update(updateObj)
-      .eq('id', recordId);
+      .select('*, billing_periods(name)')
+      .eq('id', recordId)
+      .single();
       
-    if (error) throw error;
-    
-    alert('Factura registrada con éxito.');
-    await refreshDashboardData();
+    if (getRecErr) throw getRecErr;
+    if (!record) throw new Error('No se encontró el registro de facturación.');
+
+    showSavingBadge(false);
+
+    // 2. Crear y renderizar el modal
+    let modal = document.getElementById('modal-register-dashboard-invoice');
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = 'modal-register-dashboard-invoice';
+    modal.className = 'modal-overlay active';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 450px; width: 90%;">
+        <div class="modal-header">
+          <h3><i class="ri-file-add-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Registrar Factura Oficial</h3>
+          <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+        </div>
+        <form id="form-register-dashboard-invoice">
+          <div class="modal-body" style="padding: 1.25rem;">
+            <div style="font-size: 0.8rem; background: rgba(37, 99, 235, 0.05); color: var(--color-primary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.15); margin-bottom: 1.25rem; line-height: 1.45;">
+              Registrando factura de <strong>${serviceType === 'fulfillment' ? 'Fulfillment' : 'Courier Envíame'}</strong> para <strong>${record.comercio}</strong> (${record.billing_periods?.name || ''}).
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Número de Factura</label>
+              <input type="number" id="reg-invoice-num" class="form-input" placeholder="Ej: 12345" min="1" required style="width: 100%; box-sizing: border-box; height: 38px; border-radius: var(--radius-sm);">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.25rem;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Archivo Factura PDF (Opcional)</label>
+              <input type="file" id="reg-invoice-file" accept=".pdf" class="form-input" style="width: 100%; border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; background: var(--color-surface); font-size: 0.8rem; height: 38px; border-radius: var(--radius-sm); box-sizing: border-box;">
+              <p style="font-size: 0.7rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Si subes la factura, el cliente podrá verla y descargarla desde su portal.</p>
+            </div>
+
+            <!-- Selector de Envío de Aviso Automático -->
+            <div class="form-group" style="margin-top: 1.5rem; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(16, 185, 129, 0.05); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.15);">
+              <input type="checkbox" id="reg-invoice-notify" checked style="width: 18px; height: 18px; margin: 0; accent-color: var(--color-success); cursor: pointer;">
+              <label for="reg-invoice-notify" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; user-select: none; margin: 0;">
+                Enviar automáticamente aviso de factura emitida por correo (Brevo)
+              </label>
+            </div>
+          </div>
+          <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-reg-invoice"><i class="ri-save-line"></i> Guardar y Confirmar</button>
+          </div>
+        </form>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // 3. Configurar el manejador del envío del formulario
+    const form = document.getElementById('form-register-dashboard-invoice');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btnSubmit = document.getElementById('btn-submit-reg-invoice');
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Registrando...';
+
+      try {
+        const num = parseInt(document.getElementById('reg-invoice-num').value.trim(), 10);
+        if (isNaN(num) || num <= 0) {
+          alert('Número de factura no válido.');
+          btnSubmit.disabled = false;
+          btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar y Confirmar';
+          return;
+        }
+
+        const fileInput = document.getElementById('reg-invoice-file');
+        const notifyCheckbox = document.getElementById('reg-invoice-notify');
+
+        const updates = {
+          updated_at: new Date().toISOString()
+        };
+
+        // A. Subir PDF si se seleccionó uno
+        if (fileInput && fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const storagePath = `billing_files/${recordId}_factura_${serviceType}_${Date.now()}_${sanitizedName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('payment_receipts')
+            .upload(storagePath, file);
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage
+            .from('payment_receipts')
+            .getPublicUrl(storagePath);
+
+          if (serviceType === 'fulfillment') {
+            updates.factura_fulfillment_pdf_url = urlData.publicUrl;
+          } else {
+            updates.factura_enviame_pdf_url = urlData.publicUrl;
+          }
+        }
+
+        // B. Actualizar número de factura y estado de facturación
+        if (serviceType === 'fulfillment') {
+          updates.factura_fulfillment = 'Emitida';
+          updates.num_factura = num;
+        } else {
+          updates.factura_enviame = 'Emitida';
+          updates.num_factura_enviame = num;
+        }
+
+        const { error: saveError } = await supabase
+          .from('billing_records')
+          .update(updates)
+          .eq('id', recordId);
+
+        if (saveError) throw saveError;
+
+        // C. Enviar notificación automática por correo si corresponde
+        if (notifyCheckbox && notifyCheckbox.checked) {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const res = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                  recordId,
+                  serviceType,
+                  emails: [],
+                  customMessage: 'Factura oficial emitida.',
+                  emailType: 'invoice_uploaded'
+                })
+              });
+
+              if (res.ok) {
+                // Actualizar la fecha de última notificación
+                await supabase
+                  .from('billing_records')
+                  .update({ last_notified_at: new Date().toISOString() })
+                  .eq('id', recordId);
+              } else {
+                const errJson = await res.json().catch(() => ({}));
+                console.error('Error al enviar correo de notificación:', errJson.error || res.statusText);
+              }
+            }
+          } catch (e) {
+            console.warn('Fallo al disparar notificación de correo automática:', e);
+          }
+        }
+
+        modal.remove();
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Factura registrada',
+          text: 'La factura ha sido registrada exitosamente y se actualizó el panel.',
+          confirmButtonText: 'Aceptar',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+
+        // D. Actualizar panel de Tareas Pendientes
+        await refreshDashboardData();
+
+        // E. Recargar tabla de facturación principal del periodo
+        const periodId = record.period_id;
+        const body = document.getElementById(`period-body-${periodId}`);
+        if (body) {
+          await loadBillingRecords(periodId, body);
+        }
+
+      } catch (err) {
+        console.error('Error in markDashboardInvoiceAsIssued submit:', err);
+        alert('Error al registrar factura: ' + err.message);
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar y Confirmar';
+      }
+    });
+
   } catch (err) {
-    console.error(err);
-    alert('Error al registrar factura: ' + err.message);
-  } finally {
+    console.error('Error in markDashboardInvoiceAsIssued:', err);
+    alert('Error al cargar datos del registro: ' + err.message);
     showSavingBadge(false);
   }
 };

@@ -170,30 +170,29 @@ async function run() {
     }
   });
 
-  // Wait for filter selector to appear in DOM
-  console.log("Waiting for origin filter dropdown selector...");
-  const selectElement = await page.waitForSelector('#filter-client-origen', { timeout: 15000 });
+  // Wait for selector to appear in DOM
+  console.log("Waiting for Crear Pedido button...");
+  const newOrderBtn = await page.waitForSelector('#btn-new-order', { timeout: 15000 });
   
-  // Select "Shopify"
-  console.log("Selecting Shopify in dropdown...");
-  await selectElement.selectOption('Shopify');
+  // Click "Crear Pedido"
+  console.log("Opening new manual order modal...");
+  await newOrderBtn.click();
 
-  // Wait 6 seconds for filtering and rendering to complete
-  console.log("Waiting 6 seconds for rendering...");
-  await page.waitForTimeout(6000);
+  // Wait for product search input
+  console.log("Waiting for product search input inside modal...");
+  const searchInput = await page.waitForSelector('#order-product-search', { timeout: 5000 });
+  console.log("Product search input found successfully!");
 
-  // Take a screenshot of the rendered page
-  console.log("Taking screenshot...");
-  const screenshotPath = path.join(__dirname, '..', 'downloads', 'test_render.png');
-  await page.screenshot({ path: screenshotPath, fullPage: true });
+  // Let's try typing a product name
+  console.log("Typing 'Grano' in product search...");
+  await searchInput.type('Grano');
+  await page.waitForTimeout(1000);
+
+  // Take a screenshot of the modal
+  console.log("Taking screenshot of manual order modal...");
+  const screenshotPath = path.join(__dirname, '..', 'downloads', 'test_modal.png');
+  await page.screenshot({ path: screenshotPath });
   console.log(`Screenshot saved to ${screenshotPath}`);
-
-  // Let's extract and print the table rows innerText
-  const rowsText = await page.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll('#client-orders-tbody tr.order-row'));
-    return rows.map(r => r.querySelector('td:nth-child(3)').innerText);
-  });
-  console.log("Rendered rows with Shopify filter in browser:", rowsText);
 
   // 9. Clean up
   console.log("Shutting down browser and server...");

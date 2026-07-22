@@ -776,6 +776,188 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'out_of_stock') {
+      const sku = payload.sku || 'N/A';
+      const productName = payload.productName || 'N/A';
+      emailSubject = `[ALERTA STOCK] Producto Agotado - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #ef4444, #b91c1c)';
+      emailTitle = 'Alerta de Producto Agotado';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo de <strong>${commerceName}</strong>,<br><br>
+          Te informamos que un producto en tu inventario WMS se ha quedado sin stock disponible:
+        </div>
+        <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">SKU:</td><td style="padding: 8px 0; font-weight: 700; color: #b91c1c;">${sku}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: 600;">Producto:</td><td style="padding: 8px 0; font-weight: 600;">${productName}</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 600;">Detalle:</td><td style="padding: 8px 0;">El stock disponible en sistema ha llegado a 0.</td></tr>
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Gestión:</strong> Puedes reabastecer inventario creando una nueva declaración en el módulo <strong>Ingresos de Stock</strong>.
+        </div>
+      `;
+    }
+    else if (emailType === 'critical_stock_report') {
+      const reportHtml = payload.reportHtml || '<p style="color:#64748b; font-size:13.5px;">No se encontraron productos en nivel crítico.</p>';
+      emailSubject = `[REPORTE] Productos en Nivel Crítico - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #f59e0b, #d97706)';
+      emailTitle = 'Reporte de Productos en Nivel Crítico';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          A continuación, te presentamos el reporte periódico de productos que se encuentran agotados o cercanos al nivel crítico establecido en tu catálogo:
+        </div>
+        <div style="margin-bottom: 20px;">
+          ${reportHtml}
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #fffbeb; border: 1px solid #fef3c7; color: #78350f; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          <strong>Consejo:</strong> Puedes modificar las cantidades críticas ingresando a la vista del catálogo de productos y editando las propiedades de cada SKU.
+        </div>
+      `;
+    }
+    else if (emailType === 'incident_report') {
+      const incidentTitle = payload.incidentTitle || 'N/A';
+      const incidentType = payload.incidentType || 'N/A';
+      const incidentSeverity = payload.incidentSeverity || 'N/A';
+      const incidentDescription = payload.incidentDescription || 'N/A';
+      
+      emailSubject = `[NUEVA INCIDENCIA] Registro de Incidencia en Portal - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #3b82f6, #1d4ed8)';
+      emailTitle = 'Nueva Incidencia Registrada';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo de <strong>${commerceName}</strong>,<br><br>
+          Se ha registrado una nueva incidencia en tu portal WMS relacionada con tus operaciones:
+        </div>
+        <div style="background-color: #eff6ff; border: 1px solid #dbeafe; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">Título:</td><td style="padding: 8px 0; font-weight: 700; color: #1d4ed8;">${incidentTitle}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Tipo:</td><td style="padding: 8px 0;">${incidentType}</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Severidad:</td><td style="padding: 8px 0; font-weight: 600;">${incidentSeverity}</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 600;">Detalle:</td><td style="padding: 8px 0; font-style: italic;">${incidentDescription}</td></tr>
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          Puedes revisar o comentar esta incidencia ingresando directamente al módulo de <strong>Incidencias</strong> en la plataforma.
+        </div>
+      `;
+    }
+    else if (emailType === 'volume_alert') {
+      const currentVolume = payload.currentVolume || '0';
+      const minVolumeLimit = payload.minVolumeLimit || 'No definido';
+      const maxVolumeLimit = payload.maxVolumeLimit || 'No definido';
+
+      emailSubject = `[ALERTA VOLUMEN] Nivel de volumen de stock - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+      emailTitle = 'Alerta de Nivel de Volumen';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo de <strong>${commerceName}</strong>,<br><br>
+          Te notificamos que el volumen de tu stock total almacenado en bodega se encuentra fuera de los límites deseables:
+        </div>
+        <div style="background-color: #f5f3ff; border: 1px solid #eedeff; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600; width: 50%;">Volumen Actual Almacenado:</td><td style="padding: 8px 0; font-weight: 700; color: #6d28d9;">${currentVolume} m³</td></tr>
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Límite Mínimo Configurado:</td><td style="padding: 8px 0;">${minVolumeLimit} m³</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 600;">Límite Máximo Configurado:</td><td style="padding: 8px 0;">${maxVolumeLimit} m³</td></tr>
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          Puedes revisar el desglose por producto y el historial del volumen en el módulo de <strong>Volumen Diario</strong>.
+        </div>
+      `;
+    }
+    else if (emailType === 'weekly_sales_report') {
+      const salesHtml = payload.salesHtml || '<p style="color:#64748b; font-size:13.5px;">No se registraron ventas en este período.</p>';
+      emailSubject = `[REPORTE] Ventas Semanales de Pedidos - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #10b981, #059669)';
+      emailTitle = 'Reporte Semanal de Ventas';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Aquí tienes el resumen semanal de las ventas y pedidos procesados en la plataforma, desglosado por canal de origen:
+        </div>
+        <div style="margin-bottom: 20px;">
+          ${salesHtml}
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          Para ver el listado detallado de pedidos por fecha, estado y canal, entra al módulo de <strong>Pedidos</strong>.
+        </div>
+      `;
+    }
+    else if (emailType === 'monthly_activity_report') {
+      const activityHtml = payload.activityHtml || '<p style="color:#64748b; font-size:13.5px;">Sin actividad registrada en el período.</p>';
+      emailSubject = `[REPORTE] Resumen Mensual de Despachos y Devoluciones - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #3b82f6, #2563eb)';
+      emailTitle = 'Resumen Mensual de Actividad';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          Te presentamos el informe mensual consolidado de despachos realizados y devoluciones de logística inversa gestionadas:
+        </div>
+        <div style="margin-bottom: 20px;">
+          ${activityHtml}
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          Este reporte mensual consolida la actividad útil para el control administrativo de fulfillment y logística de devoluciones.
+        </div>
+      `;
+    }
+    else if (emailType === 'order_no_stock_alert') {
+      const orderId = payload.orderId || 'N/A';
+      const orderSource = payload.orderSource || 'N/A';
+      const missingProductsList = payload.missingProductsList || 'N/A';
+
+      emailSubject = `[ALERTA PEDIDO] Pedido sin stock disponible - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #ef4444, #dc2626)';
+      emailTitle = 'Alerta de Pedido Sin Stock';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo de <strong>${commerceName}</strong>,<br><br>
+          Te notificamos que un nuevo pedido ingresado al sistema no se ha podido procesar debido a falta de stock de uno o más de sus productos:
+        </div>
+        <div style="background-color: #fef2f2; border: 1px solid #fee2e2; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">ID Pedido:</td><td style="padding: 8px 0; font-weight: 700; color: #dc2626;">${orderId}</td></tr>
+            <tr style="border-bottom: 1px solid #f1f5f9;"><td style="padding: 8px 0; font-weight: 600;">Canal Origen:</td><td style="padding: 8px 0;">${orderSource}</td></tr>
+            <tr><td style="padding: 8px 0; font-weight: 600;">Productos Faltantes:</td><td style="padding: 8px 0; font-weight: 600; color: #b91c1c;">${missingProductsList}</td></tr>
+          </table>
+        </div>
+      `;
+
+      mainNoticeHtml = `
+        <div style="margin-top: 25px; padding: 15px; background-color: #f8fafc; border: 1px solid #e2e8f0; color: #475569; border-radius: 8px; font-size: 13px; line-height: 1.6;">
+          Te recomendamos ingresar stock de estos productos o revisar la orden en el módulo de <strong>Pedidos</strong>.
+        </div>
+      `;
+    }
     else {
       if (resolvedServiceType === 'fulfillment') {
         emailSubject = `[Facturación] Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
@@ -868,7 +1050,21 @@ serve(async (req) => {
 </html>
       `;
 
-    const useInfoSender = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created'].includes(emailType);
+    const infoSenderTypes = [
+      'onboarding_received', 
+      'onboarding_approved', 
+      'onboarding_observed', 
+      'onboarding_admin_notification', 
+      'stock_inbound_created',
+      'out_of_stock',
+      'critical_stock_report',
+      'incident_report',
+      'volume_alert',
+      'weekly_sales_report',
+      'monthly_activity_report',
+      'order_no_stock_alert'
+    ];
+    const useInfoSender = infoSenderTypes.includes(emailType);
     const finalRecipients = emailType === 'stock_inbound_created' ? ["stockachile@gmail.com"] : recipientEmails;
 
     const brevoPayload = {
