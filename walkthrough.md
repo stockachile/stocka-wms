@@ -491,3 +491,18 @@ Hemos unificado la caja de búsqueda y el listado de resultados en un único com
      * **Selección con un clic:** Al hacer clic en cualquier opción sugerida, el valor visual se asigna al input de búsqueda (ej: *SKU - Nombre (Precio)*), el UUID se guarda en el campo oculto y el dropdown se cierra inmediatamente.
      * **Cerrar al hacer clic fuera:** Si el usuario hace clic en cualquier otra parte de la pantalla fuera del buscador o del menú flotante, el dropdown se cierra de manera limpia.
      * **Reinicio Automático:** Al hacer clic en "Añadir", el valor seleccionado y el campo de búsqueda se limpian por completo y el dropdown vuelve a ocultarse para permitir un nuevo ingreso limpio.
+
+---
+
+## 26. Automatización de Sincronización y Sincronización Manual para Shopify
+
+Para garantizar que los pedidos de Shopify (como `HIT1017`) ingresen y se actualicen sin interrupciones, hemos implementado el motor de sincronización automática y manual para esta plataforma:
+
+1. **Flujo de Trabajo Automatizado (Cron Job):**
+   - Creamos el archivo de workflow de GitHub Actions [sync_shopify.yml](file:///c:/Users/felip/Desktop/WMS%20STOCKA/.github/workflows/sync_shopify.yml).
+   - Configura la ejecución periódica automática cada 30 minutos (`cron: '*/30 * * * *'`), inyectando de forma segura las credenciales y tokens del WMS desde los secretos de GitHub para procesar todos los pedidos recientes de tiendas Shopify activas.
+
+2. **Habilitación de Sincronización Manual:**
+   - En la función Edge de Supabase [sync-integrations/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/sync-integrations/index.ts), agregamos el mapeo para la plataforma `'Shopify'` asociándola a su respectivo archivo de workflow.
+   - En [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), incluimos `'Shopify'` en el listado de plataformas soportadas para sincronización manual (`supportManualSync`).
+   - Esto habilita el botón de **"Sincronizar"** en el panel de integraciones del administrador para las tiendas Shopify, permitiendo forzar la actualización inmediata en caliente desde la interfaz web.

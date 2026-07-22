@@ -3172,7 +3172,7 @@ async function renderIntegrations() {
           }
 
           // Botón para forzar sincronización manual (disponible en plataformas mapeadas en Edge Function)
-          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute', 'Walmart'].includes(mi.platform);
+          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute', 'Walmart', 'Shopify'].includes(mi.platform);
           if (supportManualSync && mi.is_active) {
             syncStatusHtml += `
               <div style="margin-top: 0.35rem;">
