@@ -744,3 +744,13 @@ Hemos implementado una nueva funcionalidad que permite asignar/cargar stock de m
      1. Actualiza el valor directo del inventario en `inventory` para asegurar la coincidencia exacta con el Excel.
      2. Inserta una transacción de ajuste en la tabla `movements` (con tipo `in` si la diferencia es positiva, u `out` si es negativa) bajo el documento de referencia `Carga Masiva Stock`.
    - Finalmente, se refresca automáticamente la grilla y el listado de inventario en la pantalla para reflejar los nuevos datos en tiempo real.
+
+5. **Asignación Directa de Bodega y Stock por Selección**:
+   - Para complementar la carga masiva mediante planillas Excel, hemos incorporado la funcionalidad de **Asignación Directa por Selección** en los paneles de Cliente (`js/app.js`) y Administrador (`js/admin.js`):
+     - **Selección Múltiple**: Se añadió una columna de casillas de verificación (checkboxes) y un control de selección global ("Seleccionar Todo") en los encabezados y filas de ambas grillas de inventario.
+     - **Acceso Rápido**: Un nuevo botón **`Asignar Bodega`** (de color acento) permite procesar de manera conjunta todos los productos seleccionados.
+     - **Modal Interactivo**: Al hacer clic, se abre una ventana modal donde el usuario puede:
+       1. Seleccionar la bodega destino.
+       2. Ver el stock físico actual que tiene cada producto seleccionado en la bodega de destino elegida (se actualiza automáticamente al cambiar de bodega).
+       3. Definir y ajustar directamente los nuevos niveles de stock para cada uno de los productos sin salir de la pantalla.
+     - **Actualización y Trazabilidad**: El sistema realiza las actualizaciones en lote en la tabla `inventory` e inserta los logs correspondientes en `movements` bajo el documento de referencia `Ajuste Manual Bodega`, refrescando la vista principal tras la confirmación.
