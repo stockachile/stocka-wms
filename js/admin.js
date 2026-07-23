@@ -249,7 +249,8 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     const order = window.loadedOrders.find(o => o.id === orderId);
     if (order) {
       order[field] = value;
-      if ((field === 'agenda' || field === 'sucursal_pickeo') && order.estado_wms === 'En preparación') {
+      const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number'];
+      if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación') {
         await window.propagateOrderUpdateToPicker(order);
       }
     }
@@ -20723,7 +20724,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: order.tracking_number || '',
-      operator: '',
+      operator: order.operador || '',
       totu: totu,
       sheet_status: 'Pendiente (Obs)',
       observation: `⚠️ [MODIFICADO] Pedido editado en WMS el [${shortDate}]. Por favor verificar ítems antes de escanear.`,
@@ -20778,7 +20779,7 @@ window.sendSingleOrderToPicker = async function(order) {
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: order.tracking_number || '',
-      operator: '',
+      operator: order.operador || '',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
       observation: order.observation || prod.description || '',
