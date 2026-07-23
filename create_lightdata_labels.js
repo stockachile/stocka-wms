@@ -544,8 +544,11 @@ async function handleBulkMode(limiteCarga) {
     console.log('📤 Subiendo archivo Excel a LightData...');
     await page.locator('#fileInputSubirEnviosNoflex').first().setInputFiles(excelPath);
 
-    // Esperar parseo del cliente
-    await page.waitForTimeout(3000);
+    // Esperar a que se oculte cualquier indicador de carga o modal de SweetAlert
+    console.log('⏳ Esperando procesamiento del archivo y cierre de modales de carga...');
+    await page.locator('#loadMe').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await page.locator('.swal2-container').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(2000);
 
     // Interceptar llamadas AJAX del procesamiento masivo
     let createdDidsStr = '';
