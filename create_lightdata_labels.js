@@ -34,6 +34,76 @@ if (!LIGHTDATA_USERNAME || !LIGHTDATA_PASSWORD || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
+const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
+const pickerSupabase = createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY);
+
+function getFechaProcesamiento() {
+  const d = new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${day}-${month}`;
+}
+
+async function sendSingleOrderToPicker(order) {
+  if (!pickerSupabase) return;
+
+  const orderNumber = String(order.external_order_number || order.id);
+  console.log(`📡 Enviando pedido ${orderNumber} al Picker (tracking: ${order.tracking_number})...`);
+
+  // Eliminar si ya existe para evitar duplicados
+  await pickerSupabase
+    .from('active_orders')
+    .delete()
+    .eq('order_number', orderNumber);
+
+  const items = order.order_items || [];
+  const totu = items.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+  const payloads = [];
+
+  for (const item of items) {
+    const prod = item.products || {};
+    const opt = prod.options || {};
+    payloads.push({
+      sucursal: order.sucursal_pickeo || 'Sucursal Virtual (Hub)',
+      order_number: orderNumber,
+      agenda: order.agenda || 'STK',
+      quantity: parseInt(item.quantity, 10) || 1,
+      sku: prod.sku || order.sku || 'SKU-TEMP',
+      name: prod.name || order.item || 'Producto WMS',
+      color: opt.color || null,
+      talla: opt.talla || opt.size || null,
+      manga: opt.manga || null,
+      cuello: opt.cuello || null,
+      client_name: order.customer_name || 'Sin nombre',
+      tracking: order.tracking_number || '',
+      operator: '',
+      totu: totu,
+      sheet_status: 'EN PREPARACIÓN',
+      observation: order.observation || prod.description || '',
+      contact_data_q: order.customer_email || '',
+      contact_data_r: order.customer_phone || '',
+      contact_data_s: order.shipping_address || '',
+      contact_data_t: order.shipping_city || '',
+      contact_data_u: order.shipping_complement || '',
+      extra_col_v: prod.image_url || '',
+      comercio: order.comercio || 'MAGIC MAKEUP',
+      created_by: 'Sistema WMS'
+    });
+  }
+
+  if (payloads.length > 0) {
+    const { error: insErr } = await pickerSupabase
+      .from('active_orders')
+      .insert(payloads);
+    if (insErr) {
+      console.error(`❌ Error al insertar en Picker para la orden ${orderNumber}:`, insErr.message);
+      throw insErr;
+    }
+    console.log(`✅ Pedido ${orderNumber} enviado correctamente al Picker con ${payloads.length} productos.`);
+  }
+}
+
 // Obtener argumentos de consola
 const args = {};
 process.argv.slice(2).forEach(arg => {
@@ -97,7 +167,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*')
+    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -370,20 +440,36 @@ async function handleIndividualMode(idPedido) {
 
     // Actualizar el pedido en Supabase
     console.log('📡 Actualizando pedido en Supabase...');
+    const fechaProcesamientoVal = getFechaProcesamiento();
+    const updatedOrderData = {
+      tracking_number: createdDid, // Usar el ID de LightData como tracking
+      courier: 'CARRIER EXTERNO',
+      label_base64: pdfBase64,
+      estado_wms: 'En preparación',
+      fecha_procesamiento: fechaProcesamientoVal,
+      agenda: 'RM',
+      operador: 'ALPHA'
+    };
+
     const { error: updateError } = await supabase
       .from('orders')
-      .update({
-        tracking_number: trackingCode,
-        courier: 'CARRIER EXTERNO',
-        label_base64: pdfBase64,
-        estado_wms: 'En preparación'
-      })
+      .update(updatedOrderData)
       .eq('id', idPedido);
 
     if (updateError) {
       console.error('❌ Error al guardar datos en Supabase:', updateError.message);
     } else {
       console.log('🎉 Sincronización individual completada con éxito.');
+      const mergedOrder = {
+        ...order,
+        ...updatedOrderData
+      };
+      // Enviar al sistema Picker
+      try {
+        await sendSingleOrderToPicker(mergedOrder);
+      } catch (pickerErr) {
+        console.error('❌ Error al enviar al sistema Picker:', pickerErr.message);
+      }
     }
 
     // Limpiar archivo temporal
@@ -404,7 +490,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
@@ -613,25 +699,47 @@ async function handleBulkMode(limiteCarga) {
     // Al ser una descarga consolidada, para simplificar y asegurar que todos los pedidos tengan la etiqueta disponible,
     // guardaremos la etiqueta consolidada completa en todos los registros procesados en este lote.
     console.log('📡 Actualizando pedidos en Supabase con sus números de tracking y etiqueta...');
-    
+    const fechaProcesamientoVal = getFechaProcesamiento();
+
     for (let index = 0; index < pendingOrders.length; index++) {
       const order = pendingOrders[index];
       const sigla = await getCommerceSigla(order.comercio);
       const cleanOrderNum = String(order.external_order_number || order.id).replace(/[^a-zA-Z0-9]/g, '');
       const trackingCode = `${sigla}${cleanOrderNum}`;
+      
+      const did = listDids[index] || '';
+      if (!did) {
+        console.warn(`⚠️ No se encontró did para el pedido ${order.external_order_number} en el índice ${index}, usando fallback trackingCode`);
+      }
+
+      const updatedOrderData = {
+        tracking_number: did || trackingCode, // Usar el ID de LightData (did) como tracking, o fallback
+        courier: 'CARRIER EXTERNO',
+        label_base64: consolidatedBase64,
+        estado_wms: 'En preparación',
+        fecha_procesamiento: fechaProcesamientoVal,
+        agenda: 'RM',
+        operador: 'ALPHA'
+      };
 
       const { error: updateError } = await supabase
         .from('orders')
-        .update({
-          tracking_number: trackingCode,
-          courier: 'CARRIER EXTERNO',
-          label_base64: consolidatedBase64, // Etiqueta base64 guardada
-          estado_wms: 'En preparación'
-        })
+        .update(updatedOrderData)
         .eq('id', order.id);
 
       if (updateError) {
         console.error(`⚠️ Error al actualizar orden ${order.external_order_number}:`, updateError.message);
+      } else {
+        const mergedOrder = {
+          ...order,
+          ...updatedOrderData
+        };
+        // Enviar al sistema Picker
+        try {
+          await sendSingleOrderToPicker(mergedOrder);
+        } catch (pickerErr) {
+          console.error(`❌ Error al enviar la orden ${order.external_order_number} al Picker:`, pickerErr.message);
+        }
       }
     }
 
