@@ -72,17 +72,41 @@ window.roundUpVolume = function(val) {
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
 };
 
-// Variable global para almacenar el valor de la UF del día
-window.currentUfValue = 37950; // Fallback predeterminado
-fetch('https://mindicador.cl/api/uf')
-  .then(res => res.json())
-  .then(data => {
-    if (data && data.serie && data.serie[0]) {
-      window.currentUfValue = parseFloat(data.serie[0].valor);
-      console.log('Valor UF de hoy cargado:', window.currentUfValue);
-    }
-  })
-  .catch(err => console.error('Error pre-cargando valor UF:', err));
+// Variable global para almacenar el valor de la UF del día con soporte de caché y respaldo offline
+const cachedBackupUf = localStorage.getItem('stocka-last-uf-backup');
+window.currentUfValue = cachedBackupUf ? parseFloat(cachedBackupUf) : 38200; // Fallback predeterminado actualizado a 2026
+
+const todayStr = new Date().toISOString().slice(0, 10);
+const cachedTodayUf = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
+
+if (cachedTodayUf && cachedTodayUf.date === todayStr && cachedTodayUf.numericValue) {
+  window.currentUfValue = cachedTodayUf.numericValue;
+  console.log('Valor UF de hoy cargado desde caché local:', window.currentUfValue);
+} else {
+  fetch('https://mindicador.cl/api/uf')
+    .then(res => res.json())
+    .then(data => {
+      if (data && data.serie && data.serie[0]) {
+        const val = parseFloat(data.serie[0].valor);
+        window.currentUfValue = val;
+        console.log('Valor UF de hoy cargado desde API:', window.currentUfValue);
+        
+        // Guardar para hoy
+        const formatted = val.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        localStorage.setItem('stocka-uf', JSON.stringify({ 
+          date: todayStr, 
+          value: `$${formatted}`,
+          numericValue: val 
+        }));
+        
+        // Guardar como respaldo de última UF conocida
+        localStorage.setItem('stocka-last-uf-backup', val.toString());
+      }
+    })
+    .catch(err => {
+      console.error('Error cargando valor UF desde API, usando respaldo:', err);
+    });
+}
 
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
@@ -1663,6 +1687,17 @@ async function renderCatalog() {
     const importBtn = (mainPlatform && !isObserver)
       ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
       : '';
+
+    const quickEditBtnStyle = window.catalogQuickEditMode
+      ? 'background-color: var(--color-success); color: white; border-color: var(--color-success); font-weight: 600;'
+      : 'border-color: var(--color-primary); color: var(--color-primary); background: transparent;';
+
+    const quickEditBtnHtml = isObserver ? '' : `
+      <button class="btn" id="btn-toggle-quick-edit" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; transition: all 0.2s; ${quickEditBtnStyle}">
+        <i class="${window.catalogQuickEditMode ? 'ri-save-line' : 'ri-edit-2-line'}"></i> 
+        ${window.catalogQuickEditMode ? 'Guardar Cambios Rápidos' : 'Edición Rápida'}
+      </button>
+    `;
     const excelActionsDropdown = isObserver ? '' : `
       <style>
         .excel-dropdown { position: relative; display: inline-block; margin-right: 0.5rem; }
@@ -1802,6 +1837,7 @@ async function renderCatalog() {
                 </div>
                 ${importBtn}
                 ${excelActionsDropdown}
+                ${quickEditBtnHtml}
                 ${createBtn}
               </div>
             </div>
@@ -15205,6 +15241,25 @@ function renderMasterCatalogRows(products) {
 
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
 
+    const initialStockCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem; text-align: center;">
+           <input type="number" class="quick-edit-stock form-input" data-id="${item.id}" data-old="${initialStock}" value="${initialStock}" style="width: 75px; text-align: center; padding: 0.25rem 0.5rem; height: 32px; font-size: 0.85rem; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem; text-align: center;"><strong>${initialStock}</strong></td>`;
+
+    const dimensionsCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div style="display: flex; gap: 0.25rem; align-items: center; font-size: 0.8rem;">
+             <span style="color: var(--color-text-muted);">L:</span>
+             <input type="number" step="any" class="quick-edit-length form-input" data-id="${item.id}" data-old="${item.length || ''}" value="${item.length || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <span style="color: var(--color-text-muted);">An:</span>
+             <input type="number" step="any" class="quick-edit-width form-input" data-id="${item.id}" data-old="${item.width || ''}" value="${item.width || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <span style="color: var(--color-text-muted);">Al:</span>
+             <input type="number" step="any" class="quick-edit-height form-input" data-id="${item.id}" data-old="${item.height || ''}" value="${item.height || ''}" style="width: 45px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+           </div>
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem;">${dimensions}</td>`;
+
     const unitVol = parseFloat(item.volumen || 0);
     const totalVol = unitVol * initialStock;
     const volumenHtml = (item.volumen !== null && item.volumen !== undefined)
@@ -15214,17 +15269,31 @@ function renderMasterCatalogRows(products) {
          </div>`
       : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">No def.</span>';
 
+    const volumenCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem;">
+             <div style="display: flex; gap: 0.25rem; align-items: center;">
+               <span style="color: var(--color-text-muted);">Vol (m³):</span>
+               <input type="number" step="any" class="quick-edit-volumen form-input" data-id="${item.id}" data-old="${item.volumen !== null && item.volumen !== undefined ? item.volumen : ''}" value="${item.volumen !== null && item.volumen !== undefined ? item.volumen : ''}" style="width: 75px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             </div>
+             <div class="quick-edit-total-vol-display" data-id="${item.id}" style="font-size: 0.75rem; color: var(--color-text-muted); padding-left: 0.25rem;">
+               Total: ${totalVol.toFixed(5)} m³
+             </div>
+           </div>
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem;">${volumenHtml}</td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
         <td style="padding: 0.45rem 0.75rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.45rem 0.75rem;">${item.name}</td>
         <td style="padding: 0.45rem 0.75rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
-        <td style="padding: 0.45rem 0.75rem; text-align: center;"><strong>${initialStock}</strong></td>
+        ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}</td>
-        <td style="padding: 0.45rem 0.75rem;">${dimensions}</td>
-        <td style="padding: 0.45rem 0.75rem;">${volumenHtml}</td>
+        ${dimensionsCell}
+        ${volumenCell}
         <td style="padding: 0.45rem 0.75rem;">${weight}</td>
         <td style="padding: 0.45rem 0.75rem;">${expAndLot}</td>
         <td style="padding: 0.45rem 0.75rem;">${actionBtn}</td>
@@ -15746,13 +15815,35 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const { data: userAuth } = await supabase.auth.getUser();
           const merchantId = userAuth.user.id;
 
-          const productsToInsert = syncedProds.map(sp => ({
-            merchant_id: merchantId,
-            comercio: commerce,
-            sku: sp.sku,
-            name: sp.name,
-            description: `Importado automáticamente de ${mainPlatform}`
-          }));
+          const productsToInsert = syncedProds.map(sp => {
+            const productRow = {
+              merchant_id: merchantId,
+              comercio: commerce,
+              sku: sp.sku,
+              name: sp.name,
+              price: parseFloat(sp.price) || 0,
+              image_url: sp.image_url || null,
+              description: `Importado automáticamente de ${mainPlatform}`
+            };
+
+            if (mainPlatform === 'Shopify') {
+              productRow.shopify_product_id = 'imported';
+            } else if (mainPlatform === 'MercadoLibre') {
+              productRow.raw_meli_data = {};
+            } else if (mainPlatform === 'Falabella') {
+              productRow.raw_falabella_data = {};
+            } else if (mainPlatform === 'Paris') {
+              productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'WooCommerce') {
+              productRow.raw_woocommerce_data = {};
+            } else if (mainPlatform === 'Jumpseller') {
+              productRow.raw_jumpseller_data = {};
+            } else if (mainPlatform === 'Walmart') {
+              productRow.raw_walmart_data = {};
+            }
+
+            return productRow;
+          });
 
           const { error: insErr } = await supabase
             .from('products')
@@ -16660,6 +16751,231 @@ function setupCatalogListeners(commerce, mainPlatform) {
       };
       reader.readAsArrayBuffer(file);
       e.target.value = '';
+    });
+  }
+
+  // 6.6. Toggle Quick Edit mode / Save Quick Changes
+  const btnToggleQuickEdit = document.getElementById('btn-toggle-quick-edit');
+  if (btnToggleQuickEdit) {
+    btnToggleQuickEdit.addEventListener('click', async () => {
+      if (!window.catalogQuickEditMode) {
+        // Habilitar edición rápida
+        window.catalogQuickEditMode = true;
+        // Re-renderizar la vista para que muestre los inputs
+        renderMasterCatalogRows(window.currentMasterProducts);
+        
+        btnToggleQuickEdit.style.backgroundColor = 'var(--color-success)';
+        btnToggleQuickEdit.style.color = 'white';
+        btnToggleQuickEdit.style.borderColor = 'var(--color-success)';
+        btnToggleQuickEdit.innerHTML = `<i class="ri-save-line"></i> Guardar Cambios Rápidos`;
+      } else {
+        // Guardar cambios
+        const stockInputs = document.querySelectorAll('.quick-edit-stock');
+        const changes = [];
+
+        stockInputs.forEach(input => {
+          const prodId = input.getAttribute('data-id');
+          const oldStock = parseInt(input.getAttribute('data-old') || '0', 10);
+          const newStock = parseInt(input.value || '0', 10);
+
+          const lenInput = document.querySelector(`.quick-edit-length[data-id="${prodId}"]`);
+          const widInput = document.querySelector(`.quick-edit-width[data-id="${prodId}"]`);
+          const heiInput = document.querySelector(`.quick-edit-height[data-id="${prodId}"]`);
+
+          const oldLength = lenInput ? parseFloat(lenInput.getAttribute('data-old') || '0') : 0;
+          const newLength = lenInput ? parseFloat(lenInput.value || '0') : 0;
+
+          const oldWidth = widInput ? parseFloat(widInput.getAttribute('data-old') || '0') : 0;
+          const newWidth = widInput ? parseFloat(widInput.value || '0') : 0;
+
+          const oldHeight = heiInput ? parseFloat(heiInput.getAttribute('data-old') || '0') : 0;
+          const newHeight = heiInput ? parseFloat(heiInput.value || '0') : 0;
+
+          const volInput = document.querySelector(`.quick-edit-volumen[data-id="${prodId}"]`);
+          const oldVol = volInput && volInput.getAttribute('data-old') ? window.roundUpVolume(parseFloat(volInput.getAttribute('data-old'))) : null;
+          const newVol = volInput && volInput.value ? window.roundUpVolume(parseFloat(volInput.value)) : null;
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol) {
+            changes.push({
+              prodId,
+              oldStock,
+              newStock,
+              oldLength,
+              newLength,
+              oldWidth,
+              newWidth,
+              oldHeight,
+              newHeight,
+              oldVol,
+              newVol
+            });
+          }
+        });
+
+        if (changes.length === 0) {
+          // No hay cambios, desactivar edición rápida
+          window.catalogQuickEditMode = false;
+          renderCatalog();
+          return;
+        }
+
+        if (!confirm(`¿Estás seguro que deseas aplicar los cambios a los ${changes.length} productos modificados?`)) {
+          return;
+        }
+
+        btnToggleQuickEdit.disabled = true;
+        btnToggleQuickEdit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Guardando...`;
+
+        try {
+          // Obtener la Bodega Central
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+
+          if (!bodegaCentral) {
+            throw new Error('No se encontró la Bodega Central en el sistema.');
+          }
+
+          // Ejecutar actualizaciones en paralelo
+          const updatePromises = changes.map(async (ch) => {
+            // 1. Actualizar dimensiones y volumen en products
+            const { error: prodErr } = await supabase
+              .from('products')
+              .update({
+                length: ch.newLength || null,
+                width: ch.newWidth || null,
+                height: ch.newHeight || null,
+                largo: ch.newLength || null,
+                ancho: ch.newWidth || null,
+                alto: ch.newHeight || null,
+                volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null
+              })
+              .eq('id', ch.prodId);
+
+            if (prodErr) throw prodErr;
+
+            // 2. Si el stock inicial cambió, actualizar inventario y movimiento histórico
+            if (ch.oldStock !== ch.newStock) {
+              const diff = ch.newStock - ch.oldStock;
+
+              // Actualizar o insertar inventario en Bodega Central
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', ch.prodId)
+                .eq('warehouse_id', bodegaCentral.id)
+                .maybeSingle();
+
+              if (invRecord) {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                  .eq('id', invRecord.id);
+                if (invErr) throw invErr;
+              } else {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: ch.prodId,
+                    warehouse_id: bodegaCentral.id,
+                    quantity: ch.newStock
+                  }]);
+                if (invErr) throw invErr;
+              }
+
+              // Actualizar o insertar movimiento de "Stock Inicial"
+              const { data: movRecord } = await supabase
+                .from('movements')
+                .select('id')
+                .eq('product_id', ch.prodId)
+                .eq('reference_doc', 'Stock Inicial')
+                .limit(1)
+                .maybeSingle();
+
+              if (ch.newStock > 0) {
+                if (movRecord) {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .update({ quantity: ch.newStock })
+                    .eq('id', movRecord.id);
+                  if (movErr) throw movErr;
+                } else {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .insert([{
+                      product_id: ch.prodId,
+                      warehouse_id: bodegaCentral.id,
+                      type: 'in',
+                      quantity: ch.newStock,
+                      reference_doc: 'Stock Inicial'
+                    }]);
+                  if (movErr) throw movErr;
+                }
+              } else {
+                if (movRecord) {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .delete()
+                    .eq('id', movRecord.id);
+                  if (movErr) throw movErr;
+                }
+              }
+            }
+          });
+
+          await Promise.all(updatePromises);
+          alert('¡Cambios rápidos guardados exitosamente!');
+        } catch (err) {
+          console.error(err);
+          alert('Error al guardar cambios rápidos: ' + err.message);
+        } finally {
+          window.catalogQuickEditMode = false;
+          renderCatalog();
+        }
+      }
+    });
+  }
+
+  // Real-time calculation and totals update for quick-edit mode
+  const masterTbody = document.getElementById('catalog-master-tbody');
+  if (masterTbody) {
+    masterTbody.addEventListener('input', (e) => {
+      if (e.target.classList.contains('quick-edit-length') || 
+          e.target.classList.contains('quick-edit-width') || 
+          e.target.classList.contains('quick-edit-height')) {
+        const prodId = e.target.getAttribute('data-id');
+        const lenVal = parseFloat(document.querySelector(`.quick-edit-length[data-id="${prodId}"]`)?.value) || 0;
+        const widVal = parseFloat(document.querySelector(`.quick-edit-width[data-id="${prodId}"]`)?.value) || 0;
+        const heiVal = parseFloat(document.querySelector(`.quick-edit-height[data-id="${prodId}"]`)?.value) || 0;
+        const volInput = document.querySelector(`.quick-edit-volumen[data-id="${prodId}"]`);
+        if (volInput) {
+          if (lenVal > 0 && widVal > 0 && heiVal > 0) {
+            const calculated = (lenVal * widVal * heiVal) / 1000000;
+            volInput.value = window.roundUpVolume(calculated).toFixed(5);
+          }
+        }
+        
+        // Also update total volume display
+        const stockVal = parseInt(document.querySelector(`.quick-edit-stock[data-id="${prodId}"]`)?.value) || 0;
+        const volVal = parseFloat(volInput?.value) || 0;
+        const totalDisplay = document.querySelector(`.quick-edit-total-vol-display[data-id="${prodId}"]`);
+        if (totalDisplay) {
+          totalDisplay.textContent = `Total: ${(volVal * stockVal).toFixed(5)} m³`;
+        }
+      }
+
+      if (e.target.classList.contains('quick-edit-stock') || e.target.classList.contains('quick-edit-volumen')) {
+        const prodId = e.target.getAttribute('data-id');
+        const stockVal = parseInt(document.querySelector(`.quick-edit-stock[data-id="${prodId}"]`)?.value) || 0;
+        const volVal = parseFloat(document.querySelector(`.quick-edit-volumen[data-id="${prodId}"]`)?.value) || 0;
+        const totalDisplay = document.querySelector(`.quick-edit-total-vol-display[data-id="${prodId}"]`);
+        if (totalDisplay) {
+          totalDisplay.textContent = `Total: ${(volVal * stockVal).toFixed(5)} m³`;
+        }
+      }
     });
   }
 
@@ -18647,10 +18963,10 @@ async function openPendingDetailModal(sku, name) {
             <i class="ri-loader-4-line" style="color: var(--color-primary);"></i> Detalle de Stock Pendiente de Ingreso
           </h3>
           <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
-            \${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>\${sku}</strong>
+            ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong>
           </p>
         </div>
-        <button class="modal-close" onclick="document.getElementById('\${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
+        <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
       </div>
       <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="pending-detail-modal-body">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
@@ -18659,7 +18975,7 @@ async function openPendingDetailModal(sku, name) {
         </div>
       </div>
       <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('\${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="border-radius: var(--radius-md); font-weight: 500;">Cerrar</button>
       </div>
     </div>
   `;
@@ -18698,7 +19014,7 @@ async function openPendingDetailModal(sku, name) {
             title: dec.title,
             status: dec.status,
             eta: dec.estimated_arrival_type === 'exact' 
-              ? `\${dec.estimated_arrival_date.split('-')[2]}/\${dec.estimated_arrival_date.split('-')[1]}/\${dec.estimated_arrival_date.split('-')[0]}`
+              ? `${dec.estimated_arrival_date.split('-')[2]}/${dec.estimated_arrival_date.split('-')[1]}/${dec.estimated_arrival_date.split('-')[0]}`
               : dec.estimated_arrival_period,
             qty: match.qty
           });
@@ -18719,12 +19035,12 @@ async function openPendingDetailModal(sku, name) {
     let rowsHtml = matchingDecs.map(item => {
       return `
         <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.85rem;">
-          <td style="padding: 0.75rem 1rem;"><strong>\${item.title}</strong></td>
-          <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">\${item.eta}</td>
+          <td style="padding: 0.75rem 1rem;"><strong>${item.title}</strong></td>
+          <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">${item.eta}</td>
           <td style="padding: 0.75rem 1rem;">
-            <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-size: 0.75rem;">\${item.status}</span>
+            <span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text); font-size: 0.75rem;">${item.status}</span>
           </td>
-          <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 600; color: var(--color-primary);">\${item.qty.toLocaleString()}</td>
+          <td style="padding: 0.75rem 1rem; text-align: right; font-weight: 600; color: var(--color-primary);">${item.qty.toLocaleString()}</td>
         </tr>
       `;
     }).join('');
@@ -18740,7 +19056,7 @@ async function openPendingDetailModal(sku, name) {
           </tr>
         </thead>
         <tbody>
-          \${rowsHtml}
+          ${rowsHtml}
         </tbody>
       </table>
     `;
@@ -18749,7 +19065,7 @@ async function openPendingDetailModal(sku, name) {
     console.error('Error fetching pending details:', err);
     const modalBody = document.getElementById('pending-detail-modal-body');
     if (modalBody) {
-      modalBody.innerHTML = `<p style="color: var(--color-danger); text-align: center; padding: 2rem;">Error al buscar detalles: \${err.message}</p>`;
+      modalBody.innerHTML = `<p style="color: var(--color-danger); text-align: center; padding: 2rem;">Error al buscar detalles: ${err.message}</p>`;
     }
   }
 }

@@ -261,7 +261,10 @@ async function syncShopifyProducts(integration: any): Promise<number> {
         comercio: integration.comercio,
         platform: "Shopify",
         sku: variant.sku || variant.id.toString(),
-        name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`
+        name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
+        image_url: imageUrl || null,
+        status: productStatus,
+        price: parseFloat(variant.price) || 0
       };
 
       // Realizamos upsert con la clave de servicio (bypass RLS)
