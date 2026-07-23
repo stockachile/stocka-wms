@@ -1037,7 +1037,77 @@ serve(async (req) => {
       `;
     }
 
-    const htmlBody = `
+    const infoSenderTypes = [
+      'onboarding_received', 
+      'onboarding_approved', 
+      'onboarding_observed', 
+      'onboarding_admin_notification', 
+      'stock_inbound_created',
+      'out_of_stock',
+      'critical_stock_report',
+      'incident_report',
+      'volume_alert',
+      'weekly_sales_report',
+      'monthly_activity_report',
+      'order_no_stock_alert'
+    ];
+    const useInfoSender = infoSenderTypes.includes(emailType);
+    const finalRecipients = emailType === 'stock_inbound_created' ? ["stockachile@gmail.com"] : recipientEmails;
+
+    let htmlBody = '';
+    
+    if (useInfoSender) {
+      // Corporativo Stocka (Purple / System / Operations)
+      htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0; -webkit-font-smoothing: antialiased;">
+  <div style="width: 100%; background-color: #f3f4f6; padding: 40px 0;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e5e7eb; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02); overflow: hidden;">
+      
+      <!-- BRAND ACCENT BAR -->
+      <div style="height: 6px; background: linear-gradient(90deg, #5e17eb, #8b5cf6);"></div>
+
+      <!-- HEADER MINIMALISTA CORPORATIVO -->
+      <div style="padding: 35px 30px 15px 30px; text-align: center; background-color: #ffffff;">
+        <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="Stocka Logo" style="height: 48px; margin-bottom: 20px; display: inline-block;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #1e1b4b; letter-spacing: -0.5px;">${emailTitle}</h1>
+        <p style="margin: 6px 0 0 0; font-size: 13.5px; font-weight: 500; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">${commerceName}</p>
+      </div>
+      
+      <!-- CONTENT -->
+      <div style="padding: 10px 30px 30px 30px;">
+        ${emailBodyHtml}
+        
+        ${customMsgHtml}
+        
+        <!-- BUTTON ACCEDER A WMS STOCKA (Explicit inline color with !important to prevent email client override) -->
+        <div style="text-align: center; margin: 25px 0;">
+          <a href="https://stocka-wms.netlify.app/dashboard.html" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff !important; padding: 12px 28px; font-size: 15px; font-weight: 600; border-radius: 8px; text-decoration: none; text-align: center; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">Acceder a WMS Stocka</a>
+        </div>
+        
+        ${mainNoticeHtml}
+      </div>
+      
+      <!-- FOOTER -->
+      <div style="background-color: #f9fafb; padding: 30px 20px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #f3f4f6; line-height: 1.6;">
+        <strong style="color: #111827; font-size: 13px;">Stocka SpA</strong><br>
+        Fulfillment & Soporte Logístico para Ecommerce<br>
+        Campo de Deportes 405, Ñuñoa.<br>
+        <span style="display: block; margin-top: 12px; font-size: 11px; color: #9ca3af;">¿Tienes dudas? Escríbenos a: <a href="mailto:info@stocka.cl" style="color: #5e17eb; text-decoration: none; font-weight: 700;">info@stocka.cl</a></span>
+      </div>
+      
+    </div>
+  </div>
+</body>
+</html>
+      `;
+    } else {
+      // Facturación Tradicional (Blue / Finance)
+      htmlBody = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -1081,23 +1151,7 @@ serve(async (req) => {
 </body>
 </html>
       `;
-
-    const infoSenderTypes = [
-      'onboarding_received', 
-      'onboarding_approved', 
-      'onboarding_observed', 
-      'onboarding_admin_notification', 
-      'stock_inbound_created',
-      'out_of_stock',
-      'critical_stock_report',
-      'incident_report',
-      'volume_alert',
-      'weekly_sales_report',
-      'monthly_activity_report',
-      'order_no_stock_alert'
-    ];
-    const useInfoSender = infoSenderTypes.includes(emailType);
-    const finalRecipients = emailType === 'stock_inbound_created' ? ["stockachile@gmail.com"] : recipientEmails;
+    }
 
     const brevoPayload = {
       sender: {
