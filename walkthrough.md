@@ -627,3 +627,34 @@ Hemos implementado un nuevo estado de preparación/fulfillment en el WMS denomin
 
 4. **Integración con la Sincronización de Shopify:**
    - Actualizamos el proceso de importación masiva [sync_shopify.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_shopify.js). Ahora, si un pedido importado tiene fecha de cancelación (`cancelled_at` presente), se le asigna de manera inicial el estado `status = 'cancelado'` y `estado_wms = 'Cancelado'`. Además, si un pedido existente en la base de datos se cancela en la plataforma de Shopify, la tarea de sincronización periódica actualiza de forma segura su estado en el WMS a `Cancelado` para gatillar el retorno del stock.
+
+---
+
+## 34. Migración Unificada de Nombre de Comercio (POM KIDS)
+
+Corregimos el problema de visualización del catálogo maestro, inventario y estadísticas de la integración tras el renombre del comercio **POMS KIDS** a **POM KIDS**:
+
+1. **Unificación Completa de Base de Datos**:
+   - Actualizamos todas las tablas vinculadas para que utilicen de forma consistente el nuevo nombre de comercio **`POM KIDS`** (sin la *S*), evitando inconsistencias por cruce de datos:
+     * `comercios_adicional_config` (configuración adicional).
+     * `products` (productos en catálogo master).
+     * `synced_products` (catálogos sincronizados desde plataformas).
+     * `merchant_integrations` (integración y credenciales).
+     * `orders` (pedidos de venta históricos y activos).
+2. **Prevención de Regresión por Sincronizadores**:
+    - Al haber actualizado la tabla `merchant_integrations`, los scripts automatizados de sincronización (`sync_shopify.js`, `sync_woocommerce.js`) buscarán y procesarán los productos con el nuevo nombre, previniendo que reinserten registros duplicados con el nombre anterior.
+
+---
+
+## 35. Corrección de Bloqueo con Spinner en Modal de Edición de Pedidos
+
+Corregimos un error de flujo y visualización en el modal de **Editar Ítems del Pedido** en el panel del Administrador, donde al hacer clic en "Guardar Cambios" sin haber modificado nada la pantalla quedaba bloqueada indefinidamente con un spinner de carga:
+
+1. **Origen del Problema**:
+   - Al pulsar "Guardar Cambios", el código llamaba inmediatamente a `Swal.fire({ title: 'Guardando cambios...', ... })` con `Swal.showLoading()`.
+   - Luego, de manera síncrona en memoria, determinaba que la lista de cambios (`changesList`) estaba vacía y llamaba a `Swal.fire('Sin Cambios', 'No se realizaron modificaciones al pedido.', 'info')` saliendo de la función con `return`.
+   - Debido al orden y a la interacción interna de SweetAlert2, el loader previamente activado no se cerraba ni limpiaba adecuadamente, dejando al usuario con el aviso de "Sin Cambios" pero con un spinner de carga infinito en la parte inferior del modal que impedía la interacción.
+
+2. **Solución Aplicada**:
+   - Reestructuramos la función `window.saveEditOrderItems` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) para realizar la comparación de ítems modificados de manera **previa** al despliegue de cualquier modal de carga.
+   - Si no se detectan diferencias entre los productos/cantidades iniciales y los temporales, el sistema muestra directamente el SweetAlert2 informativo de "Sin Cambios" sin abrir jamás la animación de carga, evitando bloqueos y garantizando una experiencia de usuario fluida y libre de bugs.

@@ -22225,13 +22225,40 @@ window.addTempEditItem = function(orderId, commerce, commerceProducts) {
 };
 
 window.saveEditOrderItems = async function(orderId, comment) {
-  Swal.fire({
-    title: 'Guardando cambios...',
-    allowOutsideClick: false,
-    didOpen: () => { Swal.showLoading(); }
-  });
-
   try {
+    const originalMap = new Map(window.originalEditOrderItems.map(i => [i.product_id, i]));
+    const currentMap = new Map(window.tempEditOrderItems.map(i => [i.product_id, i]));
+
+    const changesList = [];
+
+    for (const orig of window.originalEditOrderItems) {
+      if (!currentMap.has(orig.product_id)) {
+        changesList.push(`Eliminado SKU ${orig.sku}: ${orig.name} (Cant: ${orig.quantity})`);
+      } else {
+        const curr = currentMap.get(orig.product_id);
+        if (curr.quantity !== orig.quantity) {
+          changesList.push(`Cantidad modificada SKU ${orig.sku}: ${orig.name} de ${orig.quantity} a ${curr.quantity}`);
+        }
+      }
+    }
+
+    for (const curr of window.tempEditOrderItems) {
+      if (!originalMap.has(curr.product_id)) {
+        changesList.push(`Agregado SKU ${curr.sku}: ${curr.name} (Cant: ${curr.quantity})`);
+      }
+    }
+
+    if (changesList.length === 0) {
+      Swal.fire('Sin Cambios', 'No se realizaron modificaciones al pedido.', 'info');
+      return;
+    }
+
+    Swal.fire({
+      title: 'Guardando cambios...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
     const { data: { session } } = await supabase.auth.getSession();
     const userEmail = session?.user?.email || 'admin@stocka.cl';
     const userId = session?.user?.id || null;
@@ -22247,15 +22274,8 @@ window.saveEditOrderItems = async function(orderId, comment) {
       if (central) defaultWarehouseId = central.id;
     }
 
-    const originalMap = new Map(window.originalEditOrderItems.map(i => [i.product_id, i]));
-    const currentMap = new Map(window.tempEditOrderItems.map(i => [i.product_id, i]));
-
-    const changesList = [];
-
     for (const orig of window.originalEditOrderItems) {
       if (!currentMap.has(orig.product_id)) {
-        changesList.push(`Eliminado SKU ${orig.sku}: ${orig.name} (Cant: ${orig.quantity})`);
-        
         const { error } = await supabase
           .from('order_items')
           .delete()
@@ -22265,8 +22285,6 @@ window.saveEditOrderItems = async function(orderId, comment) {
       } else {
         const curr = currentMap.get(orig.product_id);
         if (curr.quantity !== orig.quantity) {
-          changesList.push(`Cantidad modificada SKU ${orig.sku}: ${orig.name} de ${orig.quantity} a ${curr.quantity}`);
-          
           const { error } = await supabase
             .from('order_items')
             .update({ quantity: curr.quantity })
@@ -22279,8 +22297,6 @@ window.saveEditOrderItems = async function(orderId, comment) {
 
     for (const curr of window.tempEditOrderItems) {
       if (!originalMap.has(curr.product_id)) {
-        changesList.push(`Agregado SKU ${curr.sku}: ${curr.name} (Cant: ${curr.quantity})`);
-        
         const { error } = await supabase
           .from('order_items')
           .insert({
@@ -22291,11 +22307,6 @@ window.saveEditOrderItems = async function(orderId, comment) {
           });
         if (error) throw error;
       }
-    }
-
-    if (changesList.length === 0) {
-      Swal.fire('Sin Cambios', 'No se realizaron modificaciones al pedido.', 'info');
-      return;
     }
 
     const totalCantidad = window.tempEditOrderItems.reduce((sum, item) => sum + item.quantity, 0);
