@@ -1097,7 +1097,7 @@ serve(async (req) => {
         <strong style="color: #111827; font-size: 13px;">Stocka SpA</strong><br>
         Fulfillment & Soporte Logístico para Ecommerce<br>
         Campo de Deportes 405, Ñuñoa.<br>
-        <span style="display: block; margin-top: 12px; font-size: 11px; color: #9ca3af;">¿Tienes dudas? Escríbenos a: <a href="mailto:info@stocka.cl" style="color: #5e17eb; text-decoration: none; font-weight: 700;">info@stocka.cl</a></span>
+        <span style="display: block; margin-top: 12px; font-size: 11px; color: #9ca3af;">¿Tienes dudas? Escríbenos a: <a href="mailto:contacto@stocka.cl" style="color: #5e17eb; text-decoration: none; font-weight: 700;">contacto@stocka.cl</a></span>
       </div>
       
     </div>
