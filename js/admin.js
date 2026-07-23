@@ -11982,7 +11982,7 @@ document.addEventListener('submit', async (e) => {
       // 1. Obtener historial previo de la base de datos
       const { data: latestDec, error: fetchError } = await supabase
         .from('stock_declarations')
-        .select('history')
+        .select('status, history, products_list, file_base64, warehouse_id, title, comercio')
         .eq('id', id)
         .single();
         
@@ -12022,6 +12022,72 @@ document.addEventListener('submit', async (e) => {
         .eq('id', id);
 
       if (error) throw error;
+
+      // 2.5 Actualizar inventario físico de productos si el ingreso es finalizado
+      const isTransitioningToFinal = 
+        !['Recibido Conforme', 'Recibido con Incidencias'].includes(latestDec.status) &&
+        ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
+
+      if (isTransitioningToFinal) {
+        const productsList = getDeclarationProducts(latestDec);
+        if (productsList && productsList.length > 0) {
+          const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
+          if (targetWarehouseId) {
+            for (const item of productsList) {
+              if (item.sku && item.qty > 0) {
+                // Buscar producto por SKU y comercio
+                const { data: prod, error: prodErr } = await supabase
+                  .from('products')
+                  .select('id')
+                  .eq('comercio', latestDec.comercio)
+                  .ilike('sku', item.sku.trim())
+                  .limit(1)
+                  .maybeSingle();
+
+                if (!prodErr && prod) {
+                  // Buscar o crear registro de inventario
+                  const { data: inv, error: invErr } = await supabase
+                    .from('inventory')
+                    .select('id, quantity')
+                    .eq('product_id', prod.id)
+                    .eq('warehouse_id', targetWarehouseId)
+                    .maybeSingle();
+
+                  if (!invErr) {
+                    if (inv) {
+                      const newQty = (inv.quantity || 0) + item.qty;
+                      await supabase
+                        .from('inventory')
+                        .update({ quantity: newQty })
+                        .eq('id', inv.id);
+                    } else {
+                      await supabase
+                        .from('inventory')
+                        .insert([{
+                          product_id: prod.id,
+                          warehouse_id: targetWarehouseId,
+                          quantity: item.qty,
+                          committed_quantity: 0
+                        }]);
+                    }
+
+                    // Registrar movimiento de stock
+                    await supabase
+                      .from('movements')
+                      .insert([{
+                        product_id: prod.id,
+                        warehouse_id: targetWarehouseId,
+                        type: 'in',
+                        quantity: item.qty,
+                        reference_doc: `Ingreso de Stock: ${latestDec.title}`
+                      }]);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
 
       // 3. Enviar notificaciones
       try {
