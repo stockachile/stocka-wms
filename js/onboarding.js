@@ -2,6 +2,7 @@ import supabase from './supabase.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   let currentStep = 1;
+  let maxReachedStep = 1;
   const totalSteps = 5;
   
   // Elementos del DOM
@@ -15,6 +16,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const panels = document.querySelectorAll('.step-panel');
   const stepItems = document.querySelectorAll('.step-item');
   const progressLine = document.getElementById('stepper-progress');
+
+  // Configurar interactividad en indicadores de pasos (círculos numéricos superiores)
+  stepItems.forEach((item, idx) => {
+    item.style.cursor = 'pointer';
+    item.addEventListener('click', () => {
+      const targetStep = idx + 1;
+      if (targetStep === 5 && maxReachedStep < 5) return;
+      currentStep = targetStep;
+      updateStepper();
+    });
+  });
   
   // Botones Navegación
   const btnBack = document.getElementById('btn-back');
@@ -336,14 +348,84 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
       }
     }
-    
     return true;
   };
 
   const updateStepper = () => {
+    clearAlert();
+    
     // Actualizar paneles
     panels.forEach(p => p.classList.remove('active'));
-    document.getElementById(`panel-${currentStep}`).classList.add('active');
+    const activePanel = document.getElementById(`panel-${currentStep}`);
+    activePanel.classList.add('active');
+    
+    // Bloquear/Desbloquear inputs del paso de forma dinámica
+    for (let stepNum = 1; stepNum <= 4; stepNum++) {
+      const panel = document.getElementById(`panel-${stepNum}`);
+      if (!panel) continue;
+      
+      const inputs = panel.querySelectorAll('input, select, textarea, button:not(.btn-template)');
+      let blockedNotice = panel.querySelector('.step-blocked-notice');
+      
+      if (stepNum > maxReachedStep) {
+        // Bloquear todos los inputs
+        inputs.forEach(input => {
+          if (!input.classList.contains('btn-template')) {
+            input.disabled = true;
+          }
+        });
+        
+        // Bloquear la zona de arrastre del archivo (drop-zone)
+        const dZone = panel.querySelector('.file-upload-zone');
+        if (dZone) {
+          dZone.style.pointerEvents = 'none';
+          dZone.style.opacity = '0.6';
+        }
+        
+        // Mostrar aviso de bloqueo
+        if (!blockedNotice) {
+          blockedNotice = document.createElement('div');
+          blockedNotice.className = 'step-blocked-notice alert alert-info';
+          blockedNotice.style.marginBottom = '1.5rem';
+          blockedNotice.style.background = 'rgba(59, 130, 246, 0.1)';
+          blockedNotice.style.border = '1px solid rgba(59, 130, 246, 0.2)';
+          blockedNotice.style.color = 'var(--color-info)';
+          blockedNotice.style.display = 'flex';
+          blockedNotice.style.alignItems = 'center';
+          blockedNotice.style.gap = '0.5rem';
+          blockedNotice.innerHTML = `<i class="ri-lock-line"></i> <span>Tienes pasos previos sin resolver aún. Completa los pasos anteriores para poder editar esta sección.</span>`;
+          panel.insertBefore(blockedNotice, panel.firstChild);
+        }
+      } else {
+        // Desbloquear todos los inputs
+        inputs.forEach(input => {
+          input.disabled = false;
+        });
+        
+        // Desbloquear zona de arrastre del archivo
+        const dZone = panel.querySelector('.file-upload-zone');
+        if (dZone) {
+          dZone.style.pointerEvents = 'auto';
+          dZone.style.opacity = '1';
+        }
+        
+        // Remover aviso de bloqueo si existe
+        if (blockedNotice) {
+          blockedNotice.remove();
+        }
+      }
+    }
+    
+    // Deshabilitar botón "Siguiente" si el paso actual está bloqueado
+    if (currentStep > maxReachedStep) {
+      btnNext.disabled = true;
+      btnNext.style.opacity = '0.5';
+      btnNext.style.cursor = 'not-allowed';
+    } else {
+      btnNext.disabled = false;
+      btnNext.style.opacity = '1';
+      btnNext.style.cursor = 'pointer';
+    }
     
     // Actualizar progreso
     stepItems.forEach((item, idx) => {
@@ -375,7 +457,7 @@ document.addEventListener('DOMContentLoaded', () => {
       btnNext.innerHTML = `Siguiente <i class="ri-arrow-right-line"></i>`;
     }
   };
-
+ 
   // Click Siguiente / Enviar
   btnNext.addEventListener('click', async () => {
     // Si estamos en el paso 1, verificar asíncronamente si el correo ya existe
@@ -400,8 +482,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       } catch (err) {
         console.warn('Advertencia verificando correo:', err);
-        // Si el RPC da error (por ejemplo, si no han corrido la migración),
-        // permitimos avanzar por resiliencia, pero informamos en consola.
       }
       
       btnNext.disabled = false;
@@ -412,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (currentStep < 4) {
       currentStep++;
+      maxReachedStep = Math.max(maxReachedStep, currentStep);
       updateStepper();
     } else if (currentStep === 4) {
       // ENVIAR FORMULARIO AL COMPLETAR EL PASO 4
