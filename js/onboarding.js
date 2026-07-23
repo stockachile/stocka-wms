@@ -4,6 +4,11 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentStep = 1;
   let maxReachedStep = 1;
   const totalSteps = 5;
+
+  // Variables para las sub-etapas del paso 3 (Comercial)
+  let currentSubStep = 1;
+  let maxReachedSubStep = 1;
+  const totalSubSteps = 4;
   
   // Elementos del DOM
   const form = document.getElementById('onboarding-form');
@@ -24,6 +29,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const targetStep = idx + 1;
       if (targetStep === 5 && maxReachedStep < 5) return;
       currentStep = targetStep;
+      if (currentStep === 3) {
+        currentSubStep = 1; // Al dar click al círculo principal del paso 3, iniciar en sub-paso 1
+      }
+      updateStepper();
+    });
+  });
+
+  // Configurar interactividad en pestañas del sub-stepper del paso 3
+  const subTabs = document.querySelectorAll('.sub-step-tab');
+  subTabs.forEach((tab, idx) => {
+    tab.addEventListener('click', () => {
+      const targetSub = idx + 1;
+      // Si el paso 3 está bloqueado, no permitir interactuar
+      if (3 > maxReachedStep) return;
+      // No permitir avanzar a sub-pasos superiores que aún no han sido desbloqueados
+      if (targetSub > maxReachedSubStep) return;
+      currentSubStep = targetSub;
       updateStepper();
     });
   });
@@ -245,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // --- NAVEGACIÓN Y VALIDACIONES DE PASO ---
 
-  const validateStep = (step) => {
+  const validateStep = (step, subStep = null) => {
     clearAlert();
     
     if (step === 1) {
@@ -303,36 +325,54 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     if (step === 3) {
-      const fantasia = document.getElementById('nombre_fantasia').value.trim();
-      const platSelected = document.querySelectorAll('input[name="plataformas"]:checked').length;
-      const mpSelected = document.querySelectorAll('input[name="marketplaces"]:checked').length;
-      const courierStgo = document.querySelectorAll('input[name="courier_santiago"]:checked').length;
-      const courierReg = document.querySelectorAll('input[name="courier_regiones"]:checked').length;
-      const pack = document.getElementById('descripcion_packaging').value.trim();
-      
-      if (!fantasia || !pack) {
-        showAlert('Por favor, completa los campos de texto requeridos.');
-        return false;
+      // Validar Sub-paso 3.1: Identidad
+      if (subStep === 1 || subStep === null) {
+        const fantasia = document.getElementById('nombre_fantasia').value.trim();
+        if (!fantasia) {
+          showAlert('Por favor, ingresa el Nombre de Fantasía de tu comercio.');
+          return false;
+        }
       }
       
-      if (platSelected === 0) {
-        showAlert('Debes seleccionar al menos una plataforma de ventas.');
-        return false;
+      // Validar Sub-paso 3.2: Canales
+      if (subStep === 2 || subStep === null) {
+        const platSelected = document.querySelectorAll('input[name="plataformas"]:checked').length;
+        const mpSelected = document.querySelectorAll('input[name="marketplaces"]:checked').length;
+        
+        if (platSelected === 0) {
+          showAlert('Debes seleccionar al menos una plataforma de ventas.');
+          return false;
+        }
+        
+        if (mpSelected === 0) {
+          showAlert('Debes seleccionar al menos un Marketplace.');
+          return false;
+        }
       }
       
-      if (mpSelected === 0) {
-        showAlert('Debes seleccionar al menos un Marketplace.');
-        return false;
+      // Validar Sub-paso 3.3: Despacho
+      if (subStep === 3 || subStep === null) {
+        const courierStgo = document.querySelectorAll('input[name="courier_santiago"]:checked').length;
+        const courierReg = document.querySelectorAll('input[name="courier_regiones"]:checked').length;
+        
+        if (courierStgo === 0) {
+          showAlert('Debes seleccionar al menos una alternativa de courier para Santiago.');
+          return false;
+        }
+        
+        if (courierReg === 0) {
+          showAlert('Debes seleccionar al menos una alternativa de courier para Regiones.');
+          return false;
+        }
       }
       
-      if (courierStgo === 0) {
-        showAlert('Debes seleccionar al menos una alternativa de courier para Santiago.');
-        return false;
-      }
-      
-      if (courierReg === 0) {
-        showAlert('Debes seleccionar al menos una alternativa de courier para Regiones.');
-        return false;
+      // Validar Sub-paso 3.4: Embalaje
+      if (subStep === 4 || subStep === null) {
+        const pack = document.getElementById('descripcion_packaging').value.trim();
+        if (!pack) {
+          showAlert('Por favor, describe detalladamente cómo empaquetar tus pedidos.');
+          return false;
+        }
       }
     }
     
@@ -348,9 +388,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
       }
     }
-    return true;
-  };
-
   const updateStepper = () => {
     clearAlert();
     
@@ -416,8 +453,45 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
     
-    // Deshabilitar botón "Siguiente" si el paso actual está bloqueado
-    if (currentStep > maxReachedStep) {
+    // Si estamos en el paso 3, controlar sub-pasos
+    const subStepperContainer = document.querySelector('.sub-stepper');
+    if (subStepperContainer) {
+      if (currentStep === 3) {
+        subStepperContainer.style.display = 'flex';
+        
+        // Mostrar solo el sub-panel actual
+        for (let s = 1; s <= 4; s++) {
+          const subPanel = document.getElementById(`sub-panel-${s}`);
+          if (subPanel) {
+            subPanel.style.display = s === currentSubStep ? 'block' : 'none';
+          }
+        }
+        
+        // Actualizar estado de las pestañas del sub-stepper
+        subTabs.forEach((tab, idx) => {
+          const subNum = idx + 1;
+          tab.classList.remove('active', 'completed');
+          
+          if (subNum === currentSubStep) {
+            tab.classList.add('active');
+          } else if (subNum < currentSubStep) {
+            tab.classList.add('completed');
+          }
+        });
+      } else {
+        subStepperContainer.style.display = 'none';
+        for (let s = 1; s <= 4; s++) {
+          const subPanel = document.getElementById(`sub-panel-${s}`);
+          if (subPanel) subPanel.style.display = 'none';
+        }
+      }
+    }
+
+    // Deshabilitar botón "Siguiente" si el paso actual (o sub-paso del paso 3) está bloqueado
+    const isStepBlocked = currentStep > maxReachedStep;
+    const isSubStepBlocked = (currentStep === 3 && currentSubStep > maxReachedSubStep);
+    
+    if (isStepBlocked || isSubStepBlocked) {
       btnNext.disabled = true;
       btnNext.style.opacity = '0.5';
       btnNext.style.cursor = 'not-allowed';
@@ -450,7 +524,6 @@ document.addEventListener('DOMContentLoaded', () => {
       btnBack.style.visibility = 'visible';
       btnNext.innerHTML = `Firmar y Enviar <i class="ri-rocket-2-line"></i>`;
     } else if (currentStep === 5) {
-      // Ocultar barra de navegación del wizard
       document.getElementById('wizard-navigation').style.display = 'none';
     } else {
       btnBack.style.visibility = 'visible';
@@ -465,15 +538,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!validateStep(1)) return;
       
       const email = document.getElementById('email').value.trim();
-      
       btnNext.disabled = true;
       btnNext.innerHTML = `<i class="ri-loader-4-line spin"></i> Verificando...`;
-      
       try {
         const { data: exists, error } = await supabase.rpc('check_email_exists', { p_email: email });
-        
         if (error) throw error;
-        
         if (exists) {
           showAlert('El correo electrónico ya se encuentra registrado en el sistema. Intenta con otro o inicia sesión.');
           btnNext.disabled = false;
@@ -483,27 +552,61 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {
         console.warn('Advertencia verificando correo:', err);
       }
-      
       btnNext.disabled = false;
       btnNext.innerHTML = `Siguiente <i class="ri-arrow-right-line"></i>`;
-    } else {
-      if (!validateStep(currentStep)) return;
+      
+      currentStep = 2;
+      maxReachedStep = Math.max(maxReachedStep, 2);
+      updateStepper();
+      return;
+    } 
+    
+    if (currentStep === 2) {
+      if (!validateStep(2)) return;
+      currentStep = 3;
+      currentSubStep = 1;
+      maxReachedStep = Math.max(maxReachedStep, 3);
+      maxReachedSubStep = Math.max(maxReachedSubStep, 1);
+      updateStepper();
+      return;
     }
     
-    if (currentStep < 4) {
-      currentStep++;
-      maxReachedStep = Math.max(maxReachedStep, currentStep);
-      updateStepper();
-    } else if (currentStep === 4) {
-      // ENVIAR FORMULARIO AL COMPLETAR EL PASO 4
+    if (currentStep === 3) {
+      if (!validateStep(3, currentSubStep)) return;
+      
+      if (currentSubStep < 4) {
+        currentSubStep++;
+        maxReachedSubStep = Math.max(maxReachedSubStep, currentSubStep);
+        updateStepper();
+      } else {
+        currentStep = 4;
+        maxReachedStep = Math.max(maxReachedStep, 4);
+        updateStepper();
+      }
+      return;
+    }
+    
+    if (currentStep === 4) {
+      if (!validateStep(4)) return;
       await submitOnboarding();
     }
   });
-
+ 
   // Click Atrás
   btnBack.addEventListener('click', () => {
-    if (currentStep > 1 && currentStep < 5) {
+    if (currentStep === 3) {
+      if (currentSubStep > 1) {
+        currentSubStep--;
+        updateStepper();
+      } else {
+        currentStep = 2;
+        updateStepper();
+      }
+    } else if (currentStep > 1 && currentStep < 5) {
       currentStep--;
+      if (currentStep === 3) {
+        currentSubStep = 4; // Mostrar el último sub-paso al volver al paso 3
+      }
       updateStepper();
     }
   });

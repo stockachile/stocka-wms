@@ -709,6 +709,44 @@
         display: flex;
       }
     }
+    /* CSS para el Sub-stepper */
+    .sub-stepper::-webkit-scrollbar {
+      height: 4px;
+    }
+    .sub-stepper::-webkit-scrollbar-thumb {
+      background: var(--color-border);
+      border-radius: 2px;
+    }
+    .sub-step-tab {
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+    }
+    .sub-step-tab:hover {
+      background: var(--color-surface-hover);
+      border-color: var(--color-accent);
+    }
+    .sub-step-tab.active {
+      border-color: var(--color-accent);
+      background: rgba(94, 23, 235, 0.04);
+      box-shadow: 0 0 0 1px var(--color-accent);
+    }
+    .sub-step-tab.active .sub-step-icon {
+      background: var(--color-accent) !important;
+      border-color: var(--color-accent) !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 8px rgba(94, 23, 235, 0.25);
+    }
+    .sub-step-tab.active .sub-step-text {
+      color: var(--color-text-main) !important;
+    }
+    .sub-step-tab.completed .sub-step-icon {
+      background: var(--color-success) !important;
+      border-color: var(--color-success) !important;
+      color: #ffffff !important;
+    }
+    .sub-step-tab.completed .sub-step-text {
+      color: var(--color-success) !important;
+    }
   </style>
 </head>
 <body>
@@ -843,103 +881,145 @@
 
           <!-- PASO 3: OPCIONES COMERCIALES -->
           <div class="step-panel" id="panel-3">
-            <h2 class="step-title"><i class="ri-store-2-line" style="color: var(--color-accent)"></i> Configuración de tu Comercio</h2>
-            <p class="step-desc">Indica cómo opera tu negocio para coordinar la bodega y los canales de venta.</p>
+            
+            <!-- Sub-Stepper de Navegación del Paso 3 -->
+            <div class="sub-stepper" style="display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem; overflow-x: auto;">
+              <div class="sub-step-tab active" data-sub-tab="1" style="flex: 1; min-width: 100px; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); transition: all 0.3s; cursor: pointer; user-select: none;">
+                <div class="sub-step-icon" style="width: 28px; height: 28px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 0.95rem; color: var(--color-text-muted);"><i class="ri-store-2-line"></i></div>
+                <span class="sub-step-text" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Identidad</span>
+              </div>
+              <div class="sub-step-tab" data-sub-tab="2" style="flex: 1; min-width: 100px; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); transition: all 0.3s; cursor: pointer; user-select: none;">
+                <div class="sub-step-icon" style="width: 28px; height: 28px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 0.95rem; color: var(--color-text-muted);"><i class="ri-links-line"></i></div>
+                <span class="sub-step-text" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Canales</span>
+              </div>
+              <div class="sub-step-tab" data-sub-tab="3" style="flex: 1; min-width: 100px; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); transition: all 0.3s; cursor: pointer; user-select: none;">
+                <div class="sub-step-icon" style="width: 28px; height: 28px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 0.95rem; color: var(--color-text-muted);"><i class="ri-truck-line"></i></div>
+                <span class="sub-step-text" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Despacho</span>
+              </div>
+              <div class="sub-step-tab" data-sub-tab="4" style="flex: 1; min-width: 100px; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: var(--radius-sm); transition: all 0.3s; cursor: pointer; user-select: none;">
+                <div class="sub-step-icon" style="width: 28px; height: 28px; border-radius: 50%; background: var(--color-bg); border: 2px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 0.95rem; color: var(--color-text-muted);"><i class="ri-box-3-line"></i></div>
+                <span class="sub-step-text" style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Embalaje</span>
+              </div>
+            </div>
 
-            <div class="form-grid-2">
+            <!-- SUB-PASO 3.1: IDENTIDAD DE MARCA -->
+            <div class="sub-step-panel" id="sub-panel-1">
+              <h2 class="step-title"><i class="ri-store-2-line" style="color: var(--color-accent)"></i> Identidad de tu Comercio</h2>
+              <p class="step-desc">Indica el nombre comercial y el sitio web principal de tu marca.</p>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="nombre_fantasia" class="form-label"><i class="ri-edit-box-line"></i> Nombre de Fantasía <span style="color: var(--color-danger)">*</span></label>
+                  <input type="text" id="nombre_fantasia" class="form-input" placeholder="Nombre comercial de tu marca" required>
+                </div>
+                <div class="form-group">
+                  <label for="sitio_web" class="form-label"><i class="ri-global-line"></i> Sitio web</label>
+                  <input type="url" id="sitio_web" class="form-input" placeholder="https://www.miempresa.com">
+                </div>
+              </div>
+            </div>
+
+            <!-- SUB-PASO 3.2: CANALES DE VENTA -->
+            <div class="sub-step-panel" id="sub-panel-2" style="display: none;">
+              <h2 class="step-title"><i class="ri-links-line" style="color: var(--color-accent)"></i> Canales e Integraciones</h2>
+              <p class="step-desc">Selecciona las plataformas y marketplaces donde comercializas tus productos.</p>
+              
+              <!-- Plataformas de venta -->
               <div class="form-group">
-                <label for="nombre_fantasia" class="form-label">Nombre de Fantasía <span style="color: var(--color-danger)">*</span></label>
-                <input type="text" id="nombre_fantasia" class="form-input" placeholder="Nombre comercial de tu marca" required>
+                <label class="form-label"><i class="ri-computer-line"></i> ¿En qué plataformas generas ventas? (Selecciona una o más) <span style="color: var(--color-danger)">*</span></label>
+                <div class="options-grid">
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Shopify"><span>Shopify</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Woocommerce"><span>Woocommerce</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Jumpseller"><span>Jumpseller</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Bsale"><span>Bsale</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Prestashop"><span>Prestashop</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Redes Sociales"><span>Redes Sociales</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="MercadoShops"><span>MercadoShops</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Bigcommerce"><span>Bigcommerce</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Venta Directa"><span>Venta Directa</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="VTEX"><span>VTEX</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="WIX"><span>WIX</span></label>
+                  <label class="option-card"><input type="checkbox" name="plataformas" value="Otro"><span>Otro</span></label>
+                </div>
               </div>
+
+              <!-- Marketplaces -->
               <div class="form-group">
-                <label for="sitio_web" class="form-label">Sitio web</label>
-                <input type="url" id="sitio_web" class="form-input" placeholder="https://www.miempresa.com">
+                <label class="form-label"><i class="ri-instance-line"></i> ¿En qué Marketplaces vendes actualmente? (Selecciona uno o más) <span style="color: var(--color-danger)">*</span></label>
+                <div class="options-grid">
+                  <label class="option-card"><input type="checkbox" name="marketplaces" id="mp-meli" value="Mercadolibre"><span>Mercadolibre</span></label>
+                  <label class="option-card"><input type="checkbox" name="marketplaces" value="Falabella"><span>Falabella</span></label>
+                  <label class="option-card"><input type="checkbox" name="marketplaces" value="Walmart"><span>Walmart</span></label>
+                  <label class="option-card"><input type="checkbox" name="marketplaces" value="Paris"><span>Paris</span></label>
+                  <label class="option-card"><input type="checkbox" name="marketplaces" value="Ripley"><span>Ripley</span></label>
+                  <label class="option-card"><input type="checkbox" name="marketplaces" value="Otro"><span>Otro</span></label>
+                </div>
+              </div>
+
+              <!-- Mercado Libre Opciones (Condicional) -->
+              <div class="form-group" id="meli-options-container" style="display: none; border-left: 3px solid var(--color-accent); padding-left: 1rem; margin-bottom: 1.5rem;">
+                <label class="form-label"><i class="ri-question-answer-line"></i> Para Mercadolibre, ¿qué opciones de despacho quieres incorporar?</label>
+                <div class="options-grid">
+                  <label class="option-card"><input type="checkbox" name="ml_opciones" value="Entregas Flex"><span>Entregas Flex</span></label>
+                  <label class="option-card"><input type="checkbox" name="ml_opciones" value="Mercadoenvios"><span>Mercadoenvios</span></label>
+                  <label class="option-card"><input type="checkbox" name="ml_opciones" value="Full"><span>Full</span></label>
+                </div>
               </div>
             </div>
 
-            <!-- Plataformas de venta -->
-            <div class="form-group">
-              <label class="form-label">¿En qué plataformas generas ventas? (Selecciona una o más) <span style="color: var(--color-danger)">*</span></label>
-              <div class="options-grid">
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Shopify"><span>Shopify</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Woocommerce"><span>Woocommerce</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Jumpseller"><span>Jumpseller</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Bsale"><span>Bsale</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Prestashop"><span>Prestashop</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Redes Sociales"><span>Redes Sociales</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="MercadoShops"><span>MercadoShops</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Bigcommerce"><span>Bigcommerce</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Venta Directa"><span>Venta Directa</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="VTEX"><span>VTEX</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="WIX"><span>WIX</span></label>
-                <label class="option-card"><input type="checkbox" name="plataformas" value="Otro"><span>Otro</span></label>
+            <!-- SUB-PASO 3.3: PREFERENCIAS LOGÍSTICAS -->
+            <div class="sub-step-panel" id="sub-panel-3" style="display: none;">
+              <h2 class="step-title"><i class="ri-truck-line" style="color: var(--color-accent)"></i> Logística y Despacho</h2>
+              <p class="step-desc">Elige las alternativas de courier y tipos de entrega preferidas para tu marca.</p>
+
+              <!-- Couriers Santiago -->
+              <div class="form-group">
+                <label class="form-label"><i class="ri-map-pin-line"></i> Operación dentro de Santiago, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
+                <div class="options-grid">
+                  <label class="option-card"><input type="checkbox" name="courier_santiago" value="Stocka - Entrega Same Day"><span>Same Day Stocka</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_santiago" value="Bluexpress"><span>Bluexpress</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_santiago" value="Chilexpress"><span>Chilexpress</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_santiago" value="Starken"><span>Starken</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_santiago" value="Otro"><span>Otro</span></label>
+                </div>
+              </div>
+
+              <!-- Couriers Regiones -->
+              <div class="form-group">
+                <label class="form-label"><i class="ri-map-2-line"></i> Operación hacia Regiones, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
+                <div class="options-grid">
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por menor costo según destino."><span>Costo más bajo</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por tiempos de entrega según destino."><span>Tiempo más corto</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Bluexpress"><span>Bluexpress</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Chilexpress"><span>Chilexpress</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Starken"><span>Starken</span></label>
+                  <label class="option-card"><input type="checkbox" name="courier_regiones" value="Otro"><span>Otro</span></label>
+                </div>
+              </div>
+
+              <!-- Retiro en sucursal switch -->
+              <div class="switch-container">
+                <div class="switch-label-group">
+                  <span class="switch-title"><i class="ri-store-line"></i> Ofrecer Retiro en Sucursal</span>
+                  <span class="switch-desc">Marca si habilitarás retiro físico de pedidos en bodega para tus clientes.</span>
+                </div>
+                <label class="switch-input-element">
+                  <input type="checkbox" id="retiro_sucursal">
+                  <span class="slider"></span>
+                </label>
               </div>
             </div>
 
-            <!-- Marketplaces -->
-            <div class="form-group">
-              <label class="form-label">¿En qué Marketplaces vendes actualmente? (Selecciona uno o más) <span style="color: var(--color-danger)">*</span></label>
-              <div class="options-grid">
-                <label class="option-card"><input type="checkbox" name="marketplaces" id="mp-meli" value="Mercadolibre"><span>Mercadolibre</span></label>
-                <label class="option-card"><input type="checkbox" name="marketplaces" value="Falabella"><span>Falabella</span></label>
-                <label class="option-card"><input type="checkbox" name="marketplaces" value="Walmart"><span>Walmart</span></label>
-                <label class="option-card"><input type="checkbox" name="marketplaces" value="Paris"><span>Paris</span></label>
-                <label class="option-card"><input type="checkbox" name="marketplaces" value="Ripley"><span>Ripley</span></label>
-                <label class="option-card"><input type="checkbox" name="marketplaces" value="Otro"><span>Otro</span></label>
-              </div>
-            </div>
+            <!-- SUB-PASO 3.4: INSTRUCCIONES DE EMBALAJE -->
+            <div class="sub-step-panel" id="sub-panel-4" style="display: none;">
+              <h2 class="step-title"><i class="ri-box-3-line" style="color: var(--color-accent)"></i> Instrucciones de Embalaje</h2>
+              <p class="step-desc">Detalla cómo debemos empaquetar tus pedidos para el despacho.</p>
 
-            <!-- Mercado Libre Opciones (Condicional) -->
-            <div class="form-group" id="meli-options-container" style="display: none; border-left: 3px solid var(--color-accent); padding-left: 1rem; margin-bottom: 1.5rem;">
-              <label class="form-label">Para Mercadolibre, ¿qué opciones de despacho quieres incorporar?</label>
-              <div class="options-grid">
-                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Entregas Flex"><span>Entregas Flex</span></label>
-                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Mercadoenvios"><span>Mercadoenvios</span></label>
-                <label class="option-card"><input type="checkbox" name="ml_opciones" value="Full"><span>Full</span></label>
+              <!-- Packaging -->
+              <div class="form-group">
+                <label for="descripcion_packaging" class="form-label"><i class="ri-archive-line"></i> Descripción de Packaging de tus Pedidos <span style="color: var(--color-danger)">*</span></label>
+                <textarea id="descripcion_packaging" class="form-input" style="height: 120px; resize: vertical;" placeholder="Describe detalladamente cómo debemos empaquetar tus ventas, materiales requeridos, o si utilizas el empaque estándar de Stocka." required></textarea>
               </div>
-            </div>
-
-            <!-- Couriers Santiago -->
-            <div class="form-group">
-              <label class="form-label">Operación dentro de Santiago, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
-              <div class="options-grid">
-                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Stocka - Entrega Same Day"><span>Same Day Stocka</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Bluexpress"><span>Bluexpress</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Chilexpress"><span>Chilexpress</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Starken"><span>Starken</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_santiago" value="Otro"><span>Otro</span></label>
-              </div>
-            </div>
-
-            <!-- Couriers Regiones -->
-            <div class="form-group">
-              <label class="form-label">Operación hacia Regiones, ¿qué alternativa prefieres? <span style="color: var(--color-danger)">*</span></label>
-              <div class="options-grid">
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por menor costo según destino."><span>Costo más bajo</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Courier optimizado por tiempos de entrega según destino."><span>Tiempo más corto</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Bluexpress"><span>Bluexpress</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Chilexpress"><span>Chilexpress</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Starken"><span>Starken</span></label>
-                <label class="option-card"><input type="checkbox" name="courier_regiones" value="Otro"><span>Otro</span></label>
-              </div>
-            </div>
-
-            <!-- Retiro en sucursal switch -->
-            <div class="switch-container">
-              <div class="switch-label-group">
-                <span class="switch-title">Ofrecer Retiro en Sucursal</span>
-                <span class="switch-desc">Marca si habilitarás retiro físico de pedidos en bodega para tus clientes.</span>
-              </div>
-              <label class="switch-input-element">
-                <input type="checkbox" id="retiro_sucursal">
-                <span class="slider"></span>
-              </label>
-            </div>
-
-            <!-- Packaging -->
-            <div class="form-group">
-              <label for="descripcion_packaging" class="form-label">Descripción de Packaging de tus Pedidos <span style="color: var(--color-danger)">*</span></label>
-              <textarea id="descripcion_packaging" class="form-input" style="height: 100px; resize: vertical;" placeholder="Describe detalladamente cómo debemos empaquetar tus ventas, materiales requeridos, o si utilizas el empaque estándar de Stocka." required></textarea>
             </div>
           </div>
 
