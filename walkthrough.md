@@ -561,3 +561,16 @@ Para evitar que el paso 3 ("Comercial") se hiciera demasiado largo y fatigara al
    - Agregamos iconos semánticos a cada una de las etiquetas y preguntas del formulario (`ri-global-line`, `ri-computer-line`, `ri-map-pin-line`, `ri-archive-line`, etc.) para hacer el llenado visualmente guiado e intuitivo.
 
 ---
+
+## 30. Corrección de Cierre Sintáctico en Validación de Pasos (Onboarding)
+
+Hemos solucionado un problema que bloqueaba la interactividad del asistente de Onboarding e impedía que los botones de navegación ("Siguiente", "Atrás") y los círculos del stepper respondieran:
+
+1. **Origen del Problema**:
+   - Durante la reestructuración del Paso 3 en sub-pasos, se omitió por accidente la llave de cierre (`};`) y el retorno por defecto (`return true;`) de la función de validación principal `validateStep(step)`.
+   - Debido a esto, la función `updateStepper()` quedó anidada sintácticamente dentro de `validateStep()`, haciéndola inaccesible para los escuchadores de clics de los botones e indicadores superiores (lanzando un error silencioso de tipo `ReferenceError: updateStepper is not defined` en la consola).
+
+2. **Corrección**:
+   - Cerramos correctamente la declaración de `validateStep()` con su respectivo `return true; };` en [`js/onboarding.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/onboarding.js), restaurando el alcance (scope) global de `updateStepper` e inicializando el asistente de Onboarding sin errores en consola.
+
+---
