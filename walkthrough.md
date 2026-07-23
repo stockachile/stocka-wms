@@ -574,3 +574,37 @@ Hemos solucionado un problema que bloqueaba la interactividad del asistente de O
    - Cerramos correctamente la declaración de `validateStep()` con su respectivo `return true; };` en [`js/onboarding.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/onboarding.js), restaurando el alcance (scope) global de `updateStepper` e inicializando el asistente de Onboarding sin errores en consola.
 
 ---
+
+## 31. Corrección en Modal de Stock Pendiente de Ingreso (Cliente)
+
+Hemos solucionado el problema que afectaba a la ventana emergente de visualización de **Detalle de Stock Pendiente de Ingreso** en el panel del cliente (`js/app.js`):
+
+1. **Origen del Problema (Placeholders Literales)**:
+   - Los marcadores de posición `${name}`, `${sku}` y `${rowsHtml}` se mostraban literalmente como texto en lugar de evaluarse con sus valores reales. Esto se debió a un escape incorrecto con barras invertidas (`\${}`) en los literales de plantilla (template literals) de JavaScript.
+   - Adicionalmente, el botón de cierre del modal (`Cerrar` o `×`) intentaba remover el elemento con ID `${modalId}` literalmente, lo cual retornaba `null` y arrojaba un error fatal en consola: `TypeError: Cannot read properties of null (reading 'remove')`.
+
+2. **Solución**:
+   - Eliminamos todos los caracteres de escape de barra invertida (`\`) de las variables de plantilla en [app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js).
+   - Ahora, el modal renderiza dinámicamente el nombre, SKU e ingresa los registros correctos en la tabla de declaraciones pendientes de ingreso, y permite el cierre de la ventana sin generar errores en consola.
+
+---
+
+## 32. Estado de Pago, Alertas de Cancelación y Badges de Preparación (Fulfillment) en la Grilla
+
+Hemos enriquecido la visualización del listado de pedidos en el panel del Administrador para proporcionar información crítica sobre transacciones y despachos de un vistazo, evitando que los operadores procesen por error pedidos cancelados o no pagados:
+
+1. **Estado de Pago (Badges de Transacción):**
+   - Incorporamos la visualización automática del estado de pago de cada pedido directamente bajo su ID en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js).
+   - **`PAGADO`** (Badge verde `#d1fae5` / `#065f46`): Indica que la transacción se completó con éxito (estados `paid` o `authorized`).
+   - **`PAGO PENDIENTE`** (Badge amarillo `#fef3c7` / `#92400e`): Alerta a los operadores que el pago no se ha completado (estados `pending` o `partially_paid`).
+   - **`REEMBOLSADO`** (Badge rojo `#fee2e2` / `#991b1b`): Muestra estados de reembolso o anulación (`refunded`, `partially_refunded` o `voided`).
+
+2. **Alertas de Pedido Cancelado:**
+   - Si un pedido se cancela en la plataforma de origen (por ejemplo, Shopify) o en el propio WMS, se dibuja un badge rojo destacado de **`CANCELADO`** con un icono de error (`ri-close-circle-line`), advirtiendo a los preparadores detener cualquier tarea logística de inmediato.
+
+3. **Estado de Preparación (Fulfillment) de Shopify:**
+   - Para evitar doble preparación en el WMS, extraemos el estado logístico nativo de Shopify (`fulfillment_status`) desde el payload completo:
+     * **`FULFILLED`** (Badge azul índigo `#e0e7ff` / `#3730a3`): El pedido ya fue despachado en la plataforma de origen.
+     * **`FULFILL. PARCIAL`** (Badge naranja `#ffedd5` / `#9a3412`): El pedido tiene despachos parciales.
+     * **`RESTOCKED`** (Badge gris `#f1f5f9` / `#475569`): Los ítems fueron devueltos al inventario de la tienda.
+

@@ -2059,9 +2059,43 @@ window.applyWmsFiltersAndRender = function() {
       shipmentBadgeHtml = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;" title="${courierName}: ${shipment.tracking || ''}"><i class="ri-truck-line"></i> ${globStatus}</span>`;
     }
 
+    // 1. Estado de Pago
+    let paymentBadgeHtml = '';
+    const payStatus = String(order.payment_status || '').toLowerCase().trim();
+    if (payStatus === 'paid' || payStatus === 'authorized') {
+      paymentBadgeHtml = `<span class="badge" style="background-color: #d1fae5; color: #065f46; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-circle-line"></i> PAGADO</span>`;
+    } else if (payStatus === 'pending' || payStatus === 'partially_paid') {
+      paymentBadgeHtml = `<span class="badge" style="background-color: #fef3c7; color: #92400e; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-error-warning-line"></i> PAGO PENDIENTE</span>`;
+    } else if (payStatus === 'refunded' || payStatus === 'partially_refunded' || payStatus === 'voided') {
+      paymentBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-refund-line"></i> REEMBOLSADO</span>`;
+    } else if (order.payment_status) {
+      paymentBadgeHtml = `<span class="badge" style="background-color: #e5e7eb; color: #4b5563; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${order.payment_status.toUpperCase()}</span>`;
+    }
+
+    // 2. Alerta de Cancelado (Shopify o estado WMS)
+    let cancelBadgeHtml = '';
+    const rawShopify = order.raw_shopify_data;
+    const isCancelled = order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at);
+    if (isCancelled) {
+      cancelBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-close-circle-line"></i> CANCELADO</span>`;
+    }
+
+    // 3. Estado de Preparación (Fulfillment) de Shopify
+    let fulfillmentBadgeHtml = '';
+    if (order.external_platform === 'Shopify' && rawShopify) {
+      const shpfyFullStatus = rawShopify.fulfillment_status;
+      if (shpfyFullStatus === 'fulfilled') {
+        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #e0e7ff; color: #3730a3; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-circle-line"></i> FULFILLED</span>`;
+      } else if (shpfyFullStatus === 'partial') {
+        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #ffedd5; color: #9a3412; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-checkbox-blank-circle-line"></i> FULFILL. PARCIAL</span>`;
+      } else if (shpfyFullStatus === 'restocked') {
+        fulfillmentBadgeHtml = `<span class="badge" style="background-color: #f1f5f9; color: #475569; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-arrow-go-back-line"></i> RESTOCKED</span>`;
+      }
+    }
+
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}</div></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}</div></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}</div></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -4441,13 +4475,35 @@ function setupCatalogListeners(commerce, mainPlatform) {
             return;
           }
 
-          const productsToInsert = syncedProds.map(sp => ({
-            merchant_id: merchantId,
-            comercio: commerce,
-            sku: sp.sku,
-            name: sp.name,
-            description: `Importado automáticamente de ${mainPlatform}`
-          }));
+          const productsToInsert = syncedProds.map(sp => {
+            const productRow = {
+              merchant_id: merchantId,
+              comercio: commerce,
+              sku: sp.sku,
+              name: sp.name,
+              price: parseFloat(sp.price) || 0,
+              image_url: sp.image_url || null,
+              description: `Importado automáticamente de ${mainPlatform}`
+            };
+
+            if (mainPlatform === 'Shopify') {
+              productRow.shopify_product_id = 'imported';
+            } else if (mainPlatform === 'MercadoLibre') {
+              productRow.raw_meli_data = {};
+            } else if (mainPlatform === 'Falabella') {
+              productRow.raw_falabella_data = {};
+            } else if (mainPlatform === 'Paris') {
+              productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'WooCommerce') {
+              productRow.raw_woocommerce_data = {};
+            } else if (mainPlatform === 'Jumpseller') {
+              productRow.raw_jumpseller_data = {};
+            } else if (mainPlatform === 'Walmart') {
+              productRow.raw_walmart_data = {};
+            }
+
+            return productRow;
+          });
 
           const { error: insErr } = await supabase
             .from('products')
@@ -15133,10 +15189,10 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
       const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
       
       if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
-        list.push({ commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+        list.push({ recordId: r.id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
       }
       if (r.pago_enviame === 'Atrasado' && ePending > 0) {
-        list.push({ commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+        list.push({ recordId: r.id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
       }
     });
     
@@ -15146,6 +15202,16 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
         <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
         <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+        <td style="vertical-align: middle; text-align: center;">
+          <div style="display: inline-flex; gap: 0.25rem;">
+            <button class="btn btn-outline btn-sm" onclick="window.openCommerceEmailHistoryModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${periodId}')" title="Ver Historial de Correos" style="padding: 0.2rem 0.4rem; height: 28px; line-height: 1;">
+              <i class="ri-history-line" style="font-size: 0.9rem;"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${periodId}')" title="Enviar Correo Manual" style="padding: 0.2rem 0.4rem; border-color: var(--color-primary); color: var(--color-primary); height: 28px; line-height: 1;">
+              <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+            </button>
+          </div>
+        </td>
       </tr>
     `).join('');
   } else if (metricType === 'proximo') {
@@ -15182,6 +15248,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
       </div>
     `;
   } else {
+    const hasActions = (metricType === 'atrasado');
     modalBody.innerHTML = `
       <div class="table-responsive">
         <table class="data-table">
@@ -15191,6 +15258,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
               <th>Monto</th>
               <th>Fecha Vencimiento</th>
               <th>Estado</th>
+              ${hasActions ? '<th style="text-align: center;">Notificaciones</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -15207,6 +15275,140 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
 window.closeDashboardModal = function() {
   const modal = document.getElementById('dashboard-detail-modal');
   if (modal) modal.classList.remove('active');
+};
+
+window.openCommerceEmailHistoryModal = async function(recordId, commerceName, periodId) {
+  let modal = document.getElementById('modal-commerce-email-history');
+  if (modal) modal.remove();
+  
+  modal = document.createElement('div');
+  modal.id = 'modal-commerce-email-history';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999'; // Ensure it opens on top of the other details modal
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 90%;">
+      <div class="modal-header">
+        <h3><i class="ri-history-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Historial de Correos: ${commerceName}</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" id="commerce-email-history-body" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando historial de notificaciones...
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  
+  try {
+    const { data: logs, error } = await supabase
+      .from('billing_notification_logs')
+      .select('*')
+      .eq('comercio', commerceName)
+      .order('sent_at', { ascending: false });
+      
+    if (error) throw error;
+    
+    const bodyEl = document.getElementById('commerce-email-history-body');
+    bodyEl.removeAttribute('style');
+    bodyEl.style.padding = '1.25rem';
+    
+    if (!logs || logs.length === 0) {
+      bodyEl.innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-mail-open-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+          No hay correos registrados para este comercio.
+        </div>
+      `;
+      return;
+    }
+    
+    const typeTranslations = {
+      'billing_summary': 'Resumen/Desglose',
+      'invoice_uploaded': 'Factura Cargada',
+      'payment_overdue': 'Aviso de Vencimiento',
+      'payment_overdue_manual': 'Aviso de Vencimiento',
+      'suspension_warning': 'Alerta de Corte (Suspensión)',
+      'service_paused': 'Servicio Suspendido',
+      'service_restored': 'Servicio Restablecido',
+      'payment_received': 'Pago Recibido'
+    };
+    
+    const rowsHtml = logs.map(log => {
+      const typeText = typeTranslations[log.email_type] || log.email_type;
+      let badgeClass = 'status-gray';
+      let extraStyle = '';
+      
+      if (log.email_type === 'suspension_warning' || log.email_type === 'service_paused') {
+        badgeClass = 'status-inactive';
+        extraStyle = 'background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);';
+      } else if (log.email_type === 'payment_received' || log.email_type === 'service_restored') {
+        badgeClass = 'status-active';
+        extraStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);';
+      } else if (log.email_type === 'billing_summary') {
+        badgeClass = 'status-purple';
+      } else if (log.email_type === 'invoice_uploaded') {
+        badgeClass = 'status-teal';
+      } else {
+        badgeClass = 'status-active';
+        extraStyle = 'background: rgba(245, 158, 11, 0.1); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.2);';
+      }
+      
+      const formattedDate = new Date(log.sent_at).toLocaleString('es-CL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+      
+      const dests = (log.sent_to || []).join(', ');
+      
+      let statusHtml = '';
+      if (log.status === 'abierto') {
+        statusHtml = `<span style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 600;"><i class="ri-eye-line"></i> Abierto</span>`;
+      } else if (log.status === 'clickeado') {
+        statusHtml = `<span style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.2); font-weight: 600;"><i class="ri-cursor-line"></i> Clickeado</span>`;
+      } else if (log.status === 'entregado') {
+        statusHtml = `<span style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> Entregado</span>`;
+      } else if (log.status === 'fallido') {
+        statusHtml = `<span style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid rgba(239, 68, 68, 0.2); font-weight: 600;"><i class="ri-error-warning-line"></i> Fallido</span>`;
+      } else {
+        statusHtml = `<span style="font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; background: var(--color-bg); color: var(--color-text-muted); padding: 0.15rem 0.35rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-weight: 500;"><i class="ri-mail-send-line"></i> Enviado</span>`;
+      }
+      
+      return `
+        <div style="border-bottom: 1px solid var(--color-border); padding: 0.75rem 0; text-align: left;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.25rem;">
+            <div>
+              <span class="client-badge ${badgeClass}" style="${extraStyle} font-size: 0.75rem;">${typeText}</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 0.5rem; font-weight: 500;">Periodo: ${log.periodo_nombre}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem;">
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">${formattedDate}</span>
+              ${statusHtml}
+            </div>
+          </div>
+          <div style="font-size: 0.8rem; color: var(--color-text-main); word-break: break-all;">
+            <strong>Enviado a:</strong> ${dests || '—'}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    bodyEl.innerHTML = `
+      <div style="max-height: 400px; overflow-y: auto; padding-right: 0.5rem;">
+        ${rowsHtml}
+      </div>
+    `;
+    
+  } catch (err) {
+    console.error('Error in openCommerceEmailHistoryModal:', err);
+    document.getElementById('commerce-email-history-body').innerHTML = `
+      <div style="color: var(--color-danger); padding: 1rem;">
+        Error al cargar historial: ${err.message}
+      </div>
+    `;
+  }
 };
 
 function renderDashboardCommerceView() {
