@@ -25390,6 +25390,280 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
   });
 }
 
+function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
+  let modal = document.getElementById('modal-bulk-stock-transfer');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-bulk-stock-transfer';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+
+  const trs = selectedProducts.map(p => `
+    <tr style="border-bottom: 1px solid var(--color-border);" data-prod-id="${p.id}">
+      <td style="padding: 0.75rem; font-weight: 600;">${p.sku}</td>
+      <td style="padding: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
+      <td style="padding: 0.75rem; text-align: center;" class="transfer-source-stock-label" data-prod-id="${p.id}">0</td>
+      <td style="padding: 0.75rem; text-align: center;">
+        <input type="number" class="transfer-qty-input form-input" data-prod-id="${p.id}" min="0" value="0" style="width: 100px; text-align: center; height: 32px; padding: 0.25rem; font-weight: 600; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+      </td>
+    </tr>
+  `).join('');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 650px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-arrow-left-right-line" style="color: #d97706;"></i> Traslado de Stock entre Bodegas</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-bulk-stock-transfer').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div style="display: flex; gap: 1rem; width: 100%;">
+          <div class="form-group" style="margin-bottom: 0; flex: 1;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Bodega de Origen</label>
+            <select id="transfer-source-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
+              <option value="">-- Selecciona Origen --</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0; flex: 1;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Bodega de Destino</label>
+            <select id="transfer-dest-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
+              <option value="">-- Selecciona Destino --</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Definir Cantidades a Trasladar</label>
+          <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+              <thead>
+                <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                  <th style="padding: 0.75rem;">SKU</th>
+                  <th style="padding: 0.75rem;">Nombre</th>
+                  <th style="padding: 0.75rem; text-align: center;">Stock Origen</th>
+                  <th style="padding: 0.75rem; text-align: center;">Cant. a Mover</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${trs}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-bulk-stock-transfer').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-stock-transfer" style="background-color: #d97706; border-color: #d97706; color: white;">
+          <i class="ri-arrow-left-right-line"></i> Confirmar Traslado
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Load warehouses
+  supabase
+    .from('warehouses')
+    .select('id, name, address, comuna')
+    .order('name')
+    .then(({ data: warehouses }) => {
+      const srcSelect = document.getElementById('transfer-source-warehouse-select');
+      const destSelect = document.getElementById('transfer-dest-warehouse-select');
+      if (srcSelect && destSelect) {
+        srcSelect.innerHTML = '<option value="">-- Selecciona Origen --</option>';
+        destSelect.innerHTML = '<option value="">-- Selecciona Destino --</option>';
+        if (warehouses) {
+          warehouses.forEach(w => {
+            const opt = `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+            srcSelect.innerHTML += opt;
+            destSelect.innerHTML += opt;
+          });
+        }
+      }
+    });
+
+  const srcSelect = document.getElementById('transfer-source-warehouse-select');
+  const destSelect = document.getElementById('transfer-dest-warehouse-select');
+
+  srcSelect.addEventListener('change', async () => {
+    const srcId = srcSelect.value;
+    if (!srcId) {
+      document.querySelectorAll('.transfer-source-stock-label').forEach(lbl => lbl.textContent = '0');
+      document.querySelectorAll('.transfer-qty-input').forEach(inp => {
+        inp.value = '0';
+        inp.max = '0';
+      });
+      return;
+    }
+
+    const productIds = selectedProducts.map(p => p.id);
+    const { data: dbInvs } = await supabase
+      .from('inventory')
+      .select('product_id, quantity')
+      .eq('warehouse_id', srcId)
+      .in('product_id', productIds);
+
+    const stockMap = {};
+    if (dbInvs) {
+      dbInvs.forEach(inv => {
+        stockMap[inv.product_id] = inv.quantity || 0;
+      });
+    }
+
+    selectedProducts.forEach(p => {
+      const currentStock = stockMap[p.id] || 0;
+      const label = document.querySelector(`.transfer-source-stock-label[data-prod-id="${p.id}"]`);
+      if (label) label.textContent = currentStock;
+
+      const input = document.querySelector(`.transfer-qty-input[data-prod-id="${p.id}"]`);
+      if (input) {
+        input.value = '0';
+        input.max = currentStock;
+      }
+    });
+  });
+
+  const confirmBtn = document.getElementById('btn-confirm-stock-transfer');
+  confirmBtn.addEventListener('click', async () => {
+    const srcId = srcSelect.value;
+    const destId = destSelect.value;
+
+    if (!srcId || !destId) {
+      alert('Por favor, selecciona bodega de origen y de destino.');
+      return;
+    }
+
+    if (srcId === destId) {
+      alert('La bodega de origen y de destino deben ser diferentes.');
+      return;
+    }
+
+    let totalToTransfer = 0;
+    const transfers = [];
+
+    for (const p of selectedProducts) {
+      const label = document.querySelector(`.transfer-source-stock-label[data-prod-id="${p.id}"]`);
+      const srcStock = parseInt(label.textContent || '0', 10);
+
+      const input = document.querySelector(`.transfer-qty-input[data-prod-id="${p.id}"]`);
+      const qtyToTransfer = parseInt(input.value || '0', 10);
+
+      if (qtyToTransfer < 0) {
+        alert(`La cantidad para el producto ${p.sku} no puede ser negativa.`);
+        return;
+      }
+
+      if (qtyToTransfer > srcStock) {
+        alert(`No puedes trasladar ${qtyToTransfer} unidades del producto ${p.sku} porque solo hay ${srcStock} disponibles en la bodega de origen.`);
+        return;
+      }
+
+      if (qtyToTransfer > 0) {
+        totalToTransfer += qtyToTransfer;
+        transfers.push({
+          product: p,
+          qty: qtyToTransfer,
+          srcStock: srcStock
+        });
+      }
+    }
+
+    if (totalToTransfer === 0) {
+      alert('Por favor, ingresa una cantidad mayor a 0 para al menos un producto.');
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Procesando Traslado...';
+
+    try {
+      const srcName = srcSelect.options[srcSelect.selectedIndex].text;
+      const destName = destSelect.options[destSelect.selectedIndex].text;
+
+      for (const item of transfers) {
+        const prodId = item.product.id;
+        const qty = item.qty;
+
+        // 1. Update Origen
+        const { data: srcRecord } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', prodId)
+          .eq('warehouse_id', srcId)
+          .single();
+
+        if (srcRecord) {
+          const newSrcQty = Math.max(0, (srcRecord.quantity || 0) - qty);
+          const { error: srcErr } = await supabase
+            .from('inventory')
+            .update({ quantity: newSrcQty })
+            .eq('id', srcRecord.id);
+          if (srcErr) throw srcErr;
+        }
+
+        // 2. Update/Insert Destino
+        const { data: destRecord } = await supabase
+          .from('inventory')
+          .select('id, quantity')
+          .eq('product_id', prodId)
+          .eq('warehouse_id', destId)
+          .maybeSingle();
+
+        if (destRecord) {
+          const newDestQty = (destRecord.quantity || 0) + qty;
+          const { error: destErr } = await supabase
+            .from('inventory')
+            .update({ quantity: newDestQty })
+            .eq('id', destRecord.id);
+          if (destErr) throw destErr;
+        } else {
+          const { error: destErr } = await supabase
+            .from('inventory')
+            .insert([{
+              product_id: prodId,
+              warehouse_id: destId,
+              quantity: qty,
+              committed_quantity: 0
+            }]);
+          if (destErr) throw destErr;
+        }
+
+        // 3. Register Movements
+        const { error: movOutErr } = await supabase
+          .from('movements')
+          .insert([{
+            product_id: prodId,
+            warehouse_id: srcId,
+            type: 'out',
+            quantity: qty,
+            reference_doc: `Traslado a ${destName}`
+          }]);
+        if (movOutErr) throw movOutErr;
+
+        const { error: movInErr } = await supabase
+          .from('movements')
+          .insert([{
+            product_id: prodId,
+            warehouse_id: destId,
+            type: 'in',
+            quantity: qty,
+            reference_doc: `Traslado desde ${srcName}`
+          }]);
+        if (movInErr) throw movInErr;
+      }
+
+      alert(`¡Traslado completado con éxito! Se movieron ${totalToTransfer} unidades entre bodegas.`);
+      modal.remove();
+      if (onComplete) onComplete();
+    } catch (err) {
+      console.error(err);
+      alert('Error al realizar traslado: ' + err.message);
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+    }
+  });
+}
+
 
 
 

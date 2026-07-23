@@ -781,3 +781,23 @@ Ajustamos la visualización y distribución de las etiquetas/badges en el listad
        Esto asegura que si el usuario posiciona el cursor sobre la fila principal o sobre el espacio de las etiquetas, toda la estructura (pedido y etiquetas) se resalte de forma simultánea.
 
 Gracias a esto, el gestor de pedidos ahora aprovecha el ancho completo de la fila para distribuir las etiquetas, previniendo columnas sobredimensionadas y manteniendo una interfaz limpia y profesional.
+
+---
+
+## 41. Ajuste de Stock y Traslado Masivo entre Bodegas (WMS)
+
+Hemos refinado y ampliado las operaciones masivas de inventario en los paneles de Cliente (`js/app.js`) y Administrador (`js/admin.js`):
+
+1. **Renombramiento de "Asignar Bodega" a "Ajustar Stock"**:
+   - Para evitar confusiones semánticas con la acción de traslado o asignación inicial de bodega, renombramos los botones, modales y controladores de la acción de edición directa de stock a **`Ajustar Stock`**.
+   - Ahora, al seleccionar varios productos en la grilla y hacer clic en **`Ajustar Stock`**, se abre el modal correspondiente que permite definir la cantidad exacta final de cada artículo en una bodega seleccionada, registrando los movimientos bajo el concepto de `Ajuste Manual Stock`.
+
+2. **Nuevo Flujo de "Traslado de Stock"**:
+   - Diseñamos e implementamos un nuevo botón **`Traslado de Stock`** (con estilo en tonalidad naranja `#d97706` e icono `ri-arrow-left-right-line`) en las grillas de inventario de cliente y administrador.
+   - Al seleccionar productos y hacer clic en este botón, se abre un modal de traslado que permite:
+     1. **Seleccionar Bodega de Origen y Bodega de Destino** (validando que sean distintas y estén correctamente seleccionadas).
+     2. **Visualizar el stock disponible en la bodega de origen** en tiempo real.
+     3. **Ingresar la cantidad a trasladar** para cada producto, validando que no sea mayor que el stock disponible en el origen ni un valor negativo.
+     4. **Ejecutar la reubicación**: Resta el stock en la bodega de origen e incrementa la misma cantidad en la bodega de destino (creando el registro si no existía en el destino).
+     5. **Registrar de forma separada los movimientos**: Crea un movimiento de salida (`type: 'out'`) para la bodega de origen referenciando `Traslado a [Nombre de Destino]` y un movimiento de entrada (`type: 'in'`) en la bodega de destino referenciando `Traslado desde [Nombre de Origen]`.
+
