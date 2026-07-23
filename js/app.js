@@ -11397,7 +11397,9 @@ window.renderDeclarations = async function() {
                 deliveryMethod: deliveryMethod,
                 carrierInfo: carrierInfo,
                 contactInfo: contactInfo,
-                notes: notes
+                notes: notes,
+                fileBase64: clientUploadedFileBase64,
+                fileName: clientUploadedFileName
               })
             }).catch(e => console.warn('Error al despachar correo de nuevo ingreso:', e));
 
@@ -11601,7 +11603,7 @@ async function fetchAndRenderClientDeclarations() {
     const companyList = [...new Set(getCompanyList())];
     let query = supabase
       .from('stock_declarations')
-      .select('*, warehouses(name, address, comuna)');
+      .select('*, warehouses(name, address, comuna), profiles(full_name, email)');
 
     if (companyList.length > 0) {
       const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
@@ -11691,9 +11693,14 @@ async function fetchAndRenderClientDeclarations() {
       html += `
         <tr style="transition: background-color 0.2s;">
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
+            <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
             ${dec.title}
             <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
               <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
+            </div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
+              <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
+              <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
             </div>
             ${dec.warehouses ? `
             <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">

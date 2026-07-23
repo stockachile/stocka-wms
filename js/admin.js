@@ -11350,7 +11350,7 @@ window.renderDeclarationsAdmin = async function() {
     // Consultar todas las declaraciones junto con el nombre de la empresa/comercio
     const { data: declarations, error } = await supabase
       .from('stock_declarations')
-      .select('*, profiles!inner (company_name), warehouses (name, address, comuna)')
+      .select('*, profiles!inner (company_name, full_name, email), warehouses (name, address, comuna)')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -11420,8 +11420,13 @@ window.renderDeclarationsAdmin = async function() {
               <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
                 ${dec.profiles?.company_name || 'Desconocido'}
               </div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px; display: flex; align-items: center; gap: 3px;" title="Creado por y fecha">
+                <i class="ri-user-add-line" style="font-size: 0.75rem;"></i>
+                <span>${dec.profiles?.full_name || dec.profiles?.email || 'Desconocido'} (${new Date(dec.created_at).toLocaleDateString('es-CL')} ${new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })})</span>
+              </div>
             </td>
             <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
+              <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
               ${dec.title}
               ${dec.warehouses ? `
               <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">

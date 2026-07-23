@@ -1153,7 +1153,7 @@ serve(async (req) => {
       `;
     }
 
-    const brevoPayload = {
+    const brevoPayload: any = {
       sender: {
         name: emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"),
         email: useInfoSender ? "info@stocka.cl" : "finanzas@stocka.cl"
@@ -1162,6 +1162,15 @@ serve(async (req) => {
       subject: emailSubject,
       htmlContent: htmlBody
     };
+
+    if (payload.fileBase64 && payload.fileName) {
+      brevoPayload.attachment = [
+        {
+          content: payload.fileBase64,
+          name: payload.fileName
+        }
+      ];
+    }
 
     const brevoRes = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
