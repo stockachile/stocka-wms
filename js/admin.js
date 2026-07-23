@@ -20742,6 +20742,64 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
   const currentCourier = order.courier || '';
   const currentTracking = order.tracking_number || '';
 
+  // Buscar todos los envíos asociados en la lista de despachos cargados (auto track)
+  const orderShipments = (window.loadedShipments || []).filter(s => 
+    s.pedido_referencia === order.id || 
+    (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
+    (order.tracking_number && s.pedido_referencia === order.tracking_number)
+  );
+
+  // Agregar la opción de Alpha si tiene etiqueta generada
+  const detectedOptions = [];
+
+  // 1. Si hay envíos de auto track (como Enviame / Blue Express, etc.)
+  for (const s of orderShipments) {
+    if (s.tracking) {
+      detectedOptions.push({
+        courier: s.courier || 'Courier',
+        tracking: s.tracking,
+        source: 'Auto Track (Envío)',
+        status: s.global_status || 'SIN MOVIMIENTO'
+      });
+    }
+  }
+
+  // 2. Si hay datos de LightData guardados
+  const alphaDid = order.raw_lightdata_data?.did;
+  if (alphaDid) {
+    detectedOptions.push({
+      courier: 'CARRIER EXTERNO',
+      tracking: String(alphaDid),
+      source: 'Etiqueta Alpha (LightData)',
+      status: 'EN PREPARACIÓN'
+    });
+  }
+
+  // Generar HTML de las opciones
+  let optionsHtml = '';
+  if (detectedOptions.length > 0) {
+    optionsHtml = `
+      <div style="margin-top: 1rem; text-align: left;">
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-primary);"><i class="ri-lightbulb-line"></i> Envíos detectados para este pedido:</label>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem; max-height: 140px; overflow-y: auto; padding: 0.4rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+          ${detectedOptions.map(opt => {
+            const cleanCourier = opt.courier.replace(/'/g, "\\'");
+            const cleanTracking = opt.tracking.replace(/'/g, "\\'");
+            return `
+              <button type="button" 
+                      onclick="document.getElementById('swal-edit-courier').value='${cleanCourier}'; document.getElementById('swal-edit-tracking').value='${cleanTracking}';" 
+                      class="btn btn-outline btn-sm" 
+                      style="display: flex; justify-content: space-between; align-items: center; width: 100%; text-align: left; padding: 0.4rem 0.5rem; font-size: 0.775rem; cursor: pointer; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-weight: 500; border-radius: var(--radius-xs); border: 1px solid var(--color-border);">
+                <span><i class="ri-truck-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i> <strong>${opt.courier}</strong>: ${opt.tracking} <span style="font-size:0.7rem; color: var(--color-text-muted);">(${opt.source})</span></span>
+                <span style="font-size: 0.65rem; background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.1rem 0.3rem; border-radius: 3px; font-weight: 700; text-transform: uppercase;">${opt.status}</span>
+              </button>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   const { value: formValues } = await Swal.fire({
     title: 'Editar Courier y N° Seguimiento',
     html: `
@@ -20753,6 +20811,8 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         
         <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">N° Seguimiento (Tracking)</label>
         <input id="swal-edit-tracking" class="swal2-input" type="text" value="${currentTracking}" placeholder="Ej: 12345678" style="width: 100%; margin: 0; box-sizing: border-box;">
+        
+        ${optionsHtml}
       </div>
     `,
     focusConfirm: false,

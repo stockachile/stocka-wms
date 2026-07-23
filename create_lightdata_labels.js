@@ -448,7 +448,8 @@ async function handleIndividualMode(idPedido) {
       estado_wms: 'En preparación',
       fecha_procesamiento: fechaProcesamientoVal,
       agenda: 'RM',
-      operador: 'ALPHA'
+      operador: 'ALPHA',
+      raw_lightdata_data: { did: createdDid }
     };
 
     const { error: updateError } = await supabase
@@ -719,7 +720,8 @@ async function handleBulkMode(limiteCarga) {
         estado_wms: 'En preparación',
         fecha_procesamiento: fechaProcesamientoVal,
         agenda: 'RM',
-        operador: 'ALPHA'
+        operador: 'ALPHA',
+        raw_lightdata_data: did ? { did: did } : null
       };
 
       const { error: updateError } = await supabase
