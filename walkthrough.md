@@ -541,3 +541,23 @@ Hemos implementado la posibilidad de navegar entre los diferentes pasos del form
    - Además, el botón "Siguiente" del pie de página se deshabilita visualmente y se bloquea su puntero para evitar envíos de pasos no resueltos.
 
 ---
+
+## 29. Sub-etapas e Iconos de Guía en el Paso 3 (Comercial)
+
+Para evitar que el paso 3 ("Comercial") se hiciera demasiado largo y fatigara al usuario al registrarse, hemos subdividido esta etapa en 4 sub-etapas lógicas y ligeras, guiadas por pestañas dinámicas e iconos:
+
+1. **Estructura de las Sub-etapas**:
+   - **3.1 Identidad de tu Comercio** (Icono: `ri-store-2-line`): Nombre de fantasía y sitio web.
+   - **3.2 Canales e Integraciones** (Icono: `ri-links-line`): Plataformas de venta (Shopify, WooCommerce, etc.), marketplaces y configuraciones condicionales de Mercado Libre.
+   - **3.3 Logística y Despacho** (Icono: `ri-truck-line`): Preferencias de courier para Santiago y Regiones, y opción de Retiro en Sucursal.
+   - **3.4 Instrucciones de Embalaje** (Icono: `ri-box-3-line`): Detalle del packaging y empaque de sus productos.
+
+2. **Sub-stepper Interactivo**:
+   - Agregamos una barra superior horizontal inside del panel 3 con 4 pestañas interactivas y hermosos iconos de Remix Icon.
+   - Las pestañas cambian de estilo automáticamente de acuerdo a la navegación (`active` con borde iluminado morado, `completed` en verde con checkmark implícito, u opaco/deshabilitado si no se ha alcanzado).
+   - El botón **Siguiente** avanza secuencialmente a través de las sub-etapas validando cada sub-paso de forma independiente. El botón **Atrás** regresa de igual manera. Al finalizar el sub-paso 4, el usuario avanza naturalmente al Paso 4 (Firma).
+
+3. **Iconos Guía**:
+   - Agregamos iconos semánticos a cada una de las etiquetas y preguntas del formulario (`ri-global-line`, `ri-computer-line`, `ri-map-pin-line`, `ri-archive-line`, etc.) para hacer el llenado visualmente guiado e intuitivo.
+
+---
