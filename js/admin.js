@@ -1712,7 +1712,7 @@ window.applyWmsFiltersAndRender = function() {
     }).length;
   };
 
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.wmsActiveTab === tab;
     const count = getTabCount(tab);
@@ -1725,6 +1725,8 @@ window.applyWmsFiltersAndRender = function() {
       badgeClass = 'status-yellow';
     } else if (tab === 'En procesamiento') {
       badgeClass = 'status-blue';
+    } else if (tab === 'Cancelado') {
+      badgeClass = 'status-gray';
     }
 
     // When the tab is active, we use inline styling to contrast with the primary background
@@ -2276,7 +2278,7 @@ window.applyWmsFiltersAndRender = function() {
 
     // Color del dropdown de WMS según el estado
     let wmsColor = '#0ea5e9'; // info
-    if (order.estado_wms === 'Incidencia') wmsColor = '#ef4444'; // danger
+    if (order.estado_wms === 'Incidencia' || order.estado_wms === 'Cancelado') wmsColor = '#ef4444'; // danger
     else if (order.estado_wms === 'Pickeado' || order.estado_wms === 'Despachado') wmsColor = '#22c55e'; // success
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
@@ -2359,6 +2361,7 @@ window.applyWmsFiltersAndRender = function() {
             <option value="Pickeado" ${order.estado_wms === 'Pickeado' ? 'selected' : ''}>Pickeado</option>
             <option value="Despachado" ${order.estado_wms === 'Despachado' ? 'selected' : ''}>Despachado</option>
             <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
+            <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
           </select>
         </td>
       </tr>
@@ -3067,6 +3070,8 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       const updateData = { estado_wms: newWmsStatus };
       if (newWmsStatus === 'Despachado') {
         updateData.status = 'despachado';
+      } else if (newWmsStatus === 'Cancelado') {
+        updateData.status = 'cancelado';
       }
       const { error } = await supabase
         .from('orders')
@@ -3076,7 +3081,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       if (error) throw error;
       
       order.estado_wms = newWmsStatus;
-      if (newWmsStatus === 'Despachado') order.status = 'despachado';
+      if (newWmsStatus === 'Despachado') {
+        order.status = 'despachado';
+      } else if (newWmsStatus === 'Cancelado') {
+        order.status = 'cancelado';
+      }
       
       applyWmsFiltersAndRender();
     } catch (err) {

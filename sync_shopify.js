@@ -197,6 +197,11 @@ async function syncOrders(integration) {
         created_at: new Date(order.created_at).toISOString()
       };
 
+      if (order.cancelled_at) {
+        orderDataToSave.status = 'cancelado';
+        orderDataToSave.estado_wms = 'Cancelado';
+      }
+
       let orderId;
       if (existingOrder) {
         // Actualizar pedido existente
@@ -210,7 +215,11 @@ async function syncOrders(integration) {
         // Insertar nuevo pedido (lo ponemos como "para procesar" o su equivalente)
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
-          .insert([{ ...orderDataToSave, status: 'para procesar' }])
+          .insert([{ 
+            ...orderDataToSave, 
+            status: orderDataToSave.status || 'para procesar',
+            estado_wms: orderDataToSave.estado_wms || 'En procesamiento'
+          }])
           .select('id')
           .single();
           

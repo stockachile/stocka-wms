@@ -4445,7 +4445,7 @@ window.applyClientWmsFiltersAndRender = function() {
     }).length;
   };
 
-  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  const tabs = ['Todos', 'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'];
   const tabsHtml = tabs.map(tab => {
     const isActive = window.clientWmsActiveTab === tab;
     const count = getTabCount(tab);
@@ -4463,6 +4463,9 @@ window.applyClientWmsFiltersAndRender = function() {
     } else if (tab === 'En procesamiento') {
       badgeBg = '#e0f2fe';
       badgeColor = '#0284c7';
+    } else if (tab === 'Cancelado') {
+      badgeBg = '#f3f4f6';
+      badgeColor = '#4b5563';
     }
 
     return `

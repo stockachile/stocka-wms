@@ -608,3 +608,22 @@ Hemos enriquecido la visualización del listado de pedidos en el panel del Admin
      * **`FULFILL. PARCIAL`** (Badge naranja `#ffedd5` / `#9a3412`): El pedido tiene despachos parciales.
      * **`RESTOCKED`** (Badge gris `#f1f5f9` / `#475569`): Los ítems fueron devueltos al inventario de la tienda.
 
+---
+
+## 33. Estado WMS "Cancelado" para Archivado Libre de Impacto en Estadísticas e Inventario
+
+Hemos implementado un nuevo estado de preparación/fulfillment en el WMS denominado **`Cancelado`**, que archiva los pedidos y los desvincula del cálculo de estadísticas y del compromiso de inventario:
+
+1. **Liberación de Stock Automática (Triggers de Base de Datos):**
+   - Al cambiar el estado de un pedido a `Cancelado` desde la interfaz, el campo `status` en la tabla `orders` se actualiza de manera sincronizada a `'cancelado'`.
+   - Esto dispara el trigger nativo `handle_order_status_change()` de Supabase, que se encarga de restar automáticamente las unidades del pedido del campo `committed_quantity` (cantidad comprometida) en la tabla `inventory`, devolviendo la disponibilidad de stock a la bodega.
+
+2. **Habilitación en la Interfaz (Dropdowns y Pestañas):**
+   - Agregamos la opción **`Cancelado`** al selector de estados de la grilla del Administrador (`wms-status-select`) en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js), asignándole un estilo visual de color rojo en sus bordes.
+   - Añadimos la pestaña **`Cancelado`** en los encabezados de pestañas del panel de administración ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) y del cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) con un contador dedicado. Esto permite que los pedidos queden archivados de forma independiente sin mezclar la vista con pedidos activos.
+
+3. **Exclusión de Estadísticas WMS:**
+   - La lógica de cálculo de ventas totales en ambos dashboards (administrador y cliente) filtra y excluye explícitamente los registros en estado `'cancelado'`.
+
+4. **Integración con la Sincronización de Shopify:**
+   - Actualizamos el proceso de importación masiva [sync_shopify.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_shopify.js). Ahora, si un pedido importado tiene fecha de cancelación (`cancelled_at` presente), se le asigna de manera inicial el estado `status = 'cancelado'` y `estado_wms = 'Cancelado'`. Además, si un pedido existente en la base de datos se cancela en la plataforma de Shopify, la tarea de sincronización periódica actualiza de forma segura su estado en el WMS a `Cancelado` para gatillar el retorno del stock.
