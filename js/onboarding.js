@@ -388,6 +388,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return false;
       }
     }
+    
+    return true;
+  };
+
   const updateStepper = () => {
     clearAlert();
     
