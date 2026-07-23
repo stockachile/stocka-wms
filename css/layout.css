@@ -1035,3 +1035,23 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
 [data-theme="dark"] input:focus {
   outline-color: var(--color-primary);
 }
+
+/* ============================================= */
+/* WMS Order Row Badges Layout                   */
+/* ============================================= */
+
+.order-row td {
+  border-bottom: none !important;
+}
+
+.order-badges-row td {
+  border-top: none !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.order-row:hover td,
+.order-badges-row:hover td,
+.order-row:has(+ .order-badges-row:hover) td,
+.order-row:hover + .order-badges-row td {
+  background-color: var(--color-surface-hover) !important;
+}

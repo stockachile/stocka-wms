@@ -2411,8 +2411,11 @@ async function renderInventory() {
             <button id="btn-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-upload-2-line"></i> Asignar Stock Masivo
             </button>
-            <button id="btn-assign-warehouse-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-git-repository-line"></i> Asignar Bodega
+            <button id="btn-adjust-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-equalizer-line"></i> Ajustar Stock
+            </button>
+            <button id="btn-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-arrow-left-right-line"></i> Traslado de Stock
             </button>
             ${actionBtn}
           </div>
@@ -2496,9 +2499,9 @@ async function renderInventory() {
       bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderInventory()));
     }
 
-    const assignWhBtn = document.getElementById('btn-assign-warehouse-bulk');
-    if (assignWhBtn) {
-      assignWhBtn.addEventListener('click', () => {
+    const adjustStockBtn = document.getElementById('btn-adjust-stock-bulk');
+    if (adjustStockBtn) {
+      adjustStockBtn.addEventListener('click', () => {
         const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
         if (checkedBoxes.length === 0) {
           alert('Por favor, selecciona al menos un producto de la tabla.');
@@ -2519,7 +2522,34 @@ async function renderInventory() {
           }
         });
 
-        openDirectBulkWarehouseAssignModal(commerce, selectedProducts, () => renderInventory());
+        openDirectBulkStockAdjustModal(commerce, selectedProducts, () => renderInventory());
+      });
+    }
+
+    const transferStockBtn = document.getElementById('btn-transfer-stock-bulk');
+    if (transferStockBtn) {
+      transferStockBtn.addEventListener('click', () => {
+        const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
+        if (checkedBoxes.length === 0) {
+          alert('Por favor, selecciona al menos un producto de la tabla.');
+          return;
+        }
+
+        const selectedProducts = [];
+        const seenIds = new Set();
+        checkedBoxes.forEach(cb => {
+          const prodId = cb.getAttribute('data-prod-id');
+          if (!seenIds.has(prodId)) {
+            seenIds.add(prodId);
+            selectedProducts.push({
+              id: prodId,
+              sku: cb.getAttribute('data-prod-sku'),
+              name: cb.getAttribute('data-prod-name')
+            });
+          }
+        });
+
+        openBulkStockTransferModal(commerce, selectedProducts, () => renderInventory());
       });
     }
 
@@ -5025,12 +5055,6 @@ window.applyClientWmsFiltersAndRender = function() {
           <div style="display:flex; flex-direction:column; gap:0.2rem;">
             <span style="font-family:monospace; font-size:0.82rem; background:var(--color-bg); padding:0.2rem 0.45rem; border-radius:var(--radius-sm); border:1px solid var(--color-border); letter-spacing:0.4px; font-weight:600;">${order.external_order_number || order.id.split('-')[0]}</span>
             ${order.external_order_number ? `<span style="font-size:0.7rem; color:var(--color-text-muted);">${order.id.split('-')[0]}</span>` : ''}
-            <div style="display:flex; flex-wrap:wrap; gap:0.25rem; margin-top:0.15rem;">
-              ${exportBadgeHtml}
-              ${packBadgeHtml}
-              ${shipmentBadgeHtml}
-              ${stockAlertBadgeHtml}
-            </div>
           </div>
         </td>
         <td style="padding: 0.45rem 0.75rem;">${originHtml}</td>
@@ -5052,6 +5076,13 @@ window.applyClientWmsFiltersAndRender = function() {
         </td>
         <td style="padding: 0.45rem 0.75rem;">
           <span style="background-color:${wmsBadgeBg}; color:${wmsBadgeColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${wmsStatus}</span>
+        </td>
+      </tr>
+      <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.15s;">
+        <td colspan="12" style="padding: 0rem 0.75rem 0.5rem 5.6rem; text-align: left;">
+          <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
+            ${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}
+          </div>
         </td>
       </tr>
       

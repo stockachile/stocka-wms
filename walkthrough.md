@@ -754,3 +754,30 @@ Hemos implementado una nueva funcionalidad que permite asignar/cargar stock de m
        2. Ver el stock físico actual que tiene cada producto seleccionado en la bodega de destino elegida (se actualiza automáticamente al cambiar de bodega).
        3. Definir y ajustar directamente los nuevos niveles de stock para cada uno de los productos sin salir de la pantalla.
      - **Actualización y Trazabilidad**: El sistema realiza las actualizaciones en lote en la tabla `inventory` e inserta los logs correspondientes en `movements` bajo el documento de referencia `Ajuste Manual Bodega`, refrescando la vista principal tras la confirmación.
+
+---
+
+## 40. Ajuste y Reubicación de Etiquetas en Borde Inferior de Fila en Gestor de Pedidos
+
+Ajustamos la visualización y distribución de las etiquetas/badges en el listado de pedidos tanto del Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) como del Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) para evitar que ensanchen la columna `ID` y alteren la alineación vertical de la tabla:
+
+1. **Reubicación de Badges (Fila Exclusiva)**:
+   - Extrajimos el contenedor de etiquetas (`Exportado`, `PAGADO`, `Con Packs`, `FULFILLED`, `SIN STOCK`, `CANCELADO`, `Etiqueta`, etc.) de la celda de la columna de ID.
+   - Creamos una fila secundaria (`<tr class="order-badges-row">`) posicionada inmediatamente debajo de la fila de datos principal de cada pedido.
+   - Esta fila de etiquetas cuenta con un `colspan` adaptado a la tabla correspondiente (`colspan="14"` en admin, `colspan="12"` en cliente) y un sangrado/padding izquierdo (`padding-left` de `3.4rem` en admin y `5.6rem` en cliente) que alinea horizontalmente las etiquetas justo debajo del número de pedido e ID.
+
+2. **Fusión Visual y Sincronización de Hover (CSS)**:
+   - Añadimos estilos específicos en [css/layout.css](file:///c:/Users/felip/Desktop/WMS%20STOCKA/css/layout.css):
+     * Eliminamos el borde inferior de la fila principal (`.order-row td`) y se lo asignamos únicamente a la fila de etiquetas (`.order-badges-row td`), logrando que ambas filas se perciban visualmente como una sola tarjeta unificada.
+     * Implementamos reglas avanzadas de hover en CSS (utilizando selectores modernos `:has()` y combinadores hermanos `+` para máxima compatibilidad):
+       ```css
+       .order-row:hover td,
+       .order-badges-row:hover td,
+       .order-row:has(+ .order-badges-row:hover) td,
+       .order-row:hover + .order-badges-row td {
+         background-color: var(--color-surface-hover) !important;
+       }
+       ```
+       Esto asegura que si el usuario posiciona el cursor sobre la fila principal o sobre el espacio de las etiquetas, toda la estructura (pedido y etiquetas) se resalte de forma simultánea.
+
+Gracias a esto, el gestor de pedidos ahora aprovecha el ancho completo de la fila para distribuir las etiquetas, previniendo columnas sobredimensionadas y manteniendo una interfaz limpia y profesional.

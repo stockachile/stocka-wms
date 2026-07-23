@@ -2102,8 +2102,8 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}</div></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -2369,6 +2369,13 @@ window.applyWmsFiltersAndRender = function() {
             <option value="Incidencia" ${order.estado_wms === 'Incidencia' ? 'selected' : ''}>Incidencia</option>
             <option value="Cancelado" ${order.estado_wms === 'Cancelado' ? 'selected' : ''}>Cancelado</option>
           </select>
+        </td>
+      </tr>
+      <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
+        <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
+          <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
+            ${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}
+          </div>
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
@@ -5573,8 +5580,11 @@ async function renderAdminInventoryWorkspace(commerce) {
             <button id="btn-admin-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-upload-2-line"></i> Asignar Stock Masivo
             </button>
-            <button id="btn-admin-assign-warehouse-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
-              <i class="ri-git-repository-line"></i> Asignar Bodega
+            <button id="btn-admin-adjust-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-equalizer-line"></i> Ajustar Stock
+            </button>
+            <button id="btn-admin-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-arrow-left-right-line"></i> Traslado de Stock
             </button>
           </div>
         </div>
@@ -5646,9 +5656,9 @@ async function renderAdminInventoryWorkspace(commerce) {
       bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderAdminInventoryWorkspace(commerce)));
     }
 
-    const assignWhBtn = document.getElementById('btn-admin-assign-warehouse-bulk');
-    if (assignWhBtn) {
-      assignWhBtn.addEventListener('click', () => {
+    const adjustStockBtn = document.getElementById('btn-admin-adjust-stock-bulk');
+    if (adjustStockBtn) {
+      adjustStockBtn.addEventListener('click', () => {
         const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
         if (checkedBoxes.length === 0) {
           alert('Por favor, selecciona al menos un producto de la tabla.');
@@ -5669,7 +5679,34 @@ async function renderAdminInventoryWorkspace(commerce) {
           }
         });
 
-        openDirectBulkWarehouseAssignModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+        openDirectBulkStockAdjustModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+      });
+    }
+
+    const transferStockBtn = document.getElementById('btn-admin-transfer-stock-bulk');
+    if (transferStockBtn) {
+      transferStockBtn.addEventListener('click', () => {
+        const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
+        if (checkedBoxes.length === 0) {
+          alert('Por favor, selecciona al menos un producto de la tabla.');
+          return;
+        }
+
+        const selectedProducts = [];
+        const seenIds = new Set();
+        checkedBoxes.forEach(cb => {
+          const prodId = cb.getAttribute('data-prod-id');
+          if (!seenIds.has(prodId)) {
+            seenIds.add(prodId);
+            selectedProducts.push({
+              id: prodId,
+              sku: cb.getAttribute('data-prod-sku'),
+              name: cb.getAttribute('data-prod-name')
+            });
+          }
+        });
+
+        openBulkStockTransferModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
       });
     }
 
@@ -25162,12 +25199,12 @@ function openBulkStockAssignModal(commerce, onComplete) {
   }
 }
 
-function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComplete) {
-  let modal = document.getElementById('modal-direct-warehouse-assign');
+function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) {
+  let modal = document.getElementById('modal-direct-stock-adjust');
   if (modal) modal.remove();
 
   modal = document.createElement('div');
-  modal.id = 'modal-direct-warehouse-assign';
+  modal.id = 'modal-direct-stock-adjust';
   modal.className = 'modal-overlay active';
   modal.style.zIndex = '9998';
   
@@ -25185,8 +25222,8 @@ function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComple
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 650px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
       <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-git-repository-line" style="color: var(--color-accent);"></i> Asignar Bodega y Stock</h3>
-        <button type="button" class="modal-close" onclick="document.getElementById('modal-direct-warehouse-assign').remove()">&times;</button>
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-equalizer-line" style="color: var(--color-accent);"></i> Ajustar Stock de Bodega</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-direct-stock-adjust').remove()">&times;</button>
       </div>
       <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
         <div class="form-group" style="margin-bottom: 0;">
@@ -25215,8 +25252,8 @@ function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComple
         </div>
       </div>
       <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
-        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-direct-warehouse-assign').remove()">Cancelar</button>
-        <button type="button" class="btn btn-primary" id="btn-confirm-direct-assign" style="background-color: var(--color-accent); border-color: var(--color-accent); color: white;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-direct-stock-adjust').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-direct-adjust" style="background-color: var(--color-accent); border-color: var(--color-accent); color: white;">
           <i class="ri-checkbox-circle-line"></i> Confirmar y Guardar
         </button>
       </div>
@@ -25276,7 +25313,7 @@ function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComple
     });
   });
 
-  const confirmBtn = document.getElementById('btn-confirm-direct-assign');
+  const confirmBtn = document.getElementById('btn-confirm-direct-adjust');
   confirmBtn.addEventListener('click', async () => {
     const warehouseId = selectEl.value;
     if (!warehouseId) {
@@ -25334,7 +25371,7 @@ function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComple
               warehouse_id: warehouseId,
               type: type,
               quantity: qty,
-              reference_doc: 'Ajuste Manual Bodega'
+              reference_doc: 'Ajuste Manual Stock'
             }]);
           
           updatedCount++;
@@ -25346,7 +25383,7 @@ function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComple
       if (onComplete) onComplete();
     } catch (err) {
       console.error(err);
-      alert('Error al asignar bodega: ' + err.message);
+      alert('Error al ajustar stock: ' + err.message);
       confirmBtn.disabled = false;
       confirmBtn.innerHTML = '<i class="ri-checkbox-circle-line"></i> Confirmar y Guardar';
     }
