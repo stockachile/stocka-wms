@@ -23,12 +23,15 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('comercio')
+    .limit(100);
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  
+  const commerces = new Set(products.map(p => p.comercio));
+  console.log('Commerce names in products table:', Array.from(commerces));
 }
 
 main().catch(console.error);

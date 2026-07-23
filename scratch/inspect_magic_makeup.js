@@ -25,10 +25,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 async function main() {
   const { data: integrations, error } = await supabase
     .from('merchant_integrations')
-    .select('*');
+    .select('*')
+    .eq('shop_url', 'magicmakeup-cl.myshopify.com');
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('Magic Makeup Integrations:', integrations);
 }
 
 main().catch(console.error);

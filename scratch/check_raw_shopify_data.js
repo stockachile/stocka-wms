@@ -23,12 +23,22 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('id, sku, name, price, raw_shopify_data')
+    .eq('comercio', 'POMS KIDS')
+    .limit(5);
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('Products sample raw_shopify_data:');
+  products.forEach(p => {
+    console.log(`SKU: ${p.sku}, Name: ${p.name}, Current Price: ${p.price}`);
+    console.log('Raw Shopify Data keys/sample:', p.raw_shopify_data ? Object.keys(p.raw_shopify_data) : 'null');
+    if (p.raw_shopify_data) {
+      console.log('Raw Shopify Data detail (first 200 chars):', JSON.stringify(p.raw_shopify_data).substring(0, 500));
+    }
+    console.log('---');
+  });
 }
 
 main().catch(console.error);

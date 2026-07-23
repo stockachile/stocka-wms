@@ -74,10 +74,28 @@ document.addEventListener('DOMContentLoaded', () => {
           if (val) {
             const formatted = val.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             ufValueEl.textContent = `$${formatted}`;
-            localStorage.setItem('stocka-uf', JSON.stringify({ date: today, value: `$${formatted}` }));
+            localStorage.setItem('stocka-uf', JSON.stringify({ 
+              date: today, 
+              value: `$${formatted}`,
+              numericValue: parseFloat(val)
+            }));
+            localStorage.setItem('stocka-last-uf-backup', val.toString());
+          } else {
+            throw new Error('Datos no válidos');
           }
         })
-        .catch(() => { ufValueEl.textContent = 'N/D'; });
+        .catch(() => {
+          // Si falla, usar la última UF conocida de respaldo
+          const backupVal = localStorage.getItem('stocka-last-uf-backup');
+          if (backupVal) {
+            const valNum = parseFloat(backupVal);
+            const formatted = valNum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            ufValueEl.textContent = `$${formatted}*`;
+            ufValueEl.title = 'Valor de respaldo (última UF conocida offline)';
+          } else {
+            ufValueEl.textContent = 'N/D';
+          }
+        });
     }
   }
 

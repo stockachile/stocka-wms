@@ -23,12 +23,14 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: product, error } = await supabase
+    .from('products')
+    .select('*')
+    .limit(1)
+    .single();
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('Columns of public.products:', Object.keys(product));
 }
 
 main().catch(console.error);

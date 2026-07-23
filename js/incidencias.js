@@ -385,6 +385,135 @@ function injectStyles() {
         grid-template-columns: 1fr;
       }
     }
+
+    /* Estilos para Pestañas (Tabs) */
+    .incidencias-tabs {
+      display: flex;
+      gap: 0.5rem;
+      border-bottom: 2px solid var(--color-border);
+      padding-bottom: 2px;
+      margin-bottom: 0.5rem;
+    }
+    .incidencias-tab {
+      background: none;
+      border: none;
+      color: var(--color-text-muted);
+      padding: 0.75rem 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      position: relative;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .incidencias-tab:hover {
+      color: var(--color-text-main);
+    }
+    .incidencias-tab.active {
+      color: var(--color-primary);
+    }
+    .incidencias-tab.active::after {
+      content: '';
+      position: absolute;
+      bottom: -2px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background: var(--color-primary);
+      border-radius: 2px;
+    }
+    .tab-count {
+      background: var(--color-bg);
+      color: var(--color-text-muted);
+      font-size: 0.75rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 10px;
+      font-weight: 600;
+      border: 1px solid var(--color-border);
+    }
+    .incidencias-tab.active .tab-count {
+      background: rgba(59, 130, 246, 0.1);
+      color: var(--color-primary);
+      border-color: rgba(59, 130, 246, 0.2);
+    }
+
+    /* Estilos para Accordion */
+    .incidencia-card.accordion-card .incidencia-card-header {
+      cursor: pointer;
+      transition: background-color 0.2s;
+      user-select: none;
+    }
+    .incidencia-card.accordion-card .incidencia-card-header:hover {
+      background-color: rgba(0, 0, 0, 0.015);
+    }
+    .incidencia-card.collapsed .incidencia-card-body {
+      display: none !important;
+    }
+    .accordion-toggle-icon-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 1.2rem;
+      transition: background-color 0.2s, color 0.2s;
+    }
+    .incidencia-card.accordion-card .incidencia-card-header:hover .accordion-toggle-icon-wrapper {
+      background-color: var(--color-primary);
+      color: #fff;
+      border-color: var(--color-primary);
+    }
+    .accordion-toggle-icon {
+      transition: transform 0.2s ease;
+    }
+    .incidencia-card.collapsed .accordion-toggle-icon {
+      transform: rotate(0deg);
+    }
+    .incidencia-card:not(.collapsed) .accordion-toggle-icon {
+      transform: rotate(180deg);
+    }
+
+    /* Caja destacada para comentarios de soporte admin */
+    .incidencia-admin-comment-box {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, rgba(59, 130, 246, 0.06) 100%);
+      border: 1px solid rgba(139, 92, 246, 0.15);
+      border-left: 4px solid var(--color-primary);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      margin: 1rem 0;
+      animation: pulseHighlight 2s infinite alternate;
+    }
+    @keyframes pulseHighlight {
+      0% {
+        box-shadow: 0 0 4px rgba(139, 92, 246, 0.05);
+      }
+      100% {
+        box-shadow: 0 0 8px rgba(139, 92, 246, 0.15);
+      }
+    }
+    .admin-comment-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--color-primary);
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .admin-comment-content {
+      font-size: 0.9rem;
+      color: var(--color-text-main);
+      line-height: 1.4;
+      font-style: italic;
+    }
   `;
   document.head.appendChild(styleEl);
 }
@@ -512,7 +641,7 @@ export async function renderIncidenciasClient(appContent) {
 
   const userId = session.user.id;
   let incidencias = [];
-  let filterStatus = 'todos';
+  let filterStatus = 'pendiente'; // Default to pending tab
   let filterSeverity = 'todos';
   let userComercio = '';
 
@@ -556,9 +685,6 @@ export async function renderIncidenciasClient(appContent) {
 
       query = query.order('created_at', { ascending: false });
 
-      if (filterStatus !== 'todos') {
-        query = query.eq('status', filterStatus);
-      }
       if (filterSeverity !== 'todos') {
         query = query.eq('severity', filterSeverity);
       }
@@ -574,29 +700,63 @@ export async function renderIncidenciasClient(appContent) {
   }
 
   function renderList() {
+    const pendingInc = incidencias.filter(i => i.status === 'pendiente');
+    const resolvedInc = incidencias.filter(i => i.status === 'resuelta');
+    const discardedInc = incidencias.filter(i => i.status === 'descartada');
+
+    let filteredList = [];
+    if (filterStatus === 'pendiente') {
+      filteredList = pendingInc;
+    } else if (filterStatus === 'resuelta') {
+      filteredList = resolvedInc;
+    } else if (filterStatus === 'descartada') {
+      filteredList = discardedInc;
+    }
+
     let listHtml = '';
-    if (incidencias.length === 0) {
+    if (filteredList.length === 0) {
+      let emptyMsg = 'No hay incidencias en esta pestaña.';
+      let emptyIcon = 'ri-checkbox-circle-line';
+      let iconColor = 'var(--color-success)';
+      if (filterStatus === 'pendiente') {
+        emptyMsg = '¡Todo al día! No se han reportado problemas en este momento.';
+      } else if (filterStatus === 'resuelta') {
+        emptyMsg = 'No hay incidencias resueltas todavía.';
+        emptyIcon = 'ri-check-double-line';
+        iconColor = 'var(--color-text-muted)';
+      } else if (filterStatus === 'descartada') {
+        emptyMsg = 'No hay incidencias descartadas.';
+        emptyIcon = 'ri-close-circle-line';
+        iconColor = 'var(--color-text-muted)';
+      }
       listHtml = `
         <div class="card" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
-          <i class="ri-checkbox-circle-line" style="font-size: 3rem; color: var(--color-success); margin-bottom: 0.75rem; display: block;"></i>
-          <p style="font-size: 1.05rem; font-weight: 500;">¡Todo al día!</p>
-          <p style="font-size: 0.85rem; margin-top: 0.25rem;">No se han reportado problemas de integración ni sugerencias en este momento.</p>
+          <i class="${emptyIcon}" style="font-size: 3rem; color: ${iconColor}; margin-bottom: 0.75rem; display: block;"></i>
+          <p style="font-size: 1.05rem; font-weight: 500;">Pestaña vacía</p>
+          <p style="font-size: 0.85rem; margin-top: 0.25rem;">${emptyMsg}</p>
         </div>
       `;
     } else {
       listHtml = `
         <div class="incidencias-list">
-          ${incidencias.map(inc => {
+          ${filteredList.map(inc => {
             const severity = SEVERITY_LEVELS[inc.severity] || { label: inc.severity, class: '', borderClass: '' };
             const type = TYPES[inc.type] || { label: inc.type, icon: 'ri-question-line', class: '' };
             const status = STATUSES[inc.status] || { label: inc.status, class: '' };
             
             const isUnresolved = inc.status === 'pendiente';
             const daysOpen = isUnresolved ? calculateDaysElapsed(inc.created_at) : null;
+            
+            const isAccordion = !isUnresolved;
+            const cardClasses = ['incidencia-card', severity.borderClass];
+            if (isAccordion) {
+              cardClasses.push('accordion-card');
+              cardClasses.push('collapsed');
+            }
 
             return `
-              <div class="incidencia-card ${severity.borderClass}">
-                <div class="incidencia-card-header">
+              <div class="${cardClasses.join(' ')}" data-id="${inc.id}">
+                <div class="incidencia-card-header ${isAccordion ? 'accordion-header' : ''}">
                   <div class="incidencia-title-area">
                     <div class="incidencia-type-icon ${type.class}">
                       <i class="${type.icon}"></i>
@@ -611,13 +771,20 @@ export async function renderIncidenciasClient(appContent) {
                     </div>
                   </div>
                   <div class="incidencia-status-aside">
-                    ${isUnresolved 
-                      ? (daysOpen > 0 
-                        ? `<span class="days-alert"><i class="ri-time-line"></i> ${daysOpen} ${daysOpen === 1 ? 'día' : 'días'} sin resolver</span>` 
-                        : `<span class="days-info"><i class="ri-time-line"></i> Reportado hoy</span>`) 
-                      : `<span class="days-info" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Resuelta</span>`
-                    }
-                    <span style="color: var(--color-text-muted); font-size: 0.8rem;">Creado: ${formatDate(inc.created_at)}</span>
+                    <div style="display: flex; align-items: center; gap: 0.75rem; justify-content: flex-end;">
+                      ${isUnresolved 
+                        ? (daysOpen > 0 
+                          ? `<span class="days-alert"><i class="ri-time-line"></i> ${daysOpen} ${daysOpen === 1 ? 'día' : 'días'} sin resolver</span>` 
+                          : `<span class="days-info"><i class="ri-time-line"></i> Reportado hoy</span>`) 
+                        : `<span class="days-info" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Resuelta</span>`
+                      }
+                      ${isAccordion ? `
+                        <div class="accordion-toggle-icon-wrapper">
+                          <i class="ri-arrow-down-s-line accordion-toggle-icon"></i>
+                        </div>
+                      ` : ''}
+                    </div>
+                    <span style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.25rem;">Creado: ${formatDate(inc.created_at)}</span>
                   </div>
                 </div>
                 
@@ -626,6 +793,18 @@ export async function renderIncidenciasClient(appContent) {
                     <strong>Descripción del problema:</strong>
                     <div style="margin-top: 0.25rem; color: var(--color-text-muted);">${escapeHtml(inc.description).replace(/\n/g, '<br>')}</div>
                   </div>
+
+                  ${inc.admin_comment ? `
+                    <div class="incidencia-admin-comment-box">
+                      <div class="admin-comment-header">
+                        <i class="ri-chat-voice-line"></i>
+                        <span>Mensaje de Soporte STOCKA</span>
+                      </div>
+                      <div class="admin-comment-content">
+                        ${escapeHtml(inc.admin_comment).replace(/\n/g, '<br>')}
+                      </div>
+                    </div>
+                  ` : ''}
                   
                   <div class="incidencia-solution-box">
                     <div class="solution-box-title">
@@ -673,12 +852,6 @@ export async function renderIncidenciasClient(appContent) {
             <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">Incidencias de integración detectadas y sugerencias de configuración del sistema</p>
           </div>
           <div class="incidencias-filters">
-            <select id="client-filter-status" class="incidencias-filter-select">
-              <option value="todos" ${filterStatus === 'todos' ? 'selected' : ''}>Todos los estados</option>
-              <option value="pendiente" ${filterStatus === 'pendiente' ? 'selected' : ''}>Pendientes</option>
-              <option value="resuelta" ${filterStatus === 'resuelta' ? 'selected' : ''}>Resueltas</option>
-              <option value="descartada" ${filterStatus === 'descartada' ? 'selected' : ''}>Descartadas</option>
-            </select>
             <select id="client-filter-severity" class="incidencias-filter-select">
               <option value="todos" ${filterSeverity === 'todos' ? 'selected' : ''}>Todas las prioridades</option>
               <option value="sugerencia" ${filterSeverity === 'sugerencia' ? 'selected' : ''}>Sugerencias</option>
@@ -690,21 +863,51 @@ export async function renderIncidenciasClient(appContent) {
           </div>
         </div>
 
+        <div class="incidencias-tabs">
+          <button class="incidencias-tab ${filterStatus === 'pendiente' ? 'active' : ''}" data-status="pendiente">
+            Pendientes <span class="tab-count">${pendingInc.length}</span>
+          </button>
+          <button class="incidencias-tab ${filterStatus === 'resuelta' ? 'active' : ''}" data-status="resuelta">
+            Resueltas <span class="tab-count">${resolvedInc.length}</span>
+          </button>
+          <button class="incidencias-tab ${filterStatus === 'descartada' ? 'active' : ''}" data-status="descartada">
+            Descartadas <span class="tab-count">${discardedInc.length}</span>
+          </button>
+        </div>
+
         ${listHtml}
       </div>
     `;
 
-    // Asignar listeners de filtros
-    document.getElementById('client-filter-status').addEventListener('change', (e) => {
-      filterStatus = e.target.value;
-      loadIncidencias();
-    });
-    document.getElementById('client-filter-severity').addEventListener('change', (e) => {
-      filterSeverity = e.target.value;
-      loadIncidencias();
+    // Listeners para cambiar pestañas
+    document.querySelectorAll('.incidencias-tab').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        filterStatus = tabBtn.getAttribute('data-status');
+        renderList();
+      });
     });
 
-    // Asignar listeners de acciones
+    // Listeners de filtro de prioridad
+    const severitySelect = document.getElementById('client-filter-severity');
+    if (severitySelect) {
+      severitySelect.addEventListener('change', (e) => {
+        filterSeverity = e.target.value;
+        loadIncidencias();
+      });
+    }
+
+    // Toggle de acordeón
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('button') || e.target.closest('a')) return;
+        const card = header.closest('.incidencia-card');
+        if (card) {
+          card.classList.toggle('collapsed');
+        }
+      });
+    });
+
+    // Listeners de acciones
     document.querySelectorAll('.btn-resolve-trigger').forEach(btn => {
       btn.addEventListener('click', () => showResponseForm(btn.getAttribute('data-id'), 'resuelta'));
     });
@@ -799,7 +1002,7 @@ export async function renderIncidenciasAdmin(appContent) {
   appContent.innerHTML = `<div style="display: flex; justify-content: center; padding: 3rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--color-primary);"></i></div>`;
 
   let incidencias = [];
-  let filterStatus = 'todos';
+  let filterStatus = 'pendiente'; // Default to pending tab
   let filterSeverity = 'todos';
   let filterComercio = 'todos';
   let uniqueComercios = [];
@@ -843,9 +1046,6 @@ export async function renderIncidenciasAdmin(appContent) {
         `)
         .order('created_at', { ascending: false });
 
-      if (filterStatus !== 'todos') {
-        query = query.eq('status', filterStatus);
-      }
       if (filterSeverity !== 'todos') {
         query = query.eq('severity', filterSeverity);
       }
@@ -866,32 +1066,65 @@ export async function renderIncidenciasAdmin(appContent) {
   }
 
   function renderListAdmin() {
+    const pendingInc = incidencias.filter(i => i.status === 'pendiente');
+    const resolvedInc = incidencias.filter(i => i.status === 'resuelta');
+    const discardedInc = incidencias.filter(i => i.status === 'descartada');
+
+    let filteredList = [];
+    if (filterStatus === 'pendiente') {
+      filteredList = pendingInc;
+    } else if (filterStatus === 'resuelta') {
+      filteredList = resolvedInc;
+    } else if (filterStatus === 'descartada') {
+      filteredList = discardedInc;
+    }
+
     let listHtml = '';
-    if (incidencias.length === 0) {
+    if (filteredList.length === 0) {
+      let emptyMsg = 'No hay incidencias que coincidan.';
+      let emptyIcon = 'ri-check-double-line';
+      let iconColor = 'var(--color-primary)';
+      if (filterStatus === 'pendiente') {
+        emptyMsg = 'No hay incidencias pendientes.';
+      } else if (filterStatus === 'resuelta') {
+        emptyMsg = 'No hay incidencias resueltas todavía.';
+        emptyIcon = 'ri-checkbox-circle-line';
+        iconColor = 'var(--color-text-muted)';
+      } else if (filterStatus === 'descartada') {
+        emptyMsg = 'No hay incidencias descartadas.';
+        emptyIcon = 'ri-close-circle-line';
+        iconColor = 'var(--color-text-muted)';
+      }
       listHtml = `
         <div class="card" style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
-          <i class="ri-check-double-line" style="font-size: 3rem; color: var(--color-primary); margin-bottom: 0.75rem; display: block;"></i>
-          <p style="font-size: 1.05rem; font-weight: 500;">No hay incidencias que coincidan</p>
-          <p style="font-size: 0.85rem; margin-top: 0.25rem;">Usa el botón superior para crear una nueva incidencia o ajusta los filtros.</p>
+          <i class="${emptyIcon}" style="font-size: 3rem; color: ${iconColor}; margin-bottom: 0.75rem; display: block;"></i>
+          <p style="font-size: 1.05rem; font-weight: 500;">Pestaña vacía</p>
+          <p style="font-size: 0.85rem; margin-top: 0.25rem;">${emptyMsg}</p>
         </div>
       `;
     } else {
       listHtml = `
         <div class="incidencias-list">
-          ${incidencias.map(inc => {
+          ${filteredList.map(inc => {
             const severity = SEVERITY_LEVELS[inc.severity] || { label: inc.severity, class: '', borderClass: '' };
             const type = TYPES[inc.type] || { label: inc.type, icon: 'ri-question-line', class: '' };
             const status = STATUSES[inc.status] || { label: inc.status, class: '' };
             
             const isUnresolved = inc.status === 'pendiente';
             const daysOpen = isUnresolved ? calculateDaysElapsed(inc.created_at) : null;
-            const clientName = inc.client?.full_name || 'Sin Nombre';
             const companyName = inc.client?.company_name || 'Desconocida';
             const commerceName = inc.comercio || 'no asignado';
 
+            const isAccordion = !isUnresolved;
+            const cardClasses = ['incidencia-card', severity.borderClass];
+            if (isAccordion) {
+              cardClasses.push('accordion-card');
+              cardClasses.push('collapsed');
+            }
+
             return `
-              <div class="incidencia-card ${severity.borderClass}">
-                <div class="incidencia-card-header">
+              <div class="${cardClasses.join(' ')}" data-id="${inc.id}">
+                <div class="incidencia-card-header ${isAccordion ? 'accordion-header' : ''}">
                   <div class="incidencia-title-area">
                     <div class="incidencia-type-icon ${type.class}">
                       <i class="${type.icon}"></i>
@@ -909,13 +1142,20 @@ export async function renderIncidenciasAdmin(appContent) {
                     </div>
                   </div>
                   <div class="incidencia-status-aside">
-                    ${isUnresolved 
-                      ? (daysOpen > 0 
-                        ? `<span class="days-alert"><i class="ri-time-line"></i> ${daysOpen} ${daysOpen === 1 ? 'día' : 'días'} abierto</span>` 
-                        : `<span class="days-info"><i class="ri-time-line"></i> Creado hoy</span>`) 
-                      : `<span class="days-info" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Resuelto</span>`
-                    }
-                    <span style="color: var(--color-text-muted); font-size: 0.8rem;">Creado: ${formatDate(inc.created_at)}</span>
+                    <div style="display: flex; align-items: center; gap: 0.75rem; justify-content: flex-end;">
+                      ${isUnresolved 
+                        ? (daysOpen > 0 
+                          ? `<span class="days-alert"><i class="ri-time-line"></i> ${daysOpen} ${daysOpen === 1 ? 'día' : 'días'} abierto</span>` 
+                          : `<span class="days-info"><i class="ri-time-line"></i> Creado hoy</span>`) 
+                        : `<span class="days-info" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Resuelto</span>`
+                      }
+                      ${isAccordion ? `
+                        <div class="accordion-toggle-icon-wrapper">
+                          <i class="ri-arrow-down-s-line accordion-toggle-icon"></i>
+                        </div>
+                      ` : ''}
+                    </div>
+                    <span style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.25rem;">Creado: ${formatDate(inc.created_at)}</span>
                   </div>
                 </div>
                 
@@ -934,7 +1174,7 @@ export async function renderIncidenciasAdmin(appContent) {
                   </div>
 
                   ${inc.status !== 'pendiente' ? `
-                    <div class="incidencia-response-box">
+                    <div class="incidencia-response-box" style="margin-bottom: 0.5rem;">
                       <div class="response-header">
                         <span>Respuesta del Cliente (${formatDate(inc.resolved_at)})</span>
                         <span style="text-transform: uppercase;">Estado: ${inc.status}</span>
@@ -943,13 +1183,29 @@ export async function renderIncidenciasAdmin(appContent) {
                         ${inc.comment ? escapeHtml(inc.comment).replace(/\n/g, '<br>') : 'Sin comentarios.'}
                       </div>
                     </div>
-                  ` : `
-                    <div style="text-align: right; margin-top: 0.5rem;">
-                      <button class="btn btn-outline btn-delete-incidencia" data-id="${inc.id}" style="color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3);">
-                        <i class="ri-delete-bin-line"></i> Eliminar
+                  ` : ''}
+
+                  <!-- Admin comment manager (always show) -->
+                  <div class="admin-comment-edit-section" style="margin-top: 1rem; border-top: 1px dashed var(--color-border); padding-top: 0.75rem;">
+                    <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">
+                      <i class="ri-chat-voice-line"></i> Mensaje/Actualización de Soporte para el Cliente:
+                    </label>
+                    <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+                      <textarea class="admin-comment-textarea form-input" data-id="${inc.id}" rows="2" style="flex: 1; resize: vertical; font-size: 0.85rem; padding: 0.4rem; min-height: 48px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);" placeholder="Escribe un mensaje aclaratorio o actualización para que el cliente lo vea destacado...">${escapeHtml(inc.admin_comment || '')}</textarea>
+                      <button class="btn btn-primary btn-save-admin-comment" data-id="${inc.id}" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; height: auto; background: var(--color-primary); color: #000; font-weight: 600;">
+                        <i class="ri-save-line"></i> Guardar Mensaje
                       </button>
                     </div>
-                  `}
+                  </div>
+
+                  <div style="text-align: right; margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+                    <button class="btn btn-outline btn-edit-incidencia" data-id="${inc.id}" style="border-color: var(--color-border); color: var(--color-text-main); padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                      <i class="ri-edit-line"></i> Editar Incidencia
+                    </button>
+                    <button class="btn btn-outline btn-delete-incidencia" data-id="${inc.id}" style="color: var(--color-danger); border-color: rgba(239, 68, 68, 0.3); padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                      <i class="ri-delete-bin-line"></i> Eliminar
+                    </button>
+                  </div>
                 </div>
               </div>
             `;
@@ -976,12 +1232,6 @@ export async function renderIncidenciasAdmin(appContent) {
               <option value="todos" ${filterComercio === 'todos' ? 'selected' : ''}>Todos los comercios</option>
               ${uniqueComercios.map(c => `<option value="${c}" ${filterComercio === c ? 'selected' : ''}>${c}</option>`).join('')}
             </select>
-            <select id="admin-filter-status" class="incidencias-filter-select">
-              <option value="todos" ${filterStatus === 'todos' ? 'selected' : ''}>Todos los estados</option>
-              <option value="pendiente" ${filterStatus === 'pendiente' ? 'selected' : ''}>Pendientes</option>
-              <option value="resuelta" ${filterStatus === 'resuelta' ? 'selected' : ''}>Resueltas</option>
-              <option value="descartada" ${filterStatus === 'descartada' ? 'selected' : ''}>Descartadas</option>
-            </select>
             <select id="admin-filter-severity" class="incidencias-filter-select">
               <option value="todos" ${filterSeverity === 'todos' ? 'selected' : ''}>Todas las prioridades</option>
               <option value="sugerencia" ${filterSeverity === 'sugerencia' ? 'selected' : ''}>Sugerencias</option>
@@ -993,17 +1243,33 @@ export async function renderIncidenciasAdmin(appContent) {
           </div>
         </div>
 
+        <div class="incidencias-tabs">
+          <button class="incidencias-tab ${filterStatus === 'pendiente' ? 'active' : ''}" data-status="pendiente">
+            Pendientes <span class="tab-count">${pendingInc.length}</span>
+          </button>
+          <button class="incidencias-tab ${filterStatus === 'resuelta' ? 'active' : ''}" data-status="resuelta">
+            Resueltas <span class="tab-count">${resolvedInc.length}</span>
+          </button>
+          <button class="incidencias-tab ${filterStatus === 'descartada' ? 'active' : ''}" data-status="descartada">
+            Descartadas <span class="tab-count">${discardedInc.length}</span>
+          </button>
+        </div>
+
         ${listHtml}
       </div>
     `;
 
+    // Listeners para cambiar pestañas
+    document.querySelectorAll('.incidencias-tab').forEach(tabBtn => {
+      tabBtn.addEventListener('click', () => {
+        filterStatus = tabBtn.getAttribute('data-status');
+        renderListAdmin();
+      });
+    });
+
     // Asignar listeners de filtros
     document.getElementById('admin-filter-comercio').addEventListener('change', (e) => {
       filterComercio = e.target.value;
-      loadAllIncidencias();
-    });
-    document.getElementById('admin-filter-status').addEventListener('change', (e) => {
-      filterStatus = e.target.value;
       loadAllIncidencias();
     });
     document.getElementById('admin-filter-severity').addEventListener('change', (e) => {
@@ -1012,7 +1278,59 @@ export async function renderIncidenciasAdmin(appContent) {
     });
 
     // Nuevo Caso click listener
-    document.getElementById('btn-new-incidencia').addEventListener('click', openCreateModal);
+    document.getElementById('btn-new-incidencia').addEventListener('click', () => openIncidenciaModal());
+
+    // Toggle de acordeón
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('button') || e.target.closest('a') || e.target.closest('textarea')) return;
+        const card = header.closest('.incidencia-card');
+        if (card) {
+          card.classList.toggle('collapsed');
+        }
+      });
+    });
+
+    // Guardar comentarios de administración
+    document.querySelectorAll('.btn-save-admin-comment').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const incId = btn.getAttribute('data-id');
+        const txtarea = document.querySelector(`.admin-comment-textarea[data-id="${incId}"]`);
+        if (!txtarea) return;
+
+        const val = txtarea.value.trim();
+        try {
+          btn.disabled = true;
+          btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+
+          const { error } = await supabase
+            .from('incidencias')
+            .update({ admin_comment: val || null })
+            .eq('id', incId);
+
+          if (error) throw error;
+          
+          alert('¡Mensaje de soporte actualizado exitosamente!');
+          await loadAllIncidencias();
+        } catch (err) {
+          console.error('Error al actualizar mensaje de soporte:', err);
+          alert('Error al guardar mensaje: ' + err.message);
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri-save-line"></i> Guardar Mensaje';
+        }
+      });
+    });
+
+    // Editar incidencias click listener
+    document.querySelectorAll('.btn-edit-incidencia').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const incId = btn.getAttribute('data-id');
+        const inc = incidencias.find(i => i.id === incId);
+        if (inc) {
+          openIncidenciaModal(inc);
+        }
+      });
+    });
 
     // Borrar incidencias
     document.querySelectorAll('.btn-delete-incidencia').forEach(btn => {
@@ -1035,8 +1353,10 @@ export async function renderIncidenciasAdmin(appContent) {
     });
   }
 
-  // Abrir Modal de Creación
-  async function openCreateModal() {
+  // Abrir Modal de Creación / Edición
+  async function openIncidenciaModal(inc = null) {
+    const isEdit = inc !== null;
+
     // 1. Cargar comercios desde v_comercios_config
     let comercios = [];
     try {
@@ -1098,7 +1418,7 @@ export async function renderIncidenciasAdmin(appContent) {
       <div class="modal-content-styled">
         <div class="modal-header-styled">
           <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-alert-line" style="color: var(--color-primary);"></i> Reportar Nueva Incidencia o Sugerencia
+            <i class="ri-alert-line" style="color: var(--color-primary);"></i> ${isEdit ? 'Editar Incidencia o Alerta' : 'Reportar Nueva Incidencia o Sugerencia'}
           </h3>
           <button id="modal-close-btn" class="btn btn-outline" style="border:none; font-size: 1.25rem; padding: 0.25rem 0.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
         </div>
@@ -1107,11 +1427,12 @@ export async function renderIncidenciasAdmin(appContent) {
             
             <div class="form-group-styled">
               <label for="form-comercio">Comercio Asociado <span style="color: var(--color-danger);">*</span></label>
-              <select id="form-comercio" class="form-input-styled" required>
+              <select id="form-comercio" class="form-input-styled" required ${isEdit ? 'disabled' : ''}>
                 <option value="">-- Seleccionar Comercio --</option>
                 ${comerciosWithProfiles.map(c => {
                   const labelSuffix = c.profileId ? ` (${c.sigla})` : ` (${c.sigla}) - [Sin Usuario Asociado]`;
-                  return `<option value="${escapeHtml(c.sigla)}" data-user-id="${c.profileId || ''}" ${!c.profileId ? 'disabled' : ''}>${escapeHtml(c.nombre)}${labelSuffix}</option>`;
+                  const isSelected = isEdit && inc.comercio === c.sigla;
+                  return `<option value="${escapeHtml(c.sigla)}" data-user-id="${c.profileId || ''}" ${!c.profileId ? 'disabled' : ''} ${isSelected ? 'selected' : ''}>${escapeHtml(c.nombre)}${labelSuffix}</option>`;
                 }).join('')}
               </select>
             </div>
@@ -1120,45 +1441,45 @@ export async function renderIncidenciasAdmin(appContent) {
               <div class="form-group-styled">
                 <label for="form-type">Tipo de Incidencia <span style="color: var(--color-danger);">*</span></label>
                 <select id="form-type" class="form-input-styled" required>
-                  <option value="integracion">Integración</option>
-                  <option value="pedido">Problema con Pedido</option>
-                  <option value="stock">Falta de Stock</option>
-                  <option value="otros">Configuración / Otros</option>
+                  <option value="integracion" ${isEdit && inc.type === 'integracion' ? 'selected' : ''}>Integración</option>
+                  <option value="pedido" ${isEdit && inc.type === 'pedido' ? 'selected' : ''}>Problema con Pedido</option>
+                  <option value="stock" ${isEdit && inc.type === 'stock' ? 'selected' : ''}>Falta de Stock</option>
+                  <option value="otros" ${isEdit && inc.type === 'otros' ? 'selected' : ''}>Configuración / Otros</option>
                 </select>
               </div>
 
               <div class="form-group-styled">
                 <label for="form-severity">Nivel de Importancia <span style="color: var(--color-danger);">*</span></label>
                 <select id="form-severity" class="form-input-styled" required>
-                  <option value="sugerencia">Sugerencia</option>
-                  <option value="bajo">Ajuste Bajo</option>
-                  <option value="medio">Ajuste Medio</option>
-                  <option value="alto">Ajuste Alto</option>
-                  <option value="critico">Ajuste Crítico</option>
+                  <option value="sugerencia" ${isEdit && inc.severity === 'sugerencia' ? 'selected' : ''}>Sugerencia</option>
+                  <option value="bajo" ${isEdit && inc.severity === 'bajo' ? 'selected' : ''}>Ajuste Bajo</option>
+                  <option value="medio" ${isEdit && inc.severity === 'medio' ? 'selected' : ''}>Ajuste Medio</option>
+                  <option value="alto" ${isEdit && inc.severity === 'alto' ? 'selected' : ''}>Ajuste Alto</option>
+                  <option value="critico" ${isEdit && inc.severity === 'critico' ? 'selected' : ''}>Crítico</option>
                 </select>
               </div>
             </div>
 
             <div class="form-group-styled">
               <label for="form-title">Título de la Incidencia <span style="color: var(--color-danger);">*</span></label>
-              <input type="text" id="form-title" class="form-input-styled" placeholder="Ej: Pedidos duplicados por WooCommerce o Falta SKU en Catálogo" required>
+              <input type="text" id="form-title" class="form-input-styled" placeholder="Ej: Pedidos duplicados por WooCommerce o Falta SKU en Catálogo" required value="${isEdit ? escapeHtml(inc.title) : ''}">
             </div>
 
             <div class="form-group-styled">
               <label for="form-description">Descripción Detallada <span style="color: var(--color-danger);">*</span></label>
-              <textarea id="form-description" class="form-textarea-styled" rows="4" placeholder="Describe claramente el problema detectado o la sugerencia de configuración..." required style="resize: vertical;"></textarea>
+              <textarea id="form-description" class="form-textarea-styled" rows="4" placeholder="Describe claramente el problema detectado o la sugerencia de configuración..." required style="resize: vertical;">${isEdit ? escapeHtml(inc.description) : ''}</textarea>
             </div>
 
             <div class="form-group-styled">
               <label for="form-solution">Cómo Solucionar / Pasos Recomendados <span style="color: var(--color-danger);">*</span></label>
-              <textarea id="form-solution" class="form-textarea-styled" rows="3" placeholder="Indica detalladamente los pasos que debe seguir el cliente para resolver el problema..." required style="resize: vertical;"></textarea>
+              <textarea id="form-solution" class="form-textarea-styled" rows="3" placeholder="Indica detalladamente los pasos que debe seguir el cliente para resolver el problema..." required style="resize: vertical;">${isEdit ? escapeHtml(inc.solution) : ''}</textarea>
             </div>
 
           </div>
           <div class="modal-footer-styled">
             <button type="button" id="modal-cancel-btn" class="btn btn-outline">Cancelar</button>
             <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #000; font-weight: 600;">
-              Guardar y Notificar
+              ${isEdit ? 'Guardar Cambios' : 'Guardar y Notificar'}
             </button>
           </div>
         </form>
@@ -1183,14 +1504,22 @@ export async function renderIncidenciasAdmin(appContent) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      const comercioSelect = document.getElementById('form-comercio');
-      const selectedOption = comercioSelect.options[comercioSelect.selectedIndex];
-      const comercioVal = comercioSelect.value;
-      const userIdVal = selectedOption.getAttribute('data-user-id');
+      let comercioVal = '';
+      let userIdVal = '';
 
-      if (!userIdVal) {
-        alert('Este comercio no tiene un usuario de cliente asociado.');
-        return;
+      if (isEdit) {
+        comercioVal = inc.comercio;
+        userIdVal = inc.user_id;
+      } else {
+        const comercioSelect = document.getElementById('form-comercio');
+        const selectedOption = comercioSelect.options[comercioSelect.selectedIndex];
+        comercioVal = comercioSelect.value;
+        userIdVal = selectedOption.getAttribute('data-user-id');
+        
+        if (!userIdVal) {
+          alert('Este comercio no tiene un usuario de cliente asociado.');
+          return;
+        }
       }
       
       const typeVal = document.getElementById('form-type').value;
@@ -1207,21 +1536,34 @@ export async function renderIncidenciasAdmin(appContent) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
-        const { error } = await supabase
-          .from('incidencias')
-          .insert({
-            user_id: userIdVal,
-            comercio: comercioVal,
-            title: titleVal,
-            description: descriptionVal,
-            solution: solutionVal,
-            type: typeVal,
-            severity: severityVal,
-            status: 'pendiente',
-            created_by: adminId
-          });
-
-        if (error) throw error;
+        if (isEdit) {
+          const { error } = await supabase
+            .from('incidencias')
+            .update({
+              type: typeVal,
+              severity: severityVal,
+              title: titleVal,
+              description: descriptionVal,
+              solution: solutionVal
+            })
+            .eq('id', inc.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('incidencias')
+            .insert({
+              user_id: userIdVal,
+              comercio: comercioVal,
+              title: titleVal,
+              description: descriptionVal,
+              solution: solutionVal,
+              type: typeVal,
+              severity: severityVal,
+              status: 'pendiente',
+              created_by: adminId
+            });
+          if (error) throw error;
+        }
 
         closeModal();
         await loadAllIncidencias();
@@ -1229,11 +1571,11 @@ export async function renderIncidenciasAdmin(appContent) {
           window.updateAdminBadges();
         }
       } catch (err) {
-        console.error('Error al insertar incidencia:', err);
+        console.error('Error al guardar incidencia:', err);
         alert('Error al guardar incidencia: ' + err.message);
         const submitBtn = form.querySelector('button[type="submit"]');
         submitBtn.disabled = false;
-        submitBtn.innerHTML = 'Guardar y Notificar';
+        submitBtn.innerHTML = isEdit ? 'Guardar Cambios' : 'Guardar y Notificar';
       }
     });
   }

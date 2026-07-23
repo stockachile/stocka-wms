@@ -23,12 +23,19 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: products, error } = await supabase
+    .from('products')
+    .select('comercio, sku, name')
+    .ilike('comercio', '%POM%');
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  
+  console.log(`Found ${products.length} products matching %POM% in products table.`);
+  if (products.length > 0) {
+    console.log('Sample:', products.slice(0, 5));
+    const uniqueComercios = new Set(products.map(p => p.comercio));
+    console.log('Unique comercios:', Array.from(uniqueComercios));
+  }
 }
 
 main().catch(console.error);

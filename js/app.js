@@ -2622,7 +2622,11 @@ function renderInventoryTableBody() {
 
   tbody.innerHTML = rows.map(r => {
     let badge = '';
-    if (r.status === 'Agotado') {
+    const isInsuficiente = r.committed > 0 && r.physical <= 0;
+    
+    if (isInsuficiente) {
+      badge = '<span class="badge" style="background-color: #e11d48; color: #ffffff; font-weight: 700; border: 1px solid #be123c; padding: 0.15rem 0.45rem; border-radius: 4px;">Insuficiente</span>';
+    } else if (r.status === 'Agotado') {
       badge = '<span class="badge badge-danger">Agotado</span>';
     } else if (r.status === 'Bajo Stock') {
       badge = '<span class="badge badge-warning">Bajo Stock</span>';
@@ -2644,6 +2648,10 @@ function renderInventoryTableBody() {
       ? `<span class="badge-pending-link" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-primary); font-weight: 700;" title="Ver ingresos pendientes">${r.pending}</span>`
       : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
+    const alertIconHtml = isInsuficiente
+      ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 1rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en stock"></i>`
+      : '';
+
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <td style="padding: 0.45rem 0.75rem;"><strong>${r.sku || 'N/A'}</strong></td>
@@ -2652,8 +2660,8 @@ function renderInventoryTableBody() {
         <td style="padding: 0.45rem 0.75rem; text-align: center;"><strong>${r.physical}</strong></td>
         <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
         <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
-        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}</td>
-        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}${alertIconHtml}</td>
+        <td style="padding: 0.45rem 0.75rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}${alertIconHtml}</td>
         <td style="padding: 0.45rem 0.75rem; text-align: center;">
           <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 60px; text-align: center; padding: 0.15rem 0.3rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;" ${isObserver ? 'disabled' : ''} />
         </td>

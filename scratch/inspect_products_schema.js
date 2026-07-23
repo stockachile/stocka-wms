@@ -18,17 +18,22 @@ envContent.split('\n').forEach(line => {
   }
 });
 
-const supabaseUrl = env.SUPABASE_URL;
-const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
-async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+async function inspectSchema() {
+  const { data, error } = await supabase
+    .from('synced_products')
+    .select('*')
+    .limit(1);
 
-  if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  if (error) {
+    console.error('Error fetching product:', error);
+  } else if (data && data.length > 0) {
+    console.log('Columns of public.products:');
+    console.log(Object.keys(data[0]));
+  } else {
+    console.log('No products in DB to inspect schema.');
+  }
 }
 
-main().catch(console.error);
+inspectSchema();

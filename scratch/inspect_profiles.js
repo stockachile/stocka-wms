@@ -23,12 +23,17 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: profiles, error } = await supabase
+    .from('profiles')
+    .select('id, email, comercio, role');
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('Profiles:');
+  profiles.forEach(p => {
+    if (p.comercio && (p.comercio.includes('POM') || p.comercio.includes('KIDS'))) {
+      console.log(p);
+    }
+  });
 }
 
 main().catch(console.error);

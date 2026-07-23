@@ -25,10 +25,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 async function main() {
   const { data: integrations, error } = await supabase
     .from('merchant_integrations')
-    .select('*');
+    .select('*')
+    .ilike('comercio', '%POM%');
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('POMS KIDS Integrations:', integrations);
 }
 
 main().catch(console.error);

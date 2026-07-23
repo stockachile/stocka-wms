@@ -23,12 +23,20 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('comercio')
+    .eq('id', '7eb032ed-5717-426c-9dca-35fcdd48f0e8')
+    .single();
 
   if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  
+  const assigned = profile.comercio
+    .split(',')
+    .map(c => c.trim())
+    .filter(c => c && c.toLowerCase() !== 'no asignado');
+
+  console.log('Assigned comercios for user:', assigned);
 }
 
 main().catch(console.error);

@@ -23,12 +23,14 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  const sqlPath = path.join(__dirname, '..', 'supabase_schema_shopify_products_price.sql');
+  const sql = fs.readFileSync(sqlPath, 'utf8');
 
-  if (error) throw error;
-  console.log('Merchant Integrations:', integrations);
+  console.log('Sending SQL schema to Supabase exec_sql...');
+  const { data, error } = await supabase.rpc('exec_sql', { sql });
+
+  console.log('Result Data:', data);
+  console.log('Result Error:', error);
 }
 
 main().catch(console.error);
