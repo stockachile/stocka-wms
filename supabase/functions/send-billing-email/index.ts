@@ -626,17 +626,49 @@ serve(async (req) => {
           ¡Nos complace informarte que <strong>tu solicitud de alta ha sido aprobada con éxito</strong>!
         </div>
         
-        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin-bottom: 20px; font-size: 14.5px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center;">
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #166534; line-height: 1.5; font-weight: 600; text-align: center;">
           CUENTA ACTIVA Y OPERATIVA
         </div>
         
-        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
-          Tu comercio ha sido configurado en el WMS de Stocka. A partir de ahora puedes acceder con tus credenciales de usuario registradas y utilizar todas las funcionalidades:
-          <ul style="margin: 8px 0; padding-left: 20px;">
-            <li>Cargar y gestionar tu catálogo de productos.</li>
-            <li>Crear declaraciones de ingreso de stock a bodega.</li>
-            <li>Conectar tus integraciones de Shopify, WooCommerce u otras plataformas.</li>
-          </ul>
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 25px;">
+          Tu comercio ha sido configurado y activado en el WMS de Stocka. A partir de ahora puedes acceder a tu cuenta utilizando tu correo electrónico y la contraseña que definiste al registrarte.
+        </div>
+
+        <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-bottom: 25px;">
+          <h3 style="font-size: 14.5px; color: #0f172a; margin-top: 0; margin-bottom: 12px; font-weight: 700;">
+            👉 ¿Cuál es tu próximo paso?
+          </h3>
+          
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 15px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">Crear tu primera Declaración de Ingreso de Stock (D.I.)</strong>
+            Para poder recibir tus productos físicamente en nuestra bodega de fulfillment, es obligatorio que declares qué mercancía vas a enviarnos. De esta forma, nuestro equipo de recepción estará preparado para recibir, auditar y almacenar tu inventario sin retrasos.
+          </div>
+
+          <h4 style="font-size: 13px; color: #0f172a; margin-top: 15px; margin-bottom: 8px; font-weight: 600;">Instrucciones para realizar tu Declaración de Stock:</h4>
+          
+          <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.7;">
+            <li style="margin-bottom: 8px;">
+              <strong>Inicia Sesión:</strong> Entra al portal WMS de Stocka (usa el botón de abajo).
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>Carga tu Catálogo:</strong> Dirígete al menú lateral, sección <strong>Productos</strong> y registra tus SKUs con sus nombres y datos (<em>Recuerda: para declarar stock de un producto, este primero debe estar creado en el sistema</em>).
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>Crea la Declaración:</strong> Ve al menú lateral, sección <strong>Ingresos / Stock</strong> y haz clic en el botón <strong>"Nueva Declaración"</strong>.
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>Selecciona y descarga:</strong> Selecciona los productos y cantidades que enviarás, descarga el documento de respaldo en PDF y pégalo de forma visible en las cajas o bultos de tu despacho.
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>Envía:</strong> Despacha tus bultos a nuestra bodega mediante tu courier de preferencia o entrega presencial.
+            </li>
+          </ol>
+        </div>
+
+        <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
+          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+            Ingresar al Portal WMS
+          </a>
         </div>
       `;
     }
@@ -1108,7 +1140,9 @@ serve(async (req) => {
             comercio: commerceName,
             periodo_nombre: periodName || 'General',
             email_type: emailType,
-            sent_to: recipientEmails
+            sent_to: recipientEmails,
+            message_id: brevoData.messageId || null,
+            status: 'enviado'
           }]);
         if (logErr) {
           console.error("Error al insertar log de notificación:", logErr.message);

@@ -658,3 +658,41 @@ Corregimos un error de flujo y visualización en el modal de **Editar Ítems del
 2. **Solución Aplicada**:
    - Reestructuramos la función `window.saveEditOrderItems` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) para realizar la comparación de ítems modificados de manera **previa** al despliegue de cualquier modal de carga.
    - Si no se detectan diferencias entre los productos/cantidades iniciales y los temporales, el sistema muestra directamente el SweetAlert2 informativo de "Sin Cambios" sin abrir jamás la animación de carga, evitando bloqueos y garantizando una experiencia de usuario fluida y libre de bugs.
+
+---
+
+## 36. Alertas Visuales y Estado "Insuficiente" en Grilla de Inventario (Admin y Cliente)
+
+Hemos enriquecido la visualización del inventario de stock físico y comprometido en los paneles del Administrador (`js/admin.js`) y del Cliente (`js/app.js`):
+
+1. **Estado "Insuficiente" Destacado**:
+   - Si un producto tiene unidades comprometidas (`committed > 0`) pero no cuenta con stock físico en la bodega (`physical <= 0`), la etiqueta de estado de la fila cambia a **`Insuficiente`** en reemplazo de "Agotado".
+   - Esta etiqueta se diseñó con un tono rojo más fuerte y sólido (fondo `#e11d48`, texto blanco y borde `#be123c`) para captar la atención de los operadores de manera inmediata.
+
+2. **Icono de Alerta de Compromiso sin Stock**:
+   - Al cumplirse la condición de insuficiencia, la cantidad de stock disponible (`Disp. (Bodega)` y `Disp. (Total)`) muestra un icono de advertencia rojo (`ri-error-warning-line`).
+   - Al pasar el cursor por encima (hover), un tooltip nativo describe: *"El producto tiene unidades comprometidas pero no tiene unidades físicas en stock"*.
+
+---
+
+## 37. Correo de Bienvenida con Instrucciones de Declaración de Stock (WMS)
+
+Hemos ampliado el flujo de correo automático enviado al cliente cuando el administrador aprueba su solicitud de Onboarding:
+
+1. **Flujo del Correo `onboarding_approved`**:
+   - Cuando el administrador aprueba la solicitud de alta en el panel (lo que promueve al usuario de `observer` a `client` y crea su comercio), el trigger de base de datos (`tg_onboarding_request_email`) asocia y dispara automáticamente un correo `onboarding_approved` al email del cliente.
+   - Modificamos la plantilla HTML del correo en la Edge Function [`supabase/functions/send-billing-email/index.ts`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/send-billing-email/index.ts) para detallar que el siguiente paso crucial para operar es **crear su primera Declaración de Ingreso de Stock (D.I.)**.
+   - **Explicación del Proceso Paso a Paso**: El correo contiene una guía estructurada y numerada indicando cómo:
+     1. Iniciar sesión.
+     2. Registrar el catálogo de productos y SKUs (requisito previo).
+     3. Crear la Declaración de Stock desde el menú **Ingresos / Stock**.
+     4. Descargar el comprobante en PDF, adherirlo de forma visible a los bultos/cajas y despachar la mercadería a la bodega WMS de Stocka.
+   - **Llamada a la Acción (CTA)**: Se incluyó un botón de ingreso centralizado (`Ingresar al Portal WMS`) para facilitar el acceso rápido del cliente.
+
+2. **Flujo de Confirmación de Correo Electrónico**:
+   - **Primer Paso (Registro/SignUp)**: Al rellenar y enviar el formulario de onboarding (Paso 4), el sistema realiza un `signUp` en Supabase Auth. Si Supabase tiene activa la confirmación de email (lo cual es por defecto y muy seguro), la plataforma le envía de forma inmediata y automática un correo de verificación del email.
+   - **Segundo Paso (Verificación)**: El usuario debe hacer clic en el enlace del correo de Supabase para validar su casilla de correo.
+   - **Tercer Paso (Aprobación Admin)**: Tras la verificación del email, el usuario puede acceder al WMS pero en rol de observador (`observer`), viendo la barra de progreso de su alta. Una vez que el administrador lo aprueba, se le notifica por correo con la guía de Declaración de Stock y su rol cambia de inmediato a `client`, dándole acceso completo a las funciones operativas del WMS.
+
+---
+
