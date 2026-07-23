@@ -639,7 +639,6 @@ async function handleBulkMode(limiteCarga) {
 
     // Limpiar archivos temporales
     if (fs.existsSync(excelPath)) fs.unlinkSync(excelPath);
-    if (fs.existsSync(consolidatedPdfPath)) fs.unlinkSync(consolidatedPdfPath);
 
   } catch (err) {
     console.error('❌ Excepción durante handleBulkMode:', err.message);
