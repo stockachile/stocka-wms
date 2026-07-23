@@ -521,3 +521,23 @@ Hemos corregido el error `new row violates row-level security policy` que se pro
    - Modificamos la política RLS del bucket `service_docs` en [`supabase_schema_onboarding.sql`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_onboarding.sql) cambiándola a `FOR INSERT TO public`.
    - Esto permite que tanto usuarios autenticados como usuarios anónimos (durante su proceso de registro) puedan subir archivos, con la restricción de seguridad obligatoria de que la subida esté acotada únicamente a la carpeta segura `onboarding/` (`WITH CHECK (bucket_id = 'service_docs' AND (storage.foldername(name))[1] = 'onboarding')`).
    - Dado que los usuarios anónimos no tienen permisos de lectura (`SELECT`) sobre esta carpeta, no pueden listar ni descargar contratos ajenos, garantizando la confidencialidad de la información y solucionando el bloqueo en el flujo de registro.
+
+---
+
+## 28. Navegación Interactiva y Bloqueo Dinámico por Stepper en Onboarding
+
+Hemos implementado la posibilidad de navegar entre los diferentes pasos del formulario de Onboarding haciendo clic directamente en los indicadores numéricos del stepper superior (1, 2, 3, 4, 5):
+
+1. **Navegación Libre y Segura**:
+   - El usuario puede hacer clic en cualquiera de los pasos numéricos en la parte superior para saltar directamente a esa sección y previsualizar qué datos se le solicitarán.
+
+2. **Bloqueo Dinámico de Pasos Futuros**:
+   - El sistema realiza un seguimiento continuo del paso máximo alcanzado (`maxReachedStep`) por el usuario a través de la validación natural del botón "Siguiente".
+   - Si el usuario hace clic para visualizar un paso que está **adelante** de su progreso actual (`targetStep > maxReachedStep`), el panel correspondiente se muestra, pero **todos los campos de entrada, botones de opción, selectores y zonas de arrastre de archivos quedan deshabilitados (bloqueados)** de forma automática.
+   - Si el usuario regresa a un paso ya desbloqueado (`targetStep <= maxReachedStep`), todos sus campos se vuelven editables de inmediato para permitir modificaciones.
+
+3. **Aviso Explicativo**:
+   - Cada panel que sea visualizado bajo estado bloqueado despliega automáticamente un banner informativo en la parte superior con un diseño moderno de color azul WMS (`alert-info`), indicando: *“⚠️ Tienes pasos previos sin resolver aún. Completa los pasos anteriores para poder editar esta sección.”*
+   - Además, el botón "Siguiente" del pie de página se deshabilita visualmente y se bloquea su puntero para evitar envíos de pasos no resueltos.
+
+---
