@@ -483,7 +483,7 @@ async function handleBulkMode(limiteCarga) {
       phone,                                       // Teléfono de contacto
       street,                                      // Dirección
       comuna,                                      // Comuna
-      order.shipping_complement || '',             // Observaciones
+      order.shipping_complement || '-',             // Observaciones
       email,                                       // Email
       'CARRIER EXTERNO',                           // Referencia
       '',                                          // 4 Total a cobrar
