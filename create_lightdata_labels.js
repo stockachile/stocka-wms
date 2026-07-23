@@ -528,12 +528,15 @@ async function handleBulkMode(limiteCarga) {
     await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
     console.log('📂 Abriendo importador masivo (NoFlex)...');
-    await page.evaluate(() => appEnviosNoFlex.open());
-    await page.waitForSelector('#fileInputSubirEnviosNoflex', { state: 'hidden' }).catch(() => {});
+    await page.evaluate(() => {
+      appEnviosNoFlex.open();
+      FmenuShow('enviosNoFlex_listado', 16);
+    });
+    await page.waitForTimeout(3000);
     
     // Cargar archivo
     console.log('📤 Subiendo archivo Excel a LightData...');
-    await page.setInputFiles('#fileInputSubirEnviosNoflex', excelPath);
+    await page.locator('#fileInputSubirEnviosNoflex').first().setInputFiles(excelPath);
 
     // Esperar parseo del cliente
     await page.waitForTimeout(3000);
@@ -554,20 +557,16 @@ async function handleBulkMode(limiteCarga) {
     });
 
     console.log('⚙️ Iniciando procesamiento...');
-    // Hacer clic en Procesar
-    await page.click('a.btnVioleta:has-text("Procesar")').catch(() => {});
-    await page.waitForTimeout(2000);
+    // Hacer clic en Procesar usando el selector preciso y .first()
+    await page.locator('a[onclick="appEnviosNoFlex.subirmodelo();"]').first().click();
+    await page.waitForTimeout(3000);
 
-    // Hacer clic en Subir / Guardar
-    console.log('💾 Subiendo envíos...');
-    await page.click('#btnguardarrenvioI');
-    
     // Confirmar diálogo Swal
     console.log('🤝 Confirmando alerta SweetAlert...');
-    await page.click('button:has-text("Si, subir"), button.swal2-confirm', { timeout: 5000 }).catch(() => {});
+    await page.locator('button:has-text("Si, subir"), button.swal2-confirm').first().click({ timeout: 15000 });
 
-    // Esperar respuesta de inserción
-    await page.waitForTimeout(5000);
+    // Esperar respuesta de inserción (donde se interceptará el controlador.php)
+    await page.waitForTimeout(10000);
 
     if (!createdDidsStr) {
       console.error('❌ ERROR: No se pudieron capturar los dids de la respuesta de subida.');
@@ -577,49 +576,29 @@ async function handleBulkMode(limiteCarga) {
     const listDids = createdDidsStr.split(',').filter(Boolean);
     console.log(`📥 Descargando etiquetas consolidadas para ${listDids.length} envíos...`);
 
-    const consolidatedPdfPath = path.join(DOWNLOADS_DIR, `consolidated_${Date.now()}.pdf`);
+    const printData = {
+      "didEmpresa": 61,
+      "didEnvios": listDids,
+      "tipoEtiqueta": 1, // Formato 10x15
+      "calidad": 0,
+      "quien": 108
+    };
 
-    // Descargar PDF Consolidado
-    const [download] = await Promise.all([
-      page.waitForEvent('download', { timeout: 60000 }),
-      page.evaluate((dids) => {
-        // Ejecutar descarga consolidada de etiquetas usando los dids creados
-        const diaActual = moment().format('YYYY-MM-DD');
-        let data = {
-          "didEmpresa": 61,
-          "didEnvios": dids.split(','),
-          "tipoEtiqueta": 1, // Cambiado a formato 10x15
-          "calidad": 0,
-          "quien": 108
-        };
-        
-        // Llamar directamente al print server de la misma forma que lo hace la app
-        $.ajax({
-          url: "https://printserver.lightdata.app/print/etiqueta",
-          type: 'POST',
-          data: JSON.stringify(data),
-          contentType: 'application/json',
-          xhrFields: {
-            responseType: 'blob'
-          },
-          success: function (response) {
-            const blob = new Blob([response], { type: 'application/pdf' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.setAttribute('download', `consolidated_${diaActual}.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }
-        });
-      }, createdDidsStr)
-    ]);
+    const printResponse = await fetch("https://printserver.lightdata.app/print/etiqueta", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(printData)
+    });
 
-    await download.saveAs(consolidatedPdfPath);
-    console.log(`💾 PDF Consolidado descargado en: ${consolidatedPdfPath}`);
+    if (!printResponse.ok) {
+      throw new Error(`Error del Print Server al descargar etiquetas consolidadas: ${printResponse.status}`);
+    }
 
-    // Codificar en Base64
-    const consolidatedBase64 = fs.readFileSync(consolidatedPdfPath, 'base64');
+    const printBuffer = await printResponse.arrayBuffer();
+    const consolidatedBase64 = Buffer.from(printBuffer).toString('base64');
+    console.log(`💾 Etiquetas consolidadas descargadas con éxito (Base64 length: ${consolidatedBase64.length})`);
 
     // Actualizar todos los pedidos procesados en Supabase
     // Al ser una descarga consolidada, para simplificar y asegurar que todos los pedidos tengan la etiqueta disponible,
