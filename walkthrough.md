@@ -710,5 +710,7 @@ Hemos solucionado el problema por el cual el inventario físico (`inventory`) y 
    - **Control de Duplicados**: El proceso solo se dispara en la transición inicial a un estado final, evitando duplicaciones de stock si el administrador vuelve a editar campos secundarios de un ingreso ya cerrado.
 
 2. **Reparación y Backfill Retroactivo ("Simplemente Café")**:
-   - Diseñamos y ejecutamos un script de migración para regularizar los ingresos cerrados que no habían sumado stock.
-   - El script procesó la declaración *"Café 3 variedades"* (ID: `d3fcf14d-0b07-4de5-a180-774fac91477a`) del comercio **SIMPLEMENTE CAFE**, extrayendo sus ítems de la planilla Excel e ingresando exitosamente las unidades del `SKU 1-1` (20 unidades) al inventario y al log de movimientos en la Bodega Central, previniendo duplicaciones de otros SKUs que ya contaban con registros de movimientos previos.
+   - Diseñamos y ejecutamos un script de migración para regularizar los ingresos cerrados de **SIMPLEMENTE CAFE** de acuerdo a los requerimientos del comercio.
+   - Dejamos sumado exclusivamente el ingreso *"grano clásico y envases"* (ID: `23483bd8-5ede-4b7b-a8d9-005182128284`), el cual registró e incrementó el stock de la bodega con **30 unidades** para el `SKU 2-1` (Grano Clásico 1 Kg.) con su respectivo log en la tabla de movimientos.
+   - Cualquier otra regularización (como las del ingreso *"Café 3 variedades"*) fue revertida y eliminada del log de movimientos e inventarios para reflejar únicamente la entrada del ingreso solicitado.
+
