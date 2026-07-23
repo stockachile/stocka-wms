@@ -2435,6 +2435,9 @@ window.applyWmsFiltersAndRender = function() {
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
+                <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; margin-bottom: 0.5rem;">
+                  <i class="ri-edit-line"></i> Editar Courier/Tracking
+                </button>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;"><strong>Etiqueta:</strong> ${labelHtml}</p>
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
                   ${shipmentStatusHtml}
@@ -20669,6 +20672,73 @@ window.editWmsOrderPickingInfo = async function(orderId) {
   } catch (err) {
     console.error(err);
     Swal.fire('Error', 'No se pudieron actualizar los datos: ' + err.message, 'error');
+  }
+};
+
+window.editWmsOrderCourierAndTracking = async function(orderId) {
+  const order = window.loadedOrders.find(o => o.id === orderId);
+  if (!order) return;
+
+  const currentCourier = order.courier || '';
+  const currentTracking = order.tracking_number || '';
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Editar Courier y N° Seguimiento',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Modifica manualmente el courier asignado y/o el número de seguimiento para este pedido.</p>
+        
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Courier</label>
+        <input id="swal-edit-courier" class="swal2-input" type="text" value="${currentCourier}" placeholder="Ej: CARRIER EXTERNO, CHILEXPRESS..." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+        
+        <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">N° Seguimiento (Tracking)</label>
+        <input id="swal-edit-tracking" class="swal2-input" type="text" value="${currentTracking}" placeholder="Ej: 12345678" style="width: 100%; margin: 0; box-sizing: border-box;">
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      return {
+        courier: document.getElementById('swal-edit-courier').value.trim() || null,
+        tracking: document.getElementById('swal-edit-tracking').value.trim() || null
+      };
+    }
+  });
+
+  if (!formValues) return;
+
+  try {
+    Swal.fire({
+      title: 'Guardando cambios...',
+      allowOutsideClick: false,
+      didOpen: () => { Swal.showLoading(); }
+    });
+
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        courier: formValues.courier,
+        tracking_number: formValues.tracking
+      })
+      .eq('id', orderId);
+
+    if (error) throw error;
+
+    order.courier = formValues.courier;
+    order.tracking_number = formValues.tracking;
+
+    // Propagar al Picker si ya está en preparación
+    if (order.estado_wms === 'En preparación') {
+      await window.propagateOrderUpdateToPicker(order);
+    }
+
+    Swal.fire('¡Éxito!', 'Courier y N° Seguimiento actualizados correctamente.', 'success');
+    window.applyWmsFiltersAndRender();
+  } catch (err) {
+    console.error(err);
+    Swal.fire('Error', 'No se pudieron guardar los cambios: ' + err.message, 'error');
   }
 };
 
