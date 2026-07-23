@@ -2408,6 +2408,9 @@ async function renderInventory() {
             <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
             </button>
+            <button id="btn-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-upload-2-line"></i> Asignar Stock Masivo
+            </button>
             ${actionBtn}
           </div>
         </div>
@@ -2480,6 +2483,11 @@ async function renderInventory() {
     const exportBtn = document.getElementById('btn-export-inventory');
     if (exportBtn) {
       exportBtn.addEventListener('click', exportInventoryToCsv);
+    }
+
+    const bulkStockBtn = document.getElementById('btn-bulk-stock-assign');
+    if (bulkStockBtn) {
+      bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderInventory()));
     }
 
     // Inicializar ordenamiento en headers
@@ -19796,5 +19804,394 @@ function openCampaignModal(commerce, campaign = null) {
       submitBtn.innerHTML = isEdit ? 'Guardar Cambios' : 'Crear Campaña';
     }
   });
+}
+
+window.showStockAndDimensionsPreviewModal = function({ title, headers, rows, onConfirm }) {
+  const oldModal = document.getElementById('modal-import-preview');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-import-preview';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+
+  const trs = rows.map(r => {
+    const badgeColor = r.status === 'ok' ? 'var(--color-success)' : 'var(--color-danger)';
+    const badgeText = r.status === 'ok' ? 'Listo' : 'Error';
+    const rowStyle = r.status === 'error' ? 'background-color: rgba(239, 68, 68, 0.05);' : '';
+    return `
+      <tr style="${rowStyle} border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.75rem; font-weight: 600;">${r.sku}</td>
+        <td style="padding: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${r.name || '<span style="color:var(--color-text-muted);">No encontrado</span>'}</td>
+        <td style="padding: 0.75rem; text-align: center;">${r.oldValue}</td>
+        <td style="padding: 0.75rem; text-align: center; font-weight: 600;">${r.newValue}</td>
+        <td style="padding: 0.75rem; text-align: center;">
+          <span class="badge" style="background-color: ${badgeColor}20; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600;">
+            ${badgeText}
+          </span>
+        </td>
+        <td style="padding: 0.75rem; color: ${r.status === 'ok' ? 'var(--color-text-muted)' : 'var(--color-danger)'}; font-size: 0.8rem;">
+          ${r.message || ''}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalRows = rows.length;
+  const okRows = rows.filter(r => r.status === 'ok').length;
+  const errorRows = rows.filter(r => r.status === 'error').length;
+
+  const alertBanner = errorRows > 0
+    ? `<div style="background-color: rgba(239, 68, 68, 0.1); border: 1px solid var(--color-danger); color: var(--color-danger); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+         <i class="ri-error-warning-line" style="font-size: 1.1rem;"></i>
+         <span>Se detectaron <strong>${errorRows} filas con errores</strong>. Solo se procesarán las <strong>${okRows} filas válidas</strong>.</span>
+       </div>`
+    : `<div style="background-color: rgba(16, 124, 65, 0.1); border: 1px solid var(--color-success); color: var(--color-success); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;">
+         <i class="ri-checkbox-circle-line" style="font-size: 1.1rem;"></i>
+         <span>¡Todo correcto! Las <strong>${okRows} filas</strong> son completamente válidas y están listas para importar.</span>
+       </div>`;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 850px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <h3><i class="ri-table-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> ${title}</h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem; overflow-y: auto; flex: 1;">
+        ${alertBanner}
+        <div style="max-height: 350px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); margin-bottom: 1.25rem;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+            <thead>
+              <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                <th style="padding: 0.75rem;">SKU</th>
+                <th style="padding: 0.75rem;">Nombre</th>
+                <th style="padding: 0.75rem; text-align: center;">Stock Anterior</th>
+                <th style="padding: 0.75rem; text-align: center;">Stock Nuevo</th>
+                <th style="padding: 0.75rem; text-align: center;">Estado</th>
+                <th style="padding: 0.75rem;">Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${trs}
+            </tbody>
+          </table>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; gap: 1.5rem; font-size: 0.85rem; color: var(--color-text-main);">
+            <div>Total registros: <strong>${totalRows}</strong></div>
+            <div style="color: var(--color-success);">Válidos: <strong>${okRows}</strong></div>
+            <div style="color: var(--color-danger);">Errores: <strong>${errorRows}</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.25rem;">
+        <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-import" ${okRows === 0 ? 'disabled' : ''} style="background-color: var(--color-success); border-color: var(--color-success); color: white;">
+          <i class="ri-checkbox-circle-line"></i> Confirmar y Cargar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const confirmBtn = document.getElementById('btn-confirm-import');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Procesando...';
+      try {
+        const validRows = rows.filter(r => r.status === 'ok');
+        await onConfirm(validRows);
+        modal.remove();
+      } catch (err) {
+        console.error(err);
+        alert('Error durante la importación: ' + err.message);
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="ri-checkbox-circle-line"></i> Confirmar y Cargar';
+      }
+    });
+  }
+};
+
+function openBulkStockAssignModal(commerce, onComplete) {
+  let modal = document.getElementById('modal-bulk-stock-assign');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-bulk-stock-assign';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-upload-2-line" style="color: var(--color-primary);"></i> Carga Masiva de Stock</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-bulk-stock-assign').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Seleccionar Bodega Destino</label>
+          <select id="bulk-stock-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
+            <option value="">-- Cargando bodegas --</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Descargar Plantilla</label>
+          <button type="button" id="btn-download-bulk-stock-template" class="btn btn-outline" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem; font-size: 0.85rem; height: 38px; border-color: var(--color-border);">
+            <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Descargar Plantilla Excel
+          </button>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Subir Planilla Excel</label>
+          <div style="border: 2px dashed var(--color-border); padding: 1.5rem; border-radius: var(--radius-md); text-align: center; cursor: pointer; transition: all 0.2s; background: var(--color-bg);" id="drop-zone-bulk-stock">
+            <i class="ri-upload-cloud-2-line" style="font-size: 2.5rem; color: var(--color-primary); display: block; margin-bottom: 0.5rem;"></i>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);" id="bulk-stock-file-label">Selecciona o arrastra el archivo Excel aquí</span>
+            <input type="file" id="bulk-stock-excel-file" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-bulk-stock-assign').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Cargar bodegas
+  supabase
+    .from('warehouses')
+    .select('id, name, address, comuna')
+    .order('name')
+    .then(({ data: warehouses, error }) => {
+      const selectEl = document.getElementById('bulk-stock-warehouse-select');
+      if (selectEl) {
+        selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+        if (warehouses) {
+          warehouses.forEach(w => {
+            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+          });
+        }
+      }
+    });
+
+  // Template download listener
+  document.getElementById('btn-download-bulk-stock-template').addEventListener('click', () => {
+    const headers = [['SKU', 'Stock']];
+    const sampleData = [
+      ['PROD-001', '10'],
+      ['PROD-002', '5'],
+      ['PROD-003', '0']
+    ];
+    const wsData = headers.concat(sampleData);
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Stock Asignado');
+    XLSX.writeFile(wb, 'plantilla_carga_masiva_stock.xlsx');
+  });
+
+  const dropZone = document.getElementById('drop-zone-bulk-stock');
+  const fileInput = document.getElementById('bulk-stock-excel-file');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--color-primary)';
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.style.borderColor = 'var(--color-border)';
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--color-border)';
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      fileInput.files = files;
+      handleFileSelected(files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleFileSelected(file);
+    }
+  });
+
+  async function handleFileSelected(file) {
+    const warehouseSelect = document.getElementById('bulk-stock-warehouse-select');
+    const selectedWarehouseId = warehouseSelect.value;
+    if (!selectedWarehouseId) {
+      alert('Por favor, selecciona una bodega destino primero.');
+      fileInput.value = '';
+      return;
+    }
+    const selectedWarehouseName = warehouseSelect.options[warehouseSelect.selectedIndex].text;
+
+    document.getElementById('bulk-stock-file-label').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+        if (excelRows.length === 0) {
+          alert('El archivo Excel está vacío.');
+          return;
+        }
+
+        // Identificar columnas
+        const sample = excelRows[0];
+        let colSku = '';
+        let colStock = '';
+        for (const key of Object.keys(sample)) {
+          const lower = key.toLowerCase().trim();
+          if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+          else if (lower === 'stock' || lower === 'cantidad' || lower === 'cant' || lower === 'unidades') colStock = key;
+        }
+
+        if (!colSku || !colStock) {
+          alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU" y "Stock" (o "Cantidad").');
+          return;
+        }
+
+        // Fetch products of commerce
+        const { data: dbProducts } = await supabase
+          .from('products')
+          .select('id, sku, name')
+          .eq('comercio', commerce);
+
+        const productMap = {};
+        if (dbProducts) {
+          dbProducts.forEach(p => {
+            if (p.sku) {
+              productMap[p.sku.toLowerCase().trim()] = p;
+            }
+          });
+        }
+
+        // Fetch inventory levels for selected warehouse
+        const { data: dbInventory } = await supabase
+          .from('inventory')
+          .select('product_id, quantity')
+          .eq('warehouse_id', selectedWarehouseId);
+
+        const inventoryMap = {};
+        if (dbInventory) {
+          dbInventory.forEach(inv => {
+            inventoryMap[inv.product_id] = inv.quantity || 0;
+          });
+        }
+
+        // Build preview rows
+        const previewRows = [];
+        for (const row of excelRows) {
+          const skuVal = String(row[colSku] || '').trim();
+          const stockValRaw = row[colStock];
+          const stockVal = parseInt(stockValRaw, 10);
+
+          const prod = productMap[skuVal.toLowerCase()];
+          const oldStock = prod ? (inventoryMap[prod.id] || 0) : 0;
+
+          let status = 'ok';
+          let message = '';
+
+          if (!skuVal) {
+            status = 'error';
+            message = 'Línea vacía o SKU ausente';
+          } else if (!prod) {
+            status = 'error';
+            message = 'El SKU no existe en este comercio';
+          } else if (isNaN(stockVal) || stockVal < 0) {
+            status = 'error';
+            message = 'Stock inválido (debe ser un número entero >= 0)';
+          }
+
+          previewRows.push({
+            sku: skuVal || 'N/A',
+            name: prod ? prod.name : null,
+            oldValue: oldStock,
+            newValue: isNaN(stockVal) ? (stockValRaw || '') : stockVal,
+            status,
+            message,
+            prodId: prod ? prod.id : null,
+            stockVal
+          });
+        }
+
+        // Close bulk upload modal first
+        document.getElementById('modal-bulk-stock-assign').remove();
+
+        // Launch generic preview modal
+        window.showStockAndDimensionsPreviewModal({
+          title: `Carga Masiva de Stock - Bodega: ${selectedWarehouseName}`,
+          headers: ['SKU', 'Nombre', 'Stock Anterior', 'Stock Nuevo', 'Estado', 'Detalle'],
+          rows: previewRows,
+          onConfirm: async (validRows) => {
+            let updatedCount = 0;
+            const updatePromises = validRows.map(async (r) => {
+              const diff = r.stockVal - r.oldValue;
+              if (diff !== 0) {
+                // Find or insert in inventory
+                const { data: invRecord } = await supabase
+                  .from('inventory')
+                  .select('id, quantity')
+                  .eq('product_id', r.prodId)
+                  .eq('warehouse_id', selectedWarehouseId)
+                  .maybeSingle();
+
+                if (invRecord) {
+                  const { error: invErr } = await supabase
+                    .from('inventory')
+                    .update({ quantity: r.stockVal })
+                    .eq('id', invRecord.id);
+                  if (invErr) throw invErr;
+                } else {
+                  const { error: invErr } = await supabase
+                    .from('inventory')
+                    .insert([{
+                      product_id: r.prodId,
+                      warehouse_id: selectedWarehouseId,
+                      quantity: r.stockVal,
+                      committed_quantity: 0
+                    }]);
+                  if (invErr) throw invErr;
+                }
+
+                // Register movement
+                const type = diff > 0 ? 'in' : 'out';
+                const qty = Math.abs(diff);
+                await supabase
+                  .from('movements')
+                  .insert([{
+                    product_id: r.prodId,
+                    warehouse_id: selectedWarehouseId,
+                    type: type,
+                    quantity: qty,
+                    reference_doc: 'Carga Masiva Stock'
+                  }]);
+              }
+              updatedCount++;
+            });
+
+            await Promise.all(updatePromises);
+            alert(`¡Éxito! Se actualizaron ${updatedCount} productos correctamente.`);
+            if (onComplete) onComplete();
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        alert('Error al leer el archivo Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
 }
 

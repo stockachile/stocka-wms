@@ -77,7 +77,7 @@ async function sendSingleOrderToPicker(order) {
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
       tracking: order.tracking_number || '',
-      operator: '',
+      operator: order.operador || '',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
       observation: order.observation || prod.description || '',

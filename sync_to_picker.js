@@ -63,6 +63,7 @@ async function run() {
         estado_wms,
         agenda,
         sucursal_pickeo,
+        operador,
         order_items (quantity, products(sku, name, price, image_url, options, is_virtual))
       `)
       .eq('estado_wms', 'En preparación');
@@ -157,7 +158,7 @@ async function run() {
               cuello: opt.cuello || null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: wmsOrder.tracking_number || '',
-              operator: '',
+              operator: wmsOrder.operador || '',
               totu: 0,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
               observation: `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`,

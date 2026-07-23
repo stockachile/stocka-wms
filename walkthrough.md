@@ -714,3 +714,33 @@ Hemos solucionado el problema por el cual el inventario físico (`inventory`) y 
    - Dejamos sumado exclusivamente el ingreso *"grano clásico y envases"* (ID: `23483bd8-5ede-4b7b-a8d9-005182128284`), el cual registró e incrementó el stock de la bodega con **30 unidades** para el `SKU 2-1` (Grano Clásico 1 Kg.) con su respectivo log en la tabla de movimientos.
    - Cualquier otra regularización (como las del ingreso *"Café 3 variedades"*) fue revertida y eliminada del log de movimientos e inventarios para reflejar únicamente la entrada del ingreso solicitado.
 
+---
+
+## 39. Asignación Masiva de Stock a Bodegas desde los Paneles de Cliente y Admin
+
+Hemos implementado una nueva funcionalidad que permite asignar/cargar stock de manera masiva a cualquier bodega del sistema, tanto desde el panel del Cliente (`js/app.js`) como del Administrador (`js/admin.js`):
+
+1. **Botón en Interfaz de Inventario**:
+   - Agregamos el botón **`Asignar Stock Masivo`** (con un estilo visual distintivo en color verde de éxito, borde y el icono `ri-upload-2-line`) justo al lado del botón "Exportar CSV" en los encabezados de las vistas de inventario de ambos paneles.
+
+2. **Modal de Carga con Selector de Bodega**:
+   - Al pulsar el botón, se despliega dinámicamente un modal elegante que guía al usuario en 3 simples pasos:
+     1. **Selección de Bodega**: Un dropdown de selección obligatoria donde se listan todas las bodegas registradas.
+     2. **Descarga de Plantilla**: Un botón que permite descargar una plantilla Excel (`plantilla_carga_masiva_stock.xlsx`) pre-formateada con las columnas requeridas: `SKU` y `Stock`.
+     3. **Subida de Archivo**: Una zona interactiva de drag-and-drop o clic para arrastrar/seleccionar el archivo Excel con los datos.
+
+3. **Validación y Vista Previa Dinámica**:
+   - Al subir el archivo, el sistema procesa el contenido localmente y cruza los SKUs contra el catálogo master del comercio activo.
+   - Lanza un modal detallado de vista previa de carga (reutilizando y ampliando la infraestructura de `window.showStockAndDimensionsPreviewModal`) que muestra:
+     - El SKU y nombre del producto.
+     - El stock físico actual de la bodega (Stock Anterior).
+     - El stock declarado en el Excel (Stock Nuevo).
+     - El estado del registro (Listo / Error) y detalles descriptivos (ej. si el SKU no pertenece al comercio, si el stock es un número inválido o negativo).
+   - El botón de confirmación se bloquea si no hay registros válidos para subir.
+
+4. **Sincronización Inteligente de Stock y Movimientos**:
+   - Al confirmar la carga, para cada producto válido se calcula la diferencia (`newValue - oldValue`).
+   - Si existe una variación (`diff !== 0`), el sistema:
+     1. Actualiza el valor directo del inventario en `inventory` para asegurar la coincidencia exacta con el Excel.
+     2. Inserta una transacción de ajuste en la tabla `movements` (con tipo `in` si la diferencia es positiva, u `out` si es negativa) bajo el documento de referencia `Carga Masiva Stock`.
+   - Finalmente, se refresca automáticamente la grilla y el listado de inventario en la pantalla para reflejar los nuevos datos en tiempo real.
