@@ -644,23 +644,23 @@ serve(async (req) => {
             Para poder recibir tus productos físicamente en nuestra bodega de fulfillment, es obligatorio que declares qué mercancía vas a enviarnos. De esta forma, nuestro equipo de recepción estará preparado para recibir, auditar y almacenar tu inventario sin retrasos.
           </div>
 
-          <h4 style="font-size: 13px; color: #0f172a; margin-top: 15px; margin-bottom: 8px; font-weight: 600;">Instrucciones para realizar tu Declaración de Stock:</h4>
+          <h4 style="font-size: 13px; color: #0f172a; margin-top: 15px; margin-bottom: 8px; font-weight: 600;">Instrucciones para realizar tu primer ingreso de stock:</h4>
           
           <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.7;">
             <li style="margin-bottom: 8px;">
               <strong>Inicia Sesión:</strong> Entra al portal WMS de Stocka (usa el botón de abajo).
             </li>
             <li style="margin-bottom: 8px;">
-              <strong>Carga tu Catálogo:</strong> Dirígete al menú lateral, sección <strong>Productos</strong> y registra tus SKUs con sus nombres y datos (<em>Recuerda: para declarar stock de un producto, este primero debe estar creado en el sistema</em>).
+              <strong>Descarga la Planilla:</strong> Dirígete a la sección de <strong>Productos</strong> o <strong>Ingresos / Stock</strong> en el portal y sigue las instrucciones para descargar la planilla modelo en formato Excel.
             </li>
             <li style="margin-bottom: 8px;">
-              <strong>Crea la Declaración:</strong> Ve al menú lateral, sección <strong>Ingresos / Stock</strong> y haz clic en el botón <strong>"Nueva Declaración"</strong>.
+              <strong>Completa los Datos:</strong> Rellena la planilla Excel con tus SKUs, descripciones y las cantidades de productos correspondientes a tu primer ingreso. (<em>Dado que tu cuenta inicia sin seguimiento activo de stock, la carga masiva por planilla es la opción exclusiva para registrar tu inventario inicial</em>).
             </li>
             <li style="margin-bottom: 8px;">
-              <strong>Selecciona y descarga:</strong> Selecciona los productos y cantidades que enviarás, descarga el documento de respaldo en PDF y pégalo de forma visible en las cajas o bultos de tu despacho.
+              <strong>Sube la Planilla:</strong> Carga el archivo Excel completado en el portal en la sección correspondiente para dar de alta tus productos y stock de forma simultánea.
             </li>
             <li style="margin-bottom: 8px;">
-              <strong>Envía:</strong> Despacha tus bultos a nuestra bodega mediante tu courier de preferencia o entrega presencial.
+              <strong>Envía:</strong> Descarga el comprobante en PDF generado por el portal, pégalo de forma visible en las cajas o bultos de tu despacho y coordina el envío de los productos a nuestra bodega.
             </li>
           </ol>
         </div>
