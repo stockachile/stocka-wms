@@ -2096,9 +2096,14 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
 
+    let labelBadgeHtml = '';
+    if (order.label_base64 || order.label_url) {
+      labelBadgeHtml = `<span class="badge" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem;" title="Etiqueta Generada"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
+    }
+
     const orderDisplayId = order.external_order_number 
-      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}</div></div>` 
-      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}</div></div>`;
+      ? `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.external_order_number}</span> <span style="font-size: 0.75rem; color: var(--color-text-muted);">(${order.id.split('-')[0]})</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}</div></div>` 
+      : `<div style="display:flex; flex-direction:column; gap:0.2rem;"><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px; font-weight:600; width:fit-content;">${order.id.split('-')[0]}</span><div style="display:flex; flex-wrap:wrap; gap:0.25rem;">${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}</div></div>`;
 
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
@@ -5568,6 +5573,9 @@ async function renderAdminInventoryWorkspace(commerce) {
             <button id="btn-admin-bulk-stock-assign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-success); color: var(--color-success); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-upload-2-line"></i> Asignar Stock Masivo
             </button>
+            <button id="btn-admin-assign-warehouse-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
+              <i class="ri-git-repository-line"></i> Asignar Bodega
+            </button>
           </div>
         </div>
         <div class="card-body" style="padding: 0;">
@@ -5575,6 +5583,9 @@ async function renderAdminInventoryWorkspace(commerce) {
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
                 <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th style="width: 40px; padding: 1rem 1.5rem; text-align: center;">
+                    <input type="checkbox" id="select-all-admin-inventory" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+                  </th>
                   <th class="admin-inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="admin-sort-indicator"></span></span>
                   </th>
@@ -5635,6 +5646,33 @@ async function renderAdminInventoryWorkspace(commerce) {
       bulkStockBtn.addEventListener('click', () => openBulkStockAssignModal(commerce, () => renderAdminInventoryWorkspace(commerce)));
     }
 
+    const assignWhBtn = document.getElementById('btn-admin-assign-warehouse-bulk');
+    if (assignWhBtn) {
+      assignWhBtn.addEventListener('click', () => {
+        const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
+        if (checkedBoxes.length === 0) {
+          alert('Por favor, selecciona al menos un producto de la tabla.');
+          return;
+        }
+
+        const selectedProducts = [];
+        const seenIds = new Set();
+        checkedBoxes.forEach(cb => {
+          const prodId = cb.getAttribute('data-prod-id');
+          if (!seenIds.has(prodId)) {
+            seenIds.add(prodId);
+            selectedProducts.push({
+              id: prodId,
+              sku: cb.getAttribute('data-prod-sku'),
+              name: cb.getAttribute('data-prod-name')
+            });
+          }
+        });
+
+        openDirectBulkWarehouseAssignModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+      });
+    }
+
     document.querySelectorAll('.admin-inventory-sortable').forEach(th => {
       th.addEventListener('click', (e) => {
         const col = e.currentTarget.getAttribute('data-sort');
@@ -5672,7 +5710,7 @@ function renderAdminInventoryTableBody() {
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No se encontraron productos coincidentes.
         </td>
       </tr>
@@ -5714,6 +5752,9 @@ function renderAdminInventoryTableBody() {
 
     return `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 1.5rem; text-align: center;">
+          <input type="checkbox" class="inventory-row-checkbox" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+        </td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
         <td style="padding: 0.75rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
@@ -5800,6 +5841,17 @@ function renderAdminInventoryTableBody() {
       openPendingDetailModal(sku, name);
     });
   });
+
+  const selectAll = document.getElementById('select-all-admin-inventory');
+  if (selectAll) {
+    selectAll.checked = false;
+    selectAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      tbody.querySelectorAll('.inventory-row-checkbox').forEach(cb => {
+        cb.checked = checked;
+      });
+    });
+  }
 }
 
 function applyAdminInventoryFiltersAndSort() {
@@ -24996,6 +25048,197 @@ function openBulkStockAssignModal(commerce, onComplete) {
     };
     reader.readAsArrayBuffer(file);
   }
+}
+
+function openDirectBulkWarehouseAssignModal(commerce, selectedProducts, onComplete) {
+  let modal = document.getElementById('modal-direct-warehouse-assign');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-direct-warehouse-assign';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+  
+  const trs = selectedProducts.map(p => `
+    <tr style="border-bottom: 1px solid var(--color-border);" data-prod-id="${p.id}">
+      <td style="padding: 0.75rem; font-weight: 600;">${p.sku}</td>
+      <td style="padding: 0.75rem; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
+      <td style="padding: 0.75rem; text-align: center;" class="direct-current-stock-label" data-prod-id="${p.id}">0</td>
+      <td style="padding: 0.75rem; text-align: center;">
+        <input type="number" class="direct-stock-input form-input" data-prod-id="${p.id}" min="0" value="0" style="width: 100px; text-align: center; height: 32px; padding: 0.25rem; font-weight: 600; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+      </td>
+    </tr>
+  `).join('');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 650px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-git-repository-line" style="color: var(--color-accent);"></i> Asignar Bodega y Stock</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-direct-warehouse-assign').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Seleccionar Bodega Destino</label>
+          <select id="direct-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
+            <option value="">-- Selecciona una Bodega --</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Definir Stock para los Productos Seleccionados</label>
+          <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+              <thead>
+                <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                  <th style="padding: 0.75rem;">SKU</th>
+                  <th style="padding: 0.75rem;">Nombre</th>
+                  <th style="padding: 0.75rem; text-align: center;">Stock Actual</th>
+                  <th style="padding: 0.75rem; text-align: center;">Nuevo Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${trs}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-direct-warehouse-assign').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-confirm-direct-assign" style="background-color: var(--color-accent); border-color: var(--color-accent); color: white;">
+          <i class="ri-checkbox-circle-line"></i> Confirmar y Guardar
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Load warehouses
+  supabase
+    .from('warehouses')
+    .select('id, name, address, comuna')
+    .order('name')
+    .then(({ data: warehouses, error }) => {
+      const selectEl = document.getElementById('direct-warehouse-select');
+      if (selectEl) {
+        selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+        if (warehouses) {
+          warehouses.forEach(w => {
+            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+          });
+        }
+      }
+    });
+
+  const selectEl = document.getElementById('direct-warehouse-select');
+  selectEl.addEventListener('change', async () => {
+    const warehouseId = selectEl.value;
+    if (!warehouseId) {
+      document.querySelectorAll('.direct-current-stock-label').forEach(lbl => lbl.textContent = '0');
+      document.querySelectorAll('.direct-stock-input').forEach(inp => inp.value = '0');
+      return;
+    }
+
+    // Fetch current stocks for selected products in this warehouse
+    const productIds = selectedProducts.map(p => p.id);
+    const { data: dbInvs } = await supabase
+      .from('inventory')
+      .select('product_id, quantity')
+      .eq('warehouse_id', warehouseId)
+      .in('product_id', productIds);
+
+    const stockMap = {};
+    if (dbInvs) {
+      dbInvs.forEach(inv => {
+        stockMap[inv.product_id] = inv.quantity || 0;
+      });
+    }
+
+    selectedProducts.forEach(p => {
+      const currentStock = stockMap[p.id] || 0;
+      const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
+      if (label) label.textContent = currentStock;
+
+      const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+      if (input) input.value = currentStock;
+    });
+  });
+
+  const confirmBtn = document.getElementById('btn-confirm-direct-assign');
+  confirmBtn.addEventListener('click', async () => {
+    const warehouseId = selectEl.value;
+    if (!warehouseId) {
+      alert('Por favor, selecciona una bodega destino.');
+      return;
+    }
+
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+    try {
+      let updatedCount = 0;
+      for (const p of selectedProducts) {
+        const label = document.querySelector(`.direct-current-stock-label[data-prod-id="${p.id}"]`);
+        const oldValue = parseInt(label.textContent || '0', 10);
+        
+        const input = document.querySelector(`.direct-stock-input[data-prod-id="${p.id}"]`);
+        const newValue = parseInt(input.value || '0', 10);
+
+        const diff = newValue - oldValue;
+        if (diff !== 0) {
+          // Update/Insert inventory
+          const { data: invRecord } = await supabase
+            .from('inventory')
+            .select('id, quantity')
+            .eq('product_id', p.id)
+            .eq('warehouse_id', warehouseId)
+            .maybeSingle();
+
+          if (invRecord) {
+            const { error: invErr } = await supabase
+              .from('inventory')
+              .update({ quantity: newValue })
+              .eq('id', invRecord.id);
+            if (invErr) throw invErr;
+          } else {
+            const { error: invErr } = await supabase
+              .from('inventory')
+              .insert([{
+                product_id: p.id,
+                warehouse_id: warehouseId,
+                quantity: newValue,
+                committed_quantity: 0
+              }]);
+            if (invErr) throw invErr;
+          }
+
+          // Register movement
+          const type = diff > 0 ? 'in' : 'out';
+          const qty = Math.abs(diff);
+          await supabase
+            .from('movements')
+            .insert([{
+              product_id: p.id,
+              warehouse_id: warehouseId,
+              type: type,
+              quantity: qty,
+              reference_doc: 'Ajuste Manual Bodega'
+            }]);
+          
+          updatedCount++;
+        }
+      }
+
+      alert(`¡Éxito! Se actualizó el stock de ${updatedCount} productos en la bodega.`);
+      modal.remove();
+      if (onComplete) onComplete();
+    } catch (err) {
+      console.error(err);
+      alert('Error al asignar bodega: ' + err.message);
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = '<i class="ri-checkbox-circle-line"></i> Confirmar y Guardar';
+    }
+  });
 }
 
 
