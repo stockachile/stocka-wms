@@ -768,6 +768,8 @@ serve(async (req) => {
       const deliveryMethod = payload.deliveryMethod || payload.delivery_method || "No especificado";
       const carrierInfo = payload.carrierInfo || payload.carrier_info || payload.contactInfo || payload.contact_info || "No especificado";
       const notes = payload.notes || "Sin observaciones del cliente";
+      const decId = payload.declarationId || "";
+      const shortCode = decId ? `#ING-${decId.substring(0, 8).toUpperCase()}` : 'N/A';
 
       let arrivalInfo = "No especificado";
       if (payload.estimatedArrivalDate || payload.estimated_arrival_date) {
@@ -776,7 +778,7 @@ serve(async (req) => {
         arrivalInfo = `Plazo estimado: ${payload.estimatedArrivalPeriod || payload.estimated_arrival_period}`;
       }
 
-      emailSubject = `[NUEVO INGRESO DE STOCK] ${decCommerce} - ${decTitle}`;
+      emailSubject = `[NUEVO INGRESO DE STOCK ${shortCode}] ${decCommerce} - ${decTitle}`;
       headerGradient = 'linear-gradient(135deg, #0d9488, #0f766e)';
       emailTitle = 'Nuevo Ingreso de Stock Creado';
 
@@ -789,6 +791,7 @@ serve(async (req) => {
         <div style="background-color: #f0fdf4; border: 1px solid #ccfbf1; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
           <h4 style="margin: 0 0 12px 0; font-size: 15px; color: #0f766e; font-weight: 700;">Detalles del Ingreso Registrado:</h4>
           <table style="width: 100%; border-collapse: collapse; font-size: 13.5px; color: #334155;">
+            <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">Código Único:</td><td style="padding: 8px 0; font-weight: 700; color: #2563eb; font-family: monospace;">${shortCode}</td></tr>
             <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600; width: 40%;">Comercio / Cliente:</td><td style="padding: 8px 0; font-weight: 700; color: #1e293b;">${decCommerce}</td></tr>
             <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Título / Referencia:</td><td style="padding: 8px 0; font-weight: 600; color: #0f766e;">${decTitle}</td></tr>
             <tr style="border-bottom: 1px solid #e2e8f0;"><td style="padding: 8px 0; font-weight: 600;">Unidades Declaradas:</td><td style="padding: 8px 0;"><span style="background-color: #ccfbf1; color: #0f766e; padding: 3px 8px; border-radius: 4px; font-weight: 700;">${qtyDeclared} unidades</span></td></tr>

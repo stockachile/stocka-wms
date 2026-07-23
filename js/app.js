@@ -11375,11 +11375,15 @@ window.renderDeclarations = async function() {
               file_base64: clientUploadedFileBase64
             };
 
-            const { error: insertError } = await supabase
+            const { data: insertedRows, error: insertError } = await supabase
               .from('stock_declarations')
-              .insert([insertData]);
+              .insert([insertData])
+              .select('id')
+              .single();
 
             if (insertError) throw insertError;
+
+            const decId = insertedRows ? insertedRows.id : '';
 
             // Enviar notificación por correo del nuevo ingreso
             fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
@@ -11387,6 +11391,7 @@ window.renderDeclarations = async function() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 emailType: 'stock_inbound_created',
+                declarationId: decId,
                 comercio: commerce,
                 title: title,
                 quantityDeclared: qtyDeclared,
