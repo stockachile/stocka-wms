@@ -467,10 +467,16 @@ async function handleBulkMode(limiteCarga) {
     const phone = String(order.customer_phone || '').replace(/[^\d+]/g, '');
     const email = order.customer_email || 'correo@temp.com';
 
+    const orderDate = new Date(order.created_at);
+    const day = String(orderDate.getDate()).padStart(2, '0');
+    const month = String(orderDate.getMonth() + 1).padStart(2, '0');
+    const year = orderDate.getFullYear();
+    const formattedDate = `${day}/${month}/${year}`;
+
     // Rellenar fila
     excelRows.push([
       trackingCode,                                // Numero de tracking
-      new Date(order.created_at).toLocaleDateString('es-CL'), // Fecha de venta (DD/MM/YYYY)
+      formattedDate,                               // Fecha de venta (DD/MM/YYYY)
       order.total_value || 0,                      // Valor declarado
       1,                                           // Peso declarado (por defecto 1 kg)
       order.customer_name || 'Sin Nombre',         // Destinatario
