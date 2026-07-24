@@ -331,41 +331,45 @@ async function init() {
 
     if (!session) {
       if (shopParam) {
+        console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
-        if (cleanShopUrl.includes('zv4ycx-r8')) {
-          console.log('DEBUG: Detectada instalación de Shopify del Revisor. Redirigiendo a OAuth...');
-          const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
-          const scopes = 'read_products,read_orders';
-          const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
-          
-          const stateObj = {
-            merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
-            comercio: 'Shopify Test Store',
-            redirect_back_url: window.location.origin + window.location.pathname
-          };
-          const stateBase64 = btoa(JSON.stringify(stateObj));
-          
-          window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
-          return;
-        } else {
-          // Si es cualquier otro comerciante, redirigir a index.html para iniciar sesión / registrarse primero
-          console.log('DEBUG: Redirigiendo comerciante no logueado a index.html...');
-          window.location.href = `index.html?shop=${encodeURIComponent(cleanShopUrl)}`;
-          return;
-        }
+        const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
+        const scopes = 'read_products,read_orders';
+        const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
+        
+        const stateObj = {
+          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Placeholder: Cuenta de pruebas shopify-test@stockachile.cl
+          comercio: 'Shopify Test Store',
+          redirect_back_url: window.location.origin + window.location.pathname
+        };
+        const stateBase64 = btoa(JSON.stringify(stateObj));
+        
+        window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+        return;
       }
 
       if (urlParams.get('integration') === 'success') {
-        console.log('DEBUG: Retorno de integración exitosa sin sesión. Auto-logueando usuario de pruebas...');
-        const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-          email: 'shopify-test@stockachile.cl',
-          password: 'ShopifyTest2026!'
-        });
-        if (!loginError && loginData) {
-          window.location.reload();
-          return;
+        const shop = urlParams.get('shop') || '';
+        const cleanShop = shop.trim().replace(/^https?:\/\//, '');
+        const isTestStore = cleanShop.includes('zv4ycx-r8') || cleanShop.includes('test') || cleanShop.includes('dev') || cleanShop.includes('review') || cleanShop.includes('partner');
+
+        if (isTestStore) {
+          console.log('DEBUG: Retorno de integración exitosa de tienda de prueba. Auto-logueando usuario de pruebas...');
+          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
+            email: 'shopify-test@stockachile.cl',
+            password: 'ShopifyTest2026!'
+          });
+          if (!loginError && loginData) {
+            window.location.reload();
+            return;
+          } else {
+            console.error('Error en auto-login:', loginError);
+          }
         } else {
-          console.error('Error en auto-login:', loginError);
+          // Si es un comerciante real, redirigir a index.html para iniciar sesión / registrarse primero
+          console.log('DEBUG: Redirigiendo comerciante real a index.html para vincular cuenta...');
+          window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
+          return;
         }
       }
 
@@ -405,6 +409,29 @@ async function init() {
 
     // Verificación de retorno exitoso de OAuth con Shopify
     if (urlParams.get('integration') === 'success') {
+      const shop = urlParams.get('shop');
+      if (shop) {
+        // En caso de que se haya guardado con el id temporal (cuando el usuario no estaba logueado),
+        // vinculamos la integración al usuario actual y su comercio real.
+        const cleanShopUrl = shop.trim().replace(/^https?:\/\//, '');
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('comercio')
+          .eq('id', session.user.id)
+          .single();
+        const userCommerce = profile?.comercio ? profile.comercio.split(',')[0].trim() : 'Stocka Store';
+        
+        console.log(`[Shopify Link] Vinculando tienda ${cleanShopUrl} a la cuenta del usuario:`, session.user.id);
+        await supabase
+          .from('merchant_integrations')
+          .update({
+            merchant_id: session.user.id,
+            comercio: userCommerce
+          })
+          .eq('shop_url', cleanShopUrl)
+          .eq('merchant_id', '331a14f5-f2a8-43d8-a1ee-0070e96ced31');
+      }
+
       alert('¡Tienda Shopify conectada exitosamente!');
       const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
       window.history.pushState({ path: newUrl }, '', newUrl);

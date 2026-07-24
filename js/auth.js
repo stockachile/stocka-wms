@@ -283,4 +283,24 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+
+  // Detectar y notificar vinculación pendiente tras retornar de Shopify OAuth
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('integration') === 'success' && urlParams.get('shop')) {
+    const shop = urlParams.get('shop');
+    localStorage.setItem('pending_shopify_shop', shop);
+    localStorage.setItem('pending_shopify_link', 'true');
+    
+    // Mostrar alerta de éxito persistente en la pantalla de Login
+    setTimeout(() => {
+      if (alertContainer) {
+        alertContainer.innerHTML = `
+          <div class="alert alert-success" style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--color-success); color: var(--color-success); padding: 0.75rem; border-radius: var(--radius-sm); font-size: 0.85rem; margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; text-align: left; line-height: 1.4;">
+            <i class="ri-checkbox-circle-line" style="font-size: 1.25rem; flex-shrink: 0; color: #10b981;"></i> 
+            <span><strong>¡Tienda conectada!</strong> Por favor inicia sesión o crea una cuenta para asociar la tienda <strong>${shop}</strong> a tu cuenta de WMS Stocka.</span>
+          </div>
+        `;
+      }
+    }, 200);
+  }
 });
