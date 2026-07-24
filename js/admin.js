@@ -5931,7 +5931,7 @@ function renderAdminInventoryTableBody() {
   const tbody = document.getElementById('admin-inventory-tbody');
   if (!tbody) return;
 
-  const rows = applyAdminInventoryFiltersAndSort();
+  const rows = applyAdminInventoryFiltersAndSort(false);
 
   if (rows.length === 0) {
     tbody.innerHTML = `
@@ -5944,7 +5944,10 @@ function renderAdminInventoryTableBody() {
     return;
   }
 
-  tbody.innerHTML = rows.map(r => {
+  window.expandedAdminInventoryProducts = window.expandedAdminInventoryProducts || new Set();
+
+  let html = '';
+  rows.forEach(r => {
     let badge = '';
     const isInsuficiente = r.committed > 0 && r.physical <= 0;
     
@@ -5965,7 +5968,7 @@ function renderAdminInventoryTableBody() {
     `;
 
     const committedHtml = r.committed > 0
-      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${r.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${r.warehouse.replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos">${r.committed}</span>`
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en todas las bodegas">${r.committed}</span>`
       : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
     const pendingHtml = r.pending > 0
@@ -5976,18 +5979,35 @@ function renderAdminInventoryTableBody() {
       ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 1rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en stock"></i>`
       : '';
 
-    return `
-      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+    // Filtrar bodegas que tengan stock físico o comprometido
+    const activeWarehouses = (r.inventory || []).filter(inv => (inv.quantity || 0) > 0 || (inv.committed_quantity || 0) > 0);
+    const isExpanded = window.expandedAdminInventoryProducts.has(r.id);
+    
+    let bodegaCellContent = '';
+    if (activeWarehouses.length === 0) {
+      bodegaCellContent = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin stock en bodegas</span>`;
+    } else {
+      bodegaCellContent = `
+        <span class="toggle-warehouse-detail" data-prod-id="${r.id}" style="cursor: pointer; color: var(--color-accent); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; user-select: none;">
+          <i class="${isExpanded ? 'ri-subtract-line' : 'ri-add-line'}" style="font-weight: 700;"></i>
+          ${isExpanded ? 'Ocultar Bodegas' : 'Mostrar Bodegas'} (${activeWarehouses.length})
+        </span>
+      `;
+    }
+
+    // Fila principal consolidada
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; background-color: var(--color-surface);" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='var(--color-surface)'">
         <td style="padding: 0.75rem 1.5rem; text-align: center;">
           <input type="checkbox" class="inventory-row-checkbox" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
         </td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
-        <td style="padding: 0.75rem 1.5rem; color: var(--color-text-muted);">${r.warehouse}</td>
+        <td style="padding: 0.75rem 1.5rem;">${bodegaCellContent}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600;">${r.available}${alertIconHtml}</td>
+        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}${alertIconHtml}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center;">
           <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 70px; text-align: center; padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500;" />
@@ -5996,7 +6016,60 @@ function renderAdminInventoryTableBody() {
         <td style="padding: 0.75rem 1.5rem; text-align: center;">${actionBtnHtml}</td>
       </tr>
     `;
-  }).join('');
+
+    // Filas hijas de bodegas si está expandido
+    if (isExpanded && activeWarehouses.length > 0) {
+      activeWarehouses.forEach(inv => {
+        const subAvailable = (inv.quantity || 0) - (inv.committed_quantity || 0);
+        const subIsInsuficiente = inv.committed_quantity > 0 && inv.quantity <= 0;
+        const subAlertIconHtml = subIsInsuficiente
+          ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 0.95rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en esta bodega"></i>`
+          : '';
+
+        const subCommittedHtml = inv.committed_quantity > 0
+          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${(inv.warehouses?.name || 'N/A').replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en esta bodega">${inv.committed_quantity}</span>`
+          : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+
+        html += `
+          <tr style="border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.95;">
+            <td style="padding: 0.5rem 1.5rem;"></td>
+            <td style="padding: 0.5rem 1.5rem;"></td>
+            <td style="padding: 0.5rem 1.5rem; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding-left: 1rem;">
+                <i class="ri-corner-down-right-line" style="color: var(--color-text-muted); opacity: 0.6;"></i>
+                Detalle por bodega
+              </span>
+            </td>
+            <td style="padding: 0.5rem 1.5rem; font-weight: 600; color: var(--color-text-main); font-size: 0.88rem;">${inv.warehouses?.name || 'N/A'}</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; font-size: 0.88rem;">${inv.quantity || 0}</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500; font-size: 0.88rem;">${subCommittedHtml}</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.88rem;">${subAvailable}${subAlertIconHtml}</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+          </tr>
+        `;
+      });
+    }
+  });
+
+  tbody.innerHTML = html;
+
+  // Enlazar listeners para expandir/colapsar
+  tbody.querySelectorAll('.toggle-warehouse-detail').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const prodId = el.getAttribute('data-prod-id');
+      if (window.expandedAdminInventoryProducts.has(prodId)) {
+        window.expandedAdminInventoryProducts.delete(prodId);
+      } else {
+        window.expandedAdminInventoryProducts.add(prodId);
+      }
+      renderAdminInventoryTableBody();
+    });
+  });
 
   tbody.querySelectorAll('.stock-critico-inline').forEach(input => {
     input.addEventListener('change', async (e) => {
@@ -6052,7 +6125,7 @@ function renderAdminInventoryTableBody() {
   tbody.querySelectorAll('.badge-committed-link').forEach(link => {
     link.addEventListener('click', (e) => {
       const prodId = e.currentTarget.getAttribute('data-prod-id');
-      const whId = e.currentTarget.getAttribute('data-warehouse-id');
+      const whId = e.currentTarget.getAttribute('data-warehouse-id') || null;
       const sku = e.currentTarget.getAttribute('data-prod-sku');
       const name = e.currentTarget.getAttribute('data-prod-name');
       const whName = e.currentTarget.getAttribute('data-warehouse-name');
@@ -6080,7 +6153,7 @@ function renderAdminInventoryTableBody() {
   }
 }
 
-function applyAdminInventoryFiltersAndSort() {
+function applyAdminInventoryFiltersAndSort(flat = false) {
   const products = window.cachedAdminInventoryProducts || [];
   const search = (window.adminInventorySearchQuery || '').toLowerCase().trim();
   
@@ -6088,8 +6161,12 @@ function applyAdminInventoryFiltersAndSort() {
   products.forEach(prod => {
     const invList = prod.inventory || [];
     
+    let totalPhysical = 0;
+    let totalCommitted = 0;
     let totalAvailable = 0;
     invList.forEach(inv => {
+      totalPhysical += (inv.quantity || 0);
+      totalCommitted += (inv.committed_quantity || 0);
       totalAvailable += ((inv.quantity || 0) - (inv.committed_quantity || 0));
     });
 
@@ -6099,38 +6176,56 @@ function applyAdminInventoryFiltersAndSort() {
 
     const pendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[prod.sku.trim()] || 0) : 0;
 
-    if (invList.length === 0) {
-      rows.push({
-        id: prod.id,
-        sku: prod.sku || '',
-        name: prod.name || '',
-        warehouse: 'Sin asignar',
-        warehouse_id: null,
-        physical: 0,
-        committed: 0,
-        pending: pendingVal,
-        available: 0,
-        totalAvailable: totalAvailable,
-        stock_critico: prod.stock_critico || 0,
-        status: statusStr
-      });
-    } else {
-      invList.forEach(inv => {
-        const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+    if (flat) {
+      if (invList.length === 0) {
         rows.push({
           id: prod.id,
           sku: prod.sku || '',
           name: prod.name || '',
-          warehouse: inv.warehouses?.name || 'N/A',
-          warehouse_id: inv.warehouse_id,
-          physical: inv.quantity || 0,
-          committed: inv.committed_quantity || 0,
+          warehouse: 'Sin asignar',
+          warehouse_id: null,
+          physical: 0,
+          committed: 0,
           pending: pendingVal,
-          available: available,
+          available: 0,
           totalAvailable: totalAvailable,
           stock_critico: prod.stock_critico || 0,
           status: statusStr
         });
+      } else {
+        invList.forEach(inv => {
+          const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+          rows.push({
+            id: prod.id,
+            sku: prod.sku || '',
+            name: prod.name || '',
+            warehouse: inv.warehouses?.name || 'N/A',
+            warehouse_id: inv.warehouse_id,
+            physical: inv.quantity || 0,
+            committed: inv.committed_quantity || 0,
+            pending: pendingVal,
+            available: available,
+            totalAvailable: totalAvailable,
+            stock_critico: prod.stock_critico || 0,
+            status: statusStr
+          });
+        });
+      }
+    } else {
+      rows.push({
+        id: prod.id,
+        sku: prod.sku || '',
+        name: prod.name || '',
+        warehouse: invList.length === 0 ? 'Sin asignar' : 'Vistas de Bodega',
+        warehouse_id: null,
+        physical: totalPhysical,
+        committed: totalCommitted,
+        pending: pendingVal,
+        available: totalAvailable,
+        totalAvailable: totalAvailable,
+        stock_critico: prod.stock_critico || 0,
+        status: statusStr,
+        inventory: invList
       });
     }
   });
@@ -6181,7 +6276,7 @@ function updateAdminInventorySortingIndicators() {
 }
 
 function exportAdminInventoryToCsv() {
-  const rows = applyAdminInventoryFiltersAndSort();
+  const rows = applyAdminInventoryFiltersAndSort(true);
   if (rows.length === 0) {
     alert('No hay registros de inventario para exportar.');
     return;
@@ -6535,12 +6630,46 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
   document.body.appendChild(modal);
 
   try {
-    const { data: items, error } = await supabase.rpc('get_committed_order_details', {
-      p_product_id: productId,
-      p_warehouse_id: warehouseId
-    });
-
-    if (error) throw error;
+    let items, error;
+    if (!warehouseId) {
+      const { data: rawItems, error: queryErr } = await supabase
+        .from('order_items')
+        .select(`
+          quantity,
+          order_id,
+          orders:order_id (
+            id,
+            external_order_number,
+            external_platform,
+            status,
+            created_at,
+            customer_name
+          )
+        `)
+        .eq('product_id', productId);
+      
+      if (queryErr) throw queryErr;
+      
+      const excludedStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+      items = (rawItems || [])
+        .filter(item => item.orders && !excludedStatuses.includes(item.orders.status?.toLowerCase()))
+        .map(item => ({
+          quantity: item.quantity,
+          order_id: item.orders.id,
+          external_order_number: item.orders.external_order_number,
+          external_platform: item.orders.external_platform,
+          status: item.orders.status,
+          created_at: item.orders.created_at,
+          customer_name: item.orders.customer_name
+        }));
+    } else {
+      const { data: rpcItems, error: rpcErr } = await supabase.rpc('get_committed_order_details', {
+        p_product_id: productId,
+        p_warehouse_id: warehouseId
+      });
+      if (rpcErr) throw rpcErr;
+      items = rpcItems;
+    }
 
     const modalBody = document.getElementById('committed-detail-modal-body');
     if (!modalBody) return;
@@ -10182,43 +10311,59 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     const productVolumeMap = {};
 
     if (invRes.data) {
+      // Agrupar y sumar stock por SKU (para no evaluar por bodega individual)
+      const aggregatedProducts = {};
+      
       invRes.data.forEach(i => {
-        totalStock += i.quantity;
-        const available = i.quantity - i.committed_quantity;
-        availableStock += available;
+        const prod = i.products;
+        if (!prod) return;
         
-        const critico = i.products ? i.products.stock_critico : 0;
-        const vol = i.products ? parseFloat(i.products.volumen || 0) : 0;
-        totalVolume += i.quantity * vol;
+        const key = prod.sku || 'N/A';
+        
+        if (!aggregatedProducts[key]) {
+          aggregatedProducts[key] = {
+            sku: prod.sku || 'N/A',
+            name: prod.name || 'Sin Nombre',
+            stock_critico: prod.stock_critico || 0,
+            volumen: parseFloat(prod.volumen || 0),
+            quantity: 0,
+            committed_quantity: 0
+          };
+        }
+        
+        aggregatedProducts[key].quantity += (i.quantity || 0);
+        aggregatedProducts[key].committed_quantity += (i.committed_quantity || 0);
+      });
 
-        if (critico > 0 && available <= critico) {
+      // Procesar los productos agrupados para calcular las métricas globales
+      Object.values(aggregatedProducts).forEach(p => {
+        totalStock += p.quantity;
+        const available = p.quantity - p.committed_quantity;
+        availableStock += available;
+        totalVolume += p.quantity * p.volumen;
+
+        if (p.stock_critico > 0 && available <= p.stock_critico) {
           lowStockCount++;
           lowStockItems.push({
-            sku: i.products.sku,
-            name: i.products.name,
+            sku: p.sku,
+            name: p.name,
             available: available,
-            critico: critico
+            critico: p.stock_critico
           });
         }
 
-        if (i.products) {
-          const sku = i.products.sku || 'N/A';
-          const name = i.products.name || 'Sin Nombre';
-          const qty = i.quantity || 0;
-          const totalVol = qty * vol;
-          
-          if (!productVolumeMap[sku]) {
-            productVolumeMap[sku] = {
-              sku: sku,
-              name: name,
-              quantity: 0,
-              volumenUnitario: vol,
-              volumenTotal: 0
-            };
-          }
-          productVolumeMap[sku].quantity += qty;
-          productVolumeMap[sku].volumenTotal += totalVol;
+        const totalVol = p.quantity * p.volumen;
+        if (!productVolumeMap[p.sku]) {
+          productVolumeMap[p.sku] = {
+            sku: p.sku,
+            name: p.name,
+            quantity: 0,
+            volumenUnitario: p.volumen,
+            volumenTotal: 0
+          };
         }
+        productVolumeMap[p.sku].quantity += p.quantity;
+        productVolumeMap[p.sku].volumenTotal += totalVol;
       });
     }
 

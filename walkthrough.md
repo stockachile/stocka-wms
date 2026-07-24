@@ -850,3 +850,26 @@ Corregimos un error crítico en el modal de edición de ítems de pedidos ([js/a
    - **Flujo de Persistencia Seguro**: Adaptamos `saveEditOrderItems` para que realice las consultas `.delete().eq('id', orig.id)` y `.update(...).eq('id', orig.id)`. Al apuntar directamente a la clave primaria de la tabla intermedia en lugar del `product_id`, las operaciones de eliminación y actualización funcionan con precisión del 100%, incluso si el ítem de la orden tiene un producto nulo o no catalogado.
    - **Persistencia Global de Catálogo**: Centralizamos el listado de productos de la tienda en `window.tempCommerceProducts` cuando se abre el modal. Esto elimina por completo la necesidad de reconstruir o parsear el datalist del DOM al borrar elementos, previniendo fallos en asignaciones de IDs posteriores.
    - **Sincronización con el Buscador**: Agregamos el atributo `data-id="${p.id}"` en la renderización de las opciones del datalist para mantener la consistencia e integridad de datos del catálogo durante la búsqueda.
+
+---
+
+## 45. Vista de Inventario Agrupada y Detalle Desplegable por Bodega
+
+Hemos unificado y optimizado la presentación de stock de productos en los paneles de **Cliente** (`js/app.js`) y del **Administrador** (`js/admin.js`), agrupando los registros a nivel de producto único y delegando el detalle de existencias por bodega a una interfaz desplegable interactiva:
+
+### Mejoras Incorporadas:
+1. **Agrupación Consolidada**:
+   - En lugar de repetir múltiples filas del mismo producto (una por cada bodega donde tiene existencias), la tabla principal de inventario muestra ahora una única fila consolidada por SKU.
+   - Las métricas de **Stock Físico**, **Comprometido** y **Disponible Total** muestran la suma acumulada de existencias de todas las bodegas del comercio.
+2. **Detalle Desplegable e Interactivo**:
+   - La columna **Bodega** incluye un botón selector interactivo (`Mostrar Bodegas (N)` / `Ocultar Bodegas (N)`) que permite desplegar sub-filas hijas.
+   - Estas sub-filas muestran el desglose de stock físico y comprometido específico de cada bodega activa, usando un conector curvo (`ri-corner-down-right-line`).
+   - Se filtran automáticamente las bodegas con stock `0` para no saturar la pantalla con registros innecesarios.
+3. **Mapeo de Datos en CSV**:
+   - La exportación a CSV mantiene la granularidad original (desglosado por bodega) para facilitar análisis contables detallados y auditorías externas.
+4. **Detalle de Pedidos Comprometidos Consolidado**:
+   - Al hacer clic en el stock comprometido de la fila consolidada principal, se consultan y despliegan los pedidos pendientes que comprometen stock del producto a lo largo de **todas** las bodegas.
+   - Al hacer clic en una sub-fila de bodega específica, se muestra el detalle filtrado para esa bodega concreta.
+5. **Métricas de Dashboard Inteligentes**:
+   - La sección de métricas globales de stock y alertas de bajo stock agrupan los datos por SKU único para evitar contar múltiples alertas para un mismo producto distribuido en varias bodegas.
+
