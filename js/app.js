@@ -5155,8 +5155,13 @@ window.applyClientWmsFiltersAndRender = function() {
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
         if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
-          const key = `${origItem.product_id}_${origItem.warehouse_id}`;
-          const available = (window.clientOrdersInventoryMap || {})[key] || 0;
+          let available = 0;
+          const invMap = window.clientOrdersInventoryMap || {};
+          Object.keys(invMap).forEach(key => {
+            if (key.startsWith(origItem.product_id + '_')) {
+              available += invMap[key] || 0;
+            }
+          });
           if (available < item.quantity) {
             rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
             stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
@@ -5249,11 +5254,15 @@ window.applyClientWmsFiltersAndRender = function() {
       if (itemsToCheck.length > 0) {
         const invMap = window.clientOrdersInventoryMap || {};
         itemsToCheck.forEach(item => {
-          const key = `${item.product_id}_${item.warehouse_id}`;
-          const availableQty = invMap[key] || 0;
-          if (availableQty < item.quantity) {
+          let totalAvailableQty = 0;
+          Object.keys(invMap).forEach(key => {
+            if (key.startsWith(item.product_id + '_')) {
+              totalAvailableQty += invMap[key] || 0;
+            }
+          });
+          if (totalAvailableQty < item.quantity) {
             hasStockAlert = true;
-            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - availableQty} un.)`);
+            stockAlertDetails.push(`${item.products?.sku || 'Sin SKU'} (Faltan ${item.quantity - totalAvailableQty} un.)`);
           }
         });
       }
@@ -19030,6 +19039,7 @@ window.renderVolumenDiario = async function() {
           },
           y: {
             stacked: isStackedBar,
+            min: 0,
             grid: {
               color: 'rgba(148, 163, 184, 0.08)',
               drawBorder: false

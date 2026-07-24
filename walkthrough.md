@@ -948,3 +948,24 @@ Hemos añadido una opción avanzada que permite trasladar el 100% de las existen
      2. Recupera todas las existencias físicas en la bodega de origen para dichos productos (excluyendo registros con stock `0`).
      3. Para cada uno, reduce la cantidad física en origen a `0`, incrementa en la misma medida la bodega de destino, y registra los movimientos de entrada y salida individuales en la tabla de auditoría `movements`.
      4. Al finalizar, refresca la grilla principal en tiempo real.
+
+---
+
+## 50. Eje Vertical en Cero para Gráficos de Evolución de Volumen (Admin y Cliente)
+
+Hemos configurado los ejes verticales (`y-axis`) de los gráficos de Evolución de Volumen Diario en ambos paneles para que se inicialicen forzosamente desde cero (`min: 0`) en lugar de ajustarse automáticamente al volumen más bajo registrado, garantizando una representación visual honesta y libre de distorsiones en las fluctuaciones de volumen por metro cúbico.
+
+---
+
+## 51. Validación de Stock de Pedidos contra Stock Total (Todas las Bodegas)
+
+Modificamos el algoritmo de verificación visual de stock de los pedidos en los paneles de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) y Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)), pasando de una validación a nivel de bodega asignada/defecto (Central) a una validación consolidada contra el stock total acumulado del comercio:
+
+1. **Motivación del Cambio**:
+   - Anteriormente, al importarse los pedidos de plataformas externas, a los ítems del pedido se les asignaba la bodega por defecto (generalmente Bodega Central).
+   - El indicador de alerta visual **`SIN STOCK`** (badge rojo) y la columna de disponibilidad en la grilla desplegable realizaban el chequeo únicamente contra las existencias registradas en esa bodega específica. Esto generaba falsas alertas de falta de stock en pedidos cuando el producto en cuestión sí tenía existencias suficientes distribuidas en otras bodegas de la misma tienda.
+
+2. **Solución Implementada**:
+   - **Badge de Alerta Principal**: Modificamos el ciclo de verificación de ítems en el renderizado de la fila del pedido. Ahora, en lugar de consultar solo `invMap[product_id_warehouse_id]`, el sistema busca y suma las existencias físicas de dicho producto a lo largo de todas las llaves de bodega asociadas en el mapa de inventario cargado localmente (`window.loadedOrdersInventoryMap` / `window.clientOrdersInventoryMap`).
+   - **Tabla Desplegable del Detalle de Pedido**: Adaptamos la celda de disponibilidad en la sub-tabla desplegable para reflejar la cantidad total agregada de todas las bodegas. Ahora indica correctamente si el artículo está disponible o si es insuficiente considerando el stock global del comercio.
+
