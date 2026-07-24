@@ -1048,3 +1048,27 @@ Hemos corregido la validación de stock físico al enviar pedidos al Picker para
 
 
 
+## 56. Integración de Servicio de Etiquetado de Códigos de Barra en Ingresos de Stock (WMS)
+
+Hemos implementado un flujo completo para que los comercios declaren sus preferencias de etiquetado de códigos de barra al ingresar stock, automatizando el cálculo de recargos y la confirmación física en bodega:
+
+1. **Campos de Preferencia en el Formulario del Cliente (`js/app.js`)**:
+   - Agregamos controles de selección por radio en el formulario de nueva declaración:
+     - **Completamente Etiquetado (Listo)**: Los productos ya vienen etiquetados. No aplica cargos adicionales.
+     - **Parcialmente Etiquetado**: Permite especificar de manera precisa el número de unidades que requieren etiquetado en bodega.
+     - **Sin Etiquetado**: El comercio declara que ninguna unidad viene etiquetada. El sistema bloquea el input y auto-completa el conteo con el total de unidades declaradas.
+   - Si se requiere etiquetado (parcial o total), se despliega un panel de advertencia informando sobre el costo unitario de **$100 CLP por etiqueta**, el cual es obligatorio para la operación logística.
+
+2. **Cálculo Dinámico de Costo de Etiquetado**:
+   - Actualizamos `window.calculateEntryCost` para sumar el recargo de etiquetado.
+   - El costo en pesos ($100 CLP x unidad a etiquetar) se convierte automáticamente a UF utilizando el valor del indicador diario de la UF en tiempo real (`window.currentUfValue`).
+   - Se muestra el desglose del costo de etiquetado en UF y pesos aproximados dentro del modal de vista previa antes del envío de la declaración.
+
+3. **Persistencia en la Base de Datos**:
+   - Creamos la migración [supabase_schema_declarations_labeling.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_declarations_labeling.sql) para añadir las columnas `labeling_type`, `labeling_qty_requested` y `labeling_qty_confirmed` a la tabla `stock_declarations`.
+   - Estas preferencias se guardan y modifican correctamente durante la inserción y edición de ingresos.
+
+4. **Validación y Cierre en el Panel de Administración (`js/admin.js`)**:
+   - El popup de gestión de ingresos en el admin muestra el tipo de etiquetado y la cantidad de unidades solicitada por el cliente.
+   - Al marcar un ingreso como "Recibido Conforme" o "Recibido con Incidencias", el formulario despliega el campo **"Uds. Etiquetadas (Confirmado)"**, permitiendo al administrador ingresar la cantidad final auditada físicamente en bodega.
+   - Esta cantidad confirmada se almacena en el campo `labeling_qty_confirmed` para futuras liquidaciones y auditorías de cobro.

@@ -12298,9 +12298,14 @@ function handleManageStatusChange(status) {
     if (volumeConfirmedInput) volumeConfirmedInput.removeAttribute('required');
   }
   
+  const groupLabeling = document.getElementById('manage-dec-group-labeling');
+  const labelingQtyConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+
   if (status === 'Recibido Conforme') {
     if (groupReceived) groupReceived.style.display = 'block';
     if (groupIncidents) groupIncidents.style.display = 'block';
+    if (groupLabeling) groupLabeling.style.display = 'block';
+    if (labelingQtyConfirmedInput) labelingQtyConfirmedInput.setAttribute('required', 'required');
     qtyReceivedInput.value = qtyDeclared;
     qtyReceivedInput.disabled = true;
     qtyReceivedInput.setAttribute('required', 'required');
@@ -12311,6 +12316,8 @@ function handleManageStatusChange(status) {
   } else if (status === 'Recibido con Incidencias') {
     if (groupReceived) groupReceived.style.display = 'block';
     if (groupIncidents) groupIncidents.style.display = 'block';
+    if (groupLabeling) groupLabeling.style.display = 'block';
+    if (labelingQtyConfirmedInput) labelingQtyConfirmedInput.setAttribute('required', 'required');
     qtyReceivedInput.disabled = false;
     qtyReceivedInput.setAttribute('required', 'required');
     qtyIncidentsInput.disabled = false;
@@ -12323,6 +12330,11 @@ function handleManageStatusChange(status) {
   } else {
     if (groupReceived) groupReceived.style.display = 'none';
     if (groupIncidents) groupIncidents.style.display = 'none';
+    if (groupLabeling) groupLabeling.style.display = 'none';
+    if (labelingQtyConfirmedInput) {
+      labelingQtyConfirmedInput.removeAttribute('required');
+      labelingQtyConfirmedInput.value = 0;
+    }
     qtyReceivedInput.value = 0;
     qtyReceivedInput.removeAttribute('required');
     qtyIncidentsInput.value = 0;
@@ -12415,6 +12427,17 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-unloading').innerHTML = dec.requires_unloading 
       ? '<span style="color: var(--color-warning); font-weight: bold;">Sí, solicitada (0.1 UF x m³)</span>' 
       : 'No requerida';
+    
+    const labelingTextMap = {
+      'completely': 'Completamente Etiquetado',
+      'partially': `Parcialmente (Solicitado: ${dec.labeling_qty_requested || 0} uds)`,
+      'none': `Sin Etiquetado (Solicitado: ${dec.labeling_qty_requested || 0} uds)`
+    };
+    const labelingInfoEl = document.getElementById('manage-dec-labeling-info');
+    if (labelingInfoEl) {
+      labelingInfoEl.innerHTML = `<strong>${labelingTextMap[dec.labeling_type || 'completely']}</strong>`;
+    }
+
     document.getElementById('manage-dec-estimated-cost').textContent = (dec.estimated_cost || 0).toFixed(2) + ' UF';
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
 
@@ -12460,6 +12483,10 @@ window.manageDeclaration = async function(id) {
     document.getElementById('manage-dec-qty-received').value = dec.status === 'Creada' ? dec.quantity_declared : dec.quantity_received;
     document.getElementById('manage-dec-qty-incidents').value = dec.quantity_incidents;
     document.getElementById('manage-dec-volume-confirmed').value = (dec.status === 'Creada' || dec.status === 'Bodega Asignada') ? (dec.volume_declared || '') : (dec.volume_confirmed || '');
+    const labelingQtyConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+    if (labelingQtyConfirmedInput) {
+      labelingQtyConfirmedInput.value = (dec.labeling_qty_confirmed !== undefined && dec.labeling_qty_confirmed !== null) ? dec.labeling_qty_confirmed : (dec.labeling_qty_requested || 0);
+    }
     document.getElementById('manage-dec-admin-notes').value = dec.admin_notes || '';
     
     // Sugerir costo estimado si el costo real no está confirmado
@@ -12511,6 +12538,16 @@ document.addEventListener('submit', async (e) => {
     if (isNaN(qtyIncidents) || qtyIncidents < 0) {
       alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de incidencias debe ser un número válido mayor o igual a 0.</div>';
       return;
+    }
+
+    let labelingQtyConfirmed = 0;
+    const labelingQtyConfirmedInput = document.getElementById('manage-dec-labeling-qty-confirmed');
+    if (labelingQtyConfirmedInput && (status === 'Recibido Conforme' || status === 'Recibido con Incidencias')) {
+      labelingQtyConfirmed = parseInt(labelingQtyConfirmedInput.value) || 0;
+      if (isNaN(labelingQtyConfirmed) || labelingQtyConfirmed < 0) {
+        alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La cantidad de unidades etiquetadas debe ser un número válido mayor o igual a 0.</div>';
+        return;
+      }
     }
 
     if (!stageComment) {
@@ -12594,6 +12631,7 @@ document.addEventListener('submit', async (e) => {
 
       if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
         updateData.volume_confirmed = volumeConfirmed;
+        updateData.labeling_qty_confirmed = labelingQtyConfirmed;
       }
  
       if (status === 'Bodega Asignada') {

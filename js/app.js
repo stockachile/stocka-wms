@@ -9208,15 +9208,22 @@ async function renderProfile() {
             </div>
           </div>
           
-          ${hasStockTracking ? `
+          ${(hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
           <!-- Tabs Navigation -->
           <div class="profile-tabs" style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-bg); padding: 0.75rem 1.5rem 0 1.5rem;">
             <button type="button" class="profile-tab-btn active" data-tab="details" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-primary); font-weight: 600; cursor: pointer; border-bottom: 3px solid var(--color-primary); font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
               <i class="ri-user-settings-line"></i> Datos de Perfil
             </button>
+            ${(profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
+            <button type="button" class="profile-tab-btn" data-tab="packaging" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
+              <i class="ri-box-3-line"></i> Preferencias de Embalaje
+            </button>
+            ` : ''}
+            ${hasStockTracking ? `
             <button type="button" class="profile-tab-btn" data-tab="notifications" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
               <i class="ri-notification-3-line"></i> Preferencias de Notificación
             </button>
+            ` : ''}
           </div>
           ` : ''}
 
@@ -9276,8 +9283,15 @@ async function renderProfile() {
             </form>
           </div>
 
+          ${(profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
+          <!-- Tab 2: Preferencias de Embalaje -->
+          <div id="profile-tab-content-packaging" class="profile-tab-content" style="display: none; padding: 1.5rem; background: var(--color-surface);">
+            <!-- Se inyecta dinámicamente -->
+          </div>
+          ` : ''}
+
           ${hasStockTracking ? `
-          <!-- Tab 2: Configuración de Notificaciones -->
+          <!-- Tab 3: Configuración de Notificaciones -->
           <div id="profile-tab-content-notifications" class="profile-tab-content" style="display: none; padding: 1.5rem; background: var(--color-surface);">
             <!-- Se inyecta dinámicamente -->
           </div>
@@ -9340,7 +9354,7 @@ async function renderProfile() {
       }
     });
 
-    if (hasStockTracking) {
+    if (hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) {
       // Manejar el cambio de pestañas (Tabs)
       const tabButtons = document.querySelectorAll('.profile-tab-btn');
       const tabContents = document.querySelectorAll('.profile-tab-content');
@@ -9373,6 +9387,9 @@ async function renderProfile() {
           if (targetTab === 'notifications') {
             const notificationsContainer = document.getElementById('profile-tab-content-notifications');
             renderNotifications(notificationsContainer);
+          } else if (targetTab === 'packaging') {
+            const packagingContainer = document.getElementById('profile-tab-content-packaging');
+            renderPackagingConfig(packagingContainer, commerceList, profile.role === 'admin');
           }
         });
       });
@@ -9381,6 +9398,414 @@ async function renderProfile() {
   } catch (err) {
     console.error("Error rendering profile view:", err);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
+  }
+}
+
+async function renderPackagingConfig(container, userCommerceList, isUserAdmin) {
+  if (!container) return;
+
+  // Mostrar spinner de carga
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px; padding: 2rem; background: transparent;">
+      <style>
+        @keyframes wms-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      </style>
+      <div style="width: 40px; height: 40px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite; margin-bottom: 1rem;"></div>
+      <h4 style="margin: 0; color: var(--color-text-main); font-weight: 600; font-size: 0.95rem;">Cargando preferencias de embalaje...</h4>
+    </div>
+  `;
+
+  let commerceList = [...userCommerceList];
+
+  try {
+    // Si es administrador, cargar todos los comercios desde v_comercios_config
+    if (isUserAdmin) {
+      const { data: allComercios, error: commError } = await supabase
+        .from('v_comercios_config')
+        .select('nombre')
+        .order('nombre', { ascending: true });
+
+      if (commError) throw commError;
+      if (allComercios) {
+        commerceList = allComercios.map(c => c.nombre).filter(n => n);
+      }
+    }
+
+    if (commerceList.length === 0) {
+      container.innerHTML = `
+        <div class="alert alert-error" style="display: block;">
+          No tienes comercios asociados. No es posible configurar las preferencias de embalaje.
+        </div>
+      `;
+      return;
+    }
+
+    // Renderizar estructura básica
+    container.innerHTML = `
+      <div class="packaging-config-wrapper" style="max-width: 750px; margin: 0 auto; padding: 0.5rem;">
+        <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1rem;">
+          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.35rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-box-3-line" style="color: var(--color-primary);"></i> Preferencias de Embalaje
+          </h3>
+          <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.5;">
+            Establece cómo se empaquetarán y despacharán las ventas según su destino final. Esta configuración aplica para todos los usuarios pertenecientes al mismo comercio.
+          </p>
+        </div>
+
+        <div id="packaging-alerts"></div>
+
+        <!-- Selector de Comercio -->
+        <div class="card" style="margin-bottom: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md);">
+          <label for="packaging-commerce-select" style="font-weight: 600; font-size: 0.9rem; display: block; margin-bottom: 0.5rem; color: var(--color-text-main);">
+            Seleccionar Comercio para Configurar
+          </label>
+          <select id="packaging-commerce-select" class="form-input" style="width: 100%; max-width: 400px; padding: 0.6rem; border-radius: var(--radius-md); font-weight: 500; background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+            ${commerceList.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Las configuraciones guardadas se aplicarán para todos los usuarios asociados a este comercio.
+          </p>
+        </div>
+
+        <!-- Contenedor del Formulario Dinámico -->
+        <div id="packaging-form-container"></div>
+      </div>
+    `;
+
+    const selectEl = document.getElementById('packaging-commerce-select');
+    const formContainer = document.getElementById('packaging-form-container');
+
+    // Cargar config cuando cambie el selector
+    selectEl.addEventListener('change', () => {
+      loadConfigForCommerce(selectEl.value);
+    });
+
+    // Cargar por primera vez con el primer comercio
+    loadConfigForCommerce(selectEl.value);
+
+    async function loadConfigForCommerce(commerceName) {
+      formContainer.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; min-height: 150px; color: var(--color-text-muted);">
+          <div style="width: 24px; height: 24px; border: 2px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite; margin-right: 0.5rem;"></div>
+          <span>Obteniendo configuración del comercio...</span>
+        </div>
+      `;
+
+      let config = null;
+      let recordExists = false;
+
+      try {
+        const { data, error } = await supabase
+          .from('comercios_adicional_config')
+          .select('*')
+          .eq('comercio', commerceName)
+          .maybeSingle();
+
+        if (error) {
+          console.warn('Error fetching config, might be missing column:', error);
+        } else if (data) {
+          config = data.embalaje_config;
+          recordExists = true;
+        }
+      } catch (err) {
+        console.error('Error fetching commerce additional config:', err);
+      }
+
+      // Valores por defecto si no existen
+      const defaultConfig = {
+        origen_materiales: 'stocka',
+        rm: { tipo: 'standard', materiales: [] },
+        regiones: { tipo: 'standard', materiales: [] },
+        marketplace: { tipo: 'standard', materiales: [] }
+      };
+
+      const activeConfig = config || defaultConfig;
+
+      formContainer.innerHTML = `
+        <form id="packaging-config-form">
+          <!-- Suministro de Materiales -->
+          <div class="card" style="margin-bottom: 1.5rem; border: 1px solid var(--color-border); background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md);">
+            <h4 style="margin: 0 0 1rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-shield-check-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Suministro de Materiales
+            </h4>
+            <p style="margin: 0 0 1.25rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">
+              Especifica quién entregará o proveerá los materiales de embalaje para los pedidos.
+            </p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+              <!-- Option Stocka -->
+              <label class="material-source-card" style="border: 2px solid ${activeConfig.origen_materiales === 'stocka' ? 'var(--color-primary)' : 'var(--color-border)'}; background-color: ${activeConfig.origen_materiales === 'stocka' ? 'rgba(37, 99, 235, 0.06)' : 'transparent'}; box-shadow: ${activeConfig.origen_materiales === 'stocka' ? '0 0 0 1px var(--color-primary)' : 'none'}; border-radius: var(--radius-md); padding: 1.2rem; display: flex; gap: 0.75rem; cursor: pointer; transition: all 0.2s;">
+                <input type="radio" name="origen_materiales" value="stocka" ${activeConfig.origen_materiales === 'stocka' ? 'checked' : ''} style="margin-top: 0.2rem; accent-color: var(--color-primary);">
+                <div>
+                  <strong style="display: block; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Materiales de Stocka</strong>
+                  <span style="display: block; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    Utilizar cajas, bolsas y cintas estándar de Stocka. Los costos de empaque se cargarán a tu facturación mensual de acuerdo a las tarifas vigentes.
+                  </span>
+                </div>
+              </label>
+
+              <!-- Option Comercio -->
+              <label class="material-source-card" style="border: 2px solid ${activeConfig.origen_materiales === 'comercio' ? 'var(--color-primary)' : 'var(--color-border)'}; background-color: ${activeConfig.origen_materiales === 'comercio' ? 'rgba(37, 99, 235, 0.06)' : 'transparent'}; box-shadow: ${activeConfig.origen_materiales === 'comercio' ? '0 0 0 1px var(--color-primary)' : 'none'}; border-radius: var(--radius-md); padding: 1.2rem; display: flex; gap: 0.75rem; cursor: pointer; transition: all 0.2s;">
+                <input type="radio" name="origen_materiales" value="comercio" ${activeConfig.origen_materiales === 'comercio' ? 'checked' : ''} style="margin-top: 0.2rem; accent-color: var(--color-primary);">
+                <div>
+                  <strong style="display: block; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.25rem;">Materiales Propios (Entregados por Comercio)</strong>
+                  <span style="display: block; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45;">
+                    El comercio se encarga de abastecer sus propias cajas, bolsas y materiales personalizados (branding propio) directamente al centro de distribución.
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Configuración por Destinos -->
+          <div style="margin-bottom: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+            
+            <!-- CARD RM SANTIAGO -->
+            <div class="card" style="border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); overflow: hidden;">
+              <div style="padding: 1rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-map-pin-2-line" style="color: var(--color-primary); font-size: 1.15rem;"></i>
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Destino: RM - Santiago (Despacho Local)</h4>
+              </div>
+              <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.2rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem;">Tipo de Embalaje Principal</label>
+                  <select id="packaging-rm-type" class="form-input" style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="standard" ${activeConfig.rm?.tipo === 'standard' ? 'selected' : ''}>Embalaje Estándar (Bolsa Courier)</option>
+                    <option value="cajas" ${activeConfig.rm?.tipo === 'cajas' ? 'selected' : ''}>Cajas de Cartón</option>
+                    <option value="personalizado" ${activeConfig.rm?.tipo === 'personalizado' ? 'selected' : ''}>Materiales Personalizados / Branding Propio</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Materiales de Protección / Adicionales</label>
+                  <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-rm-mat-burbuja" ${(activeConfig.rm?.materiales || []).includes('burbuja') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Plástico Burbuja
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-rm-mat-film" ${(activeConfig.rm?.materiales || []).includes('film') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Film Plástico
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-rm-mat-otros" ${(activeConfig.rm?.materiales || []).includes('otros') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Otros Materiales de Protección (Viruta, papel craft, etc.)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD REGIONES -->
+            <div class="card" style="border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); overflow: hidden;">
+              <div style="padding: 1rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.15rem;"></i>
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Destino: Regiones (Larga Distancia)</h4>
+              </div>
+              <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.2rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem;">Tipo de Embalaje Principal</label>
+                  <select id="packaging-regiones-type" class="form-input" style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="standard" ${activeConfig.regiones?.tipo === 'standard' ? 'selected' : ''}>Embalaje Estándar (Bolsa Courier)</option>
+                    <option value="cajas" ${activeConfig.regiones?.tipo === 'cajas' ? 'selected' : ''}>Cajas de Cartón</option>
+                    <option value="personalizado" ${activeConfig.regiones?.tipo === 'personalizado' ? 'selected' : ''}>Materiales Personalizados / Branding Propio</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Materiales de Protección / Adicionales</label>
+                  <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-regiones-mat-burbuja" ${(activeConfig.regiones?.materiales || []).includes('burbuja') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Plástico Burbuja
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-regiones-mat-film" ${(activeConfig.regiones?.materiales || []).includes('film') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Film Plástico
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-regiones-mat-otros" ${(activeConfig.regiones?.materiales || []).includes('otros') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Otros Materiales de Protección (Viruta, papel craft, etc.)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- CARD MARKETPLACE -->
+            <div class="card" style="border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); overflow: hidden;">
+              <div style="padding: 1rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 1.15rem;"></i>
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">Destino: Marketplace (Falabella, ML, Paris, etc.)</h4>
+              </div>
+              <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1.2rem;">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem;">Tipo de Embalaje Principal</label>
+                  <select id="packaging-marketplace-type" class="form-input" style="background-color: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    <option value="standard" ${activeConfig.marketplace?.tipo === 'standard' ? 'selected' : ''}>Embalaje Estándar (Bolsa Courier)</option>
+                    <option value="cajas" ${activeConfig.marketplace?.tipo === 'cajas' ? 'selected' : ''}>Cajas de Cartón</option>
+                    <option value="personalizado" ${activeConfig.marketplace?.tipo === 'personalizado' ? 'selected' : ''}>Materiales Personalizados / Branding Propio</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Materiales de Protección / Adicionales</label>
+                  <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-marketplace-mat-burbuja" ${(activeConfig.marketplace?.materiales || []).includes('burbuja') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Plástico Burbuja
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-marketplace-mat-film" ${(activeConfig.marketplace?.materiales || []).includes('film') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Film Plástico
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; cursor: pointer; color: var(--color-text-main);">
+                      <input type="checkbox" id="packaging-marketplace-mat-otros" ${(activeConfig.marketplace?.materiales || []).includes('otros') ? 'checked' : ''} style="width: auto; height: auto; accent-color: var(--color-primary);"> Añadir Otros Materiales de Protección (Viruta, papel craft, etc.)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Botón de Guardar -->
+          <div style="text-align: right; padding-top: 0.5rem;">
+            <button type="submit" id="btn-save-packaging" class="btn btn-primary" style="background-color: var(--color-accent); color: white; padding: 0.65rem 1.5rem; font-weight: 600; cursor: pointer; border: none; border-radius: var(--radius-md);">
+              Guardar Preferencias de Embalaje
+            </button>
+          </div>
+        </form>
+      `;
+
+      // Añadir interactividad de las cards de origen
+      const cards = formContainer.querySelectorAll('.material-source-card');
+      cards.forEach(card => {
+        const radio = card.querySelector('input[type="radio"]');
+        card.addEventListener('click', (e) => {
+          if (e.target !== radio) {
+            radio.checked = true;
+            updateCardStyles();
+          }
+        });
+        radio.addEventListener('change', () => {
+          updateCardStyles();
+        });
+      });
+
+      function updateCardStyles() {
+        cards.forEach(c => {
+          const radio = c.querySelector('input[type="radio"]');
+          if (radio.checked) {
+            c.style.borderColor = 'var(--color-primary)';
+            c.style.backgroundColor = 'rgba(37, 99, 235, 0.06)';
+            c.style.boxShadow = '0 0 0 1px var(--color-primary)';
+          } else {
+            c.style.borderColor = 'var(--color-border)';
+            c.style.backgroundColor = 'transparent';
+            c.style.boxShadow = 'none';
+          }
+        });
+      }
+
+      // Procesar envío del formulario
+      const form = document.getElementById('packaging-config-form');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const saveBtn = document.getElementById('btn-save-packaging');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Guardando...';
+
+        // Obtener origen materiales
+        const origen = form.querySelector('input[name="origen_materiales"]:checked').value;
+
+        // Construir config de RM
+        const rm_tipo = document.getElementById('packaging-rm-type').value;
+        const rm_materiales = [];
+        if (document.getElementById('packaging-rm-mat-burbuja').checked) rm_materiales.push('burbuja');
+        if (document.getElementById('packaging-rm-mat-film').checked) rm_materiales.push('film');
+        if (document.getElementById('packaging-rm-mat-otros').checked) rm_materiales.push('otros');
+
+        // Construir config de Regiones
+        const regiones_tipo = document.getElementById('packaging-regiones-type').value;
+        const regiones_materiales = [];
+        if (document.getElementById('packaging-regiones-mat-burbuja').checked) regiones_materiales.push('burbuja');
+        if (document.getElementById('packaging-regiones-mat-film').checked) regiones_materiales.push('film');
+        if (document.getElementById('packaging-regiones-mat-otros').checked) regiones_materiales.push('otros');
+
+        // Construir config de Marketplace
+        const marketplace_tipo = document.getElementById('packaging-marketplace-type').value;
+        const marketplace_materiales = [];
+        if (document.getElementById('packaging-marketplace-mat-burbuja').checked) marketplace_materiales.push('burbuja');
+        if (document.getElementById('packaging-marketplace-mat-film').checked) marketplace_materiales.push('film');
+        if (document.getElementById('packaging-marketplace-mat-otros').checked) marketplace_materiales.push('otros');
+
+        const newConfigObject = {
+          origen_materiales: origen,
+          rm: { tipo: rm_tipo, materiales: rm_materiales },
+          regiones: { tipo: regiones_tipo, materiales: regiones_materiales },
+          marketplace: { tipo: marketplace_tipo, materiales: marketplace_materiales }
+        };
+
+        try {
+          if (recordExists) {
+            // Actualizar fila existente
+            const { error: updateError } = await supabase
+              .from('comercios_adicional_config')
+              .update({ embalaje_config: newConfigObject })
+              .eq('comercio', commerceName);
+
+            if (updateError) throw updateError;
+          } else {
+            // Traer comercio id desde v_comercios_config para evitar campos nulos críticos
+            const { data: vComm } = await supabase
+              .from('v_comercios_config')
+              .select('id')
+              .eq('nombre', commerceName)
+              .maybeSingle();
+
+            const cId = vComm?.id || null;
+
+            // Insertar fila nueva
+            const { error: insertError } = await supabase
+              .from('comercios_adicional_config')
+              .insert({
+                comercio: commerceName,
+                comercio_id: cId,
+                inventario_seguimiento: false,
+                pedido_trae_sigla: false,
+                embalaje_config: newConfigObject
+              });
+
+            if (insertError) throw insertError;
+            recordExists = true;
+          }
+
+          // Mostrar alerta de éxito
+          Swal.fire({
+            title: '¡Guardado!',
+            text: `Preferencias de embalaje para "${commerceName}" actualizadas con éxito.`,
+            icon: 'success',
+            confirmButtonText: 'Entendido',
+            confirmButtonColor: 'var(--color-primary)'
+          });
+
+        } catch (err) {
+          console.error('Error saving packaging preferences:', err);
+          Swal.fire({
+            title: 'Error',
+            text: `No se pudo guardar la configuración: ${err.message}`,
+            icon: 'error',
+            confirmButtonText: 'Cerrar',
+            confirmButtonColor: 'var(--color-danger)'
+          });
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Guardar Preferencias de Embalaje';
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error('Error rendering packaging config tab:', err);
+    container.innerHTML = `
+      <div class="alert alert-error" style="display: block;">
+        Error al cargar la interfaz de configuración: ${err.message}
+      </div>
+    `;
   }
 }
 
@@ -11020,6 +11445,42 @@ window.renderDeclarations = async function() {
                   </p>
                 </div>
 
+                <!-- Etiquetado de Código de Barras -->
+                <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Etiquetado de Código de Barras *</label>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                    Indica si los productos a ingresar ya cuentan con etiquetas de códigos de barra legibles.
+                  </p>
+                  
+                  <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                      <input type="radio" name="dec-labeling-type" value="completely" checked style="width: 16px; height: 16px;">
+                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Completamente Etiquetado (Listo)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                      <input type="radio" name="dec-labeling-type" value="partially" style="width: 16px; height: 16px;">
+                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Parcialmente Etiquetado (Requiere etiquetar algunas unidades)</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                      <input type="radio" name="dec-labeling-type" value="none" style="width: 16px; height: 16px;">
+                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Sin Etiquetado (Requiere etiquetar todas las unidades)</span>
+                    </label>
+                  </div>
+
+                  <!-- Panel Informativo y de Cantidad de Etiquetado -->
+                  <div id="dec-labeling-details-panel" style="display: none; padding: 0.85rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; margin-top: 0.75rem; line-height: 1.4;">
+                    <div style="font-size: 0.8rem; color: var(--badge-warning-text); margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 0.35rem;">
+                      <i class="ri-alert-line" style="font-size: 1rem; color: var(--color-warning); flex-shrink: 0; margin-top: 2px;"></i>
+                      <span><strong>Información de Etiquetado:</strong> Para ser almacenados y despachados, es obligatorio que todos los productos cuenten con código de barras. El costo del servicio de etiquetado en bodega es de <strong>$100 CLP por unidad</strong>.</span>
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                      <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Unidades a Etiquetar en Bodega *</label>
+                      <input type="number" id="dec-labeling-qty" class="form-input" min="1" value="0" placeholder="Ej. 100" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; width: 100%;">
+                    </div>
+                  </div>
+                </div>
+
                 <!-- 6. Método de Ingreso y Servicio de Descarga -->
                 <div class="form-group">
                   <label class="form-label">Método de Ingreso *</label>
@@ -11441,6 +11902,48 @@ window.renderDeclarations = async function() {
         });
       }
 
+      // Barcode Labeling Toggle Logic
+      const labelingTypeRadios = document.querySelectorAll('input[name="dec-labeling-type"]');
+      const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
+      const labelingQtyInput = document.getElementById('dec-labeling-qty');
+      const qtyDeclaredInput = document.getElementById('dec-qty-declared');
+
+      function updateLabelingFields() {
+        const selectedType = document.querySelector('input[name="dec-labeling-type"]:checked')?.value || 'completely';
+        if (selectedType === 'completely') {
+          labelingDetailsPanel.style.display = 'none';
+          labelingQtyInput.removeAttribute('required');
+          labelingQtyInput.value = 0;
+        } else {
+          labelingDetailsPanel.style.display = 'block';
+          labelingQtyInput.setAttribute('required', 'required');
+          if (selectedType === 'none') {
+            labelingQtyInput.value = qtyDeclaredInput.value || 0;
+            labelingQtyInput.setAttribute('readonly', 'true');
+            labelingQtyInput.style.backgroundColor = 'rgba(255,255,255,0.02)';
+            labelingQtyInput.style.cursor = 'not-allowed';
+          } else {
+            labelingQtyInput.removeAttribute('readonly');
+            labelingQtyInput.style.backgroundColor = '';
+            labelingQtyInput.style.cursor = '';
+            if (labelingQtyInput.value == qtyDeclaredInput.value) {
+              labelingQtyInput.value = '';
+            }
+          }
+        }
+      }
+
+      labelingTypeRadios.forEach(radio => {
+        radio.addEventListener('change', updateLabelingFields);
+      });
+
+      qtyDeclaredInput.addEventListener('input', () => {
+        const selectedType = document.querySelector('input[name="dec-labeling-type"]:checked')?.value || 'completely';
+        if (selectedType === 'none') {
+          labelingQtyInput.value = qtyDeclaredInput.value || 0;
+        }
+      });
+
       // File Input Change
       const fileInput = document.getElementById('dec-file-input');
       const fileInfo = document.getElementById('dec-file-selected-info');
@@ -11758,7 +12261,9 @@ window.renderDeclarations = async function() {
         }
 
         // Calcular costos
-        const cost = calculateEntryCost(volumeDeclared, requiresUnloading, dateMode, estimatedArrivalDate);
+        const labelingType = document.querySelector('input[name="dec-labeling-type"]:checked')?.value || 'completely';
+        const labelingQty = (labelingType === 'completely') ? 0 : (parseInt(document.getElementById('dec-labeling-qty').value) || 0);
+        const cost = calculateEntryCost(volumeDeclared, requiresUnloading, dateMode, estimatedArrivalDate, labelingQty);
 
         submitBtn.disabled = false;
         submitBtn.textContent = editingDeclarationId ? 'Guardar Cambios' : 'Vista previa de la declaración de ingreso';
@@ -11815,6 +12320,8 @@ window.renderDeclarations = async function() {
               volume_declared: volumeDeclared,
               estimated_cost: cost.totalCost,
               products_list: parsedProducts,
+              labeling_type: labelingType,
+              labeling_qty_requested: labelingQty,
               history: newHistory
             };
 
@@ -11859,6 +12366,8 @@ window.renderDeclarations = async function() {
               volume_confirmed: 0,
               estimated_cost: cost.totalCost,
               products_list: parsedProducts,
+              labeling_type: labelingType,
+              labeling_qty_requested: labelingQty,
               history: [{
                 status: 'Creada',
                 timestamp: new Date().toISOString(),
@@ -12750,7 +13259,7 @@ window.validateExcelData = function(rows, formQty, volumeDeclared, requiresUnloa
 };
 
 // Cost Calculator for Stock Entry
-window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arrivalDateStr) {
+window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arrivalDateStr, labelingQty = 0) {
   let standardCost = 0;
   let unloadingCost = 0;
   let surchargeCost = 0;
@@ -12770,12 +13279,18 @@ window.calculateEntryCost = function(volume, requiresUnloading, arrivalType, arr
     }
   }
 
-  const totalCost = unloadingCost + surchargeCost;
+  // 3. Costo de Etiquetado: $100 CLP por unidad, convertido a UF
+  const ufRate = window.currentUfValue || 38200;
+  const labelingCost = labelingQty * (100 / ufRate);
+
+  const totalCost = unloadingCost + surchargeCost + labelingCost;
 
   return {
     standardCost,
     unloadingCost,
     surchargeCost,
+    labelingCost,
+    labelingQty,
     totalCost
   };
 };
@@ -12913,7 +13428,7 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
       <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1.25rem 1.5rem; background: var(--color-surface-hover); display: flex; flex-direction: column; gap: 1rem;">
         <!-- Cost Summary Bar (Fixed / Sticky at bottom) -->
         ${(() => {
-          const ufRate = window.currentUfValue || 37950;
+          const ufRate = window.currentUfValue || 38200;
           return `
             <div style="display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem 1.5rem; font-size: 0.85rem; width: 100%; flex-wrap: wrap; gap: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); text-align: left;">
               <div style="display: flex; gap: 2rem; flex-wrap: wrap;">
@@ -12926,6 +13441,11 @@ window.showDeclarationPreviewModal = function(formData, parsedProducts, warnings
                   <span style="color: ${cost.surchargeCost > 0 ? 'var(--color-danger)' : 'var(--color-text-muted)'}; font-size: 0.75rem; font-weight: 500; display: block; margin-bottom: 0.25rem;">Recargo Aviso Tardío (< 24h):</span>
                   <strong style="font-size: 0.9rem; color: ${cost.surchargeCost > 0 ? 'var(--color-danger)' : 'var(--color-text-main)'};">${cost.surchargeCost.toFixed(4)} UF</strong> 
                   <span style="color: var(--color-text-muted); font-size: 0.75rem; margin-left: 0.25rem;">(~ $${Math.round(cost.surchargeCost * ufRate).toLocaleString('es-CL')})</span>
+                </div>
+                <div style="border-left: 1px solid var(--color-border); padding-left: 2rem;">
+                  <span style="color: ${cost.labelingCost > 0 ? 'var(--color-warning)' : 'var(--color-text-muted)'}; font-size: 0.75rem; font-weight: 500; display: block; margin-bottom: 0.25rem;">Servicio de Etiquetado ($100 CLP/ud):</span>
+                  <strong style="font-size: 0.9rem; color: var(--color-text-main);">${cost.labelingCost.toFixed(4)} UF</strong> 
+                  <span style="color: var(--color-text-muted); font-size: 0.75rem; margin-left: 0.25rem;">(~ $${Math.round(cost.labelingQty * 100).toLocaleString('es-CL')} CLP para ${cost.labelingQty} uds)</span>
                 </div>
               </div>
               <div style="text-align: right; margin-left: auto;">
@@ -13214,6 +13734,38 @@ window.editDeclaration = async function(id) {
       cancelBtn.style.display = 'block';
     }
 
+    // Populate labeling preferences
+    const labelingType = dec.labeling_type || 'completely';
+    const labelingQty = dec.labeling_qty_requested || 0;
+    
+    const labelingRadio = document.querySelector(`input[name="dec-labeling-type"][value="${labelingType}"]`);
+    if (labelingRadio) labelingRadio.checked = true;
+    
+    const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
+    const labelingQtyInput = document.getElementById('dec-labeling-qty');
+    if (labelingType === 'completely') {
+      if (labelingDetailsPanel) labelingDetailsPanel.style.display = 'none';
+      if (labelingQtyInput) {
+        labelingQtyInput.removeAttribute('required');
+        labelingQtyInput.value = 0;
+      }
+    } else {
+      if (labelingDetailsPanel) labelingDetailsPanel.style.display = 'block';
+      if (labelingQtyInput) {
+        labelingQtyInput.setAttribute('required', 'required');
+        labelingQtyInput.value = labelingQty;
+        if (labelingType === 'none') {
+          labelingQtyInput.setAttribute('readonly', 'true');
+          labelingQtyInput.style.backgroundColor = 'rgba(255,255,255,0.02)';
+          labelingQtyInput.style.cursor = 'not-allowed';
+        } else {
+          labelingQtyInput.removeAttribute('readonly');
+          labelingQtyInput.style.backgroundColor = '';
+          labelingQtyInput.style.cursor = '';
+        }
+      }
+    }
+
     openNewDeclarationSlideOver();
 
 
@@ -13250,6 +13802,17 @@ window.cancelEditDeclaration = function() {
   }
   const fileInfo = document.getElementById('dec-file-selected-info');
   if (fileInfo) fileInfo.innerHTML = '';
+
+  // Reset labeling preferences
+  const completelyRadio = document.querySelector('input[name="dec-labeling-type"][value="completely"]');
+  if (completelyRadio) completelyRadio.checked = true;
+  const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
+  if (labelingDetailsPanel) labelingDetailsPanel.style.display = 'none';
+  const labelingQtyInput = document.getElementById('dec-labeling-qty');
+  if (labelingQtyInput) {
+    labelingQtyInput.removeAttribute('required');
+    labelingQtyInput.value = 0;
+  }
 
   const catalogList = document.getElementById('dec-selected-products-list');
   if (catalogList) {
