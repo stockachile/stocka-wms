@@ -25816,7 +25816,7 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
   `).join('');
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 650px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+    <div class="modal-content" style="max-width: 850px; width: 90%; max-height: 90vh; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
       <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-arrow-left-right-line" style="color: #d97706;"></i> Traslado de Stock entre Bodegas</h3>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-bulk-stock-transfer').remove()">&times;</button>
@@ -25824,7 +25824,10 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
       <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
         <div style="display: flex; gap: 1rem; width: 100%;">
           <div class="form-group" style="margin-bottom: 0; flex: 1;">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Bodega de Origen</label>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Bodega de Origen</label>
+              <span id="transfer-source-total-stock" style="font-weight: 600; font-size: 0.82rem; color: var(--color-primary); margin-bottom: 0.5rem;"></span>
+            </div>
             <select id="transfer-source-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
               <option value="">-- Selecciona Origen --</option>
             </select>
@@ -25838,7 +25841,7 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
         </div>
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Definir Cantidades a Trasladar</label>
-          <div style="max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+          <div style="max-height: 450px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
               <thead>
                 <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
@@ -25892,21 +25895,42 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
   srcSelect.addEventListener('change', async () => {
     const srcId = srcSelect.value;
+    const totalStockSpan = document.getElementById('transfer-source-total-stock');
     if (!srcId) {
       document.querySelectorAll('.transfer-source-stock-label').forEach(lbl => lbl.textContent = '0');
       document.querySelectorAll('.transfer-qty-input').forEach(inp => {
         inp.value = '0';
         inp.max = '0';
       });
+      if (totalStockSpan) totalStockSpan.textContent = '';
       return;
     }
 
+    if (totalStockSpan) {
+      totalStockSpan.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Cargando...';
+    }
+
     const productIds = selectedProducts.map(p => p.id);
+
+    // Consultar stock de productos seleccionados
     const { data: dbInvs } = await supabase
       .from('inventory')
       .select('product_id, quantity')
       .eq('warehouse_id', srcId)
       .in('product_id', productIds);
+
+    // Consultar stock total general de esa bodega
+    const { data: allInvs } = await supabase
+      .from('inventory')
+      .select('quantity')
+      .eq('warehouse_id', srcId);
+
+    const totalSelectedStock = (dbInvs || []).reduce((sum, inv) => sum + (inv.quantity || 0), 0);
+    const totalGeneralStock = (allInvs || []).reduce((sum, inv) => sum + (inv.quantity || 0), 0);
+
+    if (totalStockSpan) {
+      totalStockSpan.textContent = `Total seleccionados: ${totalSelectedStock} uds. / Total general: ${totalGeneralStock} uds.`;
+    }
 
     const stockMap = {};
     if (dbInvs) {
