@@ -2360,6 +2360,9 @@ async function renderInventory() {
 
     if (error) throw error;
 
+    const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
+    window.allWarehousesList = wList || [];
+
     // Obtener stock en tránsito / pendiente de ingreso
     let pendingStockMap = {};
     try {
@@ -2421,6 +2424,14 @@ async function renderInventory() {
             <div style="position: relative;">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
               <input type="text" id="inventory-search" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 240px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.inventorySearchQuery || ''}">
+            </div>
+            <div>
+              <select id="inventory-type-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
+                <option value="">Todos los Tipos</option>
+                <option value="fisico" ${window.inventoryTypeFilter === 'fisico' ? 'selected' : ''}>Físico</option>
+                <option value="pack" ${window.inventoryTypeFilter === 'pack' ? 'selected' : ''}>Pack</option>
+                <option value="online" ${window.inventoryTypeFilter === 'online' ? 'selected' : ''}>Online</option>
+              </select>
             </div>
             <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
@@ -2504,6 +2515,14 @@ async function renderInventory() {
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
         window.inventorySearchQuery = e.target.value;
+        renderInventoryTableBody();
+      });
+    }
+
+    const typeFilter = document.getElementById('inventory-type-filter');
+    if (typeFilter) {
+      typeFilter.addEventListener('change', (e) => {
+        window.inventoryTypeFilter = e.target.value;
         renderInventoryTableBody();
       });
     }
@@ -2704,6 +2723,10 @@ function applyInventoryFiltersAndSort(flat = false) {
     );
   }
 
+  if (window.inventoryTypeFilter) {
+    rows = rows.filter(r => r.product_type === window.inventoryTypeFilter);
+  }
+
   // Ordenamiento
   const col = window.inventorySortColumn || 'name';
   const asc = window.inventorySortAsc !== false;
@@ -2787,18 +2810,27 @@ function renderInventoryTableBody() {
       ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 1rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en stock"></i>`
       : '';
 
-    // Filtrar bodegas que tengan stock físico o comprometido
-    const activeWarehouses = (r.inventory || []).filter(inv => (inv.quantity || 0) > 0 || (inv.committed_quantity || 0) > 0);
+    // Construir la lista completa de bodegas mapeadas para este producto
+    const mappedWarehouses = (window.allWarehousesList || []).map(wh => {
+      const existing = (r.inventory || []).find(inv => inv.warehouse_id === wh.id);
+      return {
+        warehouse_id: wh.id,
+        warehouse_name: wh.name,
+        quantity: existing ? (existing.quantity || 0) : 0,
+        committed_quantity: existing ? (existing.committed_quantity || 0) : 0
+      };
+    });
+
     const isExpanded = window.expandedInventoryProducts.has(r.id);
     
     let bodegaCellContent = '';
-    if (activeWarehouses.length === 0) {
-      bodegaCellContent = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin stock en bodegas</span>`;
+    if (mappedWarehouses.length === 0) {
+      bodegaCellContent = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">Sin bodegas creadas</span>`;
     } else {
       bodegaCellContent = `
         <span class="toggle-warehouse-detail" data-prod-id="${r.id}" style="cursor: pointer; color: var(--color-accent); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; user-select: none;">
           <i class="${isExpanded ? 'ri-subtract-line' : 'ri-add-line'}" style="font-weight: 700;"></i>
-          ${isExpanded ? 'Ocultar Bodegas' : 'Mostrar Bodegas'} (${activeWarehouses.length})
+          ${isExpanded ? 'Ocultar Bodegas' : 'Mostrar Bodegas'} (${mappedWarehouses.length})
         </span>
       `;
     }
@@ -2827,8 +2859,8 @@ function renderInventoryTableBody() {
     `;
 
     // Filas hijas de bodegas si está expandido
-    if (isExpanded && activeWarehouses.length > 0) {
-      activeWarehouses.forEach(inv => {
+    if (isExpanded && mappedWarehouses.length > 0) {
+      mappedWarehouses.forEach(inv => {
         const subAvailable = (inv.quantity || 0) - (inv.committed_quantity || 0);
         const subIsInsuficiente = inv.committed_quantity > 0 && inv.quantity <= 0;
         const subAlertIconHtml = subIsInsuficiente
@@ -2836,11 +2868,27 @@ function renderInventoryTableBody() {
           : '';
 
         const subCommittedHtml = inv.committed_quantity > 0
-          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${(inv.warehouses?.name || 'N/A').replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en esta bodega">${inv.committed_quantity}</span>`
+          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${(inv.warehouse_name || 'N/A').replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en esta bodega">${inv.committed_quantity}</span>`
           : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
+        // Determinar icono de bodega
+        let whIcon = '<i class="ri-database-2-line" style="color: var(--color-text-muted); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+        const wNameLower = (inv.warehouse_name || '').toLowerCase();
+        if (wNameLower.includes('central')) {
+          whIcon = '<i class="ri-building-2-line" style="color: var(--color-primary); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+        } else if (wNameLower.includes('tienda') || wNameLower.includes('showroom')) {
+          whIcon = '<i class="ri-store-3-line" style="color: var(--color-accent); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+        } else if (wNameLower.includes('virtual') || wNameLower.includes('online')) {
+          whIcon = '<i class="ri-cloud-line" style="color: #3b82f6; margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+        }
+
+        const isZero = inv.quantity === 0 && inv.committed_quantity === 0;
+        const rowStyle = isZero
+          ? `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.65;`
+          : `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.95;`;
+
         html += `
-          <tr style="border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.95;">
+          <tr style="${rowStyle}">
             <td style="padding: 0.35rem 0.75rem;"></td>
             <td style="padding: 0.35rem 0.75rem;"></td>
             <td style="padding: 0.35rem 0.75rem; color: var(--color-text-muted); font-size: 0.82rem; font-style: italic;">
@@ -2850,11 +2898,13 @@ function renderInventoryTableBody() {
               </span>
             </td>
             <td style="padding: 0.35rem 0.75rem;"></td>
-            <td style="padding: 0.35rem 0.75rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">${inv.warehouses?.name || 'N/A'}</td>
-            <td style="padding: 0.35rem 0.75rem; text-align: center; font-size: 0.85rem;">${inv.quantity || 0}</td>
+            <td style="padding: 0.35rem 0.75rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; display: inline-flex; align-items: center;">
+              ${whIcon} ${inv.warehouse_name || 'N/A'}
+            </td>
+            <td style="padding: 0.35rem 0.75rem; text-align: center; font-size: 0.85rem; ${inv.quantity === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : 'font-weight: 700;' }">${inv.quantity}</td>
             <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-accent); font-weight: 500; font-size: 0.85rem;">${subCommittedHtml}</td>
             <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-            <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.85rem;">${subAvailable}${subAlertIconHtml}</td>
+            <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.85rem; ${subAvailable === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : ''}">${subAvailable}${subAlertIconHtml}</td>
             <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
             <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
             <td style="padding: 0.35rem 0.75rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>

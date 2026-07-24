@@ -892,4 +892,24 @@ Hemos agregado la columna **`Tipo`** en la tabla de inventario tanto en la inter
 3. **Alineación de Detalle por Bodega**:
    - Ajustamos las celdas y el atributo `colspan` de las filas hijas detalladas por bodega para mantener una grilla alineada del 100%, incrementando la cantidad de columnas de `12` a `13`.
 
+---
 
+## 47. Mapeo Completo de Bodegas con Iconos y Filtro por Tipo de Producto en Inventario
+
+Hemos ampliado las capacidades de visualización del inventario de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) y Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)):
+
+1. **Mapeo Completo de todas las Bodegas en el Detalle**:
+   - Anteriormente, al expandir la fila de un producto, solo se listaban aquellas bodegas que tuvieran existencias físicas o comprometidas registradas (`quantity > 0` o `committed_quantity > 0`), omitiendo bodegas activas con stock en 0.
+   - Ahora, el sistema consulta dinámicamente el listado completo de bodegas (`window.allWarehousesList`) asociadas y construye para cada producto el desglose total.
+   - Si una bodega tiene stock en `0` (físico y comprometido), se muestra de todas formas en la sub-tabla con una **opacidad reducida (0.65)** y con los contadores de stock atenuados, indicando claramente la ausencia de existencias en dicha ubicación sin ocultar su disponibilidad como bodega de destino potencial.
+
+2. **Iconografía Específica por Bodega**:
+   - Para mejorar la escaneabilidad visual, asignamos iconos contextuales según el nombre de la bodega:
+     - **`Bodega Central` o similares**: Icono de edificio (`ri-building-2-line`) en color azul primario.
+     - **`Tienda`, `Showroom` o similares**: Icono de tienda (`ri-store-3-line`) en color accent violeta.
+     - **`Virtual`, `Online` o similares**: Icono de nube (`ri-cloud-line`) en color azul celeste.
+     - **Otras bodegas**: Icono de base de datos general (`ri-database-2-line`) en color atenuado.
+
+3. **Selector de Filtro de Tipo de Producto**:
+   - Incorporamos un nuevo control desplegable **`Todos los Tipos / Físico / Pack / Online`** en la barra de filtros del inventario (al lado de la barra de búsqueda por SKU/nombre) en ambos paneles.
+   - Al seleccionar un tipo, se ejecuta un filtrado reactivo local instantáneo que limita la grilla únicamente a los productos correspondientes, recalculando la paginación y las sumatorias en tiempo real.
