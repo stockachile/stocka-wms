@@ -11438,6 +11438,25 @@ window.renderDeclarations = async function() {
                     background: rgba(239, 68, 68, 0.05) !important;
                     color: #ef4444 !important;
                   }
+
+                  .total-input-card {
+                    position: relative;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 0.35rem;
+                    padding: 0.85rem 1rem;
+                    border-radius: 8px;
+                    border: 1px solid var(--color-border);
+                    background: var(--color-bg);
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  }
+                  .total-input-card:hover {
+                    border-color: rgba(37, 99, 235, 0.3);
+                  }
+                  .total-input-card:focus-within {
+                    border-color: var(--color-primary) !important;
+                    box-shadow: 0 0 0 1px var(--color-primary);
+                  }
                 </style>
 
                 <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
@@ -11513,17 +11532,35 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- 5. Totales (Cantidad y Volumen) -->
-                <div class="form-group">
-                  <label class="form-label">Cantidad Total Unidades *</label>
-                  <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 350" required>
-                </div>
+                <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-calculator-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Resumen de Totales *
+                  </label>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.15rem; line-height: 1.4;">
+                    Ingrese la cantidad total de unidades y el volumen cúbico estimado del envío.
+                  </p>
 
-                <div class="form-group">
-                  <label class="form-label">Volumen Estimado (m³) *</label>
-                  <input type="number" id="dec-volume-declared" class="form-input" min="0.00001" step="any" placeholder="Ej. 1.5" required>
-                  <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; line-height: 1.4;">
-                    <i class="ri-information-line" style="color: var(--color-primary); vertical-align: middle; margin-right: 2px;"></i>
-                    El volumen puede ser un valor estimado. Puedes multiplicar largo (m) × ancho (m) × alto (m) para obtenerlo. Se usará para indicar la bodega con capacidad suficiente y será confirmado en terreno.
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <!-- Cantidad Total -->
+                    <div class="total-input-card">
+                      <label class="form-label" style="font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-main);">
+                        <i class="ri-hashtag" style="color: var(--color-primary); font-size: 0.95rem;"></i> Cantidad Total *
+                      </label>
+                      <input type="number" id="dec-qty-declared" class="form-input" min="1" placeholder="Ej. 200" required style="font-weight: 600; font-size: 0.95rem; padding: 0.4rem 0.6rem; margin: 0;">
+                    </div>
+
+                    <!-- Volumen Estimado -->
+                    <div class="total-input-card">
+                      <label class="form-label" style="font-size: 0.8rem; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-main);">
+                        <i class="ri-ruler-2-line" style="color: var(--color-primary); font-size: 0.95rem;"></i> Vol. Estimado (m³) *
+                      </label>
+                      <input type="number" id="dec-volume-declared" class="form-input" min="0.00001" step="any" placeholder="Ej. 1.5" required style="font-weight: 600; font-size: 0.95rem; padding: 0.4rem 0.6rem; margin: 0;">
+                    </div>
+                  </div>
+
+                  <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.95rem; line-height: 1.45; display: flex; align-items: flex-start; gap: 0.35rem;">
+                    <i class="ri-information-line" style="color: var(--color-primary); font-size: 1.05rem; flex-shrink: 0; margin-top: 1px;"></i>
+                    <span>El volumen puede ser estimado. Multiplica largo (m) × ancho (m) × alto (m) para calcularlo. Se verificará al recibir.</span>
                   </p>
                 </div>
 
