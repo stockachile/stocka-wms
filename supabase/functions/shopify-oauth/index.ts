@@ -155,7 +155,7 @@ serve(async (req) => {
         return new Response("Missing merchant_id in state", { status: 400 });
       }
 
-      // 3. Intercambiar el código por un token permanente en Shopify con expiring: 1
+      // 3. Intercambiar el código por un token permanente en Shopify
       const tokenUrl = `https://${shop}/admin/oauth/access_token`;
       const tokenResponse = await fetch(tokenUrl, {
         method: "POST",
@@ -163,8 +163,7 @@ serve(async (req) => {
         body: JSON.stringify({
           client_id: shopifyClientId,
           client_secret: shopifyClientSecret,
-          code: code,
-          expiring: 1
+          code: code
         })
       });
 

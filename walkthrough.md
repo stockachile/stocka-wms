@@ -969,3 +969,21 @@ Modificamos el algoritmo de verificación visual de stock de los pedidos en los 
    - **Badge de Alerta Principal**: Modificamos el ciclo de verificación de ítems en el renderizado de la fila del pedido. Ahora, en lugar de consultar solo `invMap[product_id_warehouse_id]`, el sistema busca y suma las existencias físicas de dicho producto a lo largo de todas las llaves de bodega asociadas en el mapa de inventario cargado localmente (`window.loadedOrdersInventoryMap` / `window.clientOrdersInventoryMap`).
    - **Tabla Desplegable del Detalle de Pedido**: Adaptamos la celda de disponibilidad en la sub-tabla desplegable para reflejar la cantidad total agregada de todas las bodegas. Ahora indica correctamente si el artículo está disponible o si es insuficiente considerando el stock global del comercio.
 
+---
+
+## 52. Transición a Tokens de Acceso Permanentes (Offline) de Shopify
+
+Corregimos un error crítico en el flujo de integración de Shopify ([supabase/functions/shopify-oauth/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-oauth/index.ts)) que provocaba la expiración de las credenciales de acceso de las tiendas vinculadas por OAuth y la interrupción de la sincronización de nuevos pedidos:
+
+1. **Origen del Problema**:
+   - Al realizar el intercambio del código de autorización de Shopify por un token de acceso, el cuerpo de la consulta incluía el parámetro `"expiring": 1`. Esto forzaba a Shopify a emitir tokens de tipo "Online" (asociados a sesiones de usuario temporales) con un tiempo de expiración corto (generalmente 24 horas o al cerrar sesión) y un token de actualización (`refresh_token`).
+   - El script de sincronización programada (`sync_shopify.js`) en GitHub Actions intentaba renovar de forma reactiva los tokens de acceso utilizando el refresh token. Sin embargo, dado que `SHOPIFY_CLIENT_SECRET` no estaba configurado en los GitHub Secrets del repositorio, el endpoint de Shopify rechazaba la renovación con un error `400 Bad Request (Missing or invalid client secret)`.
+   - Al expirar el token y no poder renovarse, cualquier consulta posterior a la API REST de Shopify para recuperar nuevos pedidos fallaba inmediatamente con un error `401 Unauthorized`, impidiendo que los nuevos pedidos de **Smile for Pets** (y cualquier otra tienda conectada mediante este flujo) llegaran al WMS.
+
+2. **Solución Implementada**:
+   - **Remoción de Expiración**: Eliminamos el parámetro `"expiring": 1` del cuerpo del intercambio de tokens OAuth en la Edge Function `shopify-oauth`. Al omitirse este parámetro, Shopify emite por defecto un token de acceso **offline permanente (no expira)**.
+   - **Eliminación de Renovaciones Necesarias**: Al obtener un token permanente, el campo `refresh_token` se guarda como `null` en `merchant_integrations`. El script de sincronización detecta la ausencia de refresh token y salta directamente a usar el token de acceso permanente, eliminando la dependencia del secreto de cliente de Shopify en los entornos de ejecución en segundo plano.
+   - **Despliegue Exitoso**: Desplegamos la Edge Function actualizada en el entorno de producción de Supabase (`ejtjfaucnxbikrwjwwdu`).
+
+3. **Acción Requerida**:
+   - Para que la solución surta efecto en las tiendas afectadas, el administrador o cliente debe ir a la sección de **Integraciones**, hacer clic en **Conectar / Re-conectar** de la plataforma Shopify e iniciar sesión. Esto obtendrá y guardará el nuevo token de acceso permanente, reactivando la sincronización en tiempo real y perpetua.
