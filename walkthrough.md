@@ -1168,3 +1168,8 @@ Hemos implementado un flujo bidireccional completo para integrar los ingresos de
    - Implementamos `window.loadCountsFromPicker(id, itemsSummary)` para parsear e importar el desglose del campo `items_summary` registrado en la tabla `history_logs` del Picker.
    - Utiliza una expresión regular avanzada para emparejar y cruzar el conteo por SKU y por código de barras de manera precisa.
    - Auto-rellena de forma instantánea los campos de **Cantidad Recepcionada (Física)** e **Incidencias** en el panel administrativo, y avanza el estado del flujo a "En proceso de conteo/clasificación" para facilitar el cierre.
+
+5. **Generación Automática de Comprobante PDF para Correo y Base de Datos**:
+   - Implementamos `window.generateDeclarationPDFBase64(dec)` para renderizar dinámicamente un comprobante digital en PDF de la declaración de ingreso.
+   - Tras crearse una declaración, el sistema genera de forma asíncrona este comprobante PDF, lo asocia al registro en Supabase bajo la columna `file_base64` y despacha el correo de notificación al administrador con este PDF oficial adjunto (en lugar del archivo Excel original), garantizando una experiencia formal de recepción.
+   - Modificamos la visualización y exportación del PDF tanto en el panel de administrador como de cliente para priorizar el desglose estructurado de la columna `products_list` si está presente, evitando fallos de decodificación o procesamiento de archivos Excel binarios.

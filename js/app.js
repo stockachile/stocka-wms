@@ -12869,6 +12869,44 @@ window.renderDeclarations = async function() {
 
             const decId = insertedRows ? insertedRows.id : '';
 
+            // Generar PDF y subirlo/actualizarlo
+            let pdfBase64 = null;
+            try {
+              pdfBase64 = await window.generateDeclarationPDFBase64({
+                id: decId,
+                title: title,
+                comercio: commerce,
+                created_at: new Date().toISOString(),
+                estimated_arrival_type: dateMode,
+                estimated_arrival_date: estimatedArrivalDate,
+                estimated_arrival_period: estimatedArrivalPeriod,
+                volume_declared: volumeDeclared,
+                package_count: totalPackages,
+                package_type: packageType,
+                container_count: containerCount,
+                pallet_count: palletCount,
+                box_count: boxCount,
+                delivery_method: deliveryMethod,
+                requires_unloading: requiresUnloading,
+                estimated_cost: cost.totalCost,
+                contact_info: contactInfo,
+                carrier_info: carrierInfo,
+                notes: notes,
+                products_list: parsedProducts
+              });
+
+              // Guardar el PDF en la base de datos reemplazando el archivo de carga para futuras descargas de recibo
+              await supabase
+                .from('stock_declarations')
+                .update({
+                  file_base64: pdfBase64,
+                  file_name: `comprobante_ingreso_${decId.substring(0, 8).toUpperCase()}.pdf`
+                })
+                .eq('id', decId);
+            } catch (pdfErr) {
+              console.error('Error generating/updating PDF:', pdfErr);
+            }
+
             // Enviar notificación por correo del nuevo ingreso
             fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
               method: 'POST',
@@ -12887,8 +12925,8 @@ window.renderDeclarations = async function() {
                 carrierInfo: carrierInfo,
                 contactInfo: contactInfo,
                 notes: notes,
-                fileBase64: clientUploadedFileBase64,
-                fileName: clientUploadedFileName
+                fileBase64: pdfBase64 || clientUploadedFileBase64,
+                fileName: pdfBase64 ? `comprobante_ingreso_${decId.substring(0, 8).toUpperCase()}.pdf` : clientUploadedFileName
               })
             }).catch(e => console.warn('Error al despachar correo de nuevo ingreso:', e));
 
@@ -19545,7 +19583,9 @@ window.exportDeclarationToPDF = async function(id) {
     }
 
     let products = [];
-    if (dec.file_base64) {
+    if (dec.products_list && dec.products_list.length > 0) {
+      products = dec.products_list;
+    } else if (dec.file_base64) {
       try {
         const binaryString = window.atob(dec.file_base64);
         const len = binaryString.length;
@@ -19744,6 +19784,143 @@ window.exportDeclarationToPDF = async function(id) {
   } catch (err) {
     console.error('Error generating PDF:', err);
     alert('Error al generar el PDF: ' + err.message);
+  }
+};
+
+window.generateDeclarationPDFBase64 = async function(dec) {
+  try {
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+      const parts = dec.estimated_arrival_date.split('-');
+      if (parts.length === 3) {
+        etaText = `${parts[2]}/${parts[1]}/${parts[0]}`;
+      } else {
+        etaText = dec.estimated_arrival_date;
+      }
+    } else {
+      etaText = dec.estimated_arrival_period || 'No especificada';
+    }
+
+    const products = dec.products_list || [];
+    let productsHtml = '';
+    if (products.length > 0) {
+      products.forEach((p, idx) => {
+        productsHtml += `
+          <tr style="border-bottom: 1px solid #cbd5e1; page-break-inside: avoid; break-inside: avoid; vertical-align: top;">
+            <td style="padding: 6px 8px; color: #475569; font-size: 9px;">${idx + 1}</td>
+            <td style="padding: 6px 8px; color: #334155; font-weight: 600; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${p.sku}">${p.sku}</td>
+            <td style="padding: 6px 8px; color: #1e293b; font-size: 9px; vertical-align: top;">
+              <div style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; max-height: 2.6em; word-break: break-word;">
+                ${p.name}
+              </div>
+            </td>
+            <td style="padding: 6px 8px; color: #334155; text-align: right; font-weight: 600; font-size: 9px;">${p.qty}</td>
+          </tr>
+        `;
+      });
+    } else {
+      productsHtml = `
+        <tr>
+          <td colspan="4" style="padding: 15px; text-align: center; color: #64748b; font-style: italic;">
+            Ningún producto seleccionado
+          </td>
+        </tr>
+      `;
+    }
+
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.style.width = '800px';
+
+    container.innerHTML = `
+      <div id="pdf-content-area-temp" style="padding: 40px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #ffffff; width: 100%; box-sizing: border-box;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 15px; margin-bottom: 25px;">
+          <div>
+            <h1 style="margin: 0; font-size: 26px; color: #1e3a8a; font-weight: 800; letter-spacing: 0.5px;">WMS STOCKA</h1>
+            <span style="font-size: 11px; color: #64748b; text-transform: uppercase; font-weight: 600; letter-spacing: 1px;">Comprobante de Ingreso de Stock</span>
+          </div>
+          <div style="text-align: right;">
+            <h2 style="margin: 0; font-size: 14px; color: #2563eb; font-weight: 700;">DECLARACIÓN LOGÍSTICA</h2>
+            <span style="font-size: 11px; color: #475569; font-weight: 600;">ID: ${dec.id ? dec.id.substring(0, 8).toUpperCase() : 'Temporal'}</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; font-size: 12px; line-height: 1.5;">
+          <div>
+            <h3 style="margin: 0 0 8px 0; font-size: 12px; color: #1e3a8a; font-weight: 700; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; text-transform: uppercase;">Información General</h3>
+            <p style="margin: 4px 0;"><strong>Título/Descripción:</strong> ${dec.title || ''}</p>
+            <p style="margin: 4px 0;"><strong>Comercio:</strong> ${dec.comercio || ''}</p>
+            <p style="margin: 4px 0;"><strong>Estado Actual:</strong> <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: 700; color: #1e293b;">Creada</span></p>
+            <p style="margin: 4px 0;"><strong>Fecha Registro:</strong> ${new Date(dec.created_at || new Date()).toLocaleDateString('es-CL')} ${new Date(dec.created_at || new Date()).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}</p>
+            <p style="margin: 4px 0;"><strong>Llegada Estimada:</strong> ${etaText}</p>
+          </div>
+          <div>
+            <h3 style="margin: 0 0 8px 0; font-size: 12px; color: #1e3a8a; font-weight: 700; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; text-transform: uppercase;">Detalles Logísticos</h3>
+            <p style="margin: 4px 0;"><strong>Bodega Destino:</strong> ${dec.warehouse_name || 'No asignada'}</p>
+            <p style="margin: 4px 0;"><strong>Volumen Declarado:</strong> ${dec.volume_declared || 0} m³</p>
+            <p style="margin: 4px 0;"><strong>Bultos Totales:</strong> ${dec.package_count || 0} (${dec.package_type || ''})</p>
+            <p style="margin: 4px 0; font-size: 11px; color: #64748b; margin-left: 10px;">• C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}</p>
+            <p style="margin: 4px 0;"><strong>Método de Envío:</strong> ${dec.delivery_method || ''}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado' : 'No solicitado'}</p>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; line-height: 1.4;">
+          <div>
+            <h3 style="margin: 0 0 2px 0; font-size: 13px; color: #166534; font-weight: 700;">Resumen Económico Estimado</h3>
+            <span style="color: #475569; font-size: 10px;">* El costo definitivo se liquidará con el volumen físico confirmado en bodega.</span>
+          </div>
+          <div style="text-align: right;">
+            <span style="font-size: 15px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 6px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">Total: ${(dec.estimated_cost || 0).toFixed(2)} UF</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; font-size: 11px; color: #475569; line-height: 1.5;">
+          <div>
+            <strong style="color: #1e293b;">Contacto Comercial & Transportista:</strong><br>
+            Contacto: ${dec.contact_info || 'Sin registrar'}<br>
+            Transportista: ${dec.carrier_info || 'Sin registrar'}
+          </div>
+          <div>
+            <strong style="color: #1e293b;">Notas / Observaciones del Cliente:</strong><br>
+            <span style="font-style: italic;">"${dec.notes || 'Sin comentarios'}"</span>
+          </div>
+        </div>
+
+        <h3 style="font-size: 13px; color: #1e3a8a; border-bottom: 2px solid #cbd5e1; padding-bottom: 6px; margin-bottom: 12px; font-weight: 700; text-transform: uppercase;">Detalle de Productos Declarados</h3>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 20px; text-align: left;">
+          <tbody>
+            ${productsHtml}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 15px; text-align: center; font-size: 9px; color: #94a3b8;">
+          Comprobante oficial generado digitalmente por WMS STOCKA.
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+    const contentArea = container.querySelector('#pdf-content-area-temp');
+
+    const opt = {
+      margin:       10,
+      filename:     `comprobante_ingreso_${dec.id ? dec.id.substring(0, 8).toUpperCase() : 'temporal'}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    const base64 = await html2pdf().from(contentArea).set(opt).output('base64');
+    container.remove();
+    return base64;
+  } catch (e) {
+    console.error('Error generating temporary base64 PDF:', e);
+    throw e;
   }
 };
 

@@ -23705,7 +23705,9 @@ window.exportDeclarationToPDF = async function(id) {
     }
 
     let products = [];
-    if (dec.file_base64) {
+    if (dec.products_list && dec.products_list.length > 0) {
+      products = dec.products_list;
+    } else if (dec.file_base64) {
       try {
         const binaryString = window.atob(dec.file_base64);
         const len = binaryString.length;
