@@ -19982,6 +19982,34 @@ async function renderCampaignsTab(commerce) {
         if (c.min_distinct_skus && c.min_distinct_skus > 0) {
           conds.push(`SKUs distintos >= <strong>${c.min_distinct_skus}</strong>`);
         }
+        if (c.conditions && Array.isArray(c.conditions) && c.conditions.length > 0) {
+          const fieldLabels = {
+            note: 'Nota',
+            customer_name: 'Cliente',
+            customer_email: 'Email',
+            customer_phone: 'Teléfono',
+            shipping_city: 'Ciudad/Comuna',
+            shipping_address: 'Dirección',
+            shipping_method: 'Envío',
+            external_platform: 'Plataforma',
+            total_value: 'Valor Total'
+          };
+          const opLabels = {
+            equals: '=',
+            not_equals: '≠',
+            contains: 'contiene',
+            not_contains: 'no contiene',
+            starts_with: 'empieza con',
+            ends_with: 'termina con',
+            greater_than: '>',
+            less_than: '<'
+          };
+          c.conditions.forEach(cond => {
+            const fLabel = fieldLabels[cond.field] || cond.field;
+            const oLabel = opLabels[cond.operator] || cond.operator;
+            conds.push(`Pedido [${fLabel}] <strong>${oLabel} "${cond.value}"</strong>`);
+          });
+        }
         const conditionsHtml = conds.length > 0 ? conds.join('<br>') : '<span style="color: var(--color-text-muted); font-style: italic;">Sin condiciones</span>';
 
         // Botón de activación
@@ -20083,6 +20111,49 @@ async function renderCampaignsTab(commerce) {
   }
 }
 
+function createConditionRowHtml(field = '', operator = '', value = '') {
+  const fields = [
+    { value: 'note', label: 'Nota del Pedido' },
+    { value: 'customer_name', label: 'Nombre del Cliente' },
+    { value: 'customer_email', label: 'Email del Cliente' },
+    { value: 'customer_phone', label: 'Teléfono del Cliente' },
+    { value: 'shipping_city', label: 'Ciudad/Comuna' },
+    { value: 'shipping_address', label: 'Dirección de Despacho' },
+    { value: 'shipping_method', label: 'Método de Envío' },
+    { value: 'external_platform', label: 'Plataforma' },
+    { value: 'total_value', label: 'Valor Total' }
+  ];
+
+  const operators = [
+    { value: 'equals', label: 'Es igual a' },
+    { value: 'not_equals', label: 'Es distinto de' },
+    { value: 'contains', label: 'Contiene' },
+    { value: 'not_contains', label: 'No contiene' },
+    { value: 'starts_with', label: 'Comienza con' },
+    { value: 'ends_with', label: 'Termina con' },
+    { value: 'greater_than', label: 'Es mayor que' },
+    { value: 'less_than', label: 'Es menor que' }
+  ];
+
+  const fieldOptions = fields.map(f => `<option value="${f.value}" ${f.value === field ? 'selected' : ''}>${f.label}</option>`).join('');
+  const opOptions = operators.map(o => `<option value="${o.value}" ${o.value === operator ? 'selected' : ''}>${o.label}</option>`).join('');
+
+  return `
+    <div class="campaign-condition-row" style="display: flex; gap: 0.5rem; align-items: center; background: rgba(0, 0, 0, 0.02); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); width: 100%;">
+      <select class="form-input cond-field" style="flex: 1; min-width: 120px; font-size: 0.85rem; height: 34px; padding: 0.25rem 0.5rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+        ${fieldOptions}
+      </select>
+      <select class="form-input cond-operator" style="flex: 1; min-width: 100px; font-size: 0.85rem; height: 34px; padding: 0.25rem 0.5rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+        ${opOptions}
+      </select>
+      <input type="text" class="form-input cond-value" placeholder="Valor..." value="${value.replace(/"/g, '&quot;')}" style="flex: 2; min-width: 120px; font-size: 0.85rem; height: 34px; padding: 0.25rem 0.5rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+      <button type="button" class="btn btn-outline btn-remove-condition" style="padding: 0.25rem 0.5rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; height: 34px; width: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-sm);">
+        <i class="ri-delete-bin-line" style="font-size: 1rem;"></i>
+      </button>
+    </div>
+  `;
+}
+
 function openCampaignModal(commerce, campaign = null) {
   const existing = document.getElementById('modal-campaign');
   if (existing) existing.remove();
@@ -20108,6 +20179,13 @@ function openCampaignModal(commerce, campaign = null) {
   const minSkusVal = isEdit && campaign.min_distinct_skus !== null ? campaign.min_distinct_skus : '';
   const nameVal = isEdit ? campaign.name : '';
   const activeChecked = isEdit ? (campaign.active ? 'checked' : '') : 'checked';
+
+  // Renderizar condiciones de pedido existentes
+  const conditionsList = isEdit && campaign.conditions && Array.isArray(campaign.conditions) ? campaign.conditions : [];
+  let conditionsHtml = '';
+  conditionsList.forEach(cond => {
+    conditionsHtml += createConditionRowHtml(cond.field, cond.operator, cond.value);
+  });
 
   const modal = document.createElement('div');
   modal.className = 'modal-overlay active';
@@ -20164,6 +20242,17 @@ function openCampaignModal(commerce, campaign = null) {
           </div>
 
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-primary);">Condiciones de Datos del Pedido (Opcional)</h4>
+            <button type="button" id="btn-add-order-condition" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-add-line"></i> Agregar
+            </button>
+          </div>
+          <div id="campaign-order-conditions-container" style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%;">
+            ${conditionsHtml}
+          </div>
+
+          <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.5rem 0;">
           <h4 style="margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--color-success);">Premio / Regalo a Añadir</h4>
 
           <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;">
@@ -20189,6 +20278,30 @@ function openCampaignModal(commerce, campaign = null) {
   `;
 
   document.body.appendChild(modal);
+
+  // Controladores del constructor de condiciones de pedido
+  const condContainer = document.getElementById('campaign-order-conditions-container');
+  const btnAddCond = document.getElementById('btn-add-order-condition');
+  
+  if (btnAddCond && condContainer) {
+    btnAddCond.addEventListener('click', () => {
+      const div = document.createElement('div');
+      div.innerHTML = createConditionRowHtml();
+      const row = div.firstElementChild;
+      row.querySelector('.btn-remove-condition').addEventListener('click', () => {
+        row.remove();
+      });
+      condContainer.appendChild(row);
+    });
+  }
+
+  if (condContainer) {
+    condContainer.querySelectorAll('.btn-remove-condition').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.currentTarget.closest('.campaign-condition-row').remove();
+      });
+    });
+  }
 
   const form = document.getElementById('form-campaign');
   form.addEventListener('submit', async (e) => {
@@ -20227,6 +20340,19 @@ function openCampaignModal(commerce, campaign = null) {
     const start_date = startVal ? new Date(startVal + 'T00:00:00').toISOString() : null;
     const end_date = endVal ? new Date(endVal + 'T23:59:59').toISOString() : null;
 
+    // Serializar condiciones de pedido del DOM
+    const conditions = [];
+    if (condContainer) {
+      condContainer.querySelectorAll('.campaign-condition-row').forEach(row => {
+        const field = row.querySelector('.cond-field').value;
+        const operator = row.querySelector('.cond-operator').value;
+        const value = row.querySelector('.cond-value').value.trim();
+        if (field && operator) {
+          conditions.push({ field, operator, value });
+        }
+      });
+    }
+
     const payload = {
       comercio: commerce,
       name,
@@ -20237,7 +20363,8 @@ function openCampaignModal(commerce, campaign = null) {
       min_total_quantity,
       min_distinct_skus,
       gift_sku: giftSku,
-      gift_quantity: giftQty
+      gift_quantity: giftQty,
+      conditions
     };
 
     const submitBtn = document.getElementById('btn-save-campaign-submit');
