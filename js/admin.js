@@ -1251,7 +1251,7 @@ async function renderAdminOrders() {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
       `)
       .gte('created_at', startOfMonth)
       .order('created_at', { ascending: false });
@@ -1364,7 +1364,7 @@ async function renderAdminOrders() {
             fecha_procesamiento,
             sucursal_pickeo,
             periodo_facturacion,
-            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
           `)
           .lt('created_at', startOfMonth)
           .order('created_at', { ascending: false });
@@ -1853,6 +1853,15 @@ window.applyWmsFiltersAndRender = function() {
       (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
       (order.tracking_number && s.pedido_referencia === order.tracking_number)
     );
+
+    // Priorizar el envío que coincide exactamente con el tracking_number actual del pedido
+    if (orderShipments.length > 1 && order.tracking_number) {
+      orderShipments.sort((a, b) => {
+        const aMatch = a.tracking === order.tracking_number ? 1 : 0;
+        const bMatch = b.tracking === order.tracking_number ? 1 : 0;
+        return bMatch - aMatch;
+      });
+    }
 
     // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella o Paris, simular uno a partir del estado de la orden
     const isVirtualPlatform = order.origen === 'MercadoLibre' || 
@@ -2619,7 +2628,7 @@ window.refreshWmsOrders = async function(btn) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
       `)
       .gte('created_at', startOfMonth)
       .order('created_at', { ascending: false });
@@ -2700,7 +2709,7 @@ window.refreshWmsOrders = async function(btn) {
             fecha_procesamiento,
             sucursal_pickeo,
             periodo_facturacion,
-            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
           `)
           .lt('created_at', startOfMonth)
           .order('created_at', { ascending: false });
@@ -6072,15 +6081,10 @@ function renderAdminInventoryTableBody() {
     // Filas hijas de bodegas si está expandido
     if (isExpanded && mappedWarehouses.length > 0) {
       mappedWarehouses.forEach(inv => {
-        const subAvailable = (inv.quantity || 0) - (inv.committed_quantity || 0);
-        const subIsInsuficiente = inv.committed_quantity > 0 && inv.quantity <= 0;
-        const subAlertIconHtml = subIsInsuficiente
-          ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 0.95rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en esta bodega"></i>`
-          : '';
-
-        const subCommittedHtml = inv.committed_quantity > 0
-          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${(inv.warehouse_name || 'N/A').replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en esta bodega">${inv.committed_quantity}</span>`
-          : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+        const subAvailable = inv.quantity || 0;
+        const subIsInsuficiente = false;
+        const subAlertIconHtml = '';
+        const subCommittedHtml = `<span style="color: var(--color-text-muted); opacity: 0.5;">-</span>`;
 
         // Determinar icono de bodega
         let whIcon = '<i class="ri-database-2-line" style="color: var(--color-text-muted); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
@@ -6093,7 +6097,7 @@ function renderAdminInventoryTableBody() {
           whIcon = '<i class="ri-cloud-line" style="color: #3b82f6; margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
         }
 
-        const isZero = inv.quantity === 0 && inv.committed_quantity === 0;
+        const isZero = inv.quantity === 0;
         const rowStyle = isZero
           ? `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.65;`
           : `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.95;`;
@@ -6269,7 +6273,7 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
         });
       } else {
         invList.forEach(inv => {
-          const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+          const available = inv.quantity || 0;
           rows.push({
             id: prod.id,
             sku: prod.sku || '',
@@ -6277,7 +6281,7 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
             warehouse: inv.warehouses?.name || 'N/A',
             warehouse_id: inv.warehouse_id,
             physical: inv.quantity || 0,
-            committed: inv.committed_quantity || 0,
+            committed: 0,
             pending: pendingVal,
             available: available,
             totalAvailable: totalAvailable,
@@ -20712,6 +20716,7 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-sku').value = product.sku;
     document.getElementById('edit-prod-name').value = product.name;
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
+    document.getElementById('edit-prod-send-barcode').checked = product.send_barcode_to_picker || false;
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
     document.getElementById('edit-prod-height').value = product.height || '';
@@ -20950,6 +20955,7 @@ function initProductFormListeners() {
       const sku = document.getElementById('edit-prod-sku').value;
       const name = document.getElementById('edit-prod-name').value;
       const barcode = document.getElementById('edit-prod-barcode').value || null;
+      const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
 
       const volMethod = document.querySelector('input[name="edit-prod-vol-method"]:checked')?.value || 'dims';
       let length = null;
@@ -20996,7 +21002,8 @@ function initProductFormListeners() {
             expiration_date: expiration,
             lot_number: lot,
             is_pack: isPack,
-            is_virtual: isVirtual
+            is_virtual: isVirtual,
+            send_barcode_to_picker: sendBarcode
           })
           .eq('id', prodId);
 
@@ -21212,7 +21219,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // 1. Obtener los datos frescos de la orden
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, courier, raw_lightdata_data, estado_wms')
+      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -21246,6 +21253,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
         detectedOptions.push({
           courier: s.courier || 'Courier',
           tracking: s.tracking,
+          tracking_url: s.tracking_url || null,
           source: 'Auto Track (Envío)',
           status: s.global_status || 'SIN MOVIMIENTO'
         });
@@ -21258,6 +21266,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       detectedOptions.push({
         courier: 'CARRIER EXTERNO',
         tracking: String(alphaDid),
+        tracking_url: order.raw_lightdata_data?.tracking_url || null,
         source: 'Etiqueta Alpha (LightData)',
         status: 'EN PREPARACIÓN'
       });
@@ -21327,9 +21336,13 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       confirmButtonText: 'Guardar',
       cancelButtonText: 'Cancelar',
       preConfirm: () => {
+        const courierVal = document.getElementById('swal-edit-courier').value.trim() || null;
+        const trackingVal = document.getElementById('swal-edit-tracking').value.trim() || null;
+        const matchedOpt = uniqueOptions.find(opt => opt.tracking === trackingVal);
         return {
-          courier: document.getElementById('swal-edit-courier').value.trim() || null,
-          tracking: document.getElementById('swal-edit-tracking').value.trim() || null
+          courier: courierVal,
+          tracking: trackingVal,
+          tracking_url: matchedOpt ? (matchedOpt.tracking_url || null) : (trackingVal === currentTracking ? order.tracking_url : null)
         };
       }
     });
@@ -21342,12 +21355,22 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       didOpen: () => { Swal.showLoading(); }
     });
 
+    const updatePayload = {
+      courier: formValues.courier,
+      tracking_number: formValues.tracking
+    };
+
+    if (formValues.tracking_url !== undefined) {
+      updatePayload.tracking_url = formValues.tracking_url;
+    } else {
+      if (formValues.tracking !== currentTracking) {
+        updatePayload.tracking_url = null;
+      }
+    }
+
     const { error: updateErr } = await supabase
       .from('orders')
-      .update({
-        courier: formValues.courier,
-        tracking_number: formValues.tracking
-      })
+      .update(updatePayload)
       .eq('id', orderId);
 
     if (updateErr) throw updateErr;
@@ -21355,13 +21378,16 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (localOrder) {
       localOrder.courier = formValues.courier;
       localOrder.tracking_number = formValues.tracking;
+      if (updatePayload.hasOwnProperty('tracking_url')) {
+        localOrder.tracking_url = updatePayload.tracking_url;
+      }
     }
 
     // Propagar al Picker si ya está en preparación
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))')
+        .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -21423,7 +21449,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: prod.sku || order.sku || 'SKU-TEMP',
+      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -21478,7 +21504,7 @@ window.sendSingleOrderToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: prod.sku || order.sku || 'SKU-TEMP',
+      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -22815,7 +22841,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     const { data: orderItems, error: itemsErr } = await supabase
       .from('order_items')
-      .select('*, products(id, sku, name, price)')
+      .select('*, products(id, sku, name, price, barcode, send_barcode_to_picker)')
       .eq('order_id', orderId);
 
     if (itemsErr) throw itemsErr;
@@ -23134,7 +23160,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos asociados
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, products(id, sku, name, price, image_url, options)')
+        .select('*, products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {

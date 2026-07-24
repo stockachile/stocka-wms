@@ -1008,3 +1008,20 @@ Añadimos la regla de estilo para la clase CSS `.spin` en la hoja de estilos glo
      ```
    - Esto hace que el icono rote de forma continua a velocidad constante mientras dura el fetch y se remueva inmediatamente en el bloque `finally` del controlador JS al completarse la sincronización, mejorando la experiencia de usuario.
 
+---
+
+## 54. Tratamiento de Stock Comprometido como Global (WMS)
+
+Hemos modificado las vistas de inventario y los flujos de cálculo en los paneles de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) y del Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) para considerar el stock comprometido como un indicador puramente global del producto, evitando asignarlo o descontarlo de bodegas físicas individuales de manera errónea:
+
+1. **Eliminación de Stock Comprometido por Bodega**:
+   - En las subfilas desplegables de "Detalle por bodega" en las grillas de inventario, ahora mostramos un guion `-` atenuado en la columna **COMPROMETIDO** en lugar de una cantidad numérica específica.
+   - **Disponible por Bodega (`Disp. (Bodega)`)**: Se calcula única y exclusivamente con base en el stock físico real de la bodega (`inv.quantity`). Ya no se resta el comprometido de esa ubicación, lo cual evita que se muestren stocks disponibles negativos (ej. `-2` en Bodega Central en productos con stock físico en otras bodegas).
+
+2. **Remoción de Alertas y Warnings Locales**:
+   - Retiramos el icono de alerta rojo (`ri-error-warning-line`) y la lógica asociada en los desgloses de bodega. La advertencia visual de stock insuficiente se mantiene de manera precisa únicamente en la fila principal consolidada del producto si el stock disponible global (`FÍSICO - COMPROMETIDO`) resulta ser menor o igual a `0` existiendo unidades comprometidas.
+
+3. **Optimización en la Selección Automática de Bodega**:
+   - Modificamos el algoritmo de asignación de bodega automática para nuevos pedidos en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js). Al determinar qué bodega tiene la mayor disponibilidad para servir un ítem, el sistema ahora evalúa directamente el stock físico de las bodegas (`inv.quantity`), ya que el comprometido se procesa a nivel global de tienda.
+
+

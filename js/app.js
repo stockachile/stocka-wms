@@ -2705,7 +2705,7 @@ function applyInventoryFiltersAndSort(flat = false) {
         });
       } else {
         invList.forEach(inv => {
-          const available = (inv.quantity || 0) - (inv.committed_quantity || 0);
+          const available = inv.quantity || 0;
           rows.push({
             id: prod.id,
             sku: prod.sku || '',
@@ -2713,7 +2713,7 @@ function applyInventoryFiltersAndSort(flat = false) {
             warehouse: inv.warehouses?.name || 'N/A',
             warehouse_id: inv.warehouse_id,
             physical: inv.quantity || 0,
-            committed: inv.committed_quantity || 0,
+            committed: 0,
             pending: pendingVal,
             available: available,
             totalAvailable: totalAvailable,
@@ -2893,15 +2893,10 @@ function renderInventoryTableBody() {
     // Filas hijas de bodegas si está expandido
     if (isExpanded && mappedWarehouses.length > 0) {
       mappedWarehouses.forEach(inv => {
-        const subAvailable = (inv.quantity || 0) - (inv.committed_quantity || 0);
-        const subIsInsuficiente = inv.committed_quantity > 0 && inv.quantity <= 0;
-        const subAlertIconHtml = subIsInsuficiente
-          ? ` <i class="ri-error-warning-line" style="color: #ef4444; cursor: help; font-size: 0.95rem; vertical-align: middle; margin-left: 0.25rem;" title="El producto tiene unidades comprometidas pero no tiene unidades físicas en esta bodega"></i>`
-          : '';
-
-        const subCommittedHtml = inv.committed_quantity > 0
-          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${(inv.warehouse_name || 'N/A').replace(/"/g, '&quot;')}" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en esta bodega">${inv.committed_quantity}</span>`
-          : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+        const subAvailable = inv.quantity || 0;
+        const subIsInsuficiente = false;
+        const subAlertIconHtml = '';
+        const subCommittedHtml = `<span style="color: var(--color-text-muted); opacity: 0.5;">-</span>`;
 
         // Determinar icono de bodega
         let whIcon = '<i class="ri-database-2-line" style="color: var(--color-text-muted); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
@@ -2914,7 +2909,7 @@ function renderInventoryTableBody() {
           whIcon = '<i class="ri-cloud-line" style="color: #3b82f6; margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
         }
 
-        const isZero = inv.quantity === 0 && inv.committed_quantity === 0;
+        const isZero = inv.quantity === 0;
         const rowStyle = isZero
           ? `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.65;`
           : `border-bottom: 1px solid var(--color-border); background-color: var(--color-bg-alt); opacity: 0.95;`;
@@ -7987,7 +7982,7 @@ async function renderIntegrations() {
 
         if(invData && invData.length > 0) {
           invData.forEach(inv => {
-            const available = inv.quantity - inv.committed_quantity;
+            const available = inv.quantity || 0;
             if (available > maxAvailable) {
               maxAvailable = available;
               bestWarehouse = inv.warehouse_id;
