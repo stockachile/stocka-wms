@@ -1129,3 +1129,18 @@ Hemos rediseñado y modernizado la sección de método de ingreso y servicio de 
 3. **Sincronización del Ciclo de Vida**:
    - Definimos métodos globales (`window.updateDeliveryMethodVisuals` and `window.updateUnloadingVisuals`) para asegurar que el estado visual de las tarjetas y el interruptor custom estén siempre sincronizados con los datos del formulario al entrar en modo de edición (`editDeclaration`), resetear/cancelar la edición (`cancelEditDeclaration`) y al abrir un nuevo ingreso limpio (`openNewDeclarationSlideOver`).
 
+---
+
+## 60. Rediseño de Información de Contacto, Transportista y Notas en Formulario de Ingresos (WMS)
+
+Hemos reestructurado y mejorado visualmente la sección final de datos de contacto y transportista en el formulario de ingresos de stock del cliente ([js/app.js](file:///C:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) para ofrecer una experiencia visual premium y unificada:
+
+1. **Tarjeta Unificada de Información**:
+   - Agrupamos los campos en una sola tarjeta con borde sutil, fondo distinguido (`var(--color-surface)`) y sombreado elegante para agrupar semánticamente estos campos adicionales.
+   - Añadimos un encabezado con el icono `ri-contacts-book-line` en color azul primario y una descripción explicativa para guiar al usuario.
+
+2. **Entradas de Texto con Iconos Integrados (Inline Icons)**:
+   - Envolvimos las entradas de texto (`input` y `textarea`) en contenedores con posicionamiento relativo e iconos internos de Remix Icon (`ri-user-voice-line`, `ri-car-line`, `ri-sticky-note-line`).
+   - Aplicamos un padding lateral izquierdo de `2.25rem` a las cajas de texto para alinear perfectamente el texto de entrada y los marcadores de posición sin superponerse con los iconos.
+   - El área de notas (`textarea`) se aumentó a 3 filas (`rows="3"`) e incluye soporte para cambio de tamaño vertical con un alto mínimo de `80px`.
+

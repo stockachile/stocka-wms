@@ -11901,19 +11901,46 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- 8. Datos Adicionales (Contacto, Transportista, Notas) -->
-                <div class="form-group">
-                  <label class="form-label">Datos de Contacto del Comercio</label>
-                  <input type="text" id="dec-contact-info" class="form-input" placeholder="Nombre, email o teléfono de contacto para este ingreso">
-                </div>
+                <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 1rem;">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0.25rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-contacts-book-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Información de Contacto y Transporte
+                  </label>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem; line-height: 1.4;">
+                    Complete estos detalles para facilitar la coordinación y el ingreso seguro en bodega.
+                  </p>
 
-                <div class="form-group">
-                  <label class="form-label">Datos del Transportista (Si aplica)</label>
-                  <input type="text" id="dec-carrier-info" class="form-input" placeholder="Patente, nombre chofer o empresa de transporte">
-                </div>
+                  <!-- Contacto -->
+                  <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <label class="form-label" style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-user-shared-line" style="color: var(--color-text-muted); font-size: 0.95rem;"></i> Datos de Contacto del Comercio
+                    </label>
+                    <div style="position: relative;">
+                      <i class="ri-user-voice-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
+                      <input type="text" id="dec-contact-info" class="form-input" placeholder="Nombre, email o teléfono de contacto" style="padding-left: 2.25rem; width: 100%;">
+                    </div>
+                  </div>
 
-                <div class="form-group">
-                  <label class="form-label">Comentarios Adicionales</label>
-                  <textarea id="dec-notes" class="form-input" rows="2" placeholder="Observaciones generales para el equipo de bodega..."></textarea>
+                  <!-- Transportista -->
+                  <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <label class="form-label" style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-steering-line" style="color: var(--color-text-muted); font-size: 0.95rem;"></i> Datos del Transportista (Si aplica)
+                    </label>
+                    <div style="position: relative;">
+                      <i class="ri-car-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
+                      <input type="text" id="dec-carrier-info" class="form-input" placeholder="Patente, nombre chofer o empresa de transporte" style="padding-left: 2.25rem; width: 100%;">
+                    </div>
+                  </div>
+
+                  <!-- Comentarios -->
+                  <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                    <label class="form-label" style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+                      <i class="ri-chat-1-line" style="color: var(--color-text-muted); font-size: 0.95rem;"></i> Comentarios Adicionales
+                    </label>
+                    <div style="position: relative;">
+                      <i class="ri-sticky-note-line" style="position: absolute; left: 0.75rem; top: 0.75rem; color: var(--color-text-muted); font-size: 0.95rem;"></i>
+                      <textarea id="dec-notes" class="form-input" rows="3" placeholder="Observaciones generales para el equipo de bodega..." style="padding-left: 2.25rem; width: 100%; resize: vertical; min-height: 80px;"></textarea>
+                    </div>
+                  </div>
                 </div>
 
                 <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem;">
