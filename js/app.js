@@ -11457,6 +11457,106 @@ window.renderDeclarations = async function() {
                     border-color: var(--color-primary) !important;
                     box-shadow: 0 0 0 1px var(--color-primary);
                   }
+
+                  /* Delivery Method Style Rules */
+                  .delivery-method-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 0.75rem;
+                    margin-top: 0.5rem;
+                  }
+                  @media (max-width: 576px) {
+                    .delivery-method-grid {
+                      grid-template-columns: 1fr;
+                    }
+                  }
+                  .delivery-method-card {
+                    display: flex;
+                    align-items: flex-start;
+                    gap: 0.75rem;
+                    padding: 0.85rem 1rem;
+                    border-radius: 8px;
+                    border: 2px solid var(--color-border);
+                    background: var(--color-surface);
+                    cursor: pointer;
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                    position: relative;
+                  }
+                  .delivery-method-card:hover {
+                    border-color: rgba(37, 99, 235, 0.45) !important;
+                    background: rgba(37, 99, 235, 0.01) !important;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+                  }
+                  .delivery-method-card.active {
+                    border-color: var(--color-primary) !important;
+                    background: rgba(37, 99, 235, 0.04) !important;
+                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.06) !important;
+                  }
+
+                  /* Unloading Service Card & Custom Switch */
+                  .unloading-service-card {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 1rem 1.25rem;
+                    border-radius: 10px;
+                    border: 2px solid var(--color-border);
+                    background: var(--color-surface);
+                    cursor: pointer;
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                    user-select: none;
+                  }
+                  .unloading-service-card:hover {
+                    border-color: rgba(37, 99, 235, 0.35) !important;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+                  }
+                  .unloading-service-card.active {
+                    border-color: var(--color-primary) !important;
+                    background: rgba(37, 99, 235, 0.04) !important;
+                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.06) !important;
+                  }
+
+                  .custom-switch {
+                    position: relative;
+                    display: inline-block;
+                    width: 44px;
+                    height: 24px;
+                    flex-shrink: 0;
+                  }
+                  .custom-switch input {
+                    opacity: 0;
+                    width: 0;
+                    height: 0;
+                  }
+                  .custom-switch-slider {
+                    position: absolute;
+                    cursor: pointer;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background-color: var(--color-border);
+                    transition: .3s cubic-bezier(0.16, 1, 0.3, 1);
+                    border-radius: 34px;
+                  }
+                  .custom-switch-slider:before {
+                    position: absolute;
+                    content: "";
+                    height: 18px;
+                    width: 18px;
+                    left: 3px;
+                    bottom: 3px;
+                    background-color: white;
+                    transition: .3s cubic-bezier(0.16, 1, 0.3, 1);
+                    border-radius: 50%;
+                  }
+                  .custom-switch input:checked + .custom-switch-slider {
+                    background-color: var(--color-primary);
+                  }
+                  .custom-switch input:checked + .custom-switch-slider:before {
+                    transform: translateX(20px);
+                  }
                 </style>
 
                 <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
@@ -11661,22 +11761,94 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- 6. Método de Ingreso y Servicio de Descarga -->
-                <div class="form-group">
-                  <label class="form-label">Método de Ingreso *</label>
-                  <select id="dec-delivery-method" class="form-input" required>
-                    <option value="Transporte vía courier">Transporte vía courier</option>
-                    <option value="Desde proveedor">Desde proveedor</option>
-                    <option value="Transporte particular">Transporte particular</option>
-                    <option value="Solicita retiro (solo dentro de Santiago)">Solicita retiro (solo dentro de Santiago)</option>
-                  </select>
+                <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Método de Ingreso *
+                  </label>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.15rem; line-height: 1.4;">
+                    Seleccione la modalidad de entrega en la que enviará el stock a nuestra bodega.
+                  </p>
+
+                  <input type="hidden" id="dec-delivery-method" value="Transporte vía courier" required>
+                  
+                  <div class="delivery-method-grid">
+                    <!-- Opción 1: Courier -->
+                    <div class="delivery-method-card active" data-value="Transporte vía courier">
+                      <div class="delivery-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(37, 99, 235, 0.15); color: var(--color-primary); font-size: 1.1rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-send-plane-2-line"></i>
+                      </div>
+                      <div style="flex: 1; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: block;">Vía Courier</span>
+                        <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px; line-height: 1.3;">Envío por BlueExpress, Starken, Chilexpress, etc.</span>
+                      </div>
+                      <div class="delivery-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-primary); background: var(--color-primary); color: white; font-size: 0.7rem; position: absolute; top: 0.5rem; right: 0.5rem; transition: all 0.2s;">
+                        <i class="ri-check-line"></i>
+                      </div>
+                    </div>
+
+                    <!-- Opción 2: Desde Proveedor -->
+                    <div class="delivery-method-card" data-value="Desde proveedor">
+                      <div class="delivery-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.1rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-building-line"></i>
+                      </div>
+                      <div style="flex: 1; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: block;">Desde Proveedor</span>
+                        <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px; line-height: 1.3;">El fabricante o distribuidor despacha directo.</span>
+                      </div>
+                      <div class="delivery-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-border); background: transparent; color: transparent; font-size: 0.7rem; position: absolute; top: 0.5rem; right: 0.5rem; transition: all 0.2s;">
+                        <i class="ri-check-line"></i>
+                      </div>
+                    </div>
+
+                    <!-- Opción 3: Transporte Particular -->
+                    <div class="delivery-method-card" data-value="Transporte particular">
+                      <div class="delivery-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.1rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-car-line"></i>
+                      </div>
+                      <div style="flex: 1; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: block;">Particular</span>
+                        <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px; line-height: 1.3;">Despacho directo en tu propio vehículo de carga.</span>
+                      </div>
+                      <div class="delivery-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-border); background: transparent; color: transparent; font-size: 0.7rem; position: absolute; top: 0.5rem; right: 0.5rem; transition: all 0.2s;">
+                        <i class="ri-check-line"></i>
+                      </div>
+                    </div>
+
+                    <!-- Opción 4: Solicita Retiro -->
+                    <div class="delivery-method-card" data-value="Solicita retiro (solo dentro de Santiago)">
+                      <div class="delivery-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.1rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-map-pin-range-line"></i>
+                      </div>
+                      <div style="flex: 1; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: block;">Solicitar Retiro</span>
+                        <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px; line-height: 1.3;">Retiro logístico (servicio disponible solo en Stgo).</span>
+                      </div>
+                      <div class="delivery-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--color-border); background: transparent; color: transparent; font-size: 0.7rem; position: absolute; top: 0.5rem; right: 0.5rem; transition: all 0.2s;">
+                        <i class="ri-check-line"></i>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Servicio de Descarga -->
-                <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                  <div style="display: flex; align-items: center; gap: 0.6rem;">
-                    <input type="checkbox" id="dec-requires-unloading" style="width: 18px; height: 18px; cursor: pointer;">
-                    <label for="dec-requires-unloading" style="font-weight: 600; cursor: pointer; color: var(--color-text-main); font-size: 0.9rem; user-select: none;">¿El ingreso requiere servicio de descarga por parte de bodega?</label>
-                  </div>
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                  <label class="unloading-service-card" id="card-unloading-service">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; text-align: left;">
+                      <div class="unloading-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.2rem; flex-shrink: 0; transition: all 0.25s ease;">
+                        <i class="ri-download-2-line"></i>
+                      </div>
+                      <div>
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Servicio de Descarga en Bodega</span>
+                        <span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 1px;">¿El ingreso requiere servicio de descarga por parte de bodega?</span>
+                      </div>
+                    </div>
+                    
+                    <div class="custom-switch">
+                      <input type="checkbox" id="dec-requires-unloading">
+                      <span class="custom-switch-slider"></span>
+                    </div>
+                  </label>
+
                   <div id="dec-unloading-warning" style="display: none; padding: 0.75rem; font-size: 0.8rem; background: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid var(--color-warning); margin-top: 0.75rem; border-radius: var(--radius-sm); line-height: 1.45;">
                     <i class="ri-alert-line" style="vertical-align: middle; margin-right: 4px; font-size: 1rem;"></i>
                     <strong>Nota Importante:</strong> Las descargas se realizan de forma manual en bodega y tienen un costo de <strong>0,1 UF por m³</strong>.
@@ -11974,13 +12146,82 @@ window.renderDeclarations = async function() {
       bindNoEnvioToggle('dec-no-pallet', 'dec-pallet-count');
       bindNoEnvioToggle('dec-no-box', 'dec-box-count');
 
+      // Delivery Method Selector Cards Logic
+      const deliveryCards = document.querySelectorAll('.delivery-method-card');
+      const deliveryHiddenInput = document.getElementById('dec-delivery-method');
+      
+      window.updateDeliveryMethodVisuals = function(value) {
+        const cards = document.querySelectorAll('.delivery-method-card');
+        cards.forEach(card => {
+          const val = card.getAttribute('data-value');
+          const checkIcon = card.querySelector('.delivery-check-indicator');
+          const iconWrapper = card.querySelector('.delivery-icon-wrapper');
+          
+          if (val === value) {
+            card.classList.add('active');
+            if (checkIcon) {
+              checkIcon.style.borderColor = 'var(--color-primary)';
+              checkIcon.style.background = 'var(--color-primary)';
+              checkIcon.style.color = 'white';
+            }
+            if (iconWrapper) {
+              iconWrapper.style.background = 'rgba(37, 99, 235, 0.15)';
+              iconWrapper.style.color = 'var(--color-primary)';
+            }
+          } else {
+            card.classList.remove('active');
+            if (checkIcon) {
+              checkIcon.style.borderColor = 'var(--color-border)';
+              checkIcon.style.background = 'transparent';
+              checkIcon.style.color = 'transparent';
+            }
+            if (iconWrapper) {
+              iconWrapper.style.background = 'rgba(148, 163, 184, 0.1)';
+              iconWrapper.style.color = 'var(--color-text-muted)';
+            }
+          }
+        });
+      };
+      
+      deliveryCards.forEach(card => {
+        card.addEventListener('click', () => {
+          const val = card.getAttribute('data-value');
+          if (deliveryHiddenInput) {
+            deliveryHiddenInput.value = val;
+            deliveryHiddenInput.dispatchEvent(new Event('change'));
+          }
+          window.updateDeliveryMethodVisuals(val);
+        });
+      });
+
+      window.updateUnloadingVisuals = function() {
+        const unloadingCb = document.getElementById('dec-requires-unloading');
+        const unloadingCard = document.getElementById('card-unloading-service');
+        const unloadingWarning = document.getElementById('dec-unloading-warning');
+        if (!unloadingCard) return;
+        const unloadingIcon = unloadingCard.querySelector('.unloading-icon-wrapper');
+        
+        if (unloadingCb && unloadingCb.checked) {
+          unloadingCard.classList.add('active');
+          if (unloadingWarning) unloadingWarning.style.display = 'block';
+          if (unloadingIcon) {
+            unloadingIcon.style.background = 'rgba(37, 99, 235, 0.15)';
+            unloadingIcon.style.color = 'var(--color-primary)';
+          }
+        } else {
+          unloadingCard.classList.remove('active');
+          if (unloadingWarning) unloadingWarning.style.display = 'none';
+          if (unloadingIcon) {
+            unloadingIcon.style.background = 'rgba(148, 163, 184, 0.1)';
+            unloadingIcon.style.color = 'var(--color-text-muted)';
+          }
+        }
+      };
+
       // Bind unloading service warning toggle
       const requiresUnloadingCb = document.getElementById('dec-requires-unloading');
-      const unloadingWarning = document.getElementById('dec-unloading-warning');
-      if (requiresUnloadingCb && unloadingWarning) {
-        requiresUnloadingCb.addEventListener('change', () => {
-          unloadingWarning.style.display = requiresUnloadingCb.checked ? 'block' : 'none';
-        });
+      if (requiresUnloadingCb) {
+        requiresUnloadingCb.addEventListener('change', window.updateUnloadingVisuals);
       }
 
       // Bind catalog source buttons and listeners
@@ -14010,6 +14251,13 @@ window.editDeclaration = async function(id) {
 
     openNewDeclarationSlideOver();
 
+    if (window.updateDeliveryMethodVisuals) {
+      window.updateDeliveryMethodVisuals(dec.delivery_method || 'Transporte vía courier');
+    }
+    if (window.updateUnloadingVisuals) {
+      window.updateUnloadingVisuals();
+    }
+
 
   } catch (err) {
     console.error('Error opening declaration for editing:', err);
@@ -14021,8 +14269,119 @@ window.openNewDeclarationSlideOver = async function() {
   const overlay = document.getElementById('dec-slide-over-overlay');
   if (overlay) overlay.classList.add('active');
 
+  // Si no estamos editando, nos aseguramos de que el formulario esté limpio
+  if (!editingDeclarationId) {
+    const form = document.getElementById('form-new-declaration');
+    if (form) form.reset();
+    
+    // Resetear archivo seleccionado
+    const fileInput = document.getElementById('dec-file-input');
+    if (fileInput) fileInput.setAttribute('required', 'required');
+    const fileInfo = document.getElementById('dec-file-selected-info');
+    if (fileInfo) fileInfo.innerHTML = '';
+    
+    // Resetear preferencias de etiquetado
+    const completelyRadio = document.querySelector('input[name="dec-labeling-type"][value="completely"]');
+    if (completelyRadio) completelyRadio.checked = true;
+    
+    document.querySelectorAll('.dec-labeling-card').forEach(card => {
+      const radio = card.querySelector('input[name="dec-labeling-type"]');
+      const iconWrapper = card.querySelector('.card-icon-wrapper');
+      const checkIndicator = card.querySelector('.card-check-indicator');
+      if (radio && radio.checked) {
+        card.classList.add('active');
+        if (iconWrapper) {
+          iconWrapper.style.background = 'rgba(37, 99, 235, 0.15)';
+          iconWrapper.style.color = 'var(--color-primary)';
+        }
+        if (checkIndicator) {
+          checkIndicator.style.borderColor = 'var(--color-primary)';
+          checkIndicator.style.background = 'var(--color-primary)';
+          checkIndicator.style.color = 'white';
+        }
+      } else {
+        card.classList.remove('active');
+        if (iconWrapper) {
+          iconWrapper.style.background = 'rgba(148, 163, 184, 0.1)';
+          iconWrapper.style.color = 'var(--color-text-muted)';
+        }
+        if (checkIndicator) {
+          checkIndicator.style.borderColor = 'var(--color-border)';
+          checkIndicator.style.background = 'transparent';
+          checkIndicator.style.color = 'transparent';
+        }
+      }
+    });
+
+    const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
+    if (labelingDetailsPanel) labelingDetailsPanel.style.display = 'none';
+    const labelingQtyInput = document.getElementById('dec-labeling-qty');
+    if (labelingQtyInput) {
+      labelingQtyInput.removeAttribute('required');
+      labelingQtyInput.value = 0;
+    }
+
+    const catalogList = document.getElementById('dec-selected-products-list');
+    if (catalogList) {
+      catalogList.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
+    }
+    const selectProd = document.getElementById('dec-catalog-product-select');
+    if (selectProd) selectProd.value = '';
+    const searchInput = document.getElementById('dec-catalog-product-search');
+    if (searchInput) searchInput.value = '';
+
+    const inputs = ['dec-container-count', 'dec-pallet-count', 'dec-box-count'];
+    inputs.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.disabled = false;
+        el.setAttribute('required', 'required');
+      }
+    });
+    
+    const unloadingWarning = document.getElementById('dec-unloading-warning');
+    if (unloadingWarning) unloadingWarning.style.display = 'none';
+
+    clientSelectedDateStr = '';
+    clientCalendarCurrentDate = new Date();
+    const btnExact = document.getElementById('btn-date-exact');
+    if (btnExact) btnExact.click();
+    const miniCalWrapper = document.getElementById('mini-calendar-wrapper');
+    if (miniCalWrapper) {
+      drawMiniCalendar(miniCalWrapper, clientCalendarCurrentDate.getFullYear(), clientCalendarCurrentDate.getMonth());
+    }
+    const dateLabel = document.getElementById('dec-date-selected-label');
+    if (dateLabel) dateLabel.innerHTML = '<span style="color: var(--color-text-muted);">Ninguna fecha seleccionada</span>';
+    
+    const dateWarning = document.getElementById('dec-date-warning');
+    if (dateWarning) dateWarning.style.display = 'none';
+    const dateError = document.getElementById('dec-date-error');
+    if (dateError) dateError.style.display = 'none';
+
+    const formTitle = document.getElementById('dec-slide-over-title');
+    if (formTitle) {
+      formTitle.innerHTML = 'Declarar Nuevo Ingreso';
+    }
+    const submitBtn = document.getElementById('btn-submit-declaration');
+    if (submitBtn) {
+      submitBtn.textContent = 'Vista previa de la declaración de ingreso';
+    }
+    const cancelBtn = document.getElementById('btn-cancel-edit-declaration');
+    if (cancelBtn) {
+      cancelBtn.style.display = 'none';
+    }
+  }
+
   // Limpiar/Resetear origen por defecto
   setProductSource('excel');
+
+  if (window.updateDeliveryMethodVisuals) {
+    const val = document.getElementById('dec-delivery-method').value || 'Transporte vía courier';
+    window.updateDeliveryMethodVisuals(val);
+  }
+  if (window.updateUnloadingVisuals) {
+    window.updateUnloadingVisuals();
+  }
   
   // Ejecutar verificación de seguimiento para el comercio seleccionado
   await checkSelectedCommerceTracking();
@@ -14140,6 +14499,13 @@ window.cancelEditDeclaration = function() {
     cancelBtn.style.display = 'none';
   }
   
+  if (window.updateDeliveryMethodVisuals) {
+    window.updateDeliveryMethodVisuals('Transporte vía courier');
+  }
+  if (window.updateUnloadingVisuals) {
+    window.updateUnloadingVisuals();
+  }
+
   closeNewDeclarationSlideOver();
 };
 

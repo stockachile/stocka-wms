@@ -1091,3 +1091,41 @@ Hemos limitado el ancho máximo visual del método de envío (columna **ENVÍO**
 2. **Tooltip con Dato Completo (Hover Hint)**:
    - Mantuvimos y aseguramos el atributo `title="${order.shipping_method || ''}"` en los elementos HTML. Al posicionar el cursor (mouse) sobre el texto recortado, el navegador despliega un tooltip nativo con el contenido completo del método de envío o ciudad.
 
+---
+
+## 58. Renombramiento de Cobros Adicionales a Saldos Adicionales (WMS)
+
+Hemos reestructurado la terminología y campos del módulo de cargos extraordinarios en la administración y en el portal del cliente para unificarlo bajo el concepto de **Saldos Adicionales** (compuesto por **Cargos** y **Descuentos**):
+
+1. **Selector de Tipo de Saldo (`tipo`)**:
+   - Agregamos la columna `tipo` (con valores `'cargo'` o `'descuento'`) a la tabla `extra_billing_charges` de Supabase.
+   - En el formulario de registro y edición de saldos extraordinarios, se incorporó un selector desplegable (**Tipo de Saldo**):
+     - **Cargo (Cobro Extraordinario)**: Registra cobros a sumar en la facturación del cliente.
+     - **Descuento (Saldo a Favor)**: Registra montos a restar en la facturación del cliente (representado visualmente en negativo con signo `-` y color verde `#10b981`).
+   - Los formularios de creación (`openCreateExtraChargeModal`) y edición (`openEditExtraChargeModal`) ahora leen, guardan e insertan este campo en Supabase de forma íntegra.
+
+2. **Unificación de Interfaz y Terminología**:
+   - Reemplazamos todos los encabezados y etiquetas de "Cobros Adicionales" por **Saldos Adicionales** en la navegación y tablas (tanto del Administrador como del Cliente).
+   - El estado de los registros asociados a un periodo se renombró de "Cobrado" a **"Aplicado"** para reflejar adecuadamente que tanto un cargo como un descuento han sido aplicados al balance del periodo de facturación.
+   - Las confirmaciones y diálogos de estado y eliminación fueron adaptados para referenciar "saldos adicionales" en lugar de "cobros".
+
+---
+
+## 59. Controles Visuales Premium para Método de Ingreso y Servicio de Descarga (WMS)
+
+Hemos rediseñado y modernizado la sección de método de ingreso y servicio de descarga en el formulario de creación y edición de ingresos de stock del cliente ([js/app.js](file:///C:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)), reemplazando los inputs estándar por componentes premium interactivos:
+
+1. **Cuadrícula de Tarjetas para Método de Ingreso**:
+   - Reemplazamos el antiguo elemento selector desplegable (`select`) por una cuadrícula interactiva de 4 tarjetas (`.delivery-method-grid`), cada una representando un método de ingreso (Courier, Desde Proveedor, Particular, Solicitar Retiro).
+   - Cada tarjeta contiene un icono redondeado temático, un título en negrita y un subtítulo explicativo con el flujo correspondiente.
+   - Cuenta con un indicador circular que simula un checkbox que se activa en color azul primario con un check animado cuando la tarjeta está seleccionada.
+   - Se comunica transparentemente con un input oculto `#dec-delivery-method` para mantener la compatibilidad nativa con la validación de HTML5 y los envíos al backend.
+
+2. **Interruptor Custom para Servicio de Descarga**:
+   - Reemplazamos la fila del checkbox convencional por una tarjeta de ancho completo (`.unloading-service-card`) con interacción completa al hacer clic.
+   - Incorporamos un interruptor/deslizador moderno custom (`.custom-switch`) que se desplaza y cambia de color a azul primario de forma fluida.
+   - El estado activo resalta visualmente la tarjeta de fondo y muestra el banner de advertencia sobre la tarifa especial de descarga (0,1 UF por m³).
+
+3. **Sincronización del Ciclo de Vida**:
+   - Definimos métodos globales (`window.updateDeliveryMethodVisuals` and `window.updateUnloadingVisuals`) para asegurar que el estado visual de las tarjetas y el interruptor custom estén siempre sincronizados con los datos del formulario al entrar en modo de edición (`editDeclaration`), resetear/cancelar la edición (`cancelEditDeclaration`) y al abrir un nuevo ingreso limpio (`openNewDeclarationSlideOver`).
+
