@@ -1529,9 +1529,14 @@ async function renderAdminOrders() {
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
-          <button onclick="window.manageWmsConfigOptions()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
-            <i class="ri-settings-3-line"></i> Gestionar Opciones
-          </button>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button onclick="window.refreshWmsOrders(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-refresh-line"></i> Actualizar
+            </button>
+            <button onclick="window.manageWmsConfigOptions()" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-settings-3-line"></i> Gestionar Opciones
+            </button>
+          </div>
         </div>
         <div class="card-body" style="overflow-x: auto;">
           <table class="data-table">
@@ -2551,6 +2556,190 @@ window.setWmsPageSize = function(size) {
 window.setWmsPage = function(page) {
   window.wmsCurrentPage = page;
   applyWmsFiltersAndRender();
+};
+
+window.refreshWmsOrders = async function(btn) {
+  if (btn) {
+    btn.disabled = true;
+    const icon = btn.querySelector('i');
+    if (icon) icon.className = 'ri-refresh-line spin';
+  }
+
+  try {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    const { data: orders, error } = await supabase
+      .from('orders')
+      .select(`
+        id,
+        status,
+        estado_wms,
+        created_at,
+        external_order_number,
+        external_platform,
+        origen,
+        item,
+        cantidad,
+        sku,
+        label_base64,
+        total_value,
+        customer_name,
+        customer_email,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_complement,
+        shipping_method,
+        payment_status,
+        tracking_number,
+        tracking_url,
+        courier,
+        raw_woocommerce_data,
+        raw_jumpseller_data,
+        raw_falabella_data,
+        raw_meli_data,
+        raw_optiroute_data,
+        raw_lightdata_data,
+        raw_paris_data,
+        raw_shopify_data,
+        shopify_exported,
+        comercio,
+        agenda,
+        operador,
+        fecha_procesamiento,
+        sucursal_pickeo,
+        periodo_facturacion,
+        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+      `)
+      .gte('created_at', startOfMonth)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    window.loadedOrders = orders || [];
+
+    let shipments = [];
+    if (orders && orders.length > 0) {
+      const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
+      const orderIds = orders.map(o => o.id);
+      const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
+      const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
+
+      const { data: shipData, error: shipError } = await supabase
+        .from('envios_unificados')
+        .select('*')
+        .in('pedido_referencia', allRefs);
+
+      if (!shipError && shipData) {
+        shipments = shipData;
+      }
+    }
+    window.loadedShipments = shipments;
+
+    if (window.fetchPickerOperators) {
+      await window.fetchPickerOperators(window.loadedOrders);
+    }
+
+    if (window.fetchInventoryForOrders) {
+      await window.fetchInventoryForOrders(window.loadedOrders);
+    }
+
+    applyWmsFiltersAndRender();
+
+    // Cargar historial en segundo plano
+    (async () => {
+      try {
+        const { data: histOrders, error: histError } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            status,
+            estado_wms,
+            created_at,
+            external_order_number,
+            external_platform,
+            origen,
+            item,
+            cantidad,
+            sku,
+            label_base64,
+            total_value,
+            customer_name,
+            customer_email,
+            customer_phone,
+            shipping_address,
+            shipping_city,
+            shipping_complement,
+            shipping_method,
+            payment_status,
+            tracking_number,
+            tracking_url,
+            courier,
+            raw_woocommerce_data,
+            raw_jumpseller_data,
+            raw_falabella_data,
+            raw_meli_data,
+            raw_optiroute_data,
+            raw_lightdata_data,
+            raw_paris_data,
+            raw_shopify_data,
+            shopify_exported,
+            comercio,
+            agenda,
+            operador,
+            fecha_procesamiento,
+            sucursal_pickeo,
+            periodo_facturacion,
+            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+          `)
+          .lt('created_at', startOfMonth)
+          .order('created_at', { ascending: false });
+
+        if (histError) throw histError;
+
+        if (histOrders && histOrders.length > 0) {
+          window.loadedOrders = [...(window.loadedOrders || []), ...histOrders];
+
+          const hRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
+          const hIds = histOrders.map(o => o.id);
+          const hTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
+          const allHRefs = [...hRefs, ...hIds, ...hTrackings];
+
+          const { data: shipData } = await supabase
+            .from('envios_unificados')
+            .select('*')
+            .in('pedido_referencia', allHRefs);
+
+          if (shipData) {
+            window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
+          }
+
+          if (window.fetchPickerOperators) {
+            await window.fetchPickerOperators(histOrders);
+          }
+
+          if (window.fetchInventoryForOrders) {
+            await window.fetchInventoryForOrders(histOrders);
+          }
+
+          applyWmsFiltersAndRender();
+        }
+      } catch (histErr) {
+        console.warn('[WMS] Error al cargar pedidos históricos en segundo plano durante refresh:', histErr);
+      }
+    })();
+
+  } catch (err) {
+    console.error('Error refreshing orders:', err);
+    alert('Error al actualizar pedidos: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      const icon = btn.querySelector('i');
+      if (icon) icon.className = 'ri-refresh-line';
+    }
+  }
 };
 
 window.toggleWmsOrderSelect = function(cb, orderId) {

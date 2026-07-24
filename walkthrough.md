@@ -813,6 +813,23 @@ Corregimos el error de base de datos (`violates row-level security policy for ta
    - Al realizar un `INSERT` o `UPDATE` desde el panel de administración, el motor de Supabase fallaba en la resolución de permisos de inserción en la tabla de ítems de órdenes, denegando la consulta con un error de violación de políticas RLS.
 
 2. **Solución y Migración SQL**:
-   - Diseñamos la migración [supabase_schema_order_items_rls_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_order_items_rls_fix.sql) para limpiar y recrear la política de acceso total de administrador.
+   - Diseñamos la migración [supabase_schema_order_items_rls_fix.sql](file:///c:/Users/felip%20WMS%20STOCKA/supabase_schema_order_items_rls_fix.sql) para limpiar y recrear la política de acceso total de administrador.
    - Definimos explícitamente la política sobre `public.order_items` para que permita todas las acciones (`FOR ALL`) a usuarios autenticados (`TO authenticated`), utilizando `public.is_admin()` tanto en la cláusula `USING` (lectura/borrado) como en la cláusula `WITH CHECK` (inserción/modificación).
    - Esto autoriza de manera segura y definitiva a los usuarios con rol de administrador (`role = 'admin'`) a guardar cualquier cambio estructural en los ítems del pedido sin generar bloqueos en la interfaz.
+
+---
+
+## 43. Botón de Actualización Sin Recarga de Navegador (Gestor de Pedidos WMS)
+
+Agregamos un nuevo botón **`Actualizar`** en el Panel de Control de Pedidos del Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) que permite refrescar las órdenes y sus dependencias en tiempo real sin recargar la página completa ni perder los filtros activos:
+
+1. **Ubicación en Interfaz**:
+   - Incorporamos el botón en la cabecera de la grilla de pedidos, posicionado junto al botón de "Gestionar Opciones". Utiliza el icono `ri-refresh-line` y cuenta con una animación de carga (`spin`) mientras la operación está en curso.
+
+2. **Comportamiento y Preservación de Filtros**:
+   - Al pulsarlo, el controlador `window.refreshWmsOrders(btn)` realiza un re-fetch asíncrono de los datos esenciales de Supabase:
+     * Pedidos del mes en curso y sus correspondientes ítems de orden.
+     * Despachos unificados (`envios_unificados`).
+     * Asignaciones de operarios picker y mapas de inventario comprometido.
+   - Una vez finalizada la consulta, vuelve a invocar de forma síncrona `applyWmsFiltersAndRender()`. Al no recargar la página completa, los selectores de filtro y buscador (que residen en el DOM) conservan sus estados intactos, aplicando instantáneamente los mismos criterios sobre la nueva data cargada.
+   - Para agilizar la respuesta al usuario, los pedidos históricos se vuelven a cargar y fusionar en segundo plano de manera transparente, permitiendo que la interfaz siga operativa de inmediato.
