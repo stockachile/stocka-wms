@@ -12501,6 +12501,119 @@ window.manageDeclaration = async function(id) {
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';
 
+    // Consultar estado en el Picker y renderizar la caja del panel
+    const pickerStatusBox = document.getElementById('manage-dec-picker-status-box');
+    if (pickerStatusBox) {
+      if (!pickerSupabase) {
+        pickerStatusBox.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-error-warning-line" style="font-size: 1.25rem; color: var(--color-danger);"></i>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);">Error: Base de datos del Picker no configurada.</span>
+          </div>
+        `;
+      } else {
+        const orderNumber = `ING-${dec.id.substring(0, 8).toUpperCase()}`;
+        pickerStatusBox.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-loader-4-line spin" style="font-size: 1.25rem; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consultando estado en Picker...</span>
+          </div>
+        `;
+        
+        // Ejecutar de forma asíncrona para no bloquear el renderizado del modal
+        (async () => {
+          try {
+            // 1. Consultar si está activo en Picker
+            const { data: activeItems, error: activeErr } = await pickerSupabase
+              .from('active_orders')
+              .select('*')
+              .eq('order_number', orderNumber);
+              
+            if (activeErr) throw activeErr;
+
+            if (activeItems && activeItems.length > 0) {
+              const firstItem = activeItems[0];
+              const operatorName = firstItem.operator || 'Sin asignar';
+              pickerStatusBox.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1;">
+                  <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: var(--color-warning); font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font-weight: 600;">
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--color-warning); display: inline-block;" class="pulse-warning-dot"></span>
+                    En Picker
+                  </span>
+                  <span style="font-size: 0.82rem; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                    Cargado en el Picker. Operario: <strong>${operatorName}</strong>
+                  </span>
+                </div>
+                <button type="button" class="btn btn-outline" onclick="window.sendIntakeToPicker('${dec.id}')" style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0;">
+                  <i class="ri-refresh-line"></i> Re-enviar
+                </button>
+              `;
+            } else {
+              // 2. Consultar si está en el historial
+              const { data: logs, error: logsErr } = await pickerSupabase
+                .from('history_logs')
+                .select('*')
+                .eq('pedido', orderNumber)
+                .order('created_at', { ascending: false })
+                .limit(1);
+                
+              if (logsErr) throw logsErr;
+              
+              if (logs && logs.length > 0) {
+                const log = logs[0];
+                const isCompleted = ['Completado', 'Completado-Asistido', 'Listo para retiro', 'LISTO PARA RETIRO'].includes(log.estado);
+                const badgeBg = isCompleted ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+                const badgeColor = isCompleted ? 'var(--color-success)' : 'var(--color-danger)';
+                const badgeText = isCompleted ? 'Completado' : log.estado || 'Parcial';
+                
+                pickerStatusBox.innerHTML = `
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1;">
+                    <span class="badge" style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; font-weight: 600; display: inline-block;">
+                      ${badgeText}
+                    </span>
+                    <span style="font-size: 0.82rem; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                      Completado por: <strong>${log.picker || 'Operario'}</strong>
+                    </span>
+                  </div>
+                  <div style="display: flex; gap: 0.4rem;">
+                    <button type="button" class="btn btn-outline" onclick="window.sendIntakeToPicker('${dec.id}')" style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0;" title="Re-enviar para un nuevo conteo">
+                      <i class="ri-refresh-line"></i> Re-enviar
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="window.loadCountsFromPicker('${dec.id}', \`${(log.items_summary || '').replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)" style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0; background: var(--color-success); border-color: var(--color-success); color: white;">
+                      <i class="ri-download-line"></i> Importar Conteo
+                    </button>
+                  </div>
+                `;
+              } else {
+                const hasWarehouse = !!dec.warehouse_id;
+                pickerStatusBox.innerHTML = `
+                  <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 0; flex: 1;">
+                    <span class="badge" style="background: rgba(100, 116, 139, 0.15); color: var(--color-text-muted); font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; font-weight: 600; display: inline-block;">
+                      No enviado
+                    </span>
+                    <span style="font-size: 0.82rem; color: var(--color-text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                      ${hasWarehouse ? 'El ingreso está listo para ser enviado al Picker.' : 'Debe asignar bodega antes de enviar.'}
+                    </span>
+                  </div>
+                  <button type="button" class="btn btn-primary" onclick="window.sendIntakeToPicker('${dec.id}')" ${hasWarehouse ? '' : 'disabled'} style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0;">
+                    <i class="ri-send-plane-line"></i> Enviar al Picker
+                  </button>
+                `;
+              }
+            }
+          } catch (e) {
+            console.error("Error al consultar estado en Picker:", e);
+            pickerStatusBox.innerHTML = `
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-error-warning-line" style="font-size: 1.25rem; color: var(--color-danger);"></i>
+                <span style="font-size: 0.85rem; color: var(--color-text-muted);">Error al conectar: ${e.message}</span>
+              </div>
+            `;
+          }
+        })();
+      }
+    }
+
     // Mostrar el modal
     document.getElementById('modal-manage-declaration').classList.add('active');
 
@@ -13681,7 +13794,7 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
       <button class="billing-tab-btn active" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
       <button class="billing-tab-btn" id="tab-status-btn" onclick="switchBillingAdminTab('status')"><i class="ri-toggle-line"></i> Estados de Comercio</button>
-      <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')"><i class="ri-add-circle-line"></i> Cobros Adicionales</button>
+      <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')"><i class="ri-add-circle-line"></i> Saldos Adicionales</button>
       <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
       <button class="billing-tab-btn" id="tab-notification-logs-btn" onclick="switchBillingAdminTab('notification-logs')"><i class="ri-history-line"></i> Historial de Notificaciones</button>
     </div>
@@ -13699,7 +13812,7 @@ window.renderBillingAdmin = async function() {
       <div id="extra-charges-container">
         <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
-          Cargando cobros adicionales...
+          Cargando saldos adicionales...
         </div>
       </div>
     </div>
@@ -18413,7 +18526,7 @@ window.loadExtraChargesTab = async function() {
           <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
           <input type="text" id="extra-charges-search" class="form-input" style="padding-left: 2.25rem;" placeholder="Buscar por comercio o detalle...">
         </div>
-        <button class="btn btn-primary" onclick="openCreateExtraChargeModal()"><i class="ri-add-line"></i> Registrar Cobro</button>
+        <button class="btn btn-primary" onclick="openCreateExtraChargeModal()"><i class="ri-add-line"></i> Registrar Cargo / Descuento</button>
       </div>
     </div>
     
@@ -18424,7 +18537,8 @@ window.loadExtraChargesTab = async function() {
             <tr>
               <th>Fecha</th>
               <th>Comercio</th>
-              <th>Detalle del Cobro</th>
+              <th>Tipo</th>
+              <th>Detalle</th>
               <th style="text-align: right;">Monto</th>
               <th>Estado</th>
               <th>Periodo Asignado</th>
@@ -18433,7 +18547,7 @@ window.loadExtraChargesTab = async function() {
           </thead>
           <tbody id="extra-charges-table-body">
             <tr>
-              <td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+              <td colspan="8" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
                 <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
                 Cargando registros...
               </td>
@@ -18480,9 +18594,9 @@ async function fetchAndRenderExtraCharges() {
     if (tbody) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          <td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-danger);">
             <i class="ri-error-warning-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-            Error al cargar cobros adicionales: ${err.message}
+            Error al cargar saldos adicionales: ${err.message}
           </td>
         </tr>
       `;
@@ -18501,9 +18615,9 @@ function filterAndRenderExtraChargesTable(query) {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="7" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+        <td colspan="8" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-search-eye-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
-          No se encontraron registros de cobros adicionales.
+          No se encontraron registros de cargos o descuentos.
         </td>
       </tr>
     `;
@@ -18513,7 +18627,7 @@ function filterAndRenderExtraChargesTable(query) {
   tbody.innerHTML = filtered.map(c => {
     const formattedDate = new Date(c.fecha + 'T00:00:00').toLocaleDateString();
     const statusClass = c.status === 'cobrado' ? 'status-active' : 'status-inactive';
-    const statusText = c.status === 'cobrado' ? 'Cobrado' : 'Pendiente';
+    const statusText = c.status === 'cobrado' ? 'Aplicado' : 'Pendiente';
     const statusBadge = `<span class="client-badge ${statusClass}">${statusText}</span>`;
 
     let periodName = '-';
@@ -18525,7 +18639,7 @@ function filterAndRenderExtraChargesTable(query) {
     let actionsHtml = '';
     if (c.status === 'pendiente') {
       actionsHtml = `
-        <button class="btn btn-outline btn-sm" onclick="markExtraChargeAsCharged('${c.id}')" style="padding: 0.15rem 0.35rem; border-color: var(--color-success); color: var(--color-success); margin-right: 0.25rem;" title="Marcar como Cobrado">
+        <button class="btn btn-outline btn-sm" onclick="markExtraChargeAsCharged('${c.id}')" style="padding: 0.15rem 0.35rem; border-color: var(--color-success); color: var(--color-success); margin-right: 0.25rem;" title="Marcar como Cobrado/Aplicado">
           <i class="ri-check-line" style="font-size: 0.9rem;"></i>
         </button>
       `;
@@ -18553,14 +18667,23 @@ function filterAndRenderExtraChargesTable(query) {
       ? '<span style="font-size: 0.7rem; color: var(--color-success); font-weight: 600; display: block; opacity: 0.95; margin-top: 0.15rem;">IVA Incluido</span>'
       : '<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-top: 0.15rem;">+ IVA (Neto)</span>';
 
+    const isDescuento = c.tipo === 'descuento';
+    const tipoBadge = isDescuento
+      ? `<span class="client-badge status-active" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);">Descuento</span>`
+      : `<span class="client-badge status-inactive" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);">Cargo</span>`;
+
+    const displayAmount = isDescuento ? `-${window.formatCLP(c.monto)}` : window.formatCLP(c.monto);
+    const amountColorStyle = isDescuento ? 'color: #10b981;' : 'color: var(--color-text-main);';
+
     return `
       <tr>
         <td style="vertical-align: middle; color: var(--color-text-muted);">${formattedDate}</td>
         <td style="vertical-align: middle; font-weight: 600; color: var(--color-text-main);">${c.comercio}</td>
+        <td style="vertical-align: middle;">${tipoBadge}</td>
         <td style="vertical-align: middle;">${c.detalle}</td>
-        <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main); line-height: 1.3;">
+        <td style="vertical-align: middle; text-align: right; font-weight: 600; ${amountColorStyle} line-height: 1.3;">
           <div style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: flex-end; width: 100%;">
-            <span>${window.formatCLP(c.monto)}</span>
+            <span>${displayAmount}</span>
             <button type="button" class="copy-amount-btn" onclick="window.copyAmountToClipboard('${c.monto || 0}', this)" title="Copiar monto">
               <i class="ri-file-copy-line"></i>
             </button>
@@ -18603,7 +18726,7 @@ window.openCreateExtraChargeModal = async function() {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 450px;">
       <div class="modal-header">
-        <h3><i class="ri-add-circle-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Registrar Cobro Adicional</h3>
+        <h3><i class="ri-add-circle-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Registrar Saldo Adicional</h3>
         <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
       </div>
       <form id="form-create-extra-charge">
@@ -18618,13 +18741,21 @@ window.openCreateExtraChargeModal = async function() {
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
-            <label class="form-label">Fecha del Cobro</label>
+            <label class="form-label">Tipo de Saldo</label>
+            <select id="extra-charge-tipo" class="form-input" style="width: 100%; box-sizing: border-box;" required>
+              <option value="cargo" selected>Cargo (Cobro Extraordinario)</option>
+              <option value="descuento">Descuento (Saldo a Favor)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label">Fecha</label>
             <input type="date" id="extra-charge-fecha" class="form-input" value="${todayStr}" required style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
-            <label class="form-label">Detalle del Cobro</label>
-            <input type="text" id="extra-charge-detalle" class="form-input" placeholder="Ej. Sobredimensión pallets, Material embalaje extra" required style="width: 100%; box-sizing: border-box;">
+            <label class="form-label">Detalle</label>
+            <input type="text" id="extra-charge-detalle" class="form-input" placeholder="Ej. Sobredimensión pallets, Descuento por error de picking" required style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
@@ -18643,7 +18774,7 @@ window.openCreateExtraChargeModal = async function() {
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-extra-charge"><i class="ri-save-line"></i> Guardar Cobro</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-extra-charge"><i class="ri-save-line"></i> Guardar Saldo</button>
         </div>
       </form>
     </div>
@@ -18659,6 +18790,7 @@ window.openCreateExtraChargeModal = async function() {
 
     const comercio = document.getElementById('extra-charge-comercio').value;
     const fecha = document.getElementById('extra-charge-fecha').value;
+    const tipo = document.getElementById('extra-charge-tipo').value;
     const detalle = document.getElementById('extra-charge-detalle').value.trim();
     const monto = parseInt(document.getElementById('extra-charge-monto').value, 10);
     const iva_tipo = document.getElementById('extra-charge-iva-tipo').value;
@@ -18669,6 +18801,7 @@ window.openCreateExtraChargeModal = async function() {
         .insert({
           comercio,
           fecha,
+          tipo,
           detalle,
           monto,
           iva_tipo,
@@ -18681,9 +18814,9 @@ window.openCreateExtraChargeModal = async function() {
       await fetchAndRenderExtraCharges();
     } catch (err) {
       console.error('Error inserting extra charge:', err);
-      alert('Error al registrar cobro: ' + err.message);
+      alert('Error al registrar saldo: ' + err.message);
       btn.disabled = false;
-      btn.innerHTML = '<i class="ri-save-line"></i> Guardar Cobro';
+      btn.innerHTML = '<i class="ri-save-line"></i> Guardar Saldo';
     }
   });
 };
@@ -18732,7 +18865,7 @@ window.openEditExtraChargeModal = async function(chargeId) {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 450px;">
       <div class="modal-header">
-        <h3><i class="ri-pencil-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Editar Cobro Adicional</h3>
+        <h3><i class="ri-pencil-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Editar Saldo Adicional</h3>
         <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
       </div>
       <form id="form-edit-extra-charge">
@@ -18747,12 +18880,20 @@ window.openEditExtraChargeModal = async function(chargeId) {
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
-            <label class="form-label">Fecha del Cobro</label>
+            <label class="form-label">Tipo de Saldo</label>
+            <select id="edit-charge-tipo" class="form-input" style="width: 100%; box-sizing: border-box;" required>
+              <option value="cargo" ${charge.tipo !== 'descuento' ? 'selected' : ''}>Cargo (Cobro Extraordinario)</option>
+              <option value="descuento" ${charge.tipo === 'descuento' ? 'selected' : ''}>Descuento (Saldo a Favor)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label">Fecha</label>
             <input type="date" id="edit-charge-fecha" class="form-input" value="${charge.fecha}" required style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
-            <label class="form-label">Detalle del Cobro</label>
+            <label class="form-label">Detalle</label>
             <input type="text" id="edit-charge-detalle" class="form-input" value="${charge.detalle || ''}" placeholder="Ej. Sobredimensión pallets" required style="width: 100%; box-sizing: border-box;">
           </div>
 
@@ -18788,6 +18929,7 @@ window.openEditExtraChargeModal = async function(chargeId) {
 
     const comercio = document.getElementById('edit-charge-comercio').value;
     const fecha = document.getElementById('edit-charge-fecha').value;
+    const tipo = document.getElementById('edit-charge-tipo').value;
     const detalle = document.getElementById('edit-charge-detalle').value.trim();
     const monto = parseInt(document.getElementById('edit-charge-monto').value, 10);
     const iva_tipo = document.getElementById('edit-charge-iva-tipo').value;
@@ -18798,6 +18940,7 @@ window.openEditExtraChargeModal = async function(chargeId) {
         .update({
           comercio,
           fecha,
+          tipo,
           detalle,
           monto,
           iva_tipo
@@ -18829,13 +18972,13 @@ window.markExtraChargeAsCharged = async function(chargeId) {
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 400px;">
       <div class="modal-header">
-        <h3><i class="ri-bill-line" style="color: var(--color-success); margin-right: 0.5rem;"></i> Considerar Cobro</h3>
+        <h3><i class="ri-bill-line" style="color: var(--color-success); margin-right: 0.5rem;"></i> Aplicar Saldo a Periodo</h3>
         <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
       </div>
       <form id="form-assign-period-extra">
         <div class="modal-body" style="padding: 1.25rem;">
           <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.5;">
-            Selecciona el período de facturación en el cual se ha incluido o considerado este cobro extraordinario:
+            Selecciona el período de facturación en el cual se ha considerado o aplicado este saldo adicional:
           </p>
           <div class="form-group">
             <label class="form-label">Periodo de Facturación</label>
@@ -18847,7 +18990,7 @@ window.markExtraChargeAsCharged = async function(chargeId) {
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-submit-assign-period"><i class="ri-check-line"></i> Marcar como Cobrado</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-assign-period"><i class="ri-check-line"></i> Marcar como Aplicado</button>
         </div>
       </form>
     </div>
@@ -18880,13 +19023,13 @@ window.markExtraChargeAsCharged = async function(chargeId) {
       console.error('Error marking charge as charged:', err);
       alert('Error al actualizar el registro: ' + err.message);
       btn.disabled = false;
-      btn.innerHTML = '<i class="ri-check-line"></i> Marcar como Cobrado';
+      btn.innerHTML = '<i class="ri-check-line"></i> Marcar como Aplicado';
     }
   });
 };
 
 window.revertExtraChargeToPending = async function(chargeId) {
-  if (!confirm('¿Estás seguro de revertir este cobro a estado Pendiente? Se desvinculará del periodo de facturación.')) return;
+  if (!confirm('¿Estás seguro de revertir este saldo a estado Pendiente? Se desvinculará del periodo de facturación.')) return;
 
   showSavingBadge(true);
   try {
@@ -18910,7 +19053,7 @@ window.revertExtraChargeToPending = async function(chargeId) {
 };
 
 window.deleteExtraCharge = async function(chargeId) {
-  if (!confirm('¿Estás seguro de eliminar este registro de cobro adicional de forma permanente?')) return;
+  if (!confirm('¿Estás seguro de eliminar este registro de saldo adicional de forma permanente?')) return;
 
   showSavingBadge(true);
   try {
@@ -21567,7 +21710,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: order.tracking_number || '',
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'Pendiente (Obs)',
@@ -21622,7 +21765,7 @@ window.sendSingleOrderToPicker = async function(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: order.tracking_number || '',
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
@@ -21645,6 +21788,240 @@ window.sendSingleOrderToPicker = async function(order) {
     if (insErr) throw insErr;
   }
 };
+
+window.sendIntakeToPicker = async function(id) {
+  if (!pickerSupabase) {
+    Swal.fire('Error', 'Conexión a la base de datos del Picker no configurada.', 'error');
+    return;
+  }
+
+  try {
+    // 1. Obtener los detalles completos del ingreso de stock
+    const { data: dec, error: decErr } = await supabase
+      .from('stock_declarations')
+      .select('*, warehouses (name)')
+      .eq('id', id)
+      .single();
+
+    if (decErr) throw decErr;
+    if (!dec) throw new Error('No se encontró la declaración.');
+
+    if (!dec.warehouse_id || !dec.warehouses) {
+      Swal.fire('Atención', 'Debe asignar y guardar una bodega para este ingreso antes de poder enviarlo al Picker.', 'warning');
+      return;
+    }
+
+    const products = getDeclarationProducts(dec);
+    if (!products || products.length === 0) {
+      Swal.fire('Atención', 'El ingreso no contiene productos declarados en la planilla o catálogo.', 'warning');
+      return;
+    }
+
+    const orderNumber = `ING-${dec.id.substring(0, 8).toUpperCase()}`;
+
+    // 2. Mostrar spinner de carga
+    Swal.fire({
+      title: 'Enviando al Picker...',
+      text: 'Registrando ítems en la base de datos del Picker.',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    // 3. Eliminar cualquier registro previo del mismo ingreso en active_orders (Picker)
+    await pickerSupabase
+      .from('active_orders')
+      .delete()
+      .eq('order_number', orderNumber);
+
+    // 4. Construir payloads para el Picker
+    const payloads = [];
+    const totu = dec.quantity_declared || 0;
+
+    for (const item of products) {
+      // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
+      const pickingSku = (item.barcode && item.barcode.trim() && item.barcode.trim() !== item.sku.trim())
+        ? item.barcode.trim()
+        : item.sku.trim();
+
+      payloads.push({
+        sucursal: dec.warehouses.name || 'Sucursal Virtual (Hub)',
+        order_number: orderNumber,
+        agenda: 'INGRESO',
+        quantity: parseInt(item.qty, 10) || 1,
+        sku: pickingSku,
+        name: item.name || 'Producto Ingreso WMS',
+        color: '-',
+        talla: '-',
+        manga: '-',
+        cuello: '-',
+        client_name: `Ingreso: ${dec.comercio || 'Comercio'}`,
+        tracking: dec.delivery_method || 'Particular',
+        operator: '',
+        totu: totu,
+        sheet_status: 'EN PREPARACIÓN',
+        observation: `⚠️ INGRESO DE STOCK. Contar y verificar cantidades recibidas. Notas: ${dec.notes || 'Ninguna'}`,
+        contact_data_q: dec.contact_info || '',
+        contact_data_r: dec.carrier_info || '',
+        contact_data_s: '',
+        contact_data_t: '',
+        contact_data_u: '',
+        extra_col_v: '',
+        comercio: dec.comercio || 'MAGIC MAKEUP',
+        created_by: 'WMS - Ingreso'
+      });
+    }
+
+    // 5. Insertar en Picker active_orders
+    const { error: insErr } = await pickerSupabase
+      .from('active_orders')
+      .insert(payloads);
+
+    if (insErr) throw insErr;
+
+    // 6. Actualizar estado del ingreso de stock en el WMS a 'En Recepción - Pendiente Conteo' si estaba en 'Creada' o 'Bodega Asignada'
+    let targetStatus = dec.status;
+    if (dec.status === 'Creada' || dec.status === 'Bodega Asignada') {
+      targetStatus = 'En Recepción - Pendiente Conteo';
+    }
+
+    const newHistory = [...(dec.history || [])];
+    newHistory.push({
+      status: targetStatus,
+      timestamp: new Date().toISOString(),
+      comment: 'Ingreso enviado exitosamente al Picker para conteo de unidades.'
+    });
+
+    const { error: wmsUpdateErr } = await supabase
+      .from('stock_declarations')
+      .update({
+        status: targetStatus,
+        history: newHistory
+      })
+      .eq('id', dec.id);
+
+    if (wmsUpdateErr) throw wmsUpdateErr;
+
+    // 7. Recargar datos en la UI de gestión
+    await window.manageDeclaration(dec.id);
+    if (window.loadDeclarationsAdmin) {
+      await window.loadDeclarationsAdmin();
+    }
+
+    Swal.fire('¡Éxito!', 'El ingreso de stock ha sido enviado correctamente al Picker.', 'success');
+
+  } catch (err) {
+    console.error('Error al enviar ingreso al Picker:', err);
+    Swal.fire('Error', 'No se pudo enviar el ingreso al Picker: ' + err.message, 'error');
+  }
+};
+
+window.loadCountsFromPicker = async function(id, itemsSummary) {
+  try {
+    // 1. Obtener la declaración del WMS
+    const { data: dec, error: decErr } = await supabase
+      .from('stock_declarations')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (decErr) throw decErr;
+    if (!dec) throw new Error('No se encontró la declaración.');
+
+    const products = getDeclarationProducts(dec);
+    if (!products || products.length === 0) {
+      Swal.fire('Atención', 'El ingreso no contiene productos declarados.', 'warning');
+      return;
+    }
+
+    // 2. Parsear el campo items_summary
+    // Formato típico: "SKU-A (10/10), SKU-B (9/12)" o "#N/A (1/1)"
+    const countsMap = {};
+    const regex = /([\w.-]+)\s*\((\d+)\/(\d+)\)/g;
+    let match;
+    while ((match = regex.exec(itemsSummary)) !== null) {
+      const code = match[1].trim().toUpperCase();
+      const scanned = parseInt(match[2], 10) || 0;
+      countsMap[code] = scanned;
+    }
+
+    // 3. Cruzar conteo del Picker con los productos de la declaración
+    let totalScanned = 0;
+    let totalExpected = 0;
+
+    const matchedProducts = products.map(item => {
+      const itemSkuNorm = item.sku.trim().toUpperCase();
+      const itemBarcodeNorm = item.barcode ? item.barcode.trim().toUpperCase() : null;
+
+      // Buscar si el picker escaneó por SKU o por Barcode
+      let scannedQty = 0;
+      if (countsMap[itemSkuNorm] !== undefined) {
+        scannedQty = countsMap[itemSkuNorm];
+      } else if (itemBarcodeNorm && countsMap[itemBarcodeNorm] !== undefined) {
+        scannedQty = countsMap[itemBarcodeNorm];
+      } else {
+        // No escaneado por el picker, se asume 0 unidades
+        scannedQty = 0;
+      }
+
+      totalScanned += scannedQty;
+      totalExpected += (item.qty || 0);
+
+      return {
+        ...item,
+        qty_scanned: scannedQty
+      };
+    });
+
+    const totalIncidents = Math.max(0, totalExpected - totalScanned);
+
+    // 4. Pre-llenar campos en la pantalla del administrador
+    const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
+    const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
+
+    if (qtyReceivedInput) qtyReceivedInput.value = totalScanned;
+    if (qtyIncidentsInput) qtyIncidentsInput.value = totalIncidents;
+
+    // Si hay un contenedor de detalles de conteo en la UI, podemos poblar o pre-llenar los inputs por SKU si existiesen
+    // Opcional: llenar comentarios finales con un resumen
+    const adminNotesInput = document.getElementById('manage-dec-admin-notes');
+    if (adminNotesInput) {
+      const now = new Date();
+      const dateStr = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+      adminNotesInput.value = `Conteo del Picker importado el ${dateStr}. Leído: ${totalScanned}/${totalExpected} unidades.`;
+    }
+
+    // Cambiar estado visualmente a "En proceso de conteo/clasificación"
+    const statusInput = document.getElementById('manage-dec-status');
+    if (statusInput && dec.status === 'En Recepción - Pendiente Conteo') {
+      statusInput.value = 'En proceso de conteo/clasificación';
+      const stageCommentInput = document.getElementById('manage-dec-stage-comment');
+      if (stageCommentInput) {
+        stageCommentInput.value = 'Conteo del Picker importado. Se inicia revisión final.';
+      }
+      handleManageStatusChange('En proceso de conteo/clasificación');
+    }
+
+    // Crear un banner informativo en la alerta del modal indicando que se importó exitosamente
+    const alertContainer = document.getElementById('modal-dec-alert-container');
+    if (alertContainer) {
+      alertContainer.innerHTML = `
+        <div class="alert alert-success" style="display:block; margin-bottom: 1rem;">
+          <i class="ri-checkbox-circle-line"></i> 
+          <strong>¡Conteo Importado del Picker!</strong> Se leyeron ${totalScanned} de ${totalExpected} unidades. Incidencias calculadas: ${totalIncidents} unidades faltantes.
+        </div>
+      `;
+    }
+
+    Swal.fire('¡Conteo Importado!', `Se cargaron ${totalScanned} unidades del conteo físico del Picker de forma exitosa.`, 'success');
+
+  } catch (err) {
+    console.error('Error al importar conteo del Picker:', err);
+    Swal.fire('Error', 'No se pudo cargar el conteo del Picker: ' + err.message, 'error');
+  }
+};
+
 
 window.bulkSetWmsOrderPickingInfo = async function() {
   const ids = Array.from(window.wmsSelectedOrderIds || []);

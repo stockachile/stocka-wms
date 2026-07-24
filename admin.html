@@ -10,6 +10,22 @@
   <link rel="stylesheet" href="./css/style.css">
   <link rel="stylesheet" href="./css/layout.css">
   <script src="./js/theme.js"></script>
+  <style>
+    @keyframes pulse-warning {
+      0% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+      }
+      70% {
+        box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+      }
+    }
+    .pulse-warning-dot {
+      animation: pulse-warning 1.8s infinite;
+    }
+  </style>
   <!-- Excel / CSV Parser (SheetJS) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- PDF Generator (html2pdf) -->
@@ -594,6 +610,23 @@
             <div style="flex: 1;">
               <span style="color: var(--color-text-muted); font-size: 0.75rem; display: block; margin-bottom: 2px; font-weight: 600; text-transform: uppercase;">Notas Cliente</span>
               <div id="manage-dec-notes" style="font-style: italic; color: var(--color-text-main); line-height: 1.45;"></div>
+            </div>
+          </div>
+
+          <!-- Panel Integración con Picker -->
+          <div id="manage-dec-picker-panel" class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
+              <i class="ri-tablet-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Conteo e Integración con Picker App
+            </label>
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+              Envía este ingreso al Picker para realizar el conteo digital. Una vez finalizado por el operario, podrás importar las cantidades físicas directamente aquí.
+            </p>
+            
+            <div id="manage-dec-picker-status-box" style="padding: 0.85rem; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-bg); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-loader-4-line spin" style="font-size: 1.25rem; color: var(--color-primary); animation: spin 1s linear infinite;"></i>
+                <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consultando estado en Picker...</span>
+              </div>
             </div>
           </div>
 

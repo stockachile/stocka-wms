@@ -1144,3 +1144,27 @@ Hemos reestructurado y mejorado visualmente la sección final de datos de contac
    - Aplicamos un padding lateral izquierdo de `2.25rem` a las cajas de texto para alinear perfectamente el texto de entrada y los marcadores de posición sin superponerse con los iconos.
    - El área de notas (`textarea`) se aumentó a 3 filas (`rows="3"`) e incluye soporte para cambio de tamaño vertical con un alto mínimo de `80px`.
 
+---
+
+## 61. Integración de Ingresos de Stock con Picker App (WMS)
+
+Hemos implementado un flujo bidireccional completo para integrar los ingresos de stock del WMS con el sistema de operarios en el Picker:
+
+1. **Preservación de Código de Barras en el Catálogo (`js/app.js`)**:
+   - Modificamos la visualización y autocompletado del catálogo al agregar productos en el formulario de ingreso del cliente. El sistema ahora extrae y asocia el atributo `barcode` (código de barras) de cada producto seleccionado.
+   - En el envío del formulario, la lista de productos seleccionados (`parsedProducts`) incluye el campo `barcode`.
+
+2. **Panel de Integración con Picker en Administración (`admin.html`)**:
+   - Agregamos la sección interactiva `#manage-dec-picker-panel` en el modal de gestión de ingresos de stock del administrador.
+   - Esta sección permite enviar el ingreso actual al Picker y realizar la consulta de su estado en tiempo real.
+   - Cuenta con badges adaptativos ("No enviado", "En Picker", "Completado/Parcial") y un indicador de operario asignado.
+
+3. **Carga y Registro de Órdenes de Ingreso en el Picker (`js/admin.js`)**:
+   - Implementamos `window.sendIntakeToPicker(id)` para registrar los productos declarados en la tabla `active_orders` del Picker con el prefijo de orden `ING-${ID}` y agenda `'INGRESO'`.
+   - **Regla de Código de Barras**: Si un producto cuenta con código de barras declarado por catálogo o planilla, y es diferente al SKU, se envía el código de barras en lugar del SKU para facilitar la lectura física por el escáner del operario.
+   - El estado del ingreso en el WMS se actualiza automáticamente a "En Recepción - Pendiente Conteo".
+
+4. **Importación Automatizada de Cantidades Contadas (`js/admin.js`)**:
+   - Implementamos `window.loadCountsFromPicker(id, itemsSummary)` para parsear e importar el desglose del campo `items_summary` registrado en la tabla `history_logs` del Picker.
+   - Utiliza una expresión regular avanzada para emparejar y cruzar el conteo por SKU y por código de barras de manera precisa.
+   - Auto-rellena de forma instantánea los campos de **Cantidad Recepcionada (Física)** e **Incidencias** en el panel administrativo, y avanza el estado del flujo a "En proceso de conteo/clasificación" para facilitar el cierre.

@@ -12298,6 +12298,7 @@ window.renderDeclarations = async function() {
                    data-name="${p.name.replace(/"/g, '&quot;')}" 
                    data-vol="${p.volumen || 0}" 
                    data-price="${p.price || 0}" 
+                   data-barcode="${p.barcode || ''}"
                    style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
                    onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                    onmouseout="this.style.backgroundColor='transparent'">
@@ -12338,8 +12339,9 @@ window.renderDeclarations = async function() {
           const name = item.getAttribute('data-name');
           const vol = parseFloat(item.getAttribute('data-vol') || '0');
           const price = parseFloat(item.getAttribute('data-price') || '0');
+          const barcode = item.getAttribute('data-barcode') || '';
           
-          addCatalogProductToDeclarationList(sku, name, vol, price);
+          addCatalogProductToDeclarationList(sku, name, vol, price, barcode);
           
           // Clear and hide suggestions
           searchProdInput.value = '';
@@ -12631,8 +12633,9 @@ window.renderDeclarations = async function() {
             const name = qtyInput.getAttribute('data-name');
             const qty = parseInt(qtyInput.value, 10);
             const price = parseFloat(qtyInput.getAttribute('data-price') || '0');
+            const barcode = qtyInput.getAttribute('data-barcode') || '';
             if (qty > 0) {
-              parsedProducts.push({ sku, name, qty, price, subtotal: qty * price });
+              parsedProducts.push({ sku, name, qty, price, barcode, subtotal: qty * price });
               totalQtyFromExcel += qty;
             }
           });
@@ -20901,7 +20904,7 @@ async function loadCatalogProductsForDeclaration(commerce) {
   try {
     const { data: prods, error } = await supabase
       .from('products')
-      .select('sku, name, volumen, price')
+      .select('sku, name, volumen, price, barcode')
       .eq('comercio', commerce)
       .order('name');
       
@@ -20917,7 +20920,7 @@ async function loadCatalogProductsForDeclaration(commerce) {
       }
       let html = '<option value="">-- Selecciona un Producto --</option>';
       prods.forEach(p => {
-        html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}">${p.name} (${p.sku})</option>`;
+        html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}" data-barcode="${p.barcode || ''}">${p.name} (${p.sku})</option>`;
       });
       selectProd.innerHTML = html;
     }
@@ -20928,7 +20931,7 @@ async function loadCatalogProductsForDeclaration(commerce) {
   }
 }
 
-function addCatalogProductToDeclarationList(sku, name, vol, price = 0) {
+function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '') {
   const container = document.getElementById('dec-selected-products-list');
   if (!container) return;
 
@@ -20955,7 +20958,7 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0) {
       <div style="font-size: 0.72rem; color: var(--color-text-muted);">SKU: ${sku} | Vol: ${vol.toFixed(4)} m³</div>
     </div>
     <div style="display: flex; align-items: center; gap: 0.5rem;">
-      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" min="1" value="1" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
+      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" data-barcode="${barcode}" min="1" value="1" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
       <button type="button" class="btn-remove-selected-prod" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 0.25rem;"><i class="ri-delete-bin-line"></i></button>
     </div>
   `;
