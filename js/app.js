@@ -2270,6 +2270,11 @@ async function openEditProductModal(prodId) {
       editPackSection.style.display = product.is_pack ? 'block' : 'none';
     }
 
+    const editIsVirtual = document.getElementById('edit-prod-is-virtual');
+    if (editIsVirtual) {
+      editIsVirtual.checked = !!product.is_virtual;
+    }
+
     // Obtener ítems del pack si corresponde
     window.currentPackItems = [];
     if (product.is_pack) {
@@ -5560,6 +5565,7 @@ async function renderIntegrations() {
     const wooIntegration = integrationsList ? integrationsList.find(i => i.platform === 'WooCommerce') : null;
     const jumpsellerIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Jumpseller') : null;
     const walmartIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Walmart') : null;
+    const tiendanubeIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Tiendanube') : null;
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
@@ -5632,6 +5638,14 @@ async function renderIntegrations() {
       }
     }
 
+    const hasTiendanube = !!tiendanubeIntegration;
+    const tiendanubeUrl = hasTiendanube ? tiendanubeIntegration.shop_url : '';
+    const tiendanubeToken = hasTiendanube ? tiendanubeIntegration.access_token : '';
+    const tiendanubeSecret = hasTiendanube ? (tiendanubeIntegration.webhook_secret || '') : '';
+    const tiendanubeStatusText = hasTiendanube 
+      ? (tiendanubeIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
     const isObserver = userRole === 'observer';
     const disabledAttr = isObserver ? 'disabled' : '';
 
@@ -5681,6 +5695,12 @@ async function renderIntegrations() {
           ? '<button type="submit" class="btn btn-primary" id="btn-save-jumpseller" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Jumpseller</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-jumpseller" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Jumpseller</button>');
 
+    const tiendanubeButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasTiendanube 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-tiendanube" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Tiendanube</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-tiendanube" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Tiendanube</button>');
+
     let selectorHtml = '';
     if (assignedComercios.length > 1) {
       selectorHtml = `
@@ -5721,6 +5741,7 @@ async function renderIntegrations() {
         <button class="integration-tab" data-tab="tab-walmart"><i class="ri-store-2-line"></i> Walmart</button>
         <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
         <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
+        <button class="integration-tab" data-tab="tab-tiendanube"><i class="ri-cloud-fill"></i> Tiendanube</button>
       </div>
 
       <!-- Tab Content Container -->
@@ -5736,7 +5757,8 @@ async function renderIntegrations() {
             ${hasWalmart ? '<div class="card" style="border: 1px solid rgba(0, 113, 206, 0.2); background: rgba(0, 113, 206, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #0071ce;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Walmart</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + walmartStatusText + '</div></div>' : ''}
             ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
             ${hasJumpseller ? '<div class="card" style="border: 1px solid rgba(2, 132, 199, 0.2); background: rgba(2, 132, 199, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-2-line" style="font-size: 2rem; color: #0284c7;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Jumpseller</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + jumpsellerUrl + '</span></div></div>' + jumpsellerStatusText + '</div></div>' : ''}
-            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
+            ${hasTiendanube ? '<div class="card" style="border: 1px solid rgba(6, 182, 212, 0.2); background: rgba(6, 182, 212, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-cloud-fill" style="font-size: 2rem; color: #06b6d4;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Tiendanube</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + tiendanubeUrl + '</span></div></div>' + tiendanubeStatusText + '</div></div>' : ''}
+            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller && !hasWalmart && !hasTiendanube ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
           </div>
         </div>
 
@@ -6278,12 +6300,76 @@ async function renderIntegrations() {
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tu tienda Jumpseller esté activa y sea accesible de forma segura bajo HTTPS.</p>
                   </li>
                   <li>
-                    <strong style="color: var(--color-text-main);">Obtener Credenciales de la API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel administrativo de Jumpseller, ve a <em>Configuración &gt; API</em> (o entra en la esquina superior de tu cuenta). Copia el <strong>Login Key</strong> y el <strong>Auth Token</strong> generados.</p>
-                  </li>
-                  <li>
                     <strong style="color: var(--color-text-main);">Guardar Configuración:</strong>
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Pega la URL de tu tienda (ej: <code>https://mitienda.jumpseller.com</code>), el Login Key y el Auth Token en el formulario y haz clic en <strong>Conectar Tienda Jumpseller</strong>.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Tiendanube -->
+        <div id="tab-tiendanube" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-cloud-fill"></i> Tiendanube Integration</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasTiendanube ? 'rgba(6, 182, 212, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasTiendanube ? 'rgba(6, 182, 212, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasTiendanube ? '#06b6d4' : 'var(--color-text-main)'};">Tiendanube Store</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y productos en tiempo real.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${tiendanubeStatusText}
+                   </div>
+                </div>
+                <form id="form-tiendanube-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">Store ID (ID de la Tienda)</label>
+                    <input type="text" id="tiendanube-url" class="form-input" placeholder="ej. 1234567 o URL de tu tienda" value="${tiendanubeUrl}" ${hasTiendanube ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasTiendanube ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
+                    <input type="password" id="tiendanube-token" class="form-input" placeholder="Ingresa el Token generado para la API" value="${tiendanubeToken}" ${hasTiendanube ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasTiendanube ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">Webhook Secret (Opcional - Clave de Firma)</label>
+                    <input type="password" id="tiendanube-secret" class="form-input" placeholder="Token o clave secreta del webhook para firmas HMAC" value="${tiendanubeSecret}" ${hasTiendanube ? 'readonly' : ''} ${disabledAttr} style="background-color: ${hasTiendanube || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${tiendanubeButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-cloud-fill" style="color: var(--color-primary);"></i></span> Guía de Integración Tiendanube
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener tu Store ID (ID de tienda):</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">El Store ID es el identificador numérico de tu tienda. Lo puedes encontrar en la barra de direcciones de tu navegador al iniciar sesión en tu panel administrador de Tiendanube (ej: <code>admin.tiendanube.com/1234567/</code>, donde 1234567 es tu ID).</p>
+                  </li>
+                  <li>
+                    <strong>Obtener Credenciales de la API (Access Token):</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">En tu panel administrador de Tiendanube, ve a <strong>Mis aplicaciones &gt; Ver todas las aplicaciones &gt; Crear aplicación privada / API</strong>. Crea una credencial de tipo API asignándole permisos de lectura de productos y órdenes, y copia el token generado.</p>
+                  </li>
+                  <li>
+                    <strong>Configurar Webhooks (Tiempo Real):</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Para recibir notificaciones en tiempo real, puedes crear webhooks apuntando a la dirección de notificaciones del WMS. Si configuras un Webhook Secret en Tiendanube, ingrésalo aquí arriba para que WMS STOCKA verifique la autenticidad de cada firma.</p>
+                  </li>
+                  <li>
+                    <strong>Guardar Configuración:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Pega tu ID de Tienda, el Access Token y el Webhook Secret (si aplica), y haz clic en <strong>Conectar Tienda Tiendanube</strong>.</p>
                   </li>
                 </ol>
               </div>
@@ -7292,6 +7378,72 @@ async function renderIntegrations() {
       }
     }
 
+    // Tiendanube Submit Listener
+    if(!hasTiendanube) {
+      const formTiendanube = document.getElementById('form-tiendanube-integration');
+      if (formTiendanube) {
+        formTiendanube.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          const btn = document.getElementById('btn-save-tiendanube');
+          btn.disabled = true;
+          btn.textContent = 'Conectando...';
+
+          const store_id = document.getElementById('tiendanube-url').value.trim();
+          const token = document.getElementById('tiendanube-token').value.trim();
+          const secret = document.getElementById('tiendanube-secret').value.trim();
+
+          try {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'Tiendanube',
+              shop_url: store_id,
+              access_token: token,
+              webhook_secret: secret || null,
+              is_active: true,
+              comercio: window.activeIntegrationCommerce
+            }]);
+            if(insErr) throw insErr;
+            
+            alert('Integración con Tiendanube guardada correctamente.');
+            renderIntegrations(); // Recargar vista
+          } catch(err) {
+            console.error(err);
+            alert('Error al guardar la integración: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Conectar Tienda Tiendanube';
+          }
+        });
+      }
+    } else {
+      const btnDisconnectTiendanube = document.getElementById('btn-disconnect-tiendanube');
+      if (btnDisconnectTiendanube) {
+        btnDisconnectTiendanube.addEventListener('click', async () => {
+          if (userRole === 'observer') {
+            alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+            return;
+          }
+          if(confirm('¿Estás seguro que deseas desconectar tu tienda Tiendanube?')) {
+            try {
+              const { error: delErr } = await supabase.from('merchant_integrations')
+                .delete()
+                .eq('comercio', window.activeIntegrationCommerce)
+                .eq('platform', 'Tiendanube');
+              if(delErr) throw delErr;
+              alert('Tienda desconectada.');
+              renderIntegrations();
+            } catch(err) {
+               console.error(err);
+               alert('Error al desconectar: ' + err.message);
+            }
+          }
+        });
+      }
+    }
+
     const commerceSelect = document.getElementById('select-integration-commerce');
     if (commerceSelect) {
       commerceSelect.addEventListener('change', (e) => {
@@ -7442,6 +7594,7 @@ async function renderIntegrations() {
       const merchantId = userAuth.user.id;
 
       const isPack = document.getElementById('prod-is-pack')?.checked || false;
+      const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
 
       // 1. Crear el producto
       const { data: newProd, error: errProd } = await supabase
@@ -7453,6 +7606,7 @@ async function renderIntegrations() {
           name: name,
           description: desc,
           is_pack: isPack,
+          is_virtual: isVirtual,
           stock_critico: stockCritico
         }])
         .select()
@@ -7581,6 +7735,7 @@ async function renderIntegrations() {
 
     try {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
+      const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
 
       const { error } = await supabase
         .from('products')
@@ -7599,6 +7754,7 @@ async function renderIntegrations() {
           expiration_date: expiration,
           lot_number: lot,
           is_pack: isPack,
+          is_virtual: isVirtual,
           stock_critico: stockCritico
         })
         .eq('id', prodId);

@@ -20772,6 +20772,11 @@ async function openEditProductModal(prodId) {
       editPackSection.style.display = product.is_pack ? 'block' : 'none';
     }
 
+    const editIsVirtual = document.getElementById('edit-prod-is-virtual');
+    if (editIsVirtual) {
+      editIsVirtual.checked = !!product.is_virtual;
+    }
+
     // Fetch component items if it is a pack
     window.currentPackItems = [];
     if (product.is_pack) {
@@ -20864,6 +20869,7 @@ function initProductFormListeners() {
         }
 
         const isPack = document.getElementById('prod-is-pack')?.checked || false;
+        const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
 
         const { data: newProd, error: errProd } = await supabase
           .from('products')
@@ -20873,7 +20879,8 @@ function initProductFormListeners() {
             sku: sku,
             name: name,
             description: desc,
-            is_pack: isPack
+            is_pack: isPack,
+            is_virtual: isVirtual
           }])
           .select()
           .single();
@@ -20970,6 +20977,7 @@ function initProductFormListeners() {
 
       try {
         const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
+        const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
 
         const { error } = await supabase
           .from('products')
@@ -20987,7 +20995,8 @@ function initProductFormListeners() {
             weight,
             expiration_date: expiration,
             lot_number: lot,
-            is_pack: isPack
+            is_pack: isPack,
+            is_virtual: isVirtual
           })
           .eq('id', prodId);
 
