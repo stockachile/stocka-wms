@@ -987,3 +987,24 @@ Corregimos un error crítico en el flujo de integración de Shopify ([supabase/f
 
 3. **Acción Requerida**:
    - Para que la solución surta efecto en las tiendas afectadas, el administrador o cliente debe ir a la sección de **Integraciones**, hacer clic en **Conectar / Re-conectar** de la plataforma Shopify e iniciar sesión. Esto obtendrá y guardará el nuevo token de acceso permanente, reactivando la sincronización en tiempo real y perpetua.
+
+---
+
+## 53. Animación de Carga (Spin) en Botón de Actualización de Pedidos
+
+Añadimos la regla de estilo para la clase CSS `.spin` en la hoja de estilos global ([css/style.css](file:///c:/Users/felip/Desktop/WMS%20STOCKA/css/style.css)) para habilitar la animación visual de rotación del icono de refresco al pulsar el botón de actualizar pedidos en el panel del administrador:
+
+1. **Origen del Problema**:
+   - Al pulsar el botón "Actualizar", el controlador JS desactivaba el botón y agregaba la clase `spin` al icono (`ri-refresh-line spin`).
+   - Sin embargo, no existía ninguna regla CSS asociada a la clase `.spin`, por lo que el icono permanecía estático sin ofrecer feedback visual de que se estaba ejecutando una consulta asíncrona en segundo plano.
+
+2. **Solución Implementada**:
+   - Declaramos la clase CSS `.spin` vinculándola a la animación `@keyframes spin` ya existente en la hoja de estilos:
+     ```css
+     .spin {
+       animation: spin 1s linear infinite;
+       display: inline-block;
+     }
+     ```
+   - Esto hace que el icono rote de forma continua a velocidad constante mientras dura el fetch y se remueva inmediatamente en el bloque `finally` del controlador JS al completarse la sincronización, mejorando la experiencia de usuario.
+

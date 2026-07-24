@@ -800,6 +800,11 @@ h1, h2, h3, h4, h5, h6 {
   100% { transform: rotate(360deg); }
 }
 
+.spin {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
 @keyframes pulse {
   0%, 100% { transform: scale(1); box-shadow: 0 0 30px rgba(94, 23, 235, 0.4); }
   50% { transform: scale(1.08); box-shadow: 0 0 45px rgba(94, 23, 235, 0.6); }
