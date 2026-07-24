@@ -801,3 +801,18 @@ Hemos refinado y ampliado las operaciones masivas de inventario en los paneles d
      4. **Ejecutar la reubicación**: Resta el stock en la bodega de origen e incrementa la misma cantidad en la bodega de destino (creando el registro si no existía en el destino).
      5. **Registrar de forma separada los movimientos**: Crea un movimiento de salida (`type: 'out'`) para la bodega de origen referenciando `Traslado a [Nombre de Destino]` y un movimiento de entrada (`type: 'in'`) en la bodega de destino referenciando `Traslado desde [Nombre de Origen]`.
 
+---
+
+## 42. Corrección de Políticas RLS para Modificaciones de Ítems del Pedido (Admin)
+
+Corregimos el error de base de datos (`violates row-level security policy for table "order_items"`) que impedía a los administradores del WMS guardar cambios (insertar, actualizar o eliminar) sobre la tabla `order_items` al editar pedidos desde la grilla principal:
+
+1. **Origen del Problema**:
+   - La tabla `order_items` tenía habilitado RLS (Row-Level Security) con una única política activa para lectura de clientes (`Clientes ven items de sus pedidos`).
+   - La política de administrador previa (`Admin can view and modify all order items`) carecía de una cláusula `WITH CHECK` explícita y no utilizaba la calificación de esquema `public.` para la función `is_admin()`. 
+   - Al realizar un `INSERT` o `UPDATE` desde el panel de administración, el motor de Supabase fallaba en la resolución de permisos de inserción en la tabla de ítems de órdenes, denegando la consulta con un error de violación de políticas RLS.
+
+2. **Solución y Migración SQL**:
+   - Diseñamos la migración [supabase_schema_order_items_rls_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_order_items_rls_fix.sql) para limpiar y recrear la política de acceso total de administrador.
+   - Definimos explícitamente la política sobre `public.order_items` para que permita todas las acciones (`FOR ALL`) a usuarios autenticados (`TO authenticated`), utilizando `public.is_admin()` tanto en la cláusula `USING` (lectura/borrado) como en la cláusula `WITH CHECK` (inserción/modificación).
+   - Esto autoriza de manera segura y definitiva a los usuarios con rol de administrador (`role = 'admin'`) a guardar cualquier cambio estructural en los ítems del pedido sin generar bloqueos en la interfaz.
