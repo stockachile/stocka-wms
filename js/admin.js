@@ -5710,6 +5710,8 @@ async function renderAdminInventoryWorkspace(commerce) {
         name,
         comercio,
         stock_critico,
+        is_virtual,
+        is_pack,
         inventory (
           warehouse_id,
           quantity,
@@ -5790,6 +5792,9 @@ async function renderAdminInventoryWorkspace(commerce) {
                   </th>
                   <th class="admin-inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="admin-sort-indicator"></span></span>
+                  </th>
+                  <th class="admin-inventory-sortable" data-sort="product_type" title="Tipo de producto: Físico, Pack o Virtual/Online" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="admin-sort-indicator"></span></span>
                   </th>
                   <th class="admin-inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="admin-sort-indicator"></span></span>
@@ -5936,7 +5941,7 @@ function renderAdminInventoryTableBody() {
   if (rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No se encontraron productos coincidentes.
         </td>
       </tr>
@@ -5959,6 +5964,15 @@ function renderAdminInventoryTableBody() {
       badge = '<span class="badge badge-warning">Bajo Stock</span>';
     } else {
       badge = '<span class="badge badge-success">En Stock</span>';
+    }
+
+    let typeHtml = '';
+    if (r.is_virtual) {
+      typeHtml = `<span class="badge" style="background-color: var(--color-bg-alt); color: var(--color-text-main); border: 1px solid var(--color-border); font-weight: 600; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-computer-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> Online</span>`;
+    } else if (r.is_pack) {
+      typeHtml = `<span class="badge" style="background-color: rgba(139, 92, 246, 0.1); color: rgb(139, 92, 246); border: 1px solid rgba(139, 92, 246, 0.2); font-weight: 600; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-stack-line" style="font-size: 0.85rem;"></i> Pack</span>`;
+    } else {
+      typeHtml = `<span class="badge" style="background-color: rgba(16, 185, 129, 0.1); color: rgb(16, 185, 129); border: 1px solid rgba(16, 185, 129, 0.2); font-weight: 600; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-archive-line" style="font-size: 0.85rem;"></i> Físico</span>`;
     }
 
     const actionBtnHtml = `
@@ -6003,6 +6017,7 @@ function renderAdminInventoryTableBody() {
         </td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
+        <td style="padding: 0.75rem 1.5rem;">${typeHtml}</td>
         <td style="padding: 0.75rem 1.5rem;">${bodegaCellContent}</td>
         <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
         <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
@@ -6040,6 +6055,7 @@ function renderAdminInventoryTableBody() {
                 Detalle por bodega
               </span>
             </td>
+            <td style="padding: 0.5rem 1.5rem;"></td>
             <td style="padding: 0.5rem 1.5rem; font-weight: 600; color: var(--color-text-main); font-size: 0.88rem;">${inv.warehouses?.name || 'N/A'}</td>
             <td style="padding: 0.5rem 1.5rem; text-align: center; font-size: 0.88rem;">${inv.quantity || 0}</td>
             <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500; font-size: 0.88rem;">${subCommittedHtml}</td>
@@ -6175,6 +6191,7 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
       : (totalAvailable <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
 
     const pendingVal = window.adminInventoryPendingStockMap ? (window.adminInventoryPendingStockMap[prod.sku.trim()] || 0) : 0;
+    const typeStr = prod.is_virtual ? 'online' : (prod.is_pack ? 'pack' : 'fisico');
 
     if (flat) {
       if (invList.length === 0) {
@@ -6190,7 +6207,10 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
           available: 0,
           totalAvailable: totalAvailable,
           stock_critico: prod.stock_critico || 0,
-          status: statusStr
+          status: statusStr,
+          is_virtual: prod.is_virtual,
+          is_pack: prod.is_pack,
+          product_type: typeStr
         });
       } else {
         invList.forEach(inv => {
@@ -6207,7 +6227,10 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
             available: available,
             totalAvailable: totalAvailable,
             stock_critico: prod.stock_critico || 0,
-            status: statusStr
+            status: statusStr,
+            is_virtual: prod.is_virtual,
+            is_pack: prod.is_pack,
+            product_type: typeStr
           });
         });
       }
@@ -6225,7 +6248,10 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
         totalAvailable: totalAvailable,
         stock_critico: prod.stock_critico || 0,
         status: statusStr,
-        inventory: invList
+        inventory: invList,
+        is_virtual: prod.is_virtual,
+        is_pack: prod.is_pack,
+        product_type: typeStr
       });
     }
   });

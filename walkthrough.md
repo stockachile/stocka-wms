@@ -873,3 +873,23 @@ Hemos unificado y optimizado la presentación de stock de productos en los panel
 5. **Métricas de Dashboard Inteligentes**:
    - La sección de métricas globales de stock y alertas de bajo stock agrupan los datos por SKU único para evitar contar múltiples alertas para un mismo producto distribuido en varias bodegas.
 
+---
+
+## 46. Columna de Tipo de Producto en la Tabla de Inventario (Client & Admin)
+
+Hemos agregado la columna **`Tipo`** en la tabla de inventario tanto en la interfaz de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) como en la de Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)):
+
+1. **Ubicación e Integración Visual**:
+   - La nueva columna se posiciona justo al lado derecho de la columna **Producto** y a la izquierda de **Bodega**, en perfecto orden lógico y estético.
+   - Cuenta con una cabecera interactiva y ordenable (`data-sort="product_type"`) para que los usuarios puedan clasificar y agrupar el inventario según el tipo de producto.
+
+2. **Indicadores de Tipo de Producto (Badges)**:
+   - Evaluamos de forma precisa el estado del producto basándonos en sus atributos booleanos (`is_virtual` e `is_pack` cargados desde Supabase):
+     * **`Online`**: Mostrado con un badge gris de fondo alternativo, texto principal y el icono `ri-computer-line` en color azul principal, indicando que el producto es virtual o digital.
+     * **`Pack`**: Mostrado con un badge violeta translúcido (`rgba(139, 92, 246, 0.1)`), texto violeta e icono `ri-stack-line` para identificar conjuntos o combos de productos.
+     * **`Físico`**: Mostrado con un badge verde esmeralda translúcido (`rgba(16, 185, 129, 0.1)`), texto verde e icono `ri-archive-line` para bienes físicos estándar.
+
+3. **Alineación de Detalle por Bodega**:
+   - Ajustamos las celdas y el atributo `colspan` de las filas hijas detalladas por bodega para mantener una grilla alineada del 100%, incrementando la cantidad de columnas de `12` a `13`.
+
+
