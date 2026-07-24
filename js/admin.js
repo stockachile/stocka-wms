@@ -2374,8 +2374,8 @@ window.applyWmsFiltersAndRender = function() {
         <td>${operadorSelectHtml}</td>
         <td>
           <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.8rem; white-space:nowrap;">
-            <span style="font-weight:600; color:var(--color-text-main);" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
-            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500;" title="${order.shipping_city || ''}">${order.shipping_city || 'Por definir'}</span>
+            <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
+            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_city || ''}">${order.shipping_city || 'Por definir'}</span>
           </div>
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>

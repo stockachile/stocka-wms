@@ -1072,3 +1072,22 @@ Hemos implementado un flujo completo para que los comercios declaren sus prefere
    - El popup de gestión de ingresos en el admin muestra el tipo de etiquetado y la cantidad de unidades solicitada por el cliente.
    - Al marcar un ingreso como "Recibido Conforme" o "Recibido con Incidencias", el formulario despliega el campo **"Uds. Etiquetadas (Confirmado)"**, permitiendo al administrador ingresar la cantidad final auditada físicamente en bodega.
    - Esta cantidad confirmada se almacena en el campo `labeling_qty_confirmed` para futuras liquidaciones y auditorías de cobro.
+
+---
+
+## 57. Truncamiento de Ancho y Tooltip para el Campo de Envío (WMS)
+
+Hemos limitado el ancho máximo visual del método de envío (columna **ENVÍO**) en la grilla principal de control de pedidos en el administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)), para evitar que textos muy largos extiendan de forma excesiva las columnas de la tabla y distorsionen la interfaz:
+
+1. **Limitación de Ancho (`max-width: 180px`)**:
+   - Agregamos propiedades de estilo en línea a las etiquetas `span` de las columnas de método de envío y ciudad (`shipping_method` y `shipping_city`):
+     - `max-width: 180px`
+     - `overflow: hidden`
+     - `text-overflow: ellipsis`
+     - `white-space: nowrap`
+     - `display: inline-block`
+   - Esto hace que cualquier texto que supere dicho límite se corte limpiamente agregando puntos suspensivos (`...`).
+
+2. **Tooltip con Dato Completo (Hover Hint)**:
+   - Mantuvimos y aseguramos el atributo `title="${order.shipping_method || ''}"` en los elementos HTML. Al posicionar el cursor (mouse) sobre el texto recortado, el navegador despliega un tooltip nativo con el contenido completo del método de envío o ciudad.
+
