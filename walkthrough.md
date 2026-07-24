@@ -1022,4 +1022,29 @@ Hemos modificado las vistas de inventario y los flujos de cálculo en los panele
 3. **Optimización en la Selección Automática de Bodega**:
    - Modificamos el algoritmo de asignación de bodega automática para nuevos pedidos en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js). Al determinar qué bodega tiene la mayor disponibilidad para servir un ítem, el sistema ahora evalúa directamente el stock físico de las bodegas (`inv.quantity`), ya que el comprometido se procesa a nivel global de tienda.
 
+---
+
+## 55. Validación de Stock de la Sucursal Seleccionada al Enviar al Picker (WMS)
+
+Hemos corregido la validación de stock físico al enviar pedidos al Picker para que coincida con la sucursal real asignada al pedido, solucionando errores de falsos positivos/negativos de stock insuficiente (por ejemplo, el caso del pedido `MAG5602` asignado a Ñuñoa):
+
+1. **Mapeo Inteligente de Sucursales a Bodegas**:
+   - Implementamos la función `getWarehouseIdFromSucursal` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) que asocia cada sucursal textual elegible para picking con su UUID de bodega física correspondiente en Supabase:
+     - `"Sucursal Ñuñoa"` ➡️ `Matriz Ñuñoa`
+     - `"Sucursal La Reina"` ➡️ `CDD La Reina`
+     - `"Sucursal Recoleta"` ➡️ `CDD Recoleta`
+     - `"Sucursal Virtual (Hub)"` ➡️ `Bodega Central`
+
+2. **Validación Contextualizada**:
+   - Al enviar pedidos en lote (`applyBulkWmsStatus`) o de forma individual (`updateWmsOrderStatus`) a "En preparación", el sistema valida la disponibilidad física de stock en la bodega de la sucursal seleccionada en el modal en lugar de usar la bodega que el ítem tenía asignada por defecto (Bodega Central).
+
+3. **Sincronización en Cascada en la Base de Datos**:
+   - Una vez superada la validación de stock, el sistema actualiza en caliente el campo `warehouse_id` de los registros asociados en la tabla `order_items` de Supabase para alinearlos con la sucursal de destino.
+   - Esta reubicación de bodega gatilla los triggers nativos de base de datos (`update_committed_quantity`), transfiriendo automáticamente la reserva del stock comprometido de la bodega anterior a la nueva.
+   - Finalmente, se sincronizan las referencias locales de memoria para mantener la consistencia del catálogo en tiempo real.
+
+4. **Persistencia en Modificaciones de Picking**:
+   - Adaptamos los flujos de asignación de picking individual (`editWmsOrderPickingInfo`) y masivo (`bulkSetWmsOrderPickingInfo`) para aplicar la misma sincronización del `warehouse_id` de los ítems en base de datos y memoria local al cambiar o actualizar la sucursal asignada.
+
+
 

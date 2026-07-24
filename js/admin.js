@@ -2858,12 +2858,40 @@ function renderWmsBulkActionsBar() {
   `;
 }
 
+function getWarehouseIdFromSucursal(sucursalName) {
+  const name = (sucursalName || '').toLowerCase().trim();
+  if (name.includes('ñuñoa')) {
+    return '973da888-8a63-4790-a08f-919e1af41a93'; // Matriz Ñuñoa
+  }
+  if (name.includes('la reina')) {
+    return '414605cb-f926-43d2-8bd2-d9509f7b458a'; // CDD La Reina
+  }
+  if (name.includes('recoleta')) {
+    return '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a'; // CDD Recoleta
+  }
+  return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central / Default
+}
+
 window.applyBulkWmsStatus = async function() {
   const newStatus = document.getElementById('bulk-wms-status').value;
   const ids = Array.from(window.wmsSelectedOrderIds);
   if (ids.length === 0) return;
 
   if (newStatus === 'En preparación') {
+    // Obtener datos comunes de los pedidos seleccionados para autocompletar
+    const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+
+    const sucursales = [...new Set(selectedOrders.map(o => o.sucursal_pickeo).filter(Boolean))];
+    const defaultSucursal = sucursales.length === 1 ? sucursales[0] : '';
+
+    const agendas = [...new Set(selectedOrders.map(o => o.agenda).filter(Boolean))];
+    const defaultAgenda = agendas.length === 1 ? agendas[0] : '';
+
+    const now = new Date();
+    const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const fechas = [...new Set(selectedOrders.map(o => o.fecha_procesamiento).filter(Boolean))];
+    const defaultFecha = fechas.length === 1 ? fechas[0] : todayDDMM;
+
     // Si cambia masivamente a "En preparación", solicitamos Sucursal, Agenda y Fecha Procesamiento
     const { value: formValues } = await Swal.fire({
       title: 'Asignación Masiva: Sucursal, Agenda y Procesamiento',
@@ -2872,16 +2900,16 @@ window.applyBulkWmsStatus = async function() {
           <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">Los ${ids.length} pedidos seleccionados se enviarán al Picker.</p>
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Sucursal de Destino</label>
           <select id="swal-bulk-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
-            <option value="Sucursal La Reina">Sucursal La Reina</option>
-            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
-            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub)</option>
+            <option value="Sucursal Ñuñoa" ${defaultSucursal === 'Sucursal Ñuñoa' ? 'selected' : ''}>Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina" ${defaultSucursal === 'Sucursal La Reina' ? 'selected' : ''}>Sucursal La Reina</option>
+            <option value="Sucursal Recoleta" ${defaultSucursal === 'Sucursal Recoleta' ? 'selected' : ''}>Sucursal Recoleta</option>
+            <option value="Sucursal Virtual (Hub)" ${defaultSucursal === 'Sucursal Virtual (Hub)' || !defaultSucursal ? 'selected' : ''}>Sucursal Virtual (Hub)</option>
           </select>
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Agenda de Preparación</label>
-          <input id="swal-bulk-agenda" class="swal2-input" type="text" value="STK" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+          <input id="swal-bulk-agenda" class="swal2-input" type="text" value="${defaultAgenda}" placeholder="Ej: STK, RM, etc." style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
 
           <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Fecha de Procesamiento (DD-MM)</label>
-          <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
+          <input id="swal-bulk-fecha-proc" class="swal2-input" type="text" value="${defaultFecha}" placeholder="Dejar vacío para mantener fechas individuales existentes" style="width: 100%; margin: 0; box-sizing: border-box;" maxlength="5">
         </div>
       `,
       focusConfirm: false,
@@ -2922,8 +2950,9 @@ window.applyBulkWmsStatus = async function() {
 
     if (!formValues) return;
 
-    // A. Validar stock físico disponible para cada pedido (excluyendo virtuales)
-    const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+
+    // A. Validar stock físico disponible para cada pedido (excluyendo virtuales) en la bodega de la sucursal destino
     const allItemsToCheck = [];
     selectedOrders.forEach(order => {
       (order.order_items || []).forEach(item => {
@@ -2934,7 +2963,7 @@ window.applyBulkWmsStatus = async function() {
             comercio: order.comercio,
             merchant_id: order.merchant_id,
             product_id: item.product_id,
-            warehouse_id: item.warehouse_id,
+            warehouse_id: targetWarehouseId,
             quantity: item.quantity,
             sku: item.products?.sku || 'Sin SKU',
             name: item.products?.name || 'Producto'
@@ -3060,15 +3089,28 @@ window.applyBulkWmsStatus = async function() {
 
       if (wmsErr) throw wmsErr;
 
+      // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .update({ warehouse_id: targetWarehouseId })
+        .in('order_id', ids);
+
+      if (itemsErr) {
+        console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
+      }
+
       // 2. Enviar a Picker de forma masiva
-      const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
-      for (const order of selectedOrders) {
+      const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+      for (const order of successOrders) {
         order.estado_wms = 'En preparación';
         order.sucursal_pickeo = formValues.sucursal;
         order.agenda = formValues.agenda;
         if (formValues.fechaProc) {
           order.fecha_procesamiento = formValues.fechaProc;
         }
+        (order.order_items || []).forEach(item => {
+          item.warehouse_id = targetWarehouseId;
+        });
         await window.sendSingleOrderToPicker(order);
       }
 
@@ -3125,9 +3167,12 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   if (!order) return;
 
   if (newWmsStatus === 'En preparación') {
+    const now = new Date();
+    const todayDDMM = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
     const currentSucursal = order.sucursal_pickeo || '';
     const currentAgenda = order.agenda || '';
-    const currentFechaProc = order.fecha_procesamiento || '';
+    const currentFechaProc = order.fecha_procesamiento || todayDDMM;
 
     const { value: formValues } = await Swal.fire({
       title: 'Preparación de Pedido: Datos requeridos',
@@ -3181,7 +3226,9 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
       return;
     }
 
-    // Validar stock físico disponible para cada ítem (excluyendo virtuales)
+    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+
+    // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
     const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
     if (itemsToCheck.length > 0) {
       const productIds = itemsToCheck.map(item => item.product_id);
@@ -3200,7 +3247,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
         let insufficientItem = null;
         for (const item of itemsToCheck) {
-          const key = `${item.product_id}_${item.warehouse_id}`;
+          const key = `${item.product_id}_${targetWarehouseId}`;
           const availableQty = invMap[key] || 0;
           if (availableQty < item.quantity) {
             insufficientItem = {
@@ -3272,11 +3319,24 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
       if (wmsErr) throw wmsErr;
 
+      // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .update({ warehouse_id: targetWarehouseId })
+        .eq('order_id', orderId);
+
+      if (itemsErr) {
+        console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
+      }
+
       // Actualizar memoria local
       order.estado_wms = 'En preparación';
       order.sucursal_pickeo = formValues.sucursal;
       order.agenda = formValues.agenda;
       order.fecha_procesamiento = formValues.fechaProc;
+      (order.order_items || []).forEach(item => {
+        item.warehouse_id = targetWarehouseId;
+      });
 
       // 2. Insertar en Picker active_orders
       await window.sendSingleOrderToPicker(order);
@@ -21192,8 +21252,21 @@ window.editWmsOrderPickingInfo = async function(orderId) {
 
     if (wmsErr) throw wmsErr;
 
+    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const { error: itemsErr } = await supabase
+      .from('order_items')
+      .update({ warehouse_id: targetWarehouseId })
+      .eq('order_id', orderId);
+
+    if (itemsErr) {
+      console.error('Error al actualizar bodega de los ítems en editWmsOrderPickingInfo:', itemsErr);
+    }
+
     order.sucursal_pickeo = formValues.sucursal;
     order.agenda = formValues.agenda;
+    (order.order_items || []).forEach(item => {
+      item.warehouse_id = targetWarehouseId;
+    });
 
     if (order.estado_wms === 'En preparación') {
       await window.propagateOrderUpdateToPicker(order);
@@ -21610,6 +21683,16 @@ window.bulkSetWmsOrderPickingInfo = async function() {
 
     if (error) throw error;
 
+    const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
+    const { error: itemsErr } = await supabase
+      .from('order_items')
+      .update({ warehouse_id: targetWarehouseId })
+      .in('order_id', ids);
+
+    if (itemsErr) {
+      console.error('Error al actualizar bodega de los ítems en bulkSetWmsOrderPickingInfo:', itemsErr);
+    }
+
     for (const id of ids) {
       const order = window.loadedOrders.find(o => o.id === id);
       if (order) {
@@ -21618,6 +21701,9 @@ window.bulkSetWmsOrderPickingInfo = async function() {
         if (formValues.fechaProc) {
           order.fecha_procesamiento = formValues.fechaProc;
         }
+        (order.order_items || []).forEach(item => {
+          item.warehouse_id = targetWarehouseId;
+        });
         if (order.estado_wms === 'En preparación') {
           await window.propagateOrderUpdateToPicker(order);
         }
