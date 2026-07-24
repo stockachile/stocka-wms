@@ -13,6 +13,17 @@ DECLARE
   v_distinct_skus INTEGER;
   v_has_trigger_sku BOOLEAN;
   v_already_has_gift BOOLEAN;
+  
+  -- Variables para la evaluación de condiciones personalizadas del pedido
+  v_condition RECORD;
+  v_cond_ok BOOLEAN;
+  v_field TEXT;
+  v_op TEXT;
+  v_val TEXT;
+  v_actual_val TEXT;
+  v_actual_numeric NUMERIC;
+  v_val_numeric NUMERIC;
+  v_order RECORD;
 BEGIN
   -- Evitar recursión infinita en disparadores anidados
   IF pg_trigger_depth() > 1 THEN
@@ -108,108 +119,98 @@ BEGIN
 
     -- Evaluar Condición 4: Condiciones basadas en parámetros del pedido (JSON)
     IF v_campaign.conditions IS NOT NULL AND jsonb_array_length(v_campaign.conditions) > 0 THEN
-      DECLARE
-        v_condition RECORD;
-        v_cond_ok BOOLEAN := TRUE;
-        v_field TEXT;
-        v_op TEXT;
-        v_val TEXT;
-        v_actual_val TEXT;
-        v_actual_numeric NUMERIC;
-        v_val_numeric NUMERIC;
-        v_order RECORD;
-      BEGIN
-        -- Cargar los datos del pedido
-        SELECT * INTO v_order FROM public.orders WHERE id = NEW.order_id;
+      v_cond_ok := TRUE;
+      
+      -- Cargar los datos del pedido
+      SELECT * INTO v_order FROM public.orders WHERE id = NEW.order_id;
+      
+      FOR v_condition IN SELECT * FROM jsonb_to_recordset(v_campaign.conditions) AS x(field TEXT, operator TEXT, value TEXT) LOOP
+        v_field := v_condition.field;
+        v_op := v_condition.operator;
+        v_val := v_condition.value;
         
-        FOR v_condition IN SELECT * FROM jsonb_to_recordset(v_campaign.conditions) AS x(field TEXT, operator TEXT, value TEXT) LOOP
-          v_field := v_condition.field;
-          v_op := v_condition.operator;
-          v_val := v_condition.value;
-          
-          -- Obtener el valor actual del campo del pedido
-          IF v_field = 'customer_name' THEN
-            v_actual_val := v_order.customer_name;
-          ELSIF v_field = 'customer_email' THEN
-            v_actual_val := v_order.customer_email;
-          ELSIF v_field = 'customer_phone' THEN
-            v_actual_val := v_order.customer_phone;
-          ELSIF v_field = 'shipping_city' THEN
-            v_actual_val := v_order.shipping_city;
-          ELSIF v_field = 'shipping_address' THEN
-            v_actual_val := v_order.shipping_address;
-          ELSIF v_field = 'shipping_method' THEN
-            v_actual_val := v_order.shipping_method;
-          ELSIF v_field = 'external_platform' THEN
-            v_actual_val := v_order.external_platform;
-          ELSIF v_field = 'total_value' THEN
-            v_actual_val := v_order.total_value::TEXT;
-          ELSIF v_field = 'note' THEN
-            v_actual_val := COALESCE(
-              v_order.raw_shopify_data->>'note',
-              v_order.raw_woocommerce_data->>'customer_note',
-              v_order.raw_tiendanube_data->>'note',
-              ''
-            );
-          ELSE
-            v_actual_val := '';
-          END IF;
-          
-          v_actual_val := COALESCE(v_actual_val, '');
-          
-          -- Evaluar según el operador
-          IF v_op = 'equals' THEN
-            IF LOWER(v_actual_val) != LOWER(v_val) THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'not_equals' THEN
-            IF LOWER(v_actual_val) = LOWER(v_val) THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'contains' THEN
-            IF POSITION(LOWER(v_val) IN LOWER(v_actual_val)) = 0 THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'not_contains' THEN
-            IF POSITION(LOWER(v_val) IN LOWER(v_actual_val)) > 0 THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'starts_with' THEN
-            IF NOT starts_with(LOWER(v_actual_val), LOWER(v_val)) THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'ends_with' THEN
-            IF NOT LOWER(v_actual_val) LIKE '%' || LOWER(v_val) THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'greater_than' THEN
-            -- Validación y conversión numérica segura
-            v_actual_numeric := case when v_actual_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_actual_val::numeric else 0 end;
-            v_val_numeric := case when v_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_val::numeric else 0 end;
-            IF v_actual_numeric <= v_val_numeric THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          ELSIF v_op = 'less_than' THEN
-            v_actual_numeric := case when v_actual_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_actual_val::numeric else 0 end;
-            v_val_numeric := case when v_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_val::numeric else 0 end;
-            IF v_actual_numeric >= v_val_numeric THEN
-              v_cond_ok := FALSE;
-              EXIT;
-            END IF;
-          END IF;
-        END LOOP;
-        
-        IF NOT v_cond_ok THEN
-          CONTINUE;
+        -- Obtener el valor actual del campo del pedido
+        IF v_field = 'customer_name' THEN
+          v_actual_val := v_order.customer_name;
+        ELSIF v_field = 'customer_email' THEN
+          v_actual_val := v_order.customer_email;
+        ELSIF v_field = 'customer_phone' THEN
+          v_actual_val := v_order.customer_phone;
+        ELSIF v_field = 'shipping_city' THEN
+          v_actual_val := v_order.shipping_city;
+        ELSIF v_field = 'shipping_address' THEN
+          v_actual_val := v_order.shipping_address;
+        ELSIF v_field = 'shipping_method' THEN
+          v_actual_val := v_order.shipping_method;
+        ELSIF v_field = 'external_platform' THEN
+          v_actual_val := v_order.external_platform;
+        ELSIF v_field = 'total_value' THEN
+          v_actual_val := v_order.total_value::TEXT;
+        ELSIF v_field = 'note' THEN
+          v_actual_val := COALESCE(
+            v_order.raw_shopify_data->>'note',
+            v_order.raw_woocommerce_data->>'customer_note',
+            v_order.raw_tiendanube_data->>'note',
+            ''
+          );
+        ELSE
+          v_actual_val := '';
         END IF;
-      END;
+        
+        v_actual_val := COALESCE(v_actual_val, '');
+        
+        -- Evaluar según el operador
+        IF v_op = 'equals' THEN
+          IF LOWER(v_actual_val) != LOWER(v_val) THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'not_equals' THEN
+          IF LOWER(v_actual_val) = LOWER(v_val) THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'contains' THEN
+          IF POSITION(LOWER(v_val) IN LOWER(v_actual_val)) = 0 THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'not_contains' THEN
+          IF POSITION(LOWER(v_val) IN LOWER(v_actual_val)) > 0 THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'starts_with' THEN
+          IF NOT starts_with(LOWER(v_actual_val), LOWER(v_val)) THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'ends_with' THEN
+          IF NOT LOWER(v_actual_val) LIKE '%' || LOWER(v_val) THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'greater_than' THEN
+          -- Validación y conversión numérica segura
+          v_actual_numeric := case when v_actual_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_actual_val::numeric else 0 end;
+          v_val_numeric := case when v_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_val::numeric else 0 end;
+          IF v_actual_numeric <= v_val_numeric THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        ELSIF v_op = 'less_than' THEN
+          v_actual_numeric := case when v_actual_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_actual_val::numeric else 0 end;
+          v_val_numeric := case when v_val ~ '^([0-9]+(\.[0-9]+)?)$' then v_val::numeric else 0 end;
+          IF v_actual_numeric >= v_val_numeric THEN
+            v_cond_ok := FALSE;
+            EXIT;
+          END IF;
+        END IF;
+      END LOOP;
+      
+      IF NOT v_cond_ok THEN
+        CONTINUE;
+      END IF;
     END IF;
 
     -- Si cumple todas las condiciones de la regla, agregar el regalo
