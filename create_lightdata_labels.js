@@ -38,6 +38,20 @@ const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
 const pickerSupabase = createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY);
 
+function getWarehouseIdFromSucursal(sucursalName) {
+  const name = (sucursalName || '').toLowerCase().trim();
+  if (name.includes('ñuñoa')) {
+    return '973da888-8a63-4790-a08f-919e1af41a93'; // Matriz Ñuñoa
+  }
+  if (name.includes('la reina')) {
+    return '414605cb-f926-43d2-8bd2-d9509f7b458a'; // CDD La Reina
+  }
+  if (name.includes('recoleta')) {
+    return '1e3395fc-bc24-48e5-8c3c-04e8a0f7c32a'; // CDD Recoleta
+  }
+  return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central / Default
+}
+
 function getFechaProcesamiento() {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, '0');
@@ -69,7 +83,7 @@ async function sendSingleOrderToPicker(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: prod.sku || order.sku || 'SKU-TEMP',
+      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -167,7 +181,7 @@ async function handleIndividualMode(idPedido) {
   
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))')
+    .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))')
     .eq('id', idPedido)
     .maybeSingle();
 
@@ -452,6 +466,17 @@ async function handleIndividualMode(idPedido) {
       raw_lightdata_data: { did: createdDid }
     };
 
+    // Actualizar bodega de los order_items correspondientes a la sucursal de pickeo antes del cambio de estado
+    const targetWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+    const { error: itemsUpdateError } = await supabase
+      .from('order_items')
+      .update({ warehouse_id: targetWarehouseId })
+      .eq('order_id', idPedido);
+
+    if (itemsUpdateError) {
+      console.warn('⚠️ Error al actualizar bodega de los order_items:', itemsUpdateError.message);
+    }
+
     const { error: updateError } = await supabase
       .from('orders')
       .update(updatedOrderData)
@@ -491,7 +516,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);
@@ -723,6 +748,17 @@ async function handleBulkMode(limiteCarga) {
         operador: 'ALPHA',
         raw_lightdata_data: did ? { did: did } : null
       };
+
+      // Actualizar bodega de los order_items correspondientes a la sucursal de pickeo antes del cambio de estado
+      const targetWarehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+      const { error: itemsUpdateError } = await supabase
+        .from('order_items')
+        .update({ warehouse_id: targetWarehouseId })
+        .eq('order_id', order.id);
+
+      if (itemsUpdateError) {
+        console.warn(`⚠️ Error al actualizar bodega de los order_items para el pedido ${order.external_order_number}:`, itemsUpdateError.message);
+      }
 
       const { error: updateError } = await supabase
         .from('orders')
