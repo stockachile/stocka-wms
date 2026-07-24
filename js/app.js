@@ -2569,11 +2569,6 @@ async function renderInventory() {
     if (transferStockBtn) {
       transferStockBtn.addEventListener('click', () => {
         const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
-        if (checkedBoxes.length === 0) {
-          alert('Por favor, selecciona al menos un producto de la tabla.');
-          return;
-        }
-
         const selectedProducts = [];
         const seenIds = new Set();
         checkedBoxes.forEach(cb => {
@@ -2587,6 +2582,11 @@ async function renderInventory() {
             });
           }
         });
+
+        if (selectedProducts.length === 0) {
+          const confirmAll = confirm('No has seleccionado ningún producto de la tabla. ¿Deseas abrir el asistente para trasladar todo el stock disponible de una bodega a otra?');
+          if (!confirmAll) return;
+        }
 
         openBulkStockTransferModal(commerce, selectedProducts, () => renderInventory());
       });
@@ -20704,6 +20704,8 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
     </tr>
   `).join('');
 
+  const isInitiallyEmpty = selectedProducts.length === 0;
+
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 850px; width: 90%; max-height: 90vh; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
       <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
@@ -20728,22 +20730,34 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
             </select>
           </div>
         </div>
+        <div style="display: flex; align-items: center; margin-top: 0.25rem; background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); cursor: pointer; user-select: none; width: 100%;">
+            <input type="checkbox" id="transfer-all-stock-checkbox" style="width: 18px; height: 18px; cursor: pointer;" ${isInitiallyEmpty ? 'checked disabled title="Obligatorio al no haber productos seleccionados"' : ''}>
+            <span>Trasladar todo el stock disponible de la bodega de origen a la de destino ${isInitiallyEmpty ? '(Automático, sin selección previa)' : '(Ignorar selección de tabla)'}</span>
+          </label>
+        </div>
         <div class="form-group" style="margin-bottom: 0;">
-          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Definir Cantidades a Trasladar</label>
-          <div style="max-height: 450px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
-              <thead>
-                <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
-                  <th style="padding: 0.75rem;">SKU</th>
-                  <th style="padding: 0.75rem;">Nombre</th>
-                  <th style="padding: 0.75rem; text-align: center;">Stock Origen</th>
-                  <th style="padding: 0.75rem; text-align: center;">Cant. a Mover</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${trs}
-              </tbody>
-            </table>
+          <div id="transfer-qty-section" style="${isInitiallyEmpty ? 'display: none;' : ''}">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Definir Cantidades a Trasladar</label>
+            <div id="transfer-table-container" style="max-height: 450px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+              <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+                <thead>
+                  <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                    <th style="padding: 0.75rem;">SKU</th>
+                    <th style="padding: 0.75rem;">Nombre</th>
+                    <th style="padding: 0.75rem; text-align: center;">Stock Origen</th>
+                    <th style="padding: 0.75rem; text-align: center;">Cant. a Mover</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${trs}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div id="transfer-all-stock-message" style="${isInitiallyEmpty ? 'display: block;' : 'display: none;'} padding: 1.5rem; background: var(--color-bg-alt); border: 1px dashed var(--color-primary); border-radius: var(--radius-md); text-align: center; color: var(--color-text-main); font-weight: 600; font-size: 0.9rem;">
+            <i class="ri-information-line" style="color: var(--color-primary); font-size: 1.2rem; vertical-align: middle; margin-right: 0.35rem;"></i>
+            Se trasladará el 100% de las unidades físicas de todos los productos de este comercio que tengan stock en la bodega de origen.
           </div>
         </div>
       </div>
@@ -20800,13 +20814,16 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
     }
 
     const productIds = selectedProducts.map(p => p.id);
-    
-    // Consultar stock de productos seleccionados
-    const { data: dbInvs } = await supabase
-      .from('inventory')
-      .select('product_id, quantity')
-      .eq('warehouse_id', srcId)
-      .in('product_id', productIds);
+    let dbInvs = [];
+    if (productIds.length > 0) {
+      // Consultar stock de productos seleccionados
+      const { data } = await supabase
+        .from('inventory')
+        .select('product_id, quantity')
+        .eq('warehouse_id', srcId)
+        .in('product_id', productIds);
+      dbInvs = data || [];
+    }
 
     // Consultar stock total general de esa bodega
     const { data: allInvs } = await supabase
@@ -20841,6 +20858,22 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
     });
   });
 
+  const allStockCheckbox = document.getElementById('transfer-all-stock-checkbox');
+  const qtySection = document.getElementById('transfer-qty-section');
+  const allStockMsg = document.getElementById('transfer-all-stock-message');
+
+  if (allStockCheckbox && qtySection && allStockMsg) {
+    allStockCheckbox.addEventListener('change', () => {
+      if (allStockCheckbox.checked) {
+        qtySection.style.display = 'none';
+        allStockMsg.style.display = 'block';
+      } else {
+        qtySection.style.display = 'block';
+        allStockMsg.style.display = 'none';
+      }
+    });
+  }
+
   const confirmBtn = document.getElementById('btn-confirm-stock-transfer');
   confirmBtn.addEventListener('click', async () => {
     const srcId = srcSelect.value;
@@ -20856,45 +20889,93 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
       return;
     }
 
-    let totalToTransfer = 0;
-    const transfers = [];
-
-    for (const p of selectedProducts) {
-      const label = document.querySelector(`.transfer-source-stock-label[data-prod-id="${p.id}"]`);
-      const srcStock = parseInt(label.textContent || '0', 10);
-
-      const input = document.querySelector(`.transfer-qty-input[data-prod-id="${p.id}"]`);
-      const qtyToTransfer = parseInt(input.value || '0', 10);
-
-      if (qtyToTransfer < 0) {
-        alert(`La cantidad para el producto ${p.sku} no puede ser negativa.`);
-        return;
-      }
-
-      if (qtyToTransfer > srcStock) {
-        alert(`No puedes trasladar ${qtyToTransfer} unidades del producto ${p.sku} porque solo hay ${srcStock} disponibles en la bodega de origen.`);
-        return;
-      }
-
-      if (qtyToTransfer > 0) {
-        totalToTransfer += qtyToTransfer;
-        transfers.push({
-          product: p,
-          qty: qtyToTransfer,
-          srcStock: srcStock
-        });
-      }
-    }
-
-    if (totalToTransfer === 0) {
-      alert('Por favor, ingresa una cantidad mayor a 0 para al menos un producto.');
-      return;
-    }
-
     confirmBtn.disabled = true;
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Procesando Traslado...';
 
+    let totalToTransfer = 0;
+    const transfers = [];
+
     try {
+      const isTransferAll = allStockCheckbox && allStockCheckbox.checked;
+
+      if (isTransferAll) {
+        // 1. Obtener todos los productos de este comercio
+        const { data: commerceProds, error: prodsErr } = await supabase
+          .from('products')
+          .select('id, sku, name')
+          .eq('comercio', commerce);
+
+        if (prodsErr) throw prodsErr;
+
+        if (!commerceProds || commerceProds.length === 0) {
+          alert('No se encontraron productos para este comercio.');
+          confirmBtn.disabled = false;
+          confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+          return;
+        }
+
+        const productIds = commerceProds.map(p => p.id);
+
+        // 2. Obtener inventario de estos productos en la bodega de origen
+        const { data: dbInvs, error: invsErr } = await supabase
+          .from('inventory')
+          .select('product_id, quantity')
+          .eq('warehouse_id', srcId)
+          .in('product_id', productIds);
+
+        if (invsErr) throw invsErr;
+
+        for (const inv of (dbInvs || [])) {
+          if ((inv.quantity || 0) > 0) {
+            const prod = commerceProds.find(p => p.id === inv.product_id);
+            transfers.push({
+              product: prod || { id: inv.product_id, sku: 'S/SKU', name: 'Producto' },
+              qty: inv.quantity,
+              srcStock: inv.quantity
+            });
+            totalToTransfer += inv.quantity;
+          }
+        }
+      } else {
+        // Flujo normal por productos seleccionados
+        for (const p of selectedProducts) {
+          const label = document.querySelector(`.transfer-source-stock-label[data-prod-id="${p.id}"]`);
+          const srcStock = parseInt(label.textContent || '0', 10);
+
+          const input = document.querySelector(`.transfer-qty-input[data-prod-id="${p.id}"]`);
+          const qtyToTransfer = parseInt(input.value || '0', 10);
+
+          if (qtyToTransfer < 0) {
+            alert(`La cantidad para el producto ${p.sku} no puede ser negativa.`);
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+            return;
+          }
+
+          if (qtyToTransfer > srcStock) {
+            alert(`No puedes trasladar ${qtyToTransfer} unidades del producto ${p.sku} porque solo hay ${srcStock} disponibles en la bodega de origen.`);
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+            return;
+          }
+
+          if (qtyToTransfer > 0) {
+            totalToTransfer += qtyToTransfer;
+            transfers.push({
+              product: p,
+              qty: qtyToTransfer,
+              srcStock: srcStock
+            });
+          }
+        }
+      }
+
+      if (totalToTransfer === 0) {
+        alert('No hay stock disponible para trasladar en la bodega de origen.');
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
+        return;
+      }
       const srcName = srcSelect.options[srcSelect.selectedIndex].text;
       const destName = destSelect.options[destSelect.selectedIndex].text;
 

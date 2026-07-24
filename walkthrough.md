@@ -930,3 +930,21 @@ Optimizamos la experiencia de usuario y la visibilidad de datos al realizar tras
      - El stock sumado de los productos seleccionados en esa bodega.
      - El stock total general (de todos los productos) registrado en dicha bodega.
      - Muestra un formato descriptivo y claro: *`Total seleccionados: X uds. / Total general: Y uds.`* para dar contexto inmediato de la carga y capacidad física de la ubicación de origen antes de proceder con el traslado.
+
+---
+
+## 49. Traslado Completo de Todo el Stock de una Bodega a Otra (WMS)
+
+Hemos añadido una opción avanzada que permite trasladar el 100% de las existencias físicas de todas las mercancías de una bodega de origen a otra de destino en un único paso, simplificando mudanzas de inventario y reestructuraciones de almacenamiento:
+
+1. **Opción interactiva en el Modal de Traslado**:
+   - Agregamos una opción y casilla de verificación en el modal: **"Trasladar todo el stock disponible de la bodega de origen a la de destino"**.
+   - **Activación Inteligente**: Si el usuario abre el modal de traslado sin haber seleccionado previamente productos en la grilla principal, el sistema detecta la ausencia de selección, activa de forma automática esta opción y la bloquea como obligatoria. Además, muestra un mensaje descriptivo indicando que se trasladará el 100% de las unidades físicas de todos los productos que tengan stock activo en el origen.
+   - Si hay una selección de productos, el checkbox se muestra habilitado, permitiendo al usuario decidir si prefiere ignorar la selección y trasladar todo el stock del origen.
+
+2. **Procesamiento de Inventario Masivo**:
+   - Al confirmar el traslado masivo total:
+     1. Consulta todos los productos pertenecientes al catálogo del comercio seleccionado.
+     2. Recupera todas las existencias físicas en la bodega de origen para dichos productos (excluyendo registros con stock `0`).
+     3. Para cada uno, reduce la cantidad física en origen a `0`, incrementa en la misma medida la bodega de destino, y registra los movimientos de entrada y salida individuales en la tabla de auditoría `movements`.
+     4. Al finalizar, refresca la grilla principal en tiempo real.
