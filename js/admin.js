@@ -22589,7 +22589,10 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     if (prodErr) throw prodErr;
 
+    window.tempCommerceProducts = commerceProducts || [];
+
     window.tempEditOrderItems = orderItems.map(item => ({
+      id: item.id,
       product_id: item.product_id,
       sku: item.products?.sku || 'S/SKU',
       name: item.products?.name || 'Desconocido',
@@ -22600,7 +22603,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     window.originalEditOrderItems = JSON.parse(JSON.stringify(window.tempEditOrderItems));
 
-    window.renderEditOrderItemsModal(orderId, order.comercio, commerceProducts);
+    window.renderEditOrderItemsModal(orderId, order.comercio);
 
   } catch (err) {
     console.error(err);
@@ -22608,7 +22611,7 @@ window.openEditOrderItemsModal = async function(orderId) {
   }
 };
 
-window.renderEditOrderItemsModal = function(orderId, commerce, commerceProducts) {
+window.renderEditOrderItemsModal = function(orderId, commerce) {
   let rowsHtml = '';
   if (window.tempEditOrderItems.length === 0) {
     rowsHtml = `
@@ -22640,6 +22643,8 @@ window.renderEditOrderItemsModal = function(orderId, commerce, commerceProducts)
     });
   }
 
+  const commerceProducts = window.tempCommerceProducts || [];
+
   const htmlContent = `
     <div style="text-align: left; max-height: 70vh; overflow-y: auto;">
       <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem;">
@@ -22666,13 +22671,13 @@ window.renderEditOrderItemsModal = function(orderId, commerce, commerceProducts)
           <div style="flex-grow: 1; min-width: 180px;">
             <input type="text" id="swal-add-item-sku" list="swal-products-datalist" placeholder="Escribe SKU o Nombre del producto..." style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
             <datalist id="swal-products-datalist">
-              ${commerceProducts.map(p => `<option value="${p.sku}">${p.sku} - ${p.name}</option>`).join('')}
+              ${commerceProducts.map(p => `<option value="${p.sku}" data-id="${p.id}">${p.sku} - ${p.name}</option>`).join('')}
             </datalist>
           </div>
           <div style="width: 70px;">
             <input type="number" id="swal-add-item-qty" value="1" min="1" style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);">
           </div>
-          <button onclick="window.addTempEditItem('${orderId}', '${commerce}', ${JSON.stringify(commerceProducts).replace(/"/g, '&quot;')})" type="button" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; cursor: pointer; color: white;"><i class="ri-add-line"></i> Agregar</button>
+          <button onclick="window.addTempEditItem('${orderId}', '${commerce}')" type="button" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; cursor: pointer; color: white;"><i class="ri-add-line"></i> Agregar</button>
         </div>
       </div>
 
@@ -22714,22 +22719,10 @@ window.updateTempEditItemQuantity = function(index, val) {
 
 window.removeTempEditItem = function(index, orderId, commerce) {
   window.tempEditOrderItems.splice(index, 1);
-  const dlist = document.getElementById('swal-products-datalist');
-  const commerceProducts = [];
-  if (dlist) {
-    Array.from(dlist.options).forEach(opt => {
-      const parts = opt.text.split(' - ');
-      commerceProducts.push({
-        id: opt.getAttribute('data-id'),
-        sku: opt.value,
-        name: parts.slice(1).join(' - ')
-      });
-    });
-  }
-  window.renderEditOrderItemsModal(orderId, commerce, commerceProducts);
+  window.renderEditOrderItemsModal(orderId, commerce);
 };
 
-window.addTempEditItem = function(orderId, commerce, commerceProducts) {
+window.addTempEditItem = function(orderId, commerce) {
   const skuInput = document.getElementById('swal-add-item-sku');
   const qtyInput = document.getElementById('swal-add-item-qty');
   if (!skuInput || !qtyInput) return;
@@ -22746,6 +22739,7 @@ window.addTempEditItem = function(orderId, commerce, commerceProducts) {
     return;
   }
 
+  const commerceProducts = window.tempCommerceProducts || [];
   const product = commerceProducts.find(p => p.sku === sku);
   if (!product) {
     alert('Producto no encontrado. Por favor, selecciona un SKU válido de la lista desplegable.');
@@ -22761,6 +22755,7 @@ window.addTempEditItem = function(orderId, commerce, commerceProducts) {
       : null;
 
     window.tempEditOrderItems.push({
+      id: null,
       product_id: product.id,
       sku: product.sku,
       name: product.name,
@@ -22770,21 +22765,21 @@ window.addTempEditItem = function(orderId, commerce, commerceProducts) {
     });
   }
 
-  window.renderEditOrderItemsModal(orderId, commerce, commerceProducts);
+  window.renderEditOrderItemsModal(orderId, commerce);
 };
 
 window.saveEditOrderItems = async function(orderId, comment) {
   try {
-    const originalMap = new Map(window.originalEditOrderItems.map(i => [i.product_id, i]));
-    const currentMap = new Map(window.tempEditOrderItems.map(i => [i.product_id, i]));
+    const originalMap = new Map(window.originalEditOrderItems.map(i => [i.id, i]));
+    const currentMap = new Map(window.tempEditOrderItems.filter(i => i.id).map(i => [i.id, i]));
 
     const changesList = [];
 
     for (const orig of window.originalEditOrderItems) {
-      if (!currentMap.has(orig.product_id)) {
+      if (!currentMap.has(orig.id)) {
         changesList.push(`Eliminado SKU ${orig.sku}: ${orig.name} (Cant: ${orig.quantity})`);
       } else {
-        const curr = currentMap.get(orig.product_id);
+        const curr = currentMap.get(orig.id);
         if (curr.quantity !== orig.quantity) {
           changesList.push(`Cantidad modificada SKU ${orig.sku}: ${orig.name} de ${orig.quantity} a ${curr.quantity}`);
         }
@@ -22792,7 +22787,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
     }
 
     for (const curr of window.tempEditOrderItems) {
-      if (!originalMap.has(curr.product_id)) {
+      if (!curr.id) {
         changesList.push(`Agregado SKU ${curr.sku}: ${curr.name} (Cant: ${curr.quantity})`);
       }
     }
@@ -22823,29 +22818,29 @@ window.saveEditOrderItems = async function(orderId, comment) {
       if (central) defaultWarehouseId = central.id;
     }
 
+    // 1. Procesar eliminaciones y actualizaciones usando la clave primaria ID
     for (const orig of window.originalEditOrderItems) {
-      if (!currentMap.has(orig.product_id)) {
+      if (!currentMap.has(orig.id)) {
         const { error } = await supabase
           .from('order_items')
           .delete()
-          .eq('order_id', orderId)
-          .eq('product_id', orig.product_id);
+          .eq('id', orig.id);
         if (error) throw error;
       } else {
-        const curr = currentMap.get(orig.product_id);
+        const curr = currentMap.get(orig.id);
         if (curr.quantity !== orig.quantity) {
           const { error } = await supabase
             .from('order_items')
             .update({ quantity: curr.quantity })
-            .eq('order_id', orderId)
-            .eq('product_id', orig.product_id);
+            .eq('id', orig.id);
           if (error) throw error;
         }
       }
     }
 
+    // 2. Procesar inserciones de nuevos ítems (que tienen id = null)
     for (const curr of window.tempEditOrderItems) {
-      if (!originalMap.has(curr.product_id)) {
+      if (!curr.id) {
         const { error } = await supabase
           .from('order_items')
           .insert({

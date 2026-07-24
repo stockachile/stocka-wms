@@ -833,3 +833,20 @@ Agregamos un nuevo botón **`Actualizar`** en el Panel de Control de Pedidos del
      * Asignaciones de operarios picker y mapas de inventario comprometido.
    - Una vez finalizada la consulta, vuelve a invocar de forma síncrona `applyWmsFiltersAndRender()`. Al no recargar la página completa, los selectores de filtro y buscador (que residen en el DOM) conservan sus estados intactos, aplicando instantáneamente los mismos criterios sobre la nueva data cargada.
    - Para agilizar la respuesta al usuario, los pedidos históricos se vuelven a cargar y fusionar en segundo plano de manera transparente, permitiendo que la interfaz siga operativa de inmediato.
+
+---
+
+## 44. Corrección en Eliminación de Ítems del Pedido sin SKU Asociado (S/SKU)
+
+Corregimos un error crítico en el modal de edición de ítems de pedidos ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) que impedía eliminar o actualizar correctamente aquellos ítems que carecían de un producto registrado en el catálogo (`product_id: null` en la base de datos, mostrándose como `S/SKU` en la interfaz):
+
+1. **Origen del Problema**:
+   - Anteriormente, el flujo de comparación y persistencia de cambios en `saveEditOrderItems` identificaba los registros utilizando el identificador del producto (`product_id`).
+   - Al guardar los cambios, si un producto era eliminado de la orden temporal y su `product_id` era `null`, el sistema ejecutaba la consulta Supabase `.delete().eq('product_id', null)`. En SQL, la comparación `product_id = NULL` siempre evalúa a falso, resultando en que la fila nunca se eliminaba de la tabla `order_items` de la base de datos (se borraban 0 filas).
+   - Adicionalmente, al reconstruir la lista de catálogo `commerceProducts` dentro del controlador de eliminación `removeTempEditItem`, se extraían los valores del datalist del DOM, perdiendo los identificadores reales de producto (`id: null`) al faltar el atributo `data-id`.
+
+2. **Refactorización y Solución de Clave Primaria**:
+   - **Identificación por Clave Primaria (`id`)**: Modificamos el mapeo de inicialización en `openEditOrderItemsModal` para que cargue y preserve el identificador único de la fila (`id` de `order_items`).
+   - **Flujo de Persistencia Seguro**: Adaptamos `saveEditOrderItems` para que realice las consultas `.delete().eq('id', orig.id)` y `.update(...).eq('id', orig.id)`. Al apuntar directamente a la clave primaria de la tabla intermedia en lugar del `product_id`, las operaciones de eliminación y actualización funcionan con precisión del 100%, incluso si el ítem de la orden tiene un producto nulo o no catalogado.
+   - **Persistencia Global de Catálogo**: Centralizamos el listado de productos de la tienda en `window.tempCommerceProducts` cuando se abre el modal. Esto elimina por completo la necesidad de reconstruir o parsear el datalist del DOM al borrar elementos, previniendo fallos en asignaciones de IDs posteriores.
+   - **Sincronización con el Buscador**: Agregamos el atributo `data-id="${p.id}"` en la renderización de las opciones del datalist para mantener la consistencia e integridad de datos del catálogo durante la búsqueda.
