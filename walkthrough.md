@@ -913,3 +913,20 @@ Hemos ampliado las capacidades de visualización del inventario de Cliente ([js/
 3. **Selector de Filtro de Tipo de Producto**:
    - Incorporamos un nuevo control desplegable **`Todos los Tipos / Físico / Pack / Online`** en la barra de filtros del inventario (al lado de la barra de búsqueda por SKU/nombre) en ambos paneles.
    - Al seleccionar un tipo, se ejecuta un filtrado reactivo local instantáneo que limita la grilla únicamente a los productos correspondientes, recalculando la paginación y las sumatorias en tiempo real.
+
+---
+
+## 48. Ampliación y Visualización de Totales en Modal de Traslado de Stock entre Bodegas
+
+Optimizamos la experiencia de usuario y la visibilidad de datos al realizar traslados de stock en lote desde el panel de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) y del Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)):
+
+1. **Aumento de Dimensiones del Modal**:
+   - Incrementamos el ancho máximo de la ventana emergente (`max-width: 850px; width: 90%`) y limitamos su altura para dispositivos pequeños (`max-height: 90vh`).
+   - Elevamos la altura útil del contenedor de la tabla de definición de cantidades de `250px` a `450px` (`max-height: 450px; overflow-y: auto`), facilitando la visualización y edición cómoda cuando se seleccionan múltiples productos simultáneamente.
+
+2. **Indicador en Tiempo Real de Unidades Totales de la Bodega de Origen**:
+   - Añadimos una etiqueta de información dinámica (`#transfer-source-total-stock`) alineada al lado derecho del título de la bodega de origen.
+   - Al seleccionar una bodega de origen, el sistema calcula de forma instantánea:
+     - El stock sumado de los productos seleccionados en esa bodega.
+     - El stock total general (de todos los productos) registrado en dicha bodega.
+     - Muestra un formato descriptivo y claro: *`Total seleccionados: X uds. / Total general: Y uds.`* para dar contexto inmediato de la carga y capacidad física de la ubicación de origen antes de proceder con el traslado.
