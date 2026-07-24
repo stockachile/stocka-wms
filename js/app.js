@@ -11446,35 +11446,95 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- Etiquetado de Código de Barras -->
+                <style>
+                  .dec-labeling-card {
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    padding: 0.9rem 1.15rem;
+                    border-radius: 8px;
+                    border: 2px solid var(--color-border);
+                    background: var(--color-surface);
+                    cursor: pointer;
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                    position: relative;
+                  }
+                  .dec-labeling-card:hover {
+                    border-color: rgba(37, 99, 235, 0.45) !important;
+                    background: rgba(37, 99, 235, 0.01) !important;
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+                  }
+                  .dec-labeling-card.active {
+                    border-color: var(--color-primary) !important;
+                    background: rgba(37, 99, 235, 0.04) !important;
+                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.06) !important;
+                  }
+                </style>
+
                 <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
                   <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Etiquetado de Código de Barras *</label>
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.15rem; line-height: 1.4;">
                     Indica si los productos a ingresar ya cuentan con etiquetas de códigos de barra legibles.
                   </p>
                   
-                  <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem;">
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                      <input type="radio" name="dec-labeling-type" value="completely" checked style="width: 16px; height: 16px;">
-                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Completamente Etiquetado (Listo)</span>
+                  <div class="dec-labeling-cards-container" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.15rem;">
+                    
+                    <!-- Option 1: Completely -->
+                    <label class="dec-labeling-card active" id="labeling-card-completely">
+                      <input type="radio" name="dec-labeling-type" value="completely" checked style="position: absolute; opacity: 0; width: 0; height: 0;">
+                      <div class="card-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(37, 99, 235, 0.15); color: var(--color-primary); font-size: 1.2rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-barcode-line"></i>
+                      </div>
+                      <div style="flex: 1;">
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Completamente Etiquetado</span>
+                        <span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Listo para lectura. Sin costo adicional de etiquetado.</span>
+                      </div>
+                      <div class="card-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--color-primary); background: var(--color-primary); color: white; font-size: 0.75rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-check-line"></i>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                      <input type="radio" name="dec-labeling-type" value="partially" style="width: 16px; height: 16px;">
-                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Parcialmente Etiquetado (Requiere etiquetar algunas unidades)</span>
+
+                    <!-- Option 2: Partially -->
+                    <label class="dec-labeling-card" id="labeling-card-partially">
+                      <input type="radio" name="dec-labeling-type" value="partially" style="position: absolute; opacity: 0; width: 0; height: 0;">
+                      <div class="card-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.2rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-barcode-box-line"></i>
+                      </div>
+                      <div style="flex: 1;">
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Parcialmente Etiquetado</span>
+                        <span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Algunas unidades requieren etiquetas ($100 CLP/ud).</span>
+                      </div>
+                      <div class="card-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--color-border); background: transparent; color: transparent; font-size: 0.75rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-check-line"></i>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                      <input type="radio" name="dec-labeling-type" value="none" style="width: 16px; height: 16px;">
-                      <span style="font-size: 0.85rem; color: var(--color-text-main);">Sin Etiquetado (Requiere etiquetar todas las unidades)</span>
+
+                    <!-- Option 3: None -->
+                    <label class="dec-labeling-card" id="labeling-card-none">
+                      <input type="radio" name="dec-labeling-type" value="none" style="position: absolute; opacity: 0; width: 0; height: 0;">
+                      <div class="card-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(148, 163, 184, 0.1); color: var(--color-text-muted); font-size: 1.2rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-qr-code-line"></i>
+                      </div>
+                      <div style="flex: 1;">
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Sin Etiquetado</span>
+                        <span style="font-size: 0.78rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Todas las unidades requieren etiquetado ($100 CLP/ud).</span>
+                      </div>
+                      <div class="card-check-indicator" style="display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--color-border); background: transparent; color: transparent; font-size: 0.75rem; transition: all 0.25s ease; flex-shrink: 0;">
+                        <i class="ri-check-line"></i>
+                      </div>
                     </label>
+
                   </div>
 
                   <!-- Panel Informativo y de Cantidad de Etiquetado -->
-                  <div id="dec-labeling-details-panel" style="display: none; padding: 0.85rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; margin-top: 0.75rem; line-height: 1.4;">
-                    <div style="font-size: 0.8rem; color: var(--badge-warning-text); margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 0.35rem;">
-                      <i class="ri-alert-line" style="font-size: 1rem; color: var(--color-warning); flex-shrink: 0; margin-top: 2px;"></i>
+                  <div id="dec-labeling-details-panel" style="display: none; padding: 1rem; background: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; margin-top: 0.75rem; line-height: 1.4;">
+                    <div style="font-size: 0.82rem; color: var(--badge-warning-text); margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem;">
+                      <i class="ri-alert-line" style="font-size: 1.15rem; color: var(--color-warning); flex-shrink: 0; margin-top: 1px;"></i>
                       <span><strong>Información de Etiquetado:</strong> Para ser almacenados y despachados, es obligatorio que todos los productos cuenten con código de barras. El costo del servicio de etiquetado en bodega es de <strong>$100 CLP por unidad</strong>.</span>
                     </div>
                     
-                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.85rem;">
                       <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Unidades a Etiquetar en Bodega *</label>
                       <input type="number" id="dec-labeling-qty" class="form-input" min="1" value="0" placeholder="Ej. 100" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; width: 100%;">
                     </div>
@@ -11910,6 +11970,38 @@ window.renderDeclarations = async function() {
 
       function updateLabelingFields() {
         const selectedType = document.querySelector('input[name="dec-labeling-type"]:checked')?.value || 'completely';
+        
+        // Update active class on parent labels and styling details
+        document.querySelectorAll('.dec-labeling-card').forEach(card => {
+          const radio = card.querySelector('input[name="dec-labeling-type"]');
+          const iconWrapper = card.querySelector('.card-icon-wrapper');
+          const checkIndicator = card.querySelector('.card-check-indicator');
+          
+          if (radio && radio.checked) {
+            card.classList.add('active');
+            if (iconWrapper) {
+              iconWrapper.style.background = 'rgba(37, 99, 235, 0.15)';
+              iconWrapper.style.color = 'var(--color-primary)';
+            }
+            if (checkIndicator) {
+              checkIndicator.style.borderColor = 'var(--color-primary)';
+              checkIndicator.style.background = 'var(--color-primary)';
+              checkIndicator.style.color = 'white';
+            }
+          } else {
+            card.classList.remove('active');
+            if (iconWrapper) {
+              iconWrapper.style.background = 'rgba(148, 163, 184, 0.1)';
+              iconWrapper.style.color = 'var(--color-text-muted)';
+            }
+            if (checkIndicator) {
+              checkIndicator.style.borderColor = 'var(--color-border)';
+              checkIndicator.style.background = 'transparent';
+              checkIndicator.style.color = 'transparent';
+            }
+          }
+        });
+
         if (selectedType === 'completely') {
           labelingDetailsPanel.style.display = 'none';
           labelingQtyInput.removeAttribute('required');
@@ -13740,6 +13832,37 @@ window.editDeclaration = async function(id) {
     
     const labelingRadio = document.querySelector(`input[name="dec-labeling-type"][value="${labelingType}"]`);
     if (labelingRadio) labelingRadio.checked = true;
+
+    // Update active class on parent labels and styling details in edit mode
+    document.querySelectorAll('.dec-labeling-card').forEach(card => {
+      const radio = card.querySelector('input[name="dec-labeling-type"]');
+      const iconWrapper = card.querySelector('.card-icon-wrapper');
+      const checkIndicator = card.querySelector('.card-check-indicator');
+      
+      if (radio && radio.checked) {
+        card.classList.add('active');
+        if (iconWrapper) {
+          iconWrapper.style.background = 'rgba(37, 99, 235, 0.15)';
+          iconWrapper.style.color = 'var(--color-primary)';
+        }
+        if (checkIndicator) {
+          checkIndicator.style.borderColor = 'var(--color-primary)';
+          checkIndicator.style.background = 'var(--color-primary)';
+          checkIndicator.style.color = 'white';
+        }
+      } else {
+        card.classList.remove('active');
+        if (iconWrapper) {
+          iconWrapper.style.background = 'rgba(148, 163, 184, 0.1)';
+          iconWrapper.style.color = 'var(--color-text-muted)';
+        }
+        if (checkIndicator) {
+          checkIndicator.style.borderColor = 'var(--color-border)';
+          checkIndicator.style.background = 'transparent';
+          checkIndicator.style.color = 'transparent';
+        }
+      }
+    });
     
     const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
     const labelingQtyInput = document.getElementById('dec-labeling-qty');
@@ -13806,6 +13929,38 @@ window.cancelEditDeclaration = function() {
   // Reset labeling preferences
   const completelyRadio = document.querySelector('input[name="dec-labeling-type"][value="completely"]');
   if (completelyRadio) completelyRadio.checked = true;
+
+  // Update card active classes
+  document.querySelectorAll('.dec-labeling-card').forEach(card => {
+    const radio = card.querySelector('input[name="dec-labeling-type"]');
+    const iconWrapper = card.querySelector('.card-icon-wrapper');
+    const checkIndicator = card.querySelector('.card-check-indicator');
+    
+    if (radio && radio.checked) {
+      card.classList.add('active');
+      if (iconWrapper) {
+        iconWrapper.style.background = 'rgba(37, 99, 235, 0.15)';
+        iconWrapper.style.color = 'var(--color-primary)';
+      }
+      if (checkIndicator) {
+        checkIndicator.style.borderColor = 'var(--color-primary)';
+        checkIndicator.style.background = 'var(--color-primary)';
+        checkIndicator.style.color = 'white';
+      }
+    } else {
+      card.classList.remove('active');
+      if (iconWrapper) {
+        iconWrapper.style.background = 'rgba(148, 163, 184, 0.1)';
+        iconWrapper.style.color = 'var(--color-text-muted)';
+      }
+      if (checkIndicator) {
+        checkIndicator.style.borderColor = 'var(--color-border)';
+        checkIndicator.style.background = 'transparent';
+        checkIndicator.style.color = 'transparent';
+      }
+    }
+  });
+
   const labelingDetailsPanel = document.getElementById('dec-labeling-details-panel');
   if (labelingDetailsPanel) labelingDetailsPanel.style.display = 'none';
   const labelingQtyInput = document.getElementById('dec-labeling-qty');
@@ -14335,7 +14490,7 @@ window.loadClientBillingData = async function(periodId) {
       <div class="billing-tabs-container">
         <button class="billing-tab-btn active" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
         <button class="billing-tab-btn" onclick="switchBillingTabClient('env', this)">Envíame</button>
-        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">Cobros Adicionales</button>
+        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">Saldos Adicionales</button>
       </div>
 
       <!-- Filtros Fulf -->
@@ -14451,14 +14606,15 @@ window.loadClientBillingData = async function(periodId) {
         </table>
       </div>
 
-      <!-- Tabla Cobros Adicionales -->
+      <!-- Tabla Saldos Adicionales -->
       <div id="billing-tab-extra" class="table-responsive" style="display: none;">
         <table class="data-table" style="min-width: 800px; font-size: 0.85rem; border-collapse: collapse;">
           <thead>
             <tr>
               <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Fecha</th>
               <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 300px; border-bottom: 1px solid var(--color-border);">Detalle del Cobro</th>
+              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Tipo</th>
+              <th style="min-width: 250px; border-bottom: 1px solid var(--color-border);">Detalle</th>
               <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Monto</th>
               <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Estado</th>
               <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Periodo Asignado</th>
@@ -14466,9 +14622,9 @@ window.loadClientBillingData = async function(periodId) {
           </thead>
           <tbody id="client-extra-charges-table-body">
             <tr>
-              <td colspan="6" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+              <td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
                 <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
-                Cargando cobros adicionales...
+                Cargando saldos adicionales...
               </td>
             </tr>
           </tbody>
@@ -18480,8 +18636,8 @@ window.loadClientExtraCharges = async function(periodId) {
       if (companyList.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-              No tienes comercios asociados para ver cobros adicionales.
+            <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+              No tienes comercios asociados para ver saldos adicionales.
             </td>
           </tr>
         `;
@@ -18511,8 +18667,8 @@ window.loadClientExtraCharges = async function(periodId) {
     if (!charges || charges.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
-            No se registran cobros adicionales ni extraordinarios para tu comercio.
+          <td colspan="7" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+            No se registran saldos adicionales ni extraordinarios para tu comercio.
           </td>
         </tr>
       `;
@@ -18522,7 +18678,7 @@ window.loadClientExtraCharges = async function(periodId) {
     tbody.innerHTML = charges.map(c => {
       const formattedDate = new Date(c.fecha + 'T00:00:00').toLocaleDateString();
       const statusClass = c.status === 'cobrado' ? 'status-active' : 'status-inactive';
-      const statusText = c.status === 'cobrado' ? 'Cobrado' : 'Pendiente';
+      const statusText = c.status === 'cobrado' ? 'Aplicado' : 'Pendiente';
       const statusBadge = `<span class="client-badge ${statusClass}">${statusText}</span>`;
       const periodName = c.status === 'cobrado' ? (periodsMap[c.periodo_id] || 'No especificado') : '-';
 
@@ -18530,13 +18686,22 @@ window.loadClientExtraCharges = async function(periodId) {
         ? '<span style="font-size: 0.7rem; color: var(--color-success); font-weight: 600; display: block; opacity: 0.95; margin-top: 0.15rem;">IVA Incluido</span>'
         : '<span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600; display: block; margin-top: 0.15rem;">+ IVA (Neto)</span>';
 
+      const isDescuento = c.tipo === 'descuento';
+      const tipoBadge = isDescuento
+        ? `<span class="client-badge status-active" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2);">Descuento</span>`
+        : `<span class="client-badge status-inactive" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2);">Cargo</span>`;
+
+      const displayAmount = isDescuento ? `-${window.formatCLP(c.monto)}` : window.formatCLP(c.monto);
+      const amountColorStyle = isDescuento ? 'color: #10b981;' : 'color: var(--color-text-main);';
+
       return `
         <tr>
           <td style="vertical-align: middle; color: var(--color-text-muted);">${formattedDate}</td>
           <td style="vertical-align: middle; font-weight: 600; color: var(--color-text-main);">${c.comercio}</td>
+          <td style="vertical-align: middle;">${tipoBadge}</td>
           <td style="vertical-align: middle;">${c.detalle}</td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 600; color: var(--color-text-main); line-height: 1.3;">
-            <div>${window.formatCLP(c.monto)}</div>
+          <td style="vertical-align: middle; text-align: right; font-weight: 600; ${amountColorStyle} line-height: 1.3;">
+            <div>${displayAmount}</div>
             ${ivaBadge}
           </td>
           <td style="vertical-align: middle;">${statusBadge}</td>
@@ -18549,8 +18714,8 @@ window.loadClientExtraCharges = async function(periodId) {
     console.error('Error loading client extra charges:', err);
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-danger);">
-          Error al consultar cobros adicionales: ${err.message}
+        <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-danger);">
+          Error al consultar saldos adicionales: ${err.message}
         </td>
       </tr>
     `;
