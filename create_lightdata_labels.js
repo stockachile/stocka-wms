@@ -52,6 +52,17 @@ function getWarehouseIdFromSucursal(sucursalName) {
   return 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central / Default
 }
 
+function generateTrackingCode(sigla, externalOrderNumber, orderId) {
+  const cleanOrderNum = String(externalOrderNumber || orderId).replace(/[^a-zA-Z0-9]/g, '');
+  const upperSigla = (sigla || '').trim().toUpperCase();
+  const upperOrderNum = cleanOrderNum.toUpperCase();
+
+  if (upperSigla && upperOrderNum.startsWith(upperSigla)) {
+    return cleanOrderNum;
+  }
+  return `${sigla}${cleanOrderNum}`;
+}
+
 function getFechaProcesamiento() {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, '0');
@@ -90,7 +101,7 @@ async function sendSingleOrderToPicker(order) {
       manga: opt.manga || null,
       cuello: opt.cuello || null,
       client_name: order.customer_name || 'Sin nombre',
-      tracking: order.tracking_number || '',
+      tracking: (order.agenda && order.agenda.trim().toUpperCase() === 'STK') ? orderNumber : (order.tracking_number || ''),
       operator: order.operador || '',
       totu: totu,
       sheet_status: 'EN PREPARACIÓN',
@@ -194,8 +205,7 @@ async function handleIndividualMode(idPedido) {
 
   // Obtener la sigla correspondiente del comercio
   const sigla = await getCommerceSigla(order.comercio);
-  const cleanOrderNum = String(order.external_order_number || order.id).replace(/[^a-zA-Z0-9]/g, '');
-  const trackingCode = `${sigla}${cleanOrderNum}`;
+  const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
   
   console.log(`🏷️ Código de tracking generado: ${trackingCode}`);
 
@@ -571,8 +581,7 @@ async function handleBulkMode(limiteCarga) {
   // Mapear cada orden al formato
   for (const order of pendingOrders) {
     const sigla = await getCommerceSigla(order.comercio);
-    const cleanOrderNum = String(order.external_order_number || order.id).replace(/[^a-zA-Z0-9]/g, '');
-    const trackingCode = `${sigla}${cleanOrderNum}`;
+    const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
     
     const street = order.shipping_address || '';
     const comuna = order.shipping_city || '';
@@ -730,8 +739,7 @@ async function handleBulkMode(limiteCarga) {
     for (let index = 0; index < pendingOrders.length; index++) {
       const order = pendingOrders[index];
       const sigla = await getCommerceSigla(order.comercio);
-      const cleanOrderNum = String(order.external_order_number || order.id).replace(/[^a-zA-Z0-9]/g, '');
-      const trackingCode = `${sigla}${cleanOrderNum}`;
+      const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
       
       const did = listDids[index] || '';
       if (!did) {
