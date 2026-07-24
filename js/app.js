@@ -11387,45 +11387,127 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- 4. Detalle de Bultos a Enviar -->
+                <style>
+                  .package-type-row {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 0.85rem 1.15rem;
+                    border-radius: 8px;
+                    border: 1px solid var(--color-border);
+                    background: var(--color-surface);
+                    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                    margin-bottom: 0.75rem;
+                  }
+                  .package-type-row:hover {
+                    border-color: rgba(37, 99, 235, 0.3) !important;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+                  }
+                  .package-type-row:has(.dec-no-envio-cb:checked) {
+                    opacity: 0.55;
+                    background: rgba(255, 255, 255, 0.01) !important;
+                    border-color: var(--color-border) !important;
+                    box-shadow: none !important;
+                  }
+                  
+                  .btn-no-envio {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.4rem;
+                    cursor: pointer;
+                    user-select: none;
+                    padding: 0.35rem 0.75rem;
+                    border-radius: 20px;
+                    border: 1px solid var(--color-border);
+                    background: var(--color-surface);
+                    font-size: 0.72rem;
+                    font-weight: 600;
+                    color: var(--color-text-muted);
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  }
+                  .btn-no-envio:hover {
+                    border-color: rgba(239, 68, 68, 0.4);
+                    color: var(--color-text-main);
+                  }
+                  .btn-no-envio input[type="checkbox"]:checked ~ .switch-dot {
+                    background: #ef4444 !important;
+                    box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+                  }
+                  .btn-no-envio:has(input[type="checkbox"]:checked) {
+                    border-color: rgba(239, 68, 68, 0.25) !important;
+                    background: rgba(239, 68, 68, 0.05) !important;
+                    color: #ef4444 !important;
+                  }
+                </style>
+
                 <div class="form-group" style="background: var(--color-surface); padding: 1.25rem; border-radius: 10px; border: 1px solid var(--color-border); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; font-size: 0.95rem;">Detalle de Bultos a Enviar *</label>
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+                  <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
+                    <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Detalle de Bultos a Enviar *
+                  </label>
+                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1.15rem; line-height: 1.4;">
                     Es obligatorio indicar al menos 1 bulto total. Indique las cantidades que enviará o marque "No enviaré".
                   </p>
                   
                   <!-- Contenedores -->
-                  <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
-                    <div style="display: flex; flex-direction: column;">
-                      <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Contenedores (Containers)</label>
-                      <input type="number" id="dec-container-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                  <div class="package-type-row" id="row-container">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <div class="package-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); font-size: 1.2rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-ship-2-line"></i>
+                      </div>
+                      <div>
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Contenedores</span>
+                        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">Containers</span>
+                      </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                      <input type="checkbox" id="dec-no-container" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                      <label for="dec-no-container" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <input type="number" id="dec-container-count" class="form-input" min="1" placeholder="Cant." required style="width: 80px; text-align: center; padding: 0.4rem 0.6rem; font-size: 0.85rem; margin: 0; font-weight: 600;">
+                      <label class="btn-no-envio">
+                        <input type="checkbox" id="dec-no-container" class="dec-no-envio-cb" style="display: none;">
+                        <span class="switch-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-border); transition: all 0.2s; display: inline-block;"></span>
+                        <span>No enviaré</span>
+                      </label>
                     </div>
                   </div>
 
                   <!-- Pallets -->
-                  <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.75rem;">
-                    <div style="display: flex; flex-direction: column;">
-                      <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Pallets</label>
-                      <input type="number" id="dec-pallet-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                  <div class="package-type-row" id="row-pallet">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <div class="package-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); font-size: 1.2rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-grid-line"></i>
+                      </div>
+                      <div>
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Pallets</span>
+                        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">Tarimas de carga</span>
+                      </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                      <input type="checkbox" id="dec-no-pallet" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                      <label for="dec-no-pallet" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <input type="number" id="dec-pallet-count" class="form-input" min="1" placeholder="Cant." required style="width: 80px; text-align: center; padding: 0.4rem 0.6rem; font-size: 0.85rem; margin: 0; font-weight: 600;">
+                      <label class="btn-no-envio">
+                        <input type="checkbox" id="dec-no-pallet" class="dec-no-envio-cb" style="display: none;">
+                        <span class="switch-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-border); transition: all 0.2s; display: inline-block;"></span>
+                        <span>No enviaré</span>
+                      </label>
                     </div>
                   </div>
 
                   <!-- Cajas -->
-                  <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; align-items: center; margin-bottom: 0.5rem;">
-                    <div style="display: flex; flex-direction: column;">
-                      <label class="form-label" style="font-size: 0.85rem; margin-bottom: 0.25rem;">Cajas (Boxes)</label>
-                      <input type="number" id="dec-box-count" class="form-input" min="1" placeholder="Cantidad" required style="padding: 0.5rem 0.75rem;">
+                  <div class="package-type-row" id="row-box" style="margin-bottom: 0.25rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <div class="package-icon-wrapper" style="display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; background: rgba(37, 99, 235, 0.08); color: var(--color-primary); font-size: 1.2rem; flex-shrink: 0; transition: all 0.2s;">
+                        <i class="ri-archive-line"></i>
+                      </div>
+                      <div>
+                        <span style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main); display: block;">Cajas</span>
+                        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">Boxes</span>
+                      </div>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.15rem;">
-                      <input type="checkbox" id="dec-no-box" class="dec-no-envio-cb" style="width: 16px; height: 16px; cursor: pointer;">
-                      <label for="dec-no-box" style="font-size: 0.85rem; cursor: pointer; color: var(--color-text-muted); user-select: none;">No enviaré</label>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                      <input type="number" id="dec-box-count" class="form-input" min="1" placeholder="Cant." required style="width: 80px; text-align: center; padding: 0.4rem 0.6rem; font-size: 0.85rem; margin: 0; font-weight: 600;">
+                      <label class="btn-no-envio">
+                        <input type="checkbox" id="dec-no-box" class="dec-no-envio-cb" style="display: none;">
+                        <span class="switch-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-border); transition: all 0.2s; display: inline-block;"></span>
+                        <span>No enviaré</span>
+                      </label>
                     </div>
                   </div>
                 </div>
