@@ -2451,8 +2451,8 @@ window.applyWmsFiltersAndRender = function() {
                   <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
                   ${(order.shipping_city || comuna_destino) ? (
                     window.isAlphaComunaExact(order.shipping_city || comuna_destino)
-                      ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;"><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura Alpha OK</span>`
-                      : `<span style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta comuna no coincide exactamente con las 36 comunas urbanas con cobertura de Alpha. Puede causar fallas al emitir la etiqueta en LightData."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Sin Cobertura Alpha / Typo</span>`
+                      ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;"><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura RM OK</span>`
+                      : `<span style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta comuna no coincide exactamente con las 36 comunas urbanas con cobertura de RM. Puede causar fallas al emitir la etiqueta en LightData."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Sin Cobertura RM / Typo</span>`
                   ) : ''}
                   <button onclick="window.editWmsOrderComuna('${order.id}')" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem; height: 22px;">
                     <i class="ri-edit-line"></i> Editar
@@ -21488,8 +21488,8 @@ window.editWmsOrderComuna = async function(orderId) {
     <div class="comuna-option-item" data-value="${c.name}" style="padding: 0.5rem; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
       <span>${c.name}</span>
       ${c.hasAlpha 
-        ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Alpha OK</span>`
-        : `<span style="background: rgba(100, 116, 139, 0.1); color: #475569; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Sin Alpha</span>`
+        ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Cobertura RM OK</span>`
+        : `<span style="background: rgba(100, 116, 139, 0.1); color: #475569; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Sin Cobertura RM</span>`
       }
     </div>
   `).join('');
