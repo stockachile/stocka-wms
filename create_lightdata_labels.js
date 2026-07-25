@@ -71,7 +71,7 @@ const SUPPORTED_COMUNAS = [
   'penalolen', 'providencia', 'pudahuel', 'puente alto', 'quilicura',
   'quinta normal', 'recoleta', 'renca', 'san bernardo', 'san joaquin',
   'san miguel', 'san ramon', 'santiago', 'vitacura', 'padre hurtado',
-  'penaflor'
+  'colina'
 ];
 
 function isComunaSupported(comunaName) {
