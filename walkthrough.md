@@ -1403,3 +1403,20 @@ Hemos implementado un flujo de control de stock interactivo en el panel de admin
    - En lugar de fallar de manera silenciosa o cruda con una excepción de base de datos, el sistema muestra un SweetAlert interactivo detallado:
      - *"No se puede marcar como Despachado: El SKU XXX (Nombre) no tiene suficiente stock físico en la bodega YYY (Requerido: A, Disponible: B)."*
    - Esto mantiene la consistencia lógica del inventario de forma segura y mejora la usabilidad para el operador.
+
+---
+
+## 64. Corrección de Mapeo de Catálogo por Comercio y Backfill de Ítems (WMS)
+
+Hemos solucionado el problema que causaba que ciertos pedidos (especialmente de **MAGIC MAKEUP**) se importaran con `0` unidades y sin información de SKU/nombre (mostrándose como `Sin SKU` / `Sin Nombre` en el gestor):
+
+1. **Resolución de Colisión de Integración Multicuentas (`sync_shopify.js` y `sync_tiendanube.js`)**:
+   - **Diagnóstico**: Cuando un usuario administrador (como Felipe) conecta múltiples tiendas Shopify/Tiendanube bajo sus credenciales de integración, el `merchant_id` en la tabla `merchant_integrations` se guarda con el UUID del administrador. Sin embargo, el catálogo de productos de cada tienda en la base de datos está registrado bajo el `merchant_id` del dueño original (como `mlg@magicmakeup.cl` en MAGIC MAKEUP).
+   - El script de sincronización buscaba el producto filtrando por `.eq('merchant_id', integration.merchant_id).eq('sku', sku)`. Al no coincidir el ID de la integración con el del producto, no encontraba ningún registro y fallaba al intentar auto-crearlo de nuevo debido a la clave única del SKU por comercio (`products_comercio_sku_key`), dejando el pedido sin ítems asociados (`order_items` vacío).
+   - **Solución**: Modificamos la búsqueda en los scripts de sincronización de plataformas para consultar el producto filtrando por el nombre de comercio (`comercio`) y el SKU: `.eq('sku', sku).eq('comercio', integration.comercio)`. Esto garantiza una correspondencia del 100% independientemente del usuario que haya establecido la conexión.
+   - Al auto-crear un producto faltante, el sistema busca de manera inteligente un producto hermano existente para heredar su `merchant_id` real, manteniendo la coherencia de propiedad de los datos.
+
+2. **Campaña de Backfill Explicativo de Pedidos Afectados**:
+   - Ejecutamos un script de reparación en caliente (`scratch/backfill_missing_order_items.js`) que analizó la base de datos, detectó 45 pedidos de Magic Makeup afectados por este desfase histórico que carecían de ítems y procesó su campo original `raw_shopify_data` para insertar correctamente sus correspondientes registros en la tabla `order_items` con sus SKUs, cantidades y precios reales.
+   - Todo el histórico actual y activo del comercio MAGIC MAKEUP se encuentra ahora 100% corregido y visible en la plataforma.
+

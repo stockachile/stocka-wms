@@ -241,22 +241,34 @@ async function syncOrders(integration) {
         let mappedSku = skuMap[cleanSku] || cleanSku;
         let hasEquivalence = !!skuMap[cleanSku];
 
-        // Buscar producto en catálogo
+        // Buscar producto en catálogo por comercio y sku
         let query = supabase.from('products')
-          .select('id')
+          .select('id, merchant_id')
           .eq('sku', mappedSku)
-          .eq('merchant_id', integration.merchant_id);
+          .eq('comercio', integration.comercio);
 
         const { data: foundProduct } = await query.maybeSingle();
         product = foundProduct;
 
         // Auto-crear producto si no existe
         if (!product) {
+          // Intentar obtener el merchant_id correcto para este comercio desde otros productos
+          let activeMerchantId = integration.merchant_id;
+          const { data: siblingProd } = await supabase
+            .from('products')
+            .select('merchant_id')
+            .eq('comercio', integration.comercio)
+            .limit(1)
+            .maybeSingle();
+          if (siblingProd && siblingProd.merchant_id) {
+            activeMerchantId = siblingProd.merchant_id;
+          }
+
           const targetSku = hasEquivalence ? mappedSku : (item.sku || item.variant_id.toString());
           const { data: newProd, error: prodErr } = await supabase
             .from('products')
             .insert([{
-              merchant_id: integration.merchant_id,
+              merchant_id: activeMerchantId,
               comercio: integration.comercio,
               sku: targetSku,
               name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
