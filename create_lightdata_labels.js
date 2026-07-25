@@ -63,6 +63,31 @@ function generateTrackingCode(sigla, externalOrderNumber, orderId) {
   return `${sigla}${cleanOrderNum}`;
 }
 
+const SUPPORTED_COMUNAS = [
+  'buin', 'calera de tango', 'cerrillos', 'cerro navia', 'colina', 'conchala', 'conchalí', 
+  'el bosque', 'estacion central', 'estación central', 'huechuraba', 'independencia', 
+  'la cisterna', 'la florida', 'la granja', 'la pintana', 'la reina', 'lampa', 'las condes', 
+  'lo barnechea', 'lo espejo', 'lo prado', 'macul', 'maipú', 'maipu', 'malloco', 'ñuñoa', 
+  'padre hurtado', 'paine', 'pedro aguirre cerda', 'peñaflor', 'peñalolen', 'peñalolén', 
+  'pirque', 'providencia', 'pudahuel', 'puente alto', 'quilicura', 'quinta normal', 
+  'recoleta', 'renca', 'san bernardo', 'san joaquin', 'san joaquín', 'san jose de maipo', 
+  'san josé de maipo', 'san miguel', 'san ramon', 'san ramón', 'santiago', 'talagante', 'vitacura'
+];
+
+function isComunaSupported(comunaName) {
+  if (!comunaName) return false;
+  const normalized = comunaName.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  
+  return SUPPORTED_COMUNAS.some(c => {
+    const normC = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s]/g, '').trim();
+    return normalized.includes(normC) || normC.includes(normalized);
+  });
+}
+
 function getFechaProcesamiento() {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, '0');
@@ -208,6 +233,36 @@ async function handleIndividualMode(idPedido) {
   const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
   
   console.log(`🏷️ Código de tracking generado: ${trackingCode}`);
+
+  // Validar si la comuna es soportada
+  if (!isComunaSupported(order.shipping_city)) {
+    console.error(`❌ ERROR: La comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('comercio', order.comercio)
+        .maybeSingle();
+      const userId = profile?.id || order.merchant_id;
+      
+      await supabase
+        .from('incidencias')
+        .insert({
+          user_id: userId,
+          comercio: order.comercio,
+          title: `Comuna no soportada - Pedido ${order.external_order_number || order.id}`,
+          description: `El pedido ${order.external_order_number || order.id} tiene la comuna "${order.shipping_city}", la cual no es soportada por LightData (NoFlex RM). Por favor, asigne otro transportista.`,
+          type: 'pedido',
+          severity: 'critico',
+          status: 'pendiente',
+          solution: ''
+        });
+      console.log('✅ Incidencia registrada por comuna no soportada.');
+    } catch (innerErr) {
+      console.error('Error al registrar incidencia de comuna:', innerErr);
+    }
+    return;
+  }
 
   const isCI = !!process.env.GITHUB_ACTIONS;
   const browser = await chromium.launch({
@@ -556,6 +611,45 @@ async function handleBulkMode(limiteCarga) {
 
   console.log(`📦 Encontrados ${pendingOrders.length} pedidos listos para procesar masivamente.`);
 
+  // Filtrar pedidos válidos por comuna soportada
+  const activeOrdersList = [];
+  for (const order of pendingOrders) {
+    if (!isComunaSupported(order.shipping_city)) {
+      console.warn(`⚠️ Omitiendo pedido ${order.external_order_number || order.id}: comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('comercio', order.comercio)
+          .maybeSingle();
+        const userId = profile?.id || order.merchant_id;
+        
+        await supabase
+          .from('incidencias')
+          .insert({
+            user_id: userId,
+            comercio: order.comercio,
+            title: `Comuna no soportada (Masivo) - Pedido ${order.external_order_number || order.id}`,
+            description: `El pedido ${order.external_order_number || order.id} tiene la comuna "${order.shipping_city}", la cual no es soportada por LightData (NoFlex RM). Por favor, asigne otro transportista.`,
+            type: 'pedido',
+            severity: 'critico',
+            status: 'pendiente',
+            solution: ''
+          });
+        console.log(`✅ Incidencia registrada para pedido omitido ${order.external_order_number || order.id}.`);
+      } catch (innerErr) {
+        console.error('Error al registrar incidencia de comuna en masivo:', innerErr);
+      }
+      continue;
+    }
+    activeOrdersList.push(order);
+  }
+
+  if (activeOrdersList.length === 0) {
+    console.log('ℹ️ No quedan pedidos con comunas soportadas para procesar en LightData en este lote.');
+    return;
+  }
+
   // Generar Excel según la plantilla de importación
   const excelRows = [];
   
@@ -579,7 +673,7 @@ async function handleBulkMode(limiteCarga) {
   excelRows.push(headers);
 
   // Mapear cada orden al formato
-  for (const order of pendingOrders) {
+  for (const order of activeOrdersList) {
     const sigla = await getCommerceSigla(order.comercio);
     const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
     
@@ -665,11 +759,31 @@ async function handleBulkMode(limiteCarga) {
     console.log('📤 Subiendo archivo Excel a LightData...');
     await page.locator('#fileInputSubirEnviosNoflex').first().setInputFiles(excelPath);
 
-    // Esperar a que se oculte cualquier indicador de carga o modal de SweetAlert
+    // Esperar a que se oculte cualquier indicador de carga o se cierre el modal SweetAlert
     console.log('⏳ Esperando procesamiento del archivo y cierre de modales de carga...');
     await page.locator('#loadMe').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-    await page.locator('.swal2-container').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    
     await page.waitForTimeout(2000);
+    const isSwalVisible = await page.locator('.swal2-container').isVisible().catch(() => false);
+    if (isSwalVisible) {
+      const title = await page.locator('.swal2-title').innerText().catch(() => '');
+      const text = await page.locator('.swal2-content, .swal2-html-container').innerText().catch(() => '');
+      console.log(`💬 Alerta SweetAlert detectada tras subir Excel: [Título: "${title}"] [Texto: "${text}"]`);
+      
+      // Cerrar SweetAlert (hacer clic en confirmar)
+      const confirmButton = page.locator('.swal2-container button.swal2-confirm, .swal2-container button').first();
+      await confirmButton.click({ timeout: 5000 }).catch(() => {});
+      
+      // Si el título indica error, lanzar una excepción para abortar
+      const lowerTitle = title.toLowerCase();
+      const lowerText = text.toLowerCase();
+      if (lowerTitle.includes('error') || lowerTitle.includes('no va a poder') || lowerTitle.includes('no se puede') || lowerText.includes('error')) {
+        throw new Error(`LightData rechazó el Excel de importación: "${title}" ${text}`);
+      }
+    }
+    
+    await page.locator('.swal2-container').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(1000);
 
     // Interceptar llamadas AJAX del procesamiento masivo
     let createdDidsStr = '';
@@ -736,8 +850,8 @@ async function handleBulkMode(limiteCarga) {
     console.log('📡 Actualizando pedidos en Supabase con sus números de tracking y etiqueta...');
     const fechaProcesamientoVal = getFechaProcesamiento();
 
-    for (let index = 0; index < pendingOrders.length; index++) {
-      const order = pendingOrders[index];
+    for (let index = 0; index < activeOrdersList.length; index++) {
+      const order = activeOrdersList[index];
       const sigla = await getCommerceSigla(order.comercio);
       const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
       
