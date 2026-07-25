@@ -64,14 +64,14 @@ function generateTrackingCode(sigla, externalOrderNumber, orderId) {
 }
 
 const SUPPORTED_COMUNAS = [
-  'buin', 'calera de tango', 'cerrillos', 'cerro navia', 'colina', 'conchala', 'conchalí', 
-  'el bosque', 'estacion central', 'estación central', 'huechuraba', 'independencia', 
-  'la cisterna', 'la florida', 'la granja', 'la pintana', 'la reina', 'lampa', 'las condes', 
-  'lo barnechea', 'lo espejo', 'lo prado', 'macul', 'maipú', 'maipu', 'malloco', 'ñuñoa', 
-  'padre hurtado', 'paine', 'pedro aguirre cerda', 'peñaflor', 'peñalolen', 'peñalolén', 
-  'pirque', 'providencia', 'pudahuel', 'puente alto', 'quilicura', 'quinta normal', 
-  'recoleta', 'renca', 'san bernardo', 'san joaquin', 'san joaquín', 'san jose de maipo', 
-  'san josé de maipo', 'san miguel', 'san ramon', 'san ramón', 'santiago', 'talagante', 'vitacura'
+  'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
+  'huechuraba', 'independencia', 'la cisterna', 'la florida', 'la granja',
+  'la pintana', 'la reina', 'las condes', 'lo barnechea', 'lo espejo',
+  'lo prado', 'macul', 'maipu', 'nunoa', 'pedro aguirre cerda',
+  'penalolen', 'providencia', 'pudahuel', 'puente alto', 'quilicura',
+  'quinta normal', 'recoleta', 'renca', 'san bernardo', 'san joaquin',
+  'san miguel', 'san ramon', 'santiago', 'vitacura', 'padre hurtado',
+  'penaflor'
 ];
 
 function isComunaSupported(comunaName) {
@@ -79,13 +79,10 @@ function isComunaSupported(comunaName) {
   const normalized = comunaName.toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
     .replace(/[^a-z\s]/g, '')
     .trim();
-  
-  return SUPPORTED_COMUNAS.some(c => {
-    const normC = c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z\s]/g, '').trim();
-    return normalized.includes(normC) || normC.includes(normalized);
-  });
+  return SUPPORTED_COMUNAS.includes(normalized);
 }
 
 function getFechaProcesamiento() {

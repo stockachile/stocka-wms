@@ -3,6 +3,28 @@ import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 
+window.ALPHA_COBERTURA_36 = [
+  'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
+  'huechuraba', 'independencia', 'la cisterna', 'la florida', 'la granja',
+  'la pintana', 'la reina', 'las condes', 'lo barnechea', 'lo espejo',
+  'lo prado', 'macul', 'maipu', 'nunoa', 'pedro aguirre cerda',
+  'penalolen', 'providencia', 'pudahuel', 'puente alto', 'quilicura',
+  'quinta normal', 'recoleta', 'renca', 'san bernardo', 'san joaquin',
+  'san miguel', 'san ramon', 'santiago', 'vitacura', 'padre hurtado',
+  'penaflor'
+];
+
+window.isAlphaComunaExact = function(comunaName) {
+  if (!comunaName) return false;
+  const normalized = comunaName.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  return window.ALPHA_COBERTURA_36.includes(normalized);
+};
+
 let userRole = 'admin';
 window.catalogQuickEditMode = false;
 window.adminDeclarationTab = 'active';
@@ -2376,7 +2398,10 @@ window.applyWmsFiltersAndRender = function() {
         <td>
           <div style="display:flex; flex-direction:column; gap:0.15rem; font-size:0.8rem; white-space:nowrap;">
             <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
-            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_city || ''}">${order.shipping_city || 'Por definir'}</span>
+            <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
+              ${order.shipping_city || 'Por definir'}
+              ${window.isAlphaComunaExact(order.shipping_city) ? '' : `<i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha."></i>`}
+            </span>
           </div>
         </td>
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
@@ -2421,7 +2446,15 @@ window.applyWmsFiltersAndRender = function() {
                   <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
                   ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}
                 </p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || comuna_destino || 'No registrada'}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;">
+                  <strong>Ciudad/Comuna:</strong> 
+                  <span>${order.shipping_city || comuna_destino || 'No registrada'}</span>
+                  ${(order.shipping_city || comuna_destino) ? (
+                    window.isAlphaComunaExact(order.shipping_city || comuna_destino)
+                      ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;"><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura Alpha OK</span>`
+                      : `<span style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta comuna no coincide exactamente con las 36 comunas urbanas con cobertura de Alpha. Puede causar fallas al emitir la etiqueta en LightData."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Sin Cobertura Alpha / Typo</span>`
+                  ) : ''}
+                </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
                 
