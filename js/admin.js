@@ -2400,7 +2400,7 @@ window.applyWmsFiltersAndRender = function() {
             <span style="font-weight:600; color:var(--color-text-main); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block;" title="${order.shipping_method || ''}">${order.shipping_method || '-'}</span>
             <span style="font-size:0.75rem; color:var(--color-text-muted); font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-flex; align-items:center; gap:0.2rem;" title="${order.shipping_city || ''}">
               ${order.shipping_city || 'Por definir'}
-              ${window.isAlphaComunaExact(order.shipping_city) ? '' : `<i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha."></i>`}
+              ${(String(order.agenda || '').toUpperCase() === 'RM' && !window.isAlphaComunaExact(order.shipping_city)) ? `<i class="ri-error-warning-line" style="color: #f59e0b; font-size: 0.9rem; cursor: help;" title="No coincide exactamente con las 36 comunas de cobertura Alpha."></i>` : ''}
             </span>
           </div>
         </td>

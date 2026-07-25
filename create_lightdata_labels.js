@@ -231,8 +231,9 @@ async function handleIndividualMode(idPedido) {
   
   console.log(`🏷️ Código de tracking generado: ${trackingCode}`);
 
-  // Validar si la comuna es soportada
-  if (!isComunaSupported(order.shipping_city)) {
+  // Validar si la comuna es soportada (solo si la agenda es RM)
+  const isRm = String(order.agenda || '').toUpperCase() === 'RM';
+  if (isRm && !isComunaSupported(order.shipping_city)) {
     console.error(`❌ ERROR: La comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
     try {
       const { data: profile } = await supabase
@@ -608,10 +609,11 @@ async function handleBulkMode(limiteCarga) {
 
   console.log(`📦 Encontrados ${pendingOrders.length} pedidos listos para procesar masivamente.`);
 
-  // Filtrar pedidos válidos por comuna soportada
+  // Filtrar pedidos válidos por comuna soportada (solo si la agenda es RM)
   const activeOrdersList = [];
   for (const order of pendingOrders) {
-    if (!isComunaSupported(order.shipping_city)) {
+    const isRm = String(order.agenda || '').toUpperCase() === 'RM';
+    if (isRm && !isComunaSupported(order.shipping_city)) {
       console.warn(`⚠️ Omitiendo pedido ${order.external_order_number || order.id}: comuna "${order.shipping_city}" no es soportada por LightData (NoFlex RM).`);
       try {
         const { data: profile } = await supabase
