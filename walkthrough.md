@@ -1156,6 +1156,201 @@ Hemos implementado un flujo bidireccional completo para integrar los ingresos de
 
 2. **Panel de Integración con Picker en Administración (`admin.html`)**:
    - Agregamos la sección interactiva `#manage-dec-picker-panel` en el modal de gestión de ingresos de stock del administrador.
+1. **Motivación del Cambio**:
+   - Anteriormente, al importarse los pedidos de plataformas externas, a los ítems del pedido se les asignaba la bodega por defecto (generalmente Bodega Central).
+   - El indicador de alerta visual **`SIN STOCK`** (badge rojo) y la columna de disponibilidad en la grilla desplegable realizaban el chequeo únicamente contra las existencias registradas en esa bodega específica. Esto generaba falsas alertas de falta de stock en pedidos cuando el producto en cuestión sí tenía existencias suficientes distribuidas en otras bodegas de la misma tienda.
+
+2. **Solución Implementada**:
+   - **Badge de Alerta Principal**: Modificamos el ciclo de verificación de ítems en el renderizado de la fila del pedido. Ahora, en lugar de consultar solo `invMap[product_id_warehouse_id]`, el sistema busca y suma las existencias físicas de dicho producto a lo largo de todas las llaves de bodega asociadas en el mapa de inventario cargado localmente (`window.loadedOrdersInventoryMap` / `window.clientOrdersInventoryMap`).
+   - **Tabla Desplegable del Detalle de Pedido**: Adaptamos la celda de disponibilidad en la sub-tabla desplegable para reflejar la cantidad total agregada de todas las bodegas. Ahora indica correctamente si el artículo está disponible o si es insuficiente considerando el stock global del comercio.
+
+---
+
+## 52. Manejo de Tokens de Acceso Offline que Expiran (Expiring Offline Tokens) de Shopify
+
+Corregimos y refinamos el flujo de integración de Shopify ([supabase/functions/shopify-oauth/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-oauth/index.ts)) para adaptarlo a las nuevas políticas de seguridad obligatorias de Shopify:
+
+1. **Requisito de Shopify (Tokens con Expiración)**:
+   - Para aplicaciones públicas registradas recientemente, Shopify ya **no permite el uso de tokens de acceso offline no expirables** (permanentes). Cualquier intento de realizar llamadas al API con un token permanente retorna un error `403 Forbidden` informando que se debe usar "expiring offline tokens".
+   - Por esta razón, la Edge Function `shopify-oauth` debe incluir obligatoriamente el parámetro `"expiring": 1` al solicitar el token en el flujo OAuth. Esto devuelve un token de acceso (`access_token`) con una validez de 60 minutos y un token de actualización (`refresh_token`) con una validez de 90 días (que se renueva con cada ciclo de refresco).
+
+2. **Sincronización en Segundo Plano**:
+   - Para que el script de sincronización en GitHub Actions (`sync_shopify.js`) pueda rotar el token de acceso usando el `refresh_token`, es indispensable que las variables de entorno `SHOPIFY_CLIENT_ID` y `SHOPIFY_CLIENT_SECRET` estén configuradas.
+   - Hemos confirmado que el flujo de trabajo de GitHub Actions (`sync_shopify.yml`) inyecta estas variables correctamente desde los secretos del repositorio, garantizando el refresco automático cada 30 minutos sin interrupciones.
+
+3. **Acción Requerida**:
+   - El cliente de **Smile for Pets** debe ir a la sección de **Integraciones**, hacer clic en **Conectar / Re-conectar** e iniciar sesión nuevamente. Con esto, Shopify generará un token offline con expiración oficial y un refresh token válidos, permitiendo que la sincronización vuelva a fluir correctamente.
+
+---
+
+## 53. Animación de Carga (Spin) en Botón de Actualización de Pedidos
+
+Añadimos la regla de estilo para la clase CSS `.spin` en la hoja de estilos global ([css/style.css](file:///c:/Users/felip/Desktop/WMS%20STOCKA/css/style.css)) para habilitar la animación visual de rotación del icono de refresco al pulsar el botón de actualizar pedidos en el panel del administrador:
+
+1. **Origen del Problema**:
+   - Al pulsar el botón "Actualizar", el controlador JS desactivaba el botón y agregaba la clase `spin` al icono (`ri-refresh-line spin`).
+   - Sin embargo, no existía ninguna regla CSS asociada a la clase `.spin`, por lo que el icono permanecía estático sin ofrecer feedback visual de que se estaba ejecutando una consulta asíncrona en segundo plano.
+
+2. **Solución Implementada**:
+   - Declaramos la clase CSS `.spin` vinculándola a la animación `@keyframes spin` ya existente en la hoja de estilos:
+     ```css
+     .spin {
+       animation: spin 1s linear infinite;
+       display: inline-block;
+     }
+     ```
+   - Esto hace que el icono rote de forma continua a velocidad constante mientras dura el fetch y se remueva inmediatamente en el bloque `finally` del controlador JS al completarse la sincronización, mejorando la experiencia de usuario.
+
+---
+
+## 54. Tratamiento de Stock Comprometido como Global (WMS)
+
+Hemos modificado las vistas de inventario y los flujos de cálculo en los paneles de Cliente ([js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) y del Administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) para considerar el stock comprometido como un indicador puramente global del producto, evitando asignarlo o descontarlo de bodegas físicas individuales de manera errónea:
+
+1. **Eliminación de Stock Comprometido por Bodega**:
+   - En las subfilas desplegables de "Detalle por bodega" en las grillas de inventario, ahora mostramos un guion `-` atenuado en la columna **COMPROMETIDO** en lugar de una cantidad numérica específica.
+   - **Disponible por Bodega (`Disp. (Bodega)`)**: Se calcula única y exclusivamente con base en el stock físico real de la bodega (`inv.quantity`). Ya no se resta el comprometido de esa ubicación, lo cual evita que se muestren stocks disponibles negativos (ej. `-2` en Bodega Central en productos con stock físico en otras bodegas).
+
+2. **Remoción de Alertas y Warnings Locales**:
+   - Retiramos el icono de alerta rojo (`ri-error-warning-line`) y la lógica asociada en los desgloses de bodega. La advertencia visual de stock insuficiente se mantiene de manera precisa únicamente en la fila principal consolidada del producto si el stock disponible global (`FÍSICO - COMPROMETIDO`) resulta ser menor o igual a `0` existiendo unidades comprometidas.
+
+3. **Optimización en la Selección Automática de Bodega**:
+   - Modificamos el algoritmo de asignación de bodega automática para nuevos pedidos en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js). Al determinar qué bodega tiene la mayor disponibilidad para servir un ítem, el sistema ahora evalúa directamente el stock físico de las bodegas (`inv.quantity`), ya que el comprometido se procesa a nivel global de tienda.
+
+---
+
+## 55. Validación de Stock de la Sucursal Seleccionada al Enviar al Picker (WMS)
+
+Hemos corregido la validación de stock físico al enviar pedidos al Picker para que coincida con la sucursal real asignada al pedido, solucionando errores de falsos positivos/negativos de stock insuficiente (por ejemplo, el caso del pedido `MAG5602` asignado a Ñuñoa):
+
+1. **Mapeo Inteligente de Sucursales a Bodegas**:
+   - Implementamos la función `getWarehouseIdFromSucursal` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) que asocia cada sucursal textual elegible para picking con su UUID de bodega física correspondiente en Supabase:
+     - `"Sucursal Ñuñoa"` ➡️ `Matriz Ñuñoa`
+     - `"Sucursal La Reina"` ➡️ `CDD La Reina`
+     - `"Sucursal Recoleta"` ➡️ `CDD Recoleta`
+     - `"Sucursal Virtual (Hub)"` ➡️ `Bodega Central`
+
+2. **Validación Contextualizada**:
+   - Al enviar pedidos en lote (`applyBulkWmsStatus`) o de forma individual (`updateWmsOrderStatus`) a "En preparación", el sistema valida la disponibilidad física de stock en la bodega de la sucursal seleccionada en el modal en lugar de usar la bodega que el ítem tenía asignada por defecto (Bodega Central).
+
+3. **Sincronización en Cascada en la Base de Datos**:
+   - Una vez superada la validación de stock, el sistema actualiza en caliente el campo `warehouse_id` de los registros asociados en la tabla `order_items` de Supabase para alinearlos con la sucursal de destino.
+   - Esta reubicación de bodega gatilla los triggers nativos de base de datos (`update_committed_quantity`), transfiriendo automáticamente la reserva del stock comprometido de la bodega anterior a la nueva.
+   - Finalmente, se sincronizan las referencias locales de memoria para mantener la consistencia del catálogo en tiempo real.
+
+4. **Persistencia en Modificaciones de Picking**:
+   - Adaptamos los flujos de asignación de picking individual (`editWmsOrderPickingInfo`) y masivo (`bulkSetWmsOrderPickingInfo`) para aplicar la misma sincronización del `warehouse_id` de los ítems en base de datos y memoria local al cambiar o actualizar la sucursal asignada.
+
+
+
+## 56. Integración de Servicio de Etiquetado de Códigos de Barra en Ingresos de Stock (WMS)
+
+Hemos implementado un flujo completo para que los comercios declaren sus preferencias de etiquetado de códigos de barra al ingresar stock, automatizando el cálculo de recargos y la confirmación física en bodega:
+
+1. **Campos de Preferencia en el Formulario del Cliente (`js/app.js`)**:
+   - Agregamos controles de selección por radio en el formulario de nueva declaración:
+     - **Completamente Etiquetado (Listo)**: Los productos ya vienen etiquetados. No aplica cargos adicionales.
+     - **Parcialmente Etiquetado**: Permite especificar de manera precisa el número de unidades que requieren etiquetado en bodega.
+     - **Sin Etiquetado**: El comercio declara que ninguna unidad viene etiquetada. El sistema bloquea el input y auto-completa el conteo con el total de unidades declaradas.
+   - Si se requiere etiquetado (parcial o total), se despliega un panel de advertencia informando sobre el costo unitario de **$100 CLP por etiqueta**, el cual es obligatorio para la operación logística.
+
+2. **Cálculo Dinámico de Costo de Etiquetado**:
+   - Actualizamos `window.calculateEntryCost` para sumar el recargo de etiquetado.
+   - El costo en pesos ($100 CLP x unidad a etiquetar) se convierte automáticamente a UF utilizando el valor del indicador diario de la UF en tiempo real (`window.currentUfValue`).
+   - Se muestra el desglose del costo de etiquetado en UF y pesos aproximados dentro del modal de vista previa antes del envío de la declaración.
+
+3. **Persistencia en la Base de Datos**:
+   - Creamos la migración [supabase_schema_declarations_labeling.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_declarations_labeling.sql) para añadir las columnas `labeling_type`, `labeling_qty_requested` y `labeling_qty_confirmed` a la tabla `stock_declarations`.
+   - Estas preferencias se guardan y modifican correctamente durante la inserción y edición de ingresos.
+
+4. **Validación y Cierre en el Panel de Administración (`js/admin.js`)**:
+   - El popup de gestión de ingresos en el admin muestra el tipo de etiquetado y la cantidad de unidades solicitada por el cliente.
+   - Al marcar un ingreso como "Recibido Conforme" o "Recibido con Incidencias", el formulario despliega el campo **"Uds. Etiquetadas (Confirmado)"**, permitiendo al administrador ingresar la cantidad final auditada físicamente en bodega.
+   - Esta cantidad confirmada se almacena en el campo `labeling_qty_confirmed` para futuras liquidaciones y auditorías de cobro.
+
+---
+
+## 57. Truncamiento de Ancho y Tooltip para el Campo de Envío (WMS)
+
+Hemos limitado el ancho máximo visual del método de envío (columna **ENVÍO**) en la grilla principal de control de pedidos en el administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)), para evitar que textos muy largos extiendan de forma excesiva las columnas de la tabla y distorsionen la interfaz:
+
+1. **Limitación de Ancho (`max-width: 180px`)**:
+   - Agregamos propiedades de estilo en línea a las etiquetas `span` de las columnas de método de envío y ciudad (`shipping_method` y `shipping_city`):
+     - `max-width: 180px`
+     - `overflow: hidden`
+     - `text-overflow: ellipsis`
+     - `white-space: nowrap`
+     - `display: inline-block`
+   - Esto hace que cualquier texto que supere dicho límite se corte limpiamente agregando puntos suspensivos (`...`).
+
+2. **Tooltip con Dato Completo (Hover Hint)**:
+   - Mantuvimos y aseguramos el atributo `title="${order.shipping_method || ''}"` en los elementos HTML. Al posicionar el cursor (mouse) sobre el texto recortado, el navegador despliega un tooltip nativo con el contenido completo del método de envío o ciudad.
+
+---
+
+## 58. Renombramiento de Cobros Adicionales a Saldos Adicionales (WMS)
+
+Hemos reestructurado la terminología y campos del módulo de cargos extraordinarios en la administración y en el portal del cliente para unificarlo bajo el concepto de **Saldos Adicionales** (compuesto por **Cargos** y **Descuentos**):
+
+1. **Selector de Tipo de Saldo (`tipo`)**:
+   - Agregamos la columna `tipo` (con valores `'cargo'` o `'descuento'`) a la tabla `extra_billing_charges` de Supabase.
+   - En el formulario de registro y edición de saldos extraordinarios, se incorporó un selector desplegable (**Tipo de Saldo**):
+     - **Cargo (Cobro Extraordinario)**: Registra cobros a sumar en la facturación del cliente.
+     - **Descuento (Saldo a Favor)**: Registra montos a restar en la facturación del cliente (representado visualmente en negativo con signo `-` y color verde `#10b981`).
+   - Los formularios de creación (`openCreateExtraChargeModal`) y edición (`openEditExtraChargeModal`) ahora leen, guardan e insertan este campo en Supabase de forma íntegra.
+
+2. **Unificación de Interfaz y Terminología**:
+   - Reemplazamos todos los encabezados y etiquetas de "Cobros Adicionales" por **Saldos Adicionales** en la navegación y tablas (tanto del Administrador como del Cliente).
+   - El estado de los registros asociados a un periodo se renombró de "Cobrado" a **"Aplicado"** para reflejar adecuadamente que tanto un cargo como un descuento han sido aplicados al balance del periodo de facturación.
+   - Las confirmaciones y diálogos de estado y eliminación fueron adaptados para referenciar "saldos adicionales" en lugar de "cobros".
+
+---
+
+## 59. Controles Visuales Premium para Método de Ingreso y Servicio de Descarga (WMS)
+
+Hemos rediseñado y modernizado la sección de método de ingreso y servicio de descarga en el formulario de creación y edición de ingresos de stock del cliente ([js/app.js](file:///C:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)), reemplazando los inputs estándar por componentes premium interactivos:
+
+1. **Cuadrícula de Tarjetas para Método de Ingreso**:
+   - Reemplazamos el antiguo elemento selector desplegable (`select`) por una cuadrícula interactiva de 4 tarjetas (`.delivery-method-grid`), cada una representando un método de ingreso (Courier, Desde Proveedor, Particular, Solicitar Retiro).
+   - Cada tarjeta contiene un icono redondeado temático, un título en negrita y un subtítulo explicativo con el flujo correspondiente.
+   - Cuenta con un indicador circular que simula un checkbox que se activa en color azul primario con un check animado cuando la tarjeta está seleccionada.
+   - Se comunica transparentemente con un input oculto `#dec-delivery-method` para mantener la compatibilidad nativa con la validación de HTML5 y los envíos al backend.
+
+2. **Interruptor Custom para Servicio de Descarga**:
+   - Reemplazamos la fila del checkbox convencional por una tarjeta de ancho completo (`.unloading-service-card`) con interacción completa al hacer clic.
+   - Incorporamos un interruptor/deslizador moderno custom (`.custom-switch`) que se desplaza y cambia de color a azul primario de forma fluida.
+   - El estado activo resalta visualmente la tarjeta de fondo y muestra el banner de advertencia sobre la tarifa especial de descarga (0,1 UF por m³).
+
+3. **Sincronización del Ciclo de Vida**:
+   - Definimos métodos globales (`window.updateDeliveryMethodVisuals` and `window.updateUnloadingVisuals`) para asegurar que el estado visual de las tarjetas y el interruptor custom estén siempre sincronizados con los datos del formulario al entrar en modo de edición (`editDeclaration`), resetear/cancelar la edición (`cancelEditDeclaration`) y al abrir un nuevo ingreso limpio (`openNewDeclarationSlideOver`).
+
+---
+
+## 60. Rediseño de Información de Contacto, Transportista y Notas en Formulario de Ingresos (WMS)
+
+Hemos reestructurado y mejorado visualmente la sección final de datos de contacto y transportista en el formulario de ingresos de stock del cliente ([js/app.js](file:///C:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)) para ofrecer una experiencia visual premium y unificada:
+
+1. **Tarjeta Unificada de Información**:
+   - Agrupamos los campos en una sola tarjeta con borde sutil, fondo distinguido (`var(--color-surface)`) y sombreado elegante para agrupar semánticamente estos campos adicionales.
+   - Añadimos un encabezado con el icono `ri-contacts-book-line` en color azul primario y una descripción explicativa para guiar al usuario.
+
+2. **Entradas de Texto con Iconos Integrados (Inline Icons)**:
+   - Envolvimos las entradas de texto (`input` y `textarea`) en contenedores con posicionamiento relativo e iconos internos de Remix Icon (`ri-user-voice-line`, `ri-car-line`, `ri-sticky-note-line`).
+   - Aplicamos un padding lateral izquierdo de `2.25rem` a las cajas de texto para alinear perfectamente el texto de entrada y los marcadores de posición sin superponerse con los iconos.
+   - El área de notas (`textarea`) se aumentó a 3 filas (`rows="3"`) e incluye soporte para cambio de tamaño vertical con un alto mínimo de `80px`.
+
+---
+
+## 61. Integración de Ingresos de Stock con Picker App (WMS)
+
+Hemos implementado un flujo bidireccional completo para integrar los ingresos de stock del WMS con el sistema de operarios en el Picker:
+
+1. **Preservación de Código de Barras en el Catálogo (`js/app.js`)**:
+   - Modificamos la visualización y autocompletado del catálogo al agregar productos en el formulario de ingreso del cliente. El sistema ahora extrae y asocia el atributo `barcode` (código de barras) de cada producto seleccionado.
+   - En el envío del formulario, la lista de productos seleccionados (`parsedProducts`) incluye el campo `barcode`.
+
+2. **Panel de Integración con Picker en Administración (`admin.html`)**:
+   - Agregamos la sección interactiva `#manage-dec-picker-panel` en el modal de gestión de ingresos de stock del administrador.
    - Esta sección permite enviar el ingreso actual al Picker y realizar la consulta de su estado en tiempo real.
    - Cuenta con badges adaptativos ("No enviado", "En Picker", "Completado/Parcial") y un indicador de operario asignado.
 
@@ -1173,3 +1368,21 @@ Hemos implementado un flujo bidireccional completo para integrar los ingresos de
    - Implementamos `window.generateDeclarationPDFBase64(dec)` para renderizar dinámicamente un comprobante digital en PDF de la declaración de ingreso.
    - Tras crearse una declaración, el sistema genera de forma asíncrona este comprobante PDF, lo asocia al registro en Supabase bajo la columna `file_base64` y despacha el correo de notificación al administrador con este PDF oficial adjunto (en lugar del archivo Excel original), garantizando una experiencia formal de recepción.
    - Modificamos la visualización y exportación del PDF tanto en el panel de administrador como de cliente para priorizar el desglose estructurado de la columna `products_list` si está presente, evitando fallos de decodificación o procesamiento de archivos Excel binarios.
+
+---
+
+## 62. Limpieza de Caché de Inventario al Refrescar/Cargar Pedidos (WMS)
+
+Hemos solucionado la visualización incorrecta del estado **`SIN STOCK`** en pedidos de comercios (como "THE SKIN STORE") cuyos niveles de stock físico fueron actualizados o trasladados recientemente en la base de datos:
+
+1. **Diagnóstico del Problema**:
+   - Para evitar consultas redundantes a la base de datos en operaciones locales (paginación, ordenamiento, filtrado), la aplicación utiliza un mapa de caché en el frontend (`window.loadedOrdersInventoryMap` para el administrador y `window.clientOrdersInventoryMap` para el cliente).
+   - Sin embargo, este mapa de caché nunca se limpiaba al pulsar el botón "Actualizar" (Refresh) o al recargar el módulo. Esto causaba que la aplicación reutilizara valores obsoletos de inventario (en este caso, stock inicial de `0` antes de los traslados a Ñuñoa) sin consultar los nuevos datos de stock de Supabase.
+
+2. **Limpieza del Caché en el Administrador**:
+   - Modificamos `window.refreshWmsOrders` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) para vaciar el caché (`window.loadedOrdersInventoryMap = {};`) al hacer clic en el botón de actualización.
+   - Modificamos `renderAdminOrders` en [js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) para reiniciar el caché al inicializar o recargar la vista del módulo.
+
+3. **Limpieza del Caché en el Cliente**:
+   - Modificamos `renderOrders` en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) para reiniciar el caché (`window.clientOrdersInventoryMap = {};`) al cargar la sección de control de pedidos del portal del cliente.
+

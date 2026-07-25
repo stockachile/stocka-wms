@@ -1159,6 +1159,7 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
 };
 
 async function renderAdminOrders() {
+  window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
@@ -2577,6 +2578,7 @@ window.setWmsPage = function(page) {
 };
 
 window.refreshWmsOrders = async function(btn) {
+  window.loadedOrdersInventoryMap = {}; // Limpiar caché al refrescar
   if (btn) {
     btn.disabled = true;
     const icon = btn.querySelector('i');
@@ -3082,14 +3084,7 @@ window.applyBulkWmsStatus = async function() {
         updatePayload.fecha_procesamiento = formValues.fechaProc;
       }
 
-      const { error: wmsErr } = await supabase
-        .from('orders')
-        .update(updatePayload)
-        .in('id', ids);
-
-      if (wmsErr) throw wmsErr;
-
-      // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos
+      // 1.5 Actualizar el warehouse_id de los ítems de las órdenes exitosas en la base de datos PRIMERO
       const { error: itemsErr } = await supabase
         .from('order_items')
         .update({ warehouse_id: targetWarehouseId })
@@ -3098,6 +3093,14 @@ window.applyBulkWmsStatus = async function() {
       if (itemsErr) {
         console.error('Error al actualizar bodega de los ítems en applyBulkWmsStatus:', itemsErr);
       }
+
+      // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
+      const { error: wmsErr } = await supabase
+        .from('orders')
+        .update(updatePayload)
+        .in('id', ids);
+
+      if (wmsErr) throw wmsErr;
 
       // 2. Enviar a Picker de forma masiva
       const successOrders = window.loadedOrders.filter(o => ids.includes(o.id));
@@ -3306,7 +3309,17 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         didOpen: () => { Swal.showLoading(); }
       });
 
-      // 1. Guardar en WMS
+      // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos PRIMERO
+      const { error: itemsErr } = await supabase
+        .from('order_items')
+        .update({ warehouse_id: targetWarehouseId })
+        .eq('order_id', orderId);
+
+      if (itemsErr) {
+        console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
+      }
+
+      // 2. Guardar en WMS (Actualizar estado_wms a 'En preparación', lo que dispara el trigger de base de datos)
       const { error: wmsErr } = await supabase
         .from('orders')
         .update({
@@ -3318,16 +3331,6 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         .eq('id', orderId);
 
       if (wmsErr) throw wmsErr;
-
-      // 1.5 Actualizar el warehouse_id de los ítems de esta orden en la base de datos
-      const { error: itemsErr } = await supabase
-        .from('order_items')
-        .update({ warehouse_id: targetWarehouseId })
-        .eq('order_id', orderId);
-
-      if (itemsErr) {
-        console.error('Error al actualizar bodega de los ítems del pedido:', itemsErr);
-      }
 
       // Actualizar memoria local
       order.estado_wms = 'En preparación';
@@ -4231,12 +4234,26 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.75rem 1.5rem;">${volumenHtml}</td>`;
 
+    const sendBarcodeBadge = item.send_barcode_to_picker
+      ? ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras enviado al Picker"><i class="ri-barcode-box-line"></i> Picker</span>`
+      : '';
+
+    const barcodeCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.5rem 1rem;">
+           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${item.barcode || ''}" value="${item.barcode || ''}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+           <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+             <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
+             <span>Al Picker</span>
+           </div>
+         </td>`
+      : `<td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
-        <td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
@@ -5546,7 +5563,15 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldVol = volInput && volInput.getAttribute('data-old') ? window.roundUpVolume(parseFloat(volInput.getAttribute('data-old'))) : null;
           const newVol = volInput && volInput.value ? window.roundUpVolume(parseFloat(volInput.value)) : null;
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol) {
+          const barInput = document.querySelector(`.quick-edit-barcode[data-id="${prodId}"]`);
+          const oldBarcode = barInput ? barInput.getAttribute('data-old') || '' : '';
+          const newBarcode = barInput ? barInput.value.trim() || '' : '';
+
+          const sendBarInput = document.querySelector(`.quick-edit-send-barcode[data-id="${prodId}"]`);
+          const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
+          const newSendBar = sendBarInput ? sendBarInput.checked : false;
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar) {
             changes.push({
               prodId,
               oldStock,
@@ -5558,7 +5583,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
               oldHeight,
               newHeight,
               oldVol,
-              newVol
+              newVol,
+              oldBarcode,
+              newBarcode,
+              oldSendBar,
+              newSendBar
             });
           }
         });
@@ -5592,7 +5621,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           // Ejecutar actualizaciones en paralelo
           const updatePromises = changes.map(async (ch) => {
-            // 1. Actualizar dimensiones y volumen en products
+            // 1. Actualizar dimensiones, volumen, código de barras y envío a picker en products
             const { error: prodErr } = await supabase
               .from('products')
               .update({
@@ -5602,7 +5631,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 largo: ch.newLength || null,
                 ancho: ch.newWidth || null,
                 alto: ch.newHeight || null,
-                volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null
+                volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
+                barcode: ch.newBarcode || null,
+                send_barcode_to_picker: ch.newSendBar
               })
               .eq('id', ch.prodId);
 
@@ -12266,6 +12297,10 @@ function renderStatusActionButtons(currentStatus) {
 }
 
 function handleManageStatusChange(status) {
+  const dec = window.currentDeclarationEditing;
+  if (window.renderManageDeclarationProducts && dec) {
+    window.renderManageDeclarationProducts(dec, status);
+  }
   const qtyDeclared = parseInt(document.getElementById('manage-dec-qty-declared').textContent) || 0;
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
@@ -12396,6 +12431,9 @@ document.addEventListener('click', (e) => {
 
 window.manageDeclaration = async function(id) {
   try {
+    window.currentDeclarationProductsEditing = null;
+    window.currentDeclarationProductsEditing_id = null;
+    
     const { data: dec, error } = await supabase
       .from('stock_declarations')
       .select('*, profiles (company_name), warehouses (name, address, comuna)')
@@ -12468,6 +12506,8 @@ window.manageDeclaration = async function(id) {
       selectEl.value = dec.warehouse_id || '';
     }
 
+    window.currentDeclarationEditing = dec;
+
     // Contacto y transportista
     document.getElementById('manage-dec-contact').textContent = dec.contact_info || 'No registrado';
     document.getElementById('manage-dec-carrier').textContent = dec.carrier_info || 'No registrado';
@@ -12500,6 +12540,11 @@ window.manageDeclaration = async function(id) {
 
     // Limpiar alertas previas
     document.getElementById('modal-dec-alert-container').innerHTML = '';
+
+    // Renderizar listado de productos para control de conteo
+    if (window.renderManageDeclarationProducts) {
+      window.renderManageDeclarationProducts(dec, dec.status);
+    }
 
     // Consultar estado en el Picker y renderizar la caja del panel
     const pickerStatusBox = document.getElementById('manage-dec-picker-status-box');
@@ -12742,6 +12787,17 @@ document.addEventListener('submit', async (e) => {
         updated_at: new Date().toISOString()
       };
 
+      if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing_id === id) {
+        if (status === 'Recibido Conforme') {
+          updateData.products_list = window.currentDeclarationProductsEditing.map(item => ({
+            ...item,
+            qty_confirmed: item.qty
+          }));
+        } else {
+          updateData.products_list = window.currentDeclarationProductsEditing;
+        }
+      }
+
       if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
         updateData.volume_confirmed = volumeConfirmed;
         updateData.labeling_qty_confirmed = labelingQtyConfirmed;
@@ -12764,12 +12820,16 @@ document.addEventListener('submit', async (e) => {
         ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
 
       if (isTransitioningToFinal) {
-        const productsList = getDeclarationProducts(latestDec);
+        const productsList = updateData.products_list || getDeclarationProducts(latestDec);
         if (productsList && productsList.length > 0) {
           const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
           if (targetWarehouseId) {
             for (const item of productsList) {
-              if (item.sku && item.qty > 0) {
+              const itemQty = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
+                ? item.qty_confirmed 
+                : item.qty;
+
+              if (item.sku && itemQty > 0) {
                 // Buscar producto por SKU y comercio
                 const { data: prod, error: prodErr } = await supabase
                   .from('products')
@@ -12790,7 +12850,7 @@ document.addEventListener('submit', async (e) => {
 
                   if (!invErr) {
                     if (inv) {
-                      const newQty = (inv.quantity || 0) + item.qty;
+                      const newQty = (inv.quantity || 0) + itemQty;
                       await supabase
                         .from('inventory')
                         .update({ quantity: newQty })
@@ -12801,7 +12861,7 @@ document.addEventListener('submit', async (e) => {
                         .insert([{
                           product_id: prod.id,
                           warehouse_id: targetWarehouseId,
-                          quantity: item.qty,
+                          quantity: itemQty,
                           committed_quantity: 0
                         }]);
                     }
@@ -12813,7 +12873,7 @@ document.addEventListener('submit', async (e) => {
                         product_id: prod.id,
                         warehouse_id: targetWarehouseId,
                         type: 'in',
-                        quantity: item.qty,
+                        quantity: itemQty,
                         reference_doc: `Ingreso de Stock: ${latestDec.title}`
                       }]);
                   }
@@ -12854,6 +12914,8 @@ document.addEventListener('submit', async (e) => {
 
       alert('Recepción de ingreso actualizada correctamente y se notificó al usuario.');
       document.getElementById('modal-manage-declaration').classList.remove('active');
+      window.currentDeclarationProductsEditing = null;
+      window.currentDeclarationProductsEditing_id = null;
       
       // Refrescar tabla
       renderDeclarationsAdmin();
@@ -21917,6 +21979,137 @@ window.sendIntakeToPicker = async function(id) {
   }
 };
 
+window.renderManageDeclarationProducts = function(dec, activeStatus) {
+  const section = document.getElementById('manage-dec-products-section');
+  const tbody = document.getElementById('manage-dec-products-tbody');
+  if (!section || !tbody) return;
+
+  const visibleStatuses = ['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'];
+  const showSection = visibleStatuses.indexOf(activeStatus) !== -1;
+  section.style.display = showSection ? 'block' : 'none';
+
+  if (!showSection) {
+    tbody.innerHTML = '';
+    return;
+  }
+
+  const products = getDeclarationProducts(dec) || [];
+  if (products.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+          No hay productos registrados en esta declaración.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  // Si no está inicializado en memoria, o es una declaración distinta, la inicializamos
+  if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
+    window.currentDeclarationProductsEditing_id = dec.id;
+    window.currentDeclarationProductsEditing = products.map(item => {
+      // Si ya tiene cantidad confirmada guardada en BD, usarla. De lo contrario, usar la declarada como sugerencia
+      const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null) 
+        ? item.qty_confirmed 
+        : item.qty;
+      return {
+        ...item,
+        qty_confirmed: qtyConfirmed
+      };
+    });
+  }
+
+  // Renderizar filas
+  tbody.innerHTML = '';
+  window.currentDeclarationProductsEditing.forEach((item, idx) => {
+    const declared = item.qty || 0;
+    const confirmed = item.qty_confirmed || 0;
+    const diff = confirmed - declared;
+    
+    let diffColor = 'var(--color-text-muted)';
+    let diffSign = '';
+    if (diff > 0) {
+      diffColor = 'var(--color-success)';
+      diffSign = '+';
+    } else if (diff < 0) {
+      diffColor = 'var(--color-danger)';
+    }
+
+    tbody.innerHTML += `
+      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+        <td style="padding: 10px 12px; max-width: 300px;">
+          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.sku}">${item.sku}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.name || ''}">${item.name || 'Sin nombre'}</div>
+        </td>
+        <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: var(--color-text-main);">${declared}</td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto;" oninput="window.updateManageDeclarationProductQty(${idx}, this.value)">
+        </td>
+        <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${diffColor};" id="manage-dec-prod-diff-${idx}">
+          ${diffSign}${diff}
+        </td>
+      </tr>
+    `;
+  });
+};
+
+window.updateManageDeclarationProductQty = function(idx, val) {
+  const parsedVal = parseInt(val, 10);
+  if (isNaN(parsedVal) || parsedVal < 0) return;
+
+  const item = window.currentDeclarationProductsEditing[idx];
+  if (!item) return;
+
+  item.qty_confirmed = parsedVal;
+  
+  const declared = item.qty || 0;
+  const diff = parsedVal - declared;
+
+  // Actualizar el valor de la diferencia en la fila correspondiente
+  const diffEl = document.getElementById(`manage-dec-prod-diff-${idx}`);
+  if (diffEl) {
+    let diffColor = 'var(--color-text-muted)';
+    let diffSign = '';
+    if (diff > 0) {
+      diffColor = 'var(--color-success)';
+      diffSign = '+';
+    } else if (diff < 0) {
+      diffColor = 'var(--color-danger)';
+    }
+    diffEl.textContent = `${diffSign}${diff}`;
+    diffEl.style.color = diffColor;
+  }
+
+  // Recalcular los totales de la declaración (Física e Incidencias)
+  window.recalculateManageDeclarationTotals();
+};
+
+window.recalculateManageDeclarationTotals = function() {
+  if (!window.currentDeclarationProductsEditing) return;
+
+  let totalReceived = 0;
+  let totalDeclared = 0;
+
+  window.currentDeclarationProductsEditing.forEach(item => {
+    totalReceived += item.qty_confirmed || 0;
+    totalDeclared += item.qty || 0;
+  });
+
+  const incidents = Math.max(0, totalDeclared - totalReceived);
+
+  // Actualizar los inputs de la modal
+  const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
+  const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
+
+  if (qtyReceivedInput && !qtyReceivedInput.disabled) {
+    qtyReceivedInput.value = totalReceived;
+  }
+  if (qtyIncidentsInput && !qtyIncidentsInput.disabled) {
+    qtyIncidentsInput.value = incidents;
+  }
+};
+
 window.loadCountsFromPicker = async function(id, itemsSummary) {
   try {
     // 1. Obtener la declaración del WMS
@@ -21975,6 +22168,19 @@ window.loadCountsFromPicker = async function(id, itemsSummary) {
     });
 
     const totalIncidents = Math.max(0, totalExpected - totalScanned);
+
+    // Actualizar referencia en memoria para el listado de productos
+    window.currentDeclarationProductsEditing_id = dec.id;
+    window.currentDeclarationProductsEditing = matchedProducts.map(item => ({
+      ...item,
+      qty_confirmed: item.qty_scanned
+    }));
+
+    // Forzar renderizado en pantalla
+    const currentStatusVal = document.getElementById('manage-dec-status').value || dec.status;
+    if (window.renderManageDeclarationProducts) {
+      window.renderManageDeclarationProducts(dec, currentStatusVal);
+    }
 
     // 4. Pre-llenar campos en la pantalla del administrador
     const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
@@ -24218,12 +24424,22 @@ window.renderVolumenDiarioAdmin = async function() {
     return `${yy}-${mm}-${dd}`;
   }
 
+  function addDays(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
   let startDate = formatDate(firstDay);
   let endDate = formatDate(lastDay);
   let selectedCommerce = '';
   let currentPage = 1;
   const itemsPerPage = 15;
   let allHistories = [];
+  let activeComerces = [];
   let volumeChartInstance = null;
 
   appContent.innerHTML = `
@@ -24283,7 +24499,10 @@ window.renderVolumenDiarioAdmin = async function() {
         <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-text-main); font-weight: 600;">Evolución de Volumen (m³)</h4>
         <div style="display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem;">
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
-            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Histórico Diario (1:00 AM)
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #2563eb; display: inline-block;"></span> Rango Filtrado
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #cbd5e1; display: inline-block;"></span> Contexto Extra (Gris)
           </span>
           <span style="display: inline-flex; align-items: center; gap: 0.25rem; color: var(--color-text-muted);">
             <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #f43f5e; display: inline-block;"></span> Volumen Actual (Tiempo Real)
@@ -24364,11 +24583,12 @@ window.renderVolumenDiarioAdmin = async function() {
 
       let selectHtml = '<option value="">-- Todos los comercios --</option>';
       if (configs && configs.length > 0) {
-        const sorted = configs.map(c => c.comercio).sort();
-        sorted.forEach(name => {
+        activeComerces = configs.map(c => c.comercio).sort();
+        activeComerces.forEach(name => {
           selectHtml += `<option value="${name}">${name}</option>`;
         });
       } else {
+        activeComerces = [];
         selectHtml = '<option value="" disabled>No hay comercios con seguimiento de stock</option>';
       }
 
@@ -24389,6 +24609,8 @@ window.renderVolumenDiarioAdmin = async function() {
       let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
       if (selectedCommerce) {
         rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      } else {
+        rtQuery = rtQuery.in('comercio', activeComerces);
       }
       const { data: realTimeData, error: rtErr } = await rtQuery;
 
@@ -24425,16 +24647,20 @@ window.renderVolumenDiarioAdmin = async function() {
 
   // Update Chart
   async function updateChart() {
-    let liveVolume = 0;
+    let liveVolumeMap = {};
     try {
-      let rtQuery = supabase.from('v_comercios_volumen_actual').select('volumen_actual');
+      let rtQuery = supabase.from('v_comercios_volumen_actual').select('comercio, volumen_actual');
       if (selectedCommerce) {
         rtQuery = rtQuery.eq('comercio', selectedCommerce);
+      } else {
+        rtQuery = rtQuery.in('comercio', activeComerces);
       }
       const { data: rtData, error: rtErr } = await rtQuery;
       if (rtErr) throw rtErr;
       if (rtData) {
-        liveVolume = rtData.reduce((sum, item) => sum + parseFloat(item.volumen_actual || 0), 0);
+        rtData.forEach(item => {
+          liveVolumeMap[item.comercio] = parseFloat(item.volumen_actual || 0);
+        });
       }
     } catch (e) {
       console.error('Error al obtener volumen en tiempo real para gráfico:', e);
@@ -24448,23 +24674,22 @@ window.renderVolumenDiarioAdmin = async function() {
 
     const isTodayInRange = (chileTodayStr >= startDate && chileTodayStr <= endDate);
 
-    // Group histories by date
-    const groupedHistories = {};
-    allHistories.forEach(item => {
-      const dStr = item.fecha;
-      groupedHistories[dStr] = (groupedHistories[dStr] || 0) + parseFloat(item.volumen || 0);
-    });
+    // Get unique list of dates (sorted ascending)
+    const datesSet = new Set();
+    allHistories.forEach(item => datesSet.add(item.fecha));
+    const dates = Array.from(datesSet).sort();
 
-    const dates = Object.keys(groupedHistories).sort();
+    const chartDates = [...dates];
+    if (isTodayInRange) {
+      chartDates.push('Actual');
+    }
+
     const labels = dates.map(d => {
       const parts = d.split('-');
       return `${parts[2]}/${parts[1]}`;
     });
-    const values = dates.map(d => groupedHistories[d]);
-
     if (isTodayInRange) {
       labels.push('Actual');
-      values.push(liveVolume);
     }
 
     const ctx = document.getElementById('volume-chart-canvas');
@@ -24476,44 +24701,188 @@ window.renderVolumenDiarioAdmin = async function() {
       volumeChartInstance.destroy();
     }
 
-    const pointBgColor = labels.map(l => l === 'Actual' ? '#f43f5e' : '#2563eb');
-    const pointBdColor = labels.map(l => l === 'Actual' ? '#fda4af' : '#3b82f6');
-    const pointRad = labels.map(l => l === 'Actual' ? 7 : 4);
-    const pointHoverRad = labels.map(l => l === 'Actual' ? 9 : 6);
+    const isStackedBar = !selectedCommerce;
 
-    volumeChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: labels,
-        datasets: [{
-          label: 'Volumen',
+    // Get list of comercios to show
+    let comercios = [];
+    if (isStackedBar) {
+      comercios = [...activeComerces].sort();
+    } else {
+      comercios = [selectedCommerce];
+    }
+
+    const CHART_PALETTE = [
+      '#3b82f6', // blue
+      '#10b981', // emerald
+      '#f59e0b', // amber
+      '#8b5cf6', // violet
+      '#ec4899', // pink
+      '#06b6d4', // cyan
+      '#f97316', // orange
+      '#14b8a6', // teal
+      '#a855f7', // purple
+      '#6366f1'  // indigo
+    ];
+    const CHART_BORDER_PALETTE = [
+      '#1d4ed8',
+      '#047857',
+      '#b45309',
+      '#6d28d9',
+      '#be185d',
+      '#0e7490',
+      '#c2410c',
+      '#0f766e',
+      '#7e22ce',
+      '#4338ca'
+    ];
+
+    const datasets = comercios.map((commerceName, idx) => {
+      const values = chartDates.map(d => {
+        if (d === 'Actual') {
+          return liveVolumeMap[commerceName] || 0;
+        }
+        const match = allHistories.find(item => item.comercio === commerceName && item.fecha === d);
+        return match ? parseFloat(match.volumen || 0) : 0;
+      });
+
+      if (isStackedBar) {
+        // Multi-merchant stacked bar details
+        const bgColors = chartDates.map(d => {
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 'rgba(148, 163, 184, 0.25)' : CHART_PALETTE[idx % CHART_PALETTE.length];
+        });
+        const borderColors = chartDates.map(d => {
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? 'rgba(148, 163, 184, 0.4)' : CHART_BORDER_PALETTE[idx % CHART_BORDER_PALETTE.length];
+        });
+
+        return {
+          type: 'bar',
+          label: commerceName,
+          data: values,
+          backgroundColor: bgColors,
+          borderColor: borderColors,
+          borderWidth: 1,
+          barPercentage: 0.45,
+          categoryPercentage: 0.8,
+          stack: 'volume_stack'
+        };
+      } else {
+        // Single merchant line curve
+        const pointBgColor = chartDates.map(d => {
+          if (d === 'Actual') return '#f43f5e';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#2563eb';
+        });
+        const pointBdColor = chartDates.map(d => {
+          if (d === 'Actual') return '#fda4af';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#3b82f6';
+        });
+        const pointRad = chartDates.map(d => d === 'Actual' ? 7 : 4);
+        const pointHoverRad = chartDates.map(d => d === 'Actual' ? 9 : 6);
+
+        return {
+          type: 'line',
+          label: commerceName,
           data: values,
           borderColor: '#2563eb',
           borderWidth: 2.5,
-          backgroundColor: (context) => {
-            const chart = context.chart;
-            const {ctx, chartArea} = chart;
-            if (!chartArea) return null;
-            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.15)');
-            gradient.addColorStop(1, 'rgba(37, 99, 235, 0.0)');
-            return gradient;
-          },
-          fill: true,
           tension: 0.35,
           pointBackgroundColor: pointBgColor,
           pointBorderColor: pointBdColor,
           pointBorderWidth: 2,
           pointRadius: pointRad,
           pointHoverRadius: pointHoverRad,
-        }]
+          segment: {
+            borderColor: ctx => {
+              const p0 = ctx.p0DataIndex;
+              const p1 = ctx.p1DataIndex;
+              const d0 = chartDates[p0];
+              const d1 = chartDates[p1];
+              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+            },
+            borderDash: ctx => {
+              const p0 = ctx.p0DataIndex;
+              const p1 = ctx.p1DataIndex;
+              const d0 = chartDates[p0];
+              const d1 = chartDates[p1];
+              const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+              return isExtra ? [4, 4] : undefined;
+            }
+          }
+        };
+      }
+    });
+
+    // Overlay the Total Volume Curve only if we are showing multiple comerces (consolidated)
+    if (isStackedBar) {
+      const totalValues = chartDates.map((_, i) => {
+        // datasets contains individual commerce volumes
+        return datasets.reduce((sum, ds) => sum + (ds.data[i] || 0), 0);
+      });
+
+      datasets.push({
+        type: 'line',
+        label: 'Curva Total',
+        data: totalValues,
+        borderColor: '#2563eb',
+        borderWidth: 2.2,
+        tension: 0.35,
+        fill: false,
+        pointBackgroundColor: chartDates.map(d => {
+          if (d === 'Actual') return '#f43f5e';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#2563eb';
+        }),
+        pointBorderColor: chartDates.map(d => {
+          if (d === 'Actual') return '#fda4af';
+          const isExtra = (d < startDate || d > endDate);
+          return isExtra ? '#cbd5e1' : '#3b82f6';
+        }),
+        pointRadius: chartDates.map(d => d === 'Actual' ? 6 : 3.5),
+        pointHoverRadius: chartDates.map(d => d === 'Actual' ? 8 : 5.5),
+        segment: {
+          borderColor: ctx => {
+            const p0 = ctx.p0DataIndex;
+            const p1 = ctx.p1DataIndex;
+            const d0 = chartDates[p0];
+            const d1 = chartDates[p1];
+            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? 'rgba(148, 163, 184, 0.4)' : '#2563eb';
+          },
+          borderDash: ctx => {
+            const p0 = ctx.p0DataIndex;
+            const p1 = ctx.p1DataIndex;
+            const d0 = chartDates[p0];
+            const d1 = chartDates[p1];
+            const isExtra = (d0 < startDate || d0 > endDate || d1 < startDate || d1 > endDate);
+            return isExtra ? [4, 4] : undefined;
+          }
+        }
+      });
+    }
+
+    volumeChartInstance = new Chart(ctx, {
+      data: {
+        labels: labels,
+        datasets: datasets
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: false
+            display: isStackedBar,
+            position: 'top',
+            labels: {
+              color: '#94a3b8',
+              font: {
+                size: 11
+              },
+              boxWidth: 12
+            }
           },
           tooltip: {
             backgroundColor: 'rgba(15, 23, 42, 0.9)',
@@ -24528,7 +24897,7 @@ window.renderVolumenDiarioAdmin = async function() {
                 if (item.label === 'Actual') {
                   return `Hoy: ${dd}/${mm}/${yy} (Tiempo Real)`;
                 }
-                const foundDate = dates[item.dataIndex];
+                const foundDate = chartDates[item.dataIndex];
                 if (foundDate) {
                   const parts = foundDate.split('-');
                   return `Fecha: ${parts[2]}/${parts[1]}/${parts[0]}`;
@@ -24536,13 +24905,48 @@ window.renderVolumenDiarioAdmin = async function() {
                 return `Fecha: ${item.label}`;
               },
               label: function(context) {
-                return ` Volumen: ${context.parsed.y.toFixed(5)} m³`;
+                const dataIndex = context.dataIndex;
+                const chart = context.chart;
+                let dayTotal = 0;
+                chart.data.datasets.forEach(dataset => {
+                  if (dataset.type === 'bar') {
+                    dayTotal += parseFloat(dataset.data[dataIndex] || 0);
+                  }
+                });
+
+                const value = context.parsed.y;
+                const pct = dayTotal > 0 ? ((value / dayTotal) * 100).toFixed(1) : '0.0';
+                
+                if (context.dataset.label === 'Curva Total') {
+                  return ` Volumen Total: ${value.toFixed(5)} m³`;
+                }
+
+                if (isStackedBar) {
+                  return ` ${context.dataset.label}: ${value.toFixed(5)} m³ (${pct}%)`;
+                } else {
+                  return ` Volumen: ${value.toFixed(5)} m³`;
+                }
+              },
+              footer: function(context) {
+                if (isStackedBar) {
+                  const dataIndex = context[0].dataIndex;
+                  const chart = context[0].chart;
+                  let dayTotal = 0;
+                  chart.data.datasets.forEach(dataset => {
+                    if (dataset.type === 'bar') {
+                      dayTotal += parseFloat(dataset.data[dataIndex] || 0);
+                    }
+                  });
+                  return `Total diario: ${dayTotal.toFixed(5)} m³`;
+                }
+                return null;
               }
             }
           }
         },
         scales: {
           x: {
+            stacked: isStackedBar,
             grid: {
               display: false
             },
@@ -24554,6 +24958,7 @@ window.renderVolumenDiarioAdmin = async function() {
             }
           },
           y: {
+            stacked: isStackedBar,
             min: 0,
             grid: {
               color: 'rgba(148, 163, 184, 0.08)',
@@ -24586,17 +24991,22 @@ window.renderVolumenDiarioAdmin = async function() {
     `;
 
     try {
+      const startD = new Date(startDate + 'T00:00:00');
+      const endD = new Date(endDate + 'T00:00:00');
+      const diffDays = Math.ceil(Math.abs(endD - startD) / (1000 * 60 * 60 * 24)) + 1;
+
+      const expandedStart = addDays(startDate, -diffDays);
+      const expandedEnd = addDays(endDate, diffDays);
+
       let query = supabase.from('comercios_volumen_diario').select('*');
 
       if (selectedCommerce) {
         query = query.eq('comercio', selectedCommerce);
+      } else {
+        query = query.in('comercio', activeComerces);
       }
-      if (startDate) {
-        query = query.gte('fecha', startDate);
-      }
-      if (endDate) {
-        query = query.lte('fecha', endDate);
-      }
+      
+      query = query.gte('fecha', expandedStart).lte('fecha', expandedEnd);
 
       const { data, error } = await query.order('fecha', { ascending: true }); // Ascending for the chart
 
@@ -24621,8 +25031,10 @@ window.renderVolumenDiarioAdmin = async function() {
 
   // Render Table Data with Pagination
   function renderTableData() {
-    // Reverse historical data to show most recent first in table
-    const tableHistories = [...allHistories].reverse();
+    // Reverse historical data to show most recent first in table (only within user selected filtered range)
+    const tableHistories = allHistories
+      .filter(item => item.fecha >= startDate && item.fecha <= endDate)
+      .reverse();
 
     if (tableHistories.length === 0) {
       tbody.innerHTML = `

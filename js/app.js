@@ -4239,6 +4239,7 @@ window.fetchInventoryForClientOrders = async function(orders) {
 };
 
 async function renderOrders() {
+  window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
@@ -9164,14 +9165,14 @@ async function renderProfile() {
 
     if (error) throw error;
 
+    const commerceList = (profile.comercio || '')
+      .split(',')
+      .map(c => c.trim())
+      .filter(c => c && c.toLowerCase() !== 'no asignado');
+
     // Cargar config adicional de comercio para saber si tiene seguimiento de stock activo
     let hasStockTracking = false;
     try {
-      const commerceList = (profile.comercio || '')
-        .split(',')
-        .map(c => c.trim())
-        .filter(c => c && c.toLowerCase() !== 'no asignado');
-
       if (commerceList.length > 0) {
         const { data: configData } = await supabase
           .from('comercios_adicional_config')
