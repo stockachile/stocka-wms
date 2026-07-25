@@ -34,15 +34,15 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 // ==========================================
 // FUNCIÓN PRINCIPAL DE SINCRONIZACIÓN
 // ==========================================
-async function syncWooCommerceData() {
-  console.log('🔄 Iniciando sincronización con WooCommerce...');
+async function syncTiendanubeData() {
+  console.log('🔄 Iniciando sincronización con Tiendanube...');
 
   try {
-    // 1. Obtener todas las integraciones activas de WooCommerce en Supabase
+    // 1. Obtener todas las integraciones activas de Tiendanube en Supabase
     const { data: integrations, error: intError } = await supabase
       .from('merchant_integrations')
       .select('*')
-      .eq('platform', 'WooCommerce')
+      .eq('platform', 'Tiendanube')
       .eq('is_active', true);
 
     if (intError) {
@@ -51,7 +51,7 @@ async function syncWooCommerceData() {
     }
 
     if (!integrations || integrations.length === 0) {
-      console.log('ℹ️ No hay integraciones activas de WooCommerce configuradas.');
+      console.log('ℹ️ No hay integraciones activas de Tiendanube configuradas.');
       return;
     }
 
@@ -60,13 +60,13 @@ async function syncWooCommerceData() {
       console.log(`\n========================================`);
       console.log(`👤 Merchant ID: ${integration.merchant_id}`);
       console.log(`🔌 Plataforma: ${integration.platform}`);
-      console.log(`🔗 URL Tienda: ${integration.shop_url}`);
+      console.log(`🔗 Store ID / Shop URL: ${integration.shop_url}`);
       console.log(`========================================`);
 
-      await syncMerchantWooCommerce(integration);
+      await syncMerchantTiendanube(integration);
     }
 
-    console.log('\n🎉 Sincronización WooCommerce finalizada.');
+    console.log('\n🎉 Sincronización Tiendanube finalizada.');
   } catch (err) {
     console.error('❌ Error general durante la sincronización:', err.message);
   }
@@ -75,26 +75,23 @@ async function syncWooCommerceData() {
 /**
  * Sincroniza productos y pedidos de una integración específica
  */
-async function syncMerchantWooCommerce(integration) {
-  // A. Parsear credenciales desde el access_token
-  let consumerKey, consumerSecret;
-  try {
-    const creds = JSON.parse(integration.access_token);
-    consumerKey = creds.consumer_key;
-    consumerSecret = creds.consumer_secret;
-  } catch (e) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Formato de access_token inválido. Debe ser un JSON conteniendo consumer_key y consumer_secret.`);
+async function syncMerchantTiendanube(integration) {
+  // A. Obtener Store ID (limpiar URL para extraer solo números si el usuario ingresó una URL)
+  const storeId = integration.shop_url.trim().replace(/[^0-9]/g, '');
+  if (!storeId) {
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: No se pudo determinar el Store ID de Tiendanube desde "${integration.shop_url}". Debe ser numérico.`);
     return;
   }
 
-  if (!consumerKey || !consumerSecret) {
-    console.error(`❌ Error para Merchant ${integration.merchant_id}: Faltan consumer_key o consumer_secret en las credenciales guardadas.`);
+  const accessToken = integration.access_token.trim();
+  if (!accessToken) {
+    console.error(`❌ Error para Merchant ${integration.merchant_id}: Falta el Access Token de Tiendanube.`);
     return;
   }
 
   // B. Obtener bodega por defecto para el cliente
   let warehouseId = null;
-  const { data: whRel, error: whErr } = await supabase
+  const { data: whRel } = await supabase
     .from('merchants_warehouses')
     .select('warehouse_id')
     .eq('merchant_id', integration.merchant_id)
@@ -116,104 +113,106 @@ async function syncMerchantWooCommerce(integration) {
     return;
   }
 
-  // C. Normalizar URL base
-  let baseUrl = integration.shop_url.trim();
-  if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
-    baseUrl = 'https://' + baseUrl;
-  }
-  if (baseUrl.endsWith('/')) {
-    baseUrl = baseUrl.slice(0, -1);
-  }
-
-  const authHeader = 'Basic ' + Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
+  // C. Definir cabeceras obligatorias (Tiendanube exige User-Agent descriptivo)
   const headers = {
-    'Authorization': authHeader,
+    'Authentication': `bearer ${accessToken}`,
     'Accept': 'application/json',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'User-Agent': 'StockaWMS (integraciones@stocka.cl)'
   };
 
   // 1. Sincronizar Productos primero (recomendado para mapear SKUs correctamente)
-  await syncProducts(integration, baseUrl, headers);
+  await syncProducts(integration, storeId, headers);
 
   // 2. Sincronizar Pedidos (Orders)
-  await syncOrders(integration, baseUrl, headers, warehouseId);
+  await syncOrders(integration, storeId, headers, warehouseId);
 }
 
 /**
- * Sincroniza los productos desde WooCommerce
+ * Sincroniza los productos desde Tiendanube
  */
-async function syncProducts(integration, baseUrl, headers) {
-  console.log('--> Extrayendo productos desde WooCommerce...');
-  const url = `${baseUrl}/wp-json/wc/v3/products?per_page=100`;
+async function syncProducts(integration, storeId, headers) {
+  console.log('--> Extrayendo productos desde Tiendanube...');
+  const url = `https://api.tiendanube.com/v1/${storeId}/products?per_page=100`;
 
   try {
     const response = await fetch(url, { method: 'GET', headers });
     if (!response.ok) {
-      throw new Error(`Error en API WooCommerce Productos: Status ${response.status} ${response.statusText}`);
+      throw new Error(`Error en API Tiendanube Productos: Status ${response.status} ${response.statusText}`);
     }
 
     const products = await response.json();
     console.log(`Se encontraron ${products.length} productos base.`);
 
+    const productsToUpsert = [];
     for (const product of products) {
-      // WooCommerce soporta productos simples y variables
-      if (product.type === 'variable') {
-        console.log(`   Procesando producto variable: ${product.name} (ID: ${product.id}). Extrayendo variaciones...`);
-        const varUrl = `${baseUrl}/wp-json/wc/v3/products/${product.id}/variations?per_page=100`;
-        const varRes = await fetch(varUrl, { method: 'GET', headers });
-        if (varRes.ok) {
-          const variations = await varRes.json();
-          for (const variation of variations) {
-            await saveProductToDb(integration, product, variation);
+      // Tiendanube soporta variantes
+      const mainImageUrl = product.images && product.images.length > 0 ? product.images[0].src : null;
+      const status = product.published ? 'published' : 'hidden';
+
+      for (const variant of product.variants) {
+        let variantSku = variant.sku || '';
+        let cleanSku = variantSku.trim().replace(/\s+/g, '');
+        if (!cleanSku) continue; // Ignorar productos sin SKU
+
+        // Si la variante tiene una imagen asignada en Tiendanube, la usamos, si no la del producto base
+        let imageUrl = mainImageUrl;
+        if (variant.image_id && product.images) {
+          const matchedImg = product.images.find(img => img.id === variant.image_id);
+          if (matchedImg && matchedImg.src) {
+            imageUrl = matchedImg.src;
           }
-        } else {
-          console.error(`   ❌ Error al extraer variaciones de producto ${product.id}`);
         }
-      } else {
-        // Producto simple
-        await saveProductToDb(integration, product, null);
+
+        // Construir nombre combinando el del producto con las opciones de variante (talle, color, etc.)
+        const variantNameParts = [];
+        if (variant.values) {
+          for (const langKey of Object.keys(variant.values)) {
+            // Tomamos el primer idioma disponible o español si existe
+            const val = variant.values[langKey];
+            if (val) {
+              variantNameParts.push(val);
+              break;
+            }
+          }
+        }
+        
+        let productName = '';
+        if (product.name) {
+          productName = product.name.es || product.name.pt || Object.values(product.name)[0] || 'Producto sin nombre';
+        }
+        const finalName = variantNameParts.length > 0 ? `${productName} - ${variantNameParts.join(' / ')}` : productName;
+
+        productsToUpsert.push({
+          comercio: integration.comercio,
+          platform: 'Tiendanube',
+          sku: cleanSku,
+          name: finalName,
+          image_url: imageUrl,
+          status: status,
+          price: parseFloat(variant.price) || 0
+        });
       }
     }
+
+    if (productsToUpsert.length > 0) {
+      const { error: upsertErr } = await supabase
+        .from('synced_products')
+        .upsert(productsToUpsert, { onConflict: 'comercio,platform,sku' });
+
+      if (upsertErr) throw upsertErr;
+      console.log(`📥 Se han sincronizado ${productsToUpsert.length} variantes de Tiendanube en synced_products.`);
+    }
   } catch (error) {
-    console.error(`❌ Error sincronizando productos para ${integration.shop_url}:`, error.message);
+    console.error(`❌ Error sincronizando productos para Tiendanube (${storeId}):`, error.message);
   }
 }
 
 /**
- * Guarda o actualiza un producto/variación en la base de datos de Supabase
+ * Sincroniza los pedidos desde Tiendanube
  */
-async function saveProductToDb(integration, product, variation) {
-  const isVariation = !!variation;
-  const sku = (isVariation ? variation.sku : product.sku) || (isVariation ? `WC-${product.id}-${variation.id}` : `WC-${product.id}`);
-  const cleanSku = sku.replace(/\s+/g, '');
-
-  const productName = isVariation 
-    ? `${product.name} - ${variation.attributes.map(a => a.option).join(' / ')}`
-    : product.name;
-
-  const productDataToSave = {
-    comercio: integration.comercio,
-    platform: 'WooCommerce',
-    sku: cleanSku,
-    name: productName
-  };
-
-  const { error: insErr } = await supabase
-    .from('synced_products')
-    .upsert([productDataToSave], { onConflict: 'comercio,platform,sku' });
-
-  if (insErr) {
-    console.error(`   ❌ Error al sincronizar SKU ${cleanSku} en synced_products:`, insErr.message);
-  } else {
-    console.log(`   📥 Sincronizado SKU ${cleanSku} en synced_products`);
-  }
-}
-
-/**
- * Sincroniza los pedidos desde WooCommerce
- */
-async function syncOrders(integration, baseUrl, headers, warehouseId) {
-  console.log('--> Extrayendo pedidos desde WooCommerce...');
+async function syncOrders(integration, storeId, headers, warehouseId) {
+  console.log('--> Extrayendo pedidos desde Tiendanube...');
 
   // Obtener sigla del comercio y configuración de pedido_trae_sigla
   let prefix = '';
@@ -235,7 +234,6 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       if (configData && configData.sigla && !traeSigla) {
         prefix = configData.sigla.trim().toUpperCase();
       }
-      console.log(`ℹ️ Configuración de prefijo para WooCommerce: Sigla="${configData?.sigla || ''}", TraeSigla=${traeSigla} => Prefijo="${prefix}"`);
     } catch (err) {
       console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
     }
@@ -253,7 +251,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       equivalences.filter(e => e.platform === 'Todas').forEach(e => {
         if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
       });
-      equivalences.filter(e => e.platform === 'WooCommerce').forEach(e => {
+      equivalences.filter(e => e.platform === 'Tiendanube').forEach(e => {
         if (e.platform_sku) skuMap[e.platform_sku.trim().replace(/\s+/g, '')] = e.master_sku.trim();
       });
     }
@@ -261,13 +259,13 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
     console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
   }
 
-  // Extraemos pedidos de cualquier estado para mantener el WMS actualizado, pero nos enfocamos en procesarlos.
-  const url = `${baseUrl}/wp-json/wc/v3/orders?per_page=100`;
+  // Traer los pedidos recientes
+  const url = `https://api.tiendanube.com/v1/${storeId}/orders?per_page=50`;
 
   try {
     const response = await fetch(url, { method: 'GET', headers });
     if (!response.ok) {
-      throw new Error(`Error en API WooCommerce Pedidos: Status ${response.status} ${response.statusText}`);
+      throw new Error(`Error en API Tiendanube Pedidos: Status ${response.status} ${response.statusText}`);
     }
 
     const orders = await response.json();
@@ -275,15 +273,19 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
 
     for (const order of orders) {
       const orderId = order.id.toString();
-      const orderNumber = order.number || orderId;
+      const orderNumber = order.number ? order.number.toString() : orderId;
       const finalOrderNumber = prefix ? `${prefix}${orderNumber}` : orderNumber;
-      const statusName = order.status; // e.g. processing, completed, cancelled, on-hold
+      
+      // Mapeo de estados en Tiendanube
+      // status: open, closed, cancelled
+      // payment_status: pending, paid, unpaid, abandoned, voided, refunded
+      const statusName = order.status; 
+      const paymentStatus = order.payment_status;
 
-      console.log(`\nProcesando pedido WooCommerce ID: ${finalOrderNumber} (Estado actual: ${statusName})`);
+      console.log(`\nProcesando pedido Tiendanube ID: ${finalOrderNumber} (Estado: ${statusName}, Pago: ${paymentStatus})`);
 
-      // Clasificación de estados
-      const isDelivered = statusName === 'completed';
-      const isCancelled = ['cancelled', 'failed', 'refunded'].includes(statusName);
+      const isDelivered = order.shipping_status === 'delivered';
+      const isCancelled = statusName === 'cancelled' || ['voided', 'refunded'].includes(paymentStatus);
       const isActive = !isDelivered && !isCancelled;
 
       // Verificar si el pedido ya existe en el WMS
@@ -298,14 +300,16 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       const itemNames = [];
       const itemQuantities = {};
       
-      for (const item of order.line_items) {
-        let sku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
-        sku = sku.replace(/\s+/g, '');
+      for (const item of order.products) {
+        let sku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
+        sku = sku.trim().replace(/\s+/g, '');
         // Aplicar equivalencia de SKU
         let mappedSku = skuMap[sku] || sku;
         itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(item.quantity);
-        if (item.name && !itemNames.includes(item.name)) {
-          itemNames.push(item.name);
+
+        const name = item.name ? (item.name.es || item.name.pt || Object.values(item.name)[0] || 'Producto') : 'Producto';
+        if (name && !itemNames.includes(name)) {
+          itemNames.push(name);
         }
       }
 
@@ -314,22 +318,35 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
       const totalValue = Number(order.total || 0);
 
+      // Direcciones en Tiendanube
+      const addr = order.shipping_address;
+      let addressString = 'No especificada';
+      let complementString = '';
+      if (addr) {
+        addressString = `${addr.address || ''} ${addr.number || ''}`.trim() || 'No especificada';
+        complementString = [addr.floor, addr.locality, addr.province, addr.zipcode].filter(Boolean).join(', ');
+      }
+
+      const customerName = addr 
+        ? `${addr.first_name || ''} ${addr.last_name || ''}`.trim() 
+        : (order.contact_name || order.customer?.name || 'Cliente Tiendanube');
+
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
         external_order_number: finalOrderNumber,
-        external_platform: 'WooCommerce',
-        payment_status: order.date_paid ? 'PAID' : 'PENDING',
+        external_platform: 'Tiendanube',
+        payment_status: paymentStatus === 'paid' ? 'PAID' : 'PENDING',
         total_value: totalValue,
-        customer_email: order.billing?.email || 'no-email@woocommerce.cl',
-        customer_phone: order.billing?.phone || 'No especificado',
-        customer_name: `${order.billing?.first_name || ''} ${order.billing?.last_name || ''}`.trim() || 'Cliente WooCommerce',
-        shipping_address: order.shipping?.address_1 || order.billing?.address_1 || 'No especificada',
-        shipping_city: order.shipping?.city || order.billing?.city || 'No especificada',
-        shipping_complement: [order.shipping?.address_2, order.shipping?.state, order.shipping?.postcode].filter(Boolean).join(', ') || '',
-        shipping_method: order.shipping_lines?.[0]?.method_title || 'Por definir',
-        raw_woocommerce_data: order,
-        origen: 'WooCommerce',
+        customer_email: order.contact_email || order.customer?.email || 'no-email@tiendanube.com',
+        customer_phone: addr?.phone || order.contact_phone || 'No especificado',
+        customer_name: customerName,
+        shipping_address: addressString,
+        shipping_city: addr?.city || 'No especificada',
+        shipping_complement: complementString,
+        shipping_method: order.shipping_option || 'Por definir',
+        raw_tiendanube_data: order,
+        origen: 'Tiendanube',
         item: flatItemName,
         cantidad: flatQuantity,
         sku: flatSku
@@ -339,15 +356,15 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       let shouldInsertItems = false;
 
       if (existingOrder) {
-        // Si el pedido se canceló en origen, actualizar su estado en WMS
+        // Si el pedido se canceló, actualizar estado en WMS
         if (isCancelled && existingOrder.status !== 'cancelado') {
           await supabase
             .from('orders')
             .update({ ...orderDataToSave, status: 'cancelado' })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en WooCommerce. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Tiendanube. Actualizado en WMS.`);
         } else {
-          // Actualizar datos de pedido manteniendo el estado actual del WMS
+          // Actualizar datos generales manteniendo el estado WMS actual
           await supabase
             .from('orders')
             .update(orderDataToSave)
@@ -356,18 +373,18 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
         }
         localOrderId = existingOrder.id;
 
-        // Auto-recuperación (Healer): Validar si ya tiene ítems guardados
+        // Validar si ya tiene ítems guardados (Healer/Auto-recuperación)
         const { data: existingItems, error: itemsCheckErr } = await supabase
           .from('order_items')
           .select('id')
           .eq('order_id', localOrderId);
 
         if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se ingresarán.`);
           shouldInsertItems = true;
         }
       } else if (isActive) {
-        // Insertar nuevo pedido activo en WMS con estado 'para procesar'
+        // Insertar nuevo pedido activo en WMS como 'para procesar'
         const { data: newOrder, error: insErr } = await supabase
           .from('orders')
           .insert([{ ...orderDataToSave, status: 'para procesar' }])
@@ -379,11 +396,11 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} en estado 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
       } else {
-        console.log(`ℹ️ Pedido ${finalOrderNumber} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
+        console.log(`ℹ5 Pedido ${finalOrderNumber} ignorado por estar en estado final y no existir en WMS.`);
       }
 
       // Registrar ítems en order_items
@@ -398,16 +415,17 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
             .maybeSingle();
 
           if (!product) {
-            // Buscar detalle del item original usando mapeo inverso
-            const itemDetail = order.line_items.find(item => {
-              let itemSku = item.sku || `WC-${item.product_id}${item.variation_id ? '-' + item.variation_id : ''}`;
-              let cleanItemSku = itemSku.replace(/\s+/g, '');
+            // Mapeo inverso para obtener datos originales del item y crearlo
+            const itemDetail = order.products.find(item => {
+              let itemSku = item.sku || `TN-${item.product_id}${item.variant_id ? '-' + item.variant_id : ''}`;
+              let cleanItemSku = itemSku.trim().replace(/\s+/g, '');
               let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
               return mappedItemSku === sku;
             });
 
-            // Auto-crear producto faltante
-            const productName = itemDetail?.name || 'Producto WooCommerce ' + sku;
+            const pName = itemDetail?.name 
+              ? (itemDetail.name.es || itemDetail.name.pt || Object.values(itemDetail.name)[0] || 'Producto Tiendanube ' + sku) 
+              : 'Producto Tiendanube ' + sku;
             const productPrice = Number(itemDetail?.price || 0);
 
             const { data: newProd, error: prodErr } = await supabase
@@ -416,15 +434,15 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
                 merchant_id: integration.merchant_id,
                 comercio: integration.comercio,
                 sku: sku,
-                name: productName,
+                name: pName,
                 price: productPrice,
-                description: 'Creado automáticamente desde integración de WooCommerce (al procesar pedido)'
+                description: 'Creado automáticamente desde integración de Tiendanube (al procesar pedido)'
               }])
               .select('id')
               .single();
 
             if (!prodErr && newProd) {
-              console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${productName}")`);
+              console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${pName}")`);
               product = newProd;
             } else {
               console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
@@ -442,9 +460,9 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
               }]);
 
             if (itemErr) {
-              console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
+              console.error(`   ❌ Error al registrar ítem SKU ${sku}:`, itemErr.message);
             } else {
-              console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
+              console.log(`   + Registrado ítem: SKU ${sku} x ${qty}`);
             }
           } else {
             console.warn(`   ⚠️ SKU ${sku} no encontrado en base de datos. No se pudo registrar en la orden.`);
@@ -453,9 +471,11 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       }
     }
   } catch (error) {
-    console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
+    console.error(`❌ Error sincronizando pedidos para Tiendanube (${storeId}):`, error.message);
   }
 }
 
-// Ejecutar script
-syncWooCommerceData();
+// Ejecutar script si se corre directamente
+if (require.main === module) {
+  syncTiendanubeData();
+}

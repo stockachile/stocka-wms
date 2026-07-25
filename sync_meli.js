@@ -645,7 +645,7 @@ async function syncMerchantOrders(integration) {
               .from('products')
               .select('id')
               .eq('sku', sku)
-              .eq('comercio', integration.comercio)
+              .eq('merchant_id', integration.merchant_id)
               .maybeSingle();
 
             if (!product) {

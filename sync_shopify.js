@@ -245,7 +245,7 @@ async function syncOrders(integration) {
         let query = supabase.from('products')
           .select('id')
           .eq('sku', mappedSku)
-          .eq('comercio', integration.comercio);
+          .eq('merchant_id', integration.merchant_id);
 
         const { data: foundProduct } = await query.maybeSingle();
         product = foundProduct;
