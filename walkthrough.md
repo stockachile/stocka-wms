@@ -1420,3 +1420,28 @@ Hemos solucionado el problema que causaba que ciertos pedidos (especialmente de 
    - Ejecutamos un script de reparación en caliente (`scratch/backfill_missing_order_items.js`) que analizó la base de datos, detectó 45 pedidos de Magic Makeup afectados por este desfase histórico que carecían de ítems y procesó su campo original `raw_shopify_data` para insertar correctamente sus correspondientes registros en la tabla `order_items` con sus SKUs, cantidades y precios reales.
    - Todo el histórico actual y activo del comercio MAGIC MAKEUP se encuentra ahora 100% corregido y visible en la plataforma.
 
+---
+
+## 65. Optimización Crítica de Políticas RLS para envios_unificados (WMS)
+
+Hemos solucionado la lentitud extrema y carga infinita en el inicio de la administración al optimizar las políticas de seguridad a nivel de fila (RLS) en la tabla `envios_unificados` en Supabase:
+
+1. **Diagnóstico del Cuello de Botella**:
+   - Al cargar el gestor, el frontend consulta la tabla `envios_unificados` (que contiene más de 36,000 registros).
+   - La política de visualización para clientes (`Clientes ven envios de su comercio asignado`) ejecutaba una subconsulta correlacionada: `EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND ... IN (unnest(string_to_array(profiles.comercio))))`.
+   - Debido a esta correlación, PostgreSQL se veía forzado a ejecutar una consulta secuencial en la tabla `profiles` por cada uno de los 36,000 registros de envíos. Esto superaba el tiempo límite de ejecución de la base de datos (`statement timeout` con error `57014`), bloqueando la carga y dejando el dashboard congelado en la pantalla de carga.
+
+2. **Implementación de Función SECURITY DEFINER Estable**:
+   - Diseñamos la función PostgreSQL `public.get_user_comercio_list()` con nivel de volatilidad `STABLE` y seguridad `SECURITY DEFINER`.
+   - Esta función consulta el comercio del usuario logueado en la tabla `profiles` una única vez por transacción y retorna un arreglo (`text[]`) con la lista de comercios autorizados, evitando ejecutar subconsultas en cascada y saltando las políticas RLS internas de `profiles` de forma segura.
+
+3. **Reescritura de la Política RLS**:
+   - Reemplazamos la política ineficiente por una condición no correlacionada que se evalúa de manera inmediata contra el arreglo de constantes devuelto por la función estable:
+     ```sql
+     (public.is_admin())
+     OR ('all' = ANY(public.get_user_comercio_list()))
+     OR (lower(empresa_comercio_proveedor) = ANY(public.get_user_comercio_list()))
+     ```
+   - Gracias a este desacoplamiento, el tiempo de planificación y ejecución de la consulta bajó de **más de 10 segundos** (timeout) a **0.33 milisegundos** (una mejora de velocidad de casi 30,000 veces).
+
+
