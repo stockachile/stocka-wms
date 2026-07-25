@@ -277,6 +277,8 @@ window.updateWmsOrderField = async function(orderId, field, value) {
       }
     }
 
+    window.applyWmsFiltersAndRender();
+
     const toast = Swal.mixin({
       toast: true,
       position: 'top-end',
