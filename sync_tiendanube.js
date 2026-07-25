@@ -406,12 +406,12 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
       // Registrar ítems en order_items
       if (localOrderId && shouldInsertItems) {
         for (const [sku, qty] of Object.entries(itemQuantities)) {
-          // Buscar producto en la base de datos por comercio y sku
+          // Buscar producto en la base de datos por merchant_id y sku
           let { data: product } = await supabase
             .from('products')
-            .select('id, merchant_id')
+            .select('id')
             .eq('sku', sku)
-            .eq('comercio', integration.comercio)
+            .eq('merchant_id', integration.merchant_id)
             .maybeSingle();
 
           if (!product) {
@@ -428,22 +428,10 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
               : 'Producto Tiendanube ' + sku;
             const productPrice = Number(itemDetail?.price || 0);
 
-            // Intentar obtener el merchant_id correcto para este comercio desde otros productos
-            let activeMerchantId = integration.merchant_id;
-            const { data: siblingProd } = await supabase
-              .from('products')
-              .select('merchant_id')
-              .eq('comercio', integration.comercio)
-              .limit(1)
-              .maybeSingle();
-            if (siblingProd && siblingProd.merchant_id) {
-              activeMerchantId = siblingProd.merchant_id;
-            }
-
             const { data: newProd, error: prodErr } = await supabase
               .from('products')
               .insert([{
-                merchant_id: activeMerchantId,
+                merchant_id: integration.merchant_id,
                 comercio: integration.comercio,
                 sku: sku,
                 name: pName,
