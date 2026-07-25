@@ -2454,6 +2454,9 @@ window.applyWmsFiltersAndRender = function() {
                       ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; border: 1px solid rgba(16, 185, 129, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;"><i class="ri-checkbox-circle-fill" style="font-size: 0.8rem;"></i> Cobertura Alpha OK</span>`
                       : `<span style="background: rgba(245, 158, 11, 0.1); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem;" title="Esta comuna no coincide exactamente con las 36 comunas urbanas con cobertura de Alpha. Puede causar fallas al emitir la etiqueta en LightData."><i class="ri-error-warning-fill" style="font-size: 0.8rem;"></i> Sin Cobertura Alpha / Typo</span>`
                   ) : ''}
+                  <button onclick="window.editWmsOrderComuna('${order.id}')" class="btn btn-outline" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; margin-left: 0.5rem; height: 22px;">
+                    <i class="ri-edit-line"></i> Editar
+                  </button>
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
@@ -21464,6 +21467,140 @@ const PICKER_SUPABASE_URL = 'https://hpomymtecmxujbjxqawu.supabase.co';
 const PICKER_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhwb215bXRlY214dWpianhxYXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk5OTE1NzAsImV4cCI6MjA5NTU2NzU3MH0.HD7Fbt7k95N9lB6NBGM87k3eFeZFDGLJK_Tp3EHT6JQ';
 
 const pickerSupabase = window.supabase ? window.supabase.createClient(PICKER_SUPABASE_URL, PICKER_SUPABASE_ANON_KEY) : null;
+
+window.editWmsOrderComuna = async function(orderId) {
+  const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+  const currentComuna = order ? (order.shipping_city || '') : '';
+
+  const allComunas = [
+    ...window.ALPHA_COBERTURA_36.map(c => ({ name: c.charAt(0).toUpperCase() + c.slice(1), hasAlpha: true })),
+    { name: 'Buin', hasAlpha: false },
+    { name: 'Calera de Tango', hasAlpha: false },
+    { name: 'Lampa', hasAlpha: false },
+    { name: 'Malloco', hasAlpha: false },
+    { name: 'Paine', hasAlpha: false },
+    { name: 'Pirque', hasAlpha: false },
+    { name: 'San Jose de Maipo', hasAlpha: false },
+    { name: 'Talagante', hasAlpha: false }
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  const optionsHtml = allComunas.map(c => `
+    <div class="comuna-option-item" data-value="${c.name}" style="padding: 0.5rem; cursor: pointer; border-radius: 4px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; font-weight: 500; color: var(--color-text-main);">
+      <span>${c.name}</span>
+      ${c.hasAlpha 
+        ? `<span style="background: rgba(16, 185, 129, 0.1); color: #059669; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Alpha OK</span>`
+        : `<span style="background: rgba(100, 116, 139, 0.1); color: #475569; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700;">Región / Sin Alpha</span>`
+      }
+    </div>
+  `).join('');
+
+  const modalHtml = `
+    <div style="text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+      <label style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main);">Buscar Comuna (filtro en vivo):</label>
+      <div style="position: relative; display: flex; align-items: center;">
+        <i class="ri-search-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem;"></i>
+        <input type="text" id="comuna-search-input" placeholder="Escribe para buscar..." style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2.2rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-size: 0.9rem;" value="${currentComuna}">
+      </div>
+      
+      <div id="comunas-list-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.25rem; background: var(--color-surface); margin-top: 0.5rem;">
+        ${optionsHtml}
+      </div>
+    </div>
+  `;
+
+  Swal.fire({
+    title: 'Editar Comuna',
+    html: modalHtml,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#7117eb',
+    didOpen: () => {
+      const searchInput = document.getElementById('comuna-search-input');
+      const listContainer = document.getElementById('comunas-list-container');
+      const items = Array.from(listContainer.getElementsByClassName('comuna-option-item'));
+
+      let selectedComuna = currentComuna;
+
+      items.forEach(item => {
+        if (item.getAttribute('data-value').toLowerCase() === currentComuna.toLowerCase()) {
+          item.style.background = 'rgba(113, 23, 235, 0.1)';
+          item.style.color = '#7117eb';
+          item.scrollIntoView({ block: 'nearest' });
+        }
+
+        item.addEventListener('click', () => {
+          items.forEach(i => {
+            i.style.background = 'transparent';
+            i.style.color = 'var(--color-text-main)';
+          });
+          item.style.background = 'rgba(113, 23, 235, 0.1)';
+          item.style.color = '#7117eb';
+          selectedComuna = item.getAttribute('data-value');
+          searchInput.value = selectedComuna;
+        });
+      });
+
+      searchInput.addEventListener('input', (e) => {
+        const text = e.target.value.toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+        
+        selectedComuna = e.target.value;
+
+        items.forEach(item => {
+          const val = item.getAttribute('data-value').toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+          
+          if (val.includes(text)) {
+            item.style.display = 'flex';
+          } else {
+            item.style.display = 'none';
+          }
+        });
+      });
+
+      window.currentSelectedComunaEdit = () => selectedComuna;
+    },
+    preConfirm: () => {
+      const val = window.currentSelectedComunaEdit ? window.currentSelectedComunaEdit() : '';
+      if (!val || val.trim() === '') {
+        Swal.showValidationMessage('La comuna no puede estar vacía.');
+        return false;
+      }
+      return val.trim();
+    }
+  }).then(async (result) => {
+    if (result.isConfirmed) {
+      const newComuna = result.value;
+      Swal.fire({
+        title: 'Guardando...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      try {
+        const { error: updateErr } = await supabase
+          .from('orders')
+          .update({ shipping_city: newComuna })
+          .eq('id', orderId);
+
+        if (updateErr) throw updateErr;
+
+        if (order) {
+          order.shipping_city = newComuna;
+        }
+
+        Swal.fire('¡Éxito!', 'La comuna ha sido actualizada correctamente.', 'success');
+        window.applyWmsFiltersAndRender();
+      } catch (err) {
+        console.error(err);
+        Swal.fire('Error', 'No se pudo guardar la comuna: ' + err.message, 'error');
+      }
+    }
+  });
+};
 
 window.editWmsOrderPickingInfo = async function(orderId) {
   const order = window.loadedOrders.find(o => o.id === orderId);
