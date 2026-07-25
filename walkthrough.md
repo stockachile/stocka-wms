@@ -1386,3 +1386,20 @@ Hemos solucionado la visualización incorrecta del estado **`SIN STOCK`** en ped
 3. **Limpieza del Caché en el Cliente**:
    - Modificamos `renderOrders` en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) para reiniciar el caché (`window.clientOrdersInventoryMap = {};`) al cargar la sección de control de pedidos del portal del cliente.
 
+---
+
+## 63. Validación Proactiva de Stock y Asignación de Sucursal al Despachar Pedidos (WMS)
+
+Hemos implementado un flujo de control de stock interactivo en el panel de administrador ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)) al cambiar el estado de un pedido a **"Despachado"** (tanto de forma individual como masiva). Esto previene y resuelve los errores de base de datos (`violates check constraint "inventory_quantity_check"`):
+
+1. **Selección Dinámica de Sucursal de Despacho**:
+   - Si se intenta despachar un pedido cuyos artículos todavía están asignados a la **Bodega Central (Virtual)** o que no tiene una sucursal física asignada, el sistema despliega un diálogo emergente de SweetAlert2 (`Swal`).
+   - El usuario puede elegir la sucursal física real desde la cual se está realizando el despacho (Ñuñoa, La Reina o Recoleta).
+   - Al seleccionar la sucursal, el sistema actualiza en caliente en Supabase el campo `warehouse_id` de los ítems del pedido (`order_items`) y la sucursal de picking (`sucursal_pickeo`) del pedido principal, sincronizando la memoria local de la aplicación.
+
+2. **Validación Previa de Stock Físico**:
+   - Antes de enviar la actualización de estado a la base de datos, el sistema consulta en Supabase el stock real disponible de los productos del pedido en la bodega física correspondiente.
+   - Si las existencias físicas disponibles resultan ser inferiores a las cantidades solicitadas en el pedido, el despacho se detiene de forma segura.
+   - En lugar de fallar de manera silenciosa o cruda con una excepción de base de datos, el sistema muestra un SweetAlert interactivo detallado:
+     - *"No se puede marcar como Despachado: El SKU XXX (Nombre) no tiene suficiente stock físico en la bodega YYY (Requerido: A, Disponible: B)."*
+   - Esto mantiene la consistencia lógica del inventario de forma segura y mejora la usabilidad para el operador.

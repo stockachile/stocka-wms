@@ -3164,8 +3164,17 @@ window.applyBulkWmsStatus = async function() {
       applyWmsFiltersAndRender();
     }
   } else {
-    if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
-      return;
+    if (newStatus === 'Despachado') {
+      const selectedOrders = window.loadedOrders.filter(o => ids.includes(o.id));
+      const isValid = await validateOrderStockForDispatch(selectedOrders);
+      if (!isValid) {
+        applyWmsFiltersAndRender();
+        return;
+      }
+    } else {
+      if (!confirm(`¿Estás seguro de que deseas actualizar el estado WMS de ${ids.length} pedidos a "${newStatus}"?`)) {
+        return;
+      }
     }
     try {
       const updateData = { estado_wms: newStatus };
@@ -3200,6 +3209,147 @@ window.applyBulkWmsStatus = async function() {
     }
   }
 };
+
+// Validar stock antes de cambiar a Despachado para evitar error de check constraint
+async function validateOrderStockForDispatch(ordersList) {
+  if (!ordersList || ordersList.length === 0) return true;
+
+  const itemsToCheck = [];
+  const ordersToPrompt = [];
+
+  for (const order of ordersList) {
+    const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
+    const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
+
+    if (hasCentralItems || isVirtual) {
+      ordersToPrompt.push(order);
+    } else {
+      const warehouseId = getWarehouseIdFromSucursal(order.sucursal_pickeo);
+      (order.order_items || []).forEach(item => {
+        if (!item.products?.is_virtual) {
+          itemsToCheck.push({
+            order,
+            item,
+            warehouseId,
+            productId: item.product_id,
+            sku: item.products?.sku || 'Sin SKU',
+            name: item.products?.name || 'Producto',
+            quantity: item.quantity
+          });
+        }
+      });
+    }
+  }
+
+  if (ordersToPrompt.length > 0) {
+    const orderNames = ordersToPrompt.map(o => o.external_order_number || o.id).join(', ');
+    const { value: sucursal } = await Swal.fire({
+      title: 'Seleccionar Sucursal de Despacho',
+      text: `El/Los pedido(s) (${orderNames}) están en la Bodega Central (Virtual). Selecciona la sucursal física desde donde despachas para descontar el stock:`,
+      input: 'select',
+      inputOptions: {
+        'Sucursal Ñuñoa': 'Sucursal Ñuñoa',
+        'Sucursal La Reina': 'Sucursal La Reina',
+        'Sucursal Recoleta': 'Sucursal Recoleta'
+      },
+      inputPlaceholder: 'Selecciona una sucursal',
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar y Validar Stock',
+      cancelButtonText: 'Cancelar',
+      inputValidator: (value) => {
+        if (!value) {
+          return 'Debes seleccionar una sucursal';
+        }
+      }
+    });
+
+    if (!sucursal) {
+      return false;
+    }
+
+    const promptWarehouseId = getWarehouseIdFromSucursal(sucursal);
+    const promptOrderIds = ordersToPrompt.map(o => o.id);
+
+    const { error: itemsErr } = await supabase
+      .from('order_items')
+      .update({ warehouse_id: promptWarehouseId })
+      .in('order_id', promptOrderIds);
+
+    if (itemsErr) {
+      console.error('Error al actualizar bodega de los ítems:', itemsErr);
+    }
+
+    const { error: ordersErr } = await supabase
+      .from('orders')
+      .update({ sucursal_pickeo: sucursal })
+      .in('id', promptOrderIds);
+
+    if (ordersErr) {
+      console.error('Error al actualizar sucursal en pedidos:', ordersErr);
+    }
+
+    ordersToPrompt.forEach(order => {
+      order.sucursal_pickeo = sucursal;
+      (order.order_items || []).forEach(item => {
+        item.warehouse_id = promptWarehouseId;
+      });
+    });
+
+    ordersToPrompt.forEach(order => {
+      (order.order_items || []).forEach(item => {
+        if (!item.products?.is_virtual) {
+          itemsToCheck.push({
+            order,
+            item,
+            warehouseId: promptWarehouseId,
+            productId: item.product_id,
+            sku: item.products?.sku || 'Sin SKU',
+            name: item.products?.name || 'Producto',
+            quantity: item.quantity
+          });
+        }
+      });
+    });
+  }
+
+  if (itemsToCheck.length === 0) return true;
+
+  const productIds = Array.from(new Set(itemsToCheck.map(i => i.productId)));
+  const { data: invData, error: invErr } = await supabase
+    .from('inventory')
+    .select('product_id, warehouse_id, quantity')
+    .in('product_id', productIds);
+
+  if (invErr) {
+    console.error('Error consultando inventario:', invErr);
+    return true;
+  }
+
+  const invMap = {};
+  (invData || []).forEach(inv => {
+    invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+  });
+
+  const requiredMap = {};
+  for (const check of itemsToCheck) {
+    const key = `${check.productId}_${check.warehouseId}`;
+    requiredMap[key] = (requiredMap[key] || 0) + check.quantity;
+    
+    const available = invMap[key] || 0;
+    if (available < requiredMap[key]) {
+      const whName = check.order.sucursal_pickeo || 'Asignada';
+      await Swal.fire({
+        icon: 'error',
+        title: 'Stock Físico Insuficiente',
+        text: `No se puede marcar como Despachado: El SKU "${check.sku}" (${check.name}) no tiene suficiente stock físico en la bodega "${whName}" para cumplir con el despacho. (Requerido: ${requiredMap[key]} un., Disponible: ${available} un.).`,
+        confirmButtonText: 'Entendido'
+      });
+      return false;
+    }
+  }
+
+  return true;
+}
 
 window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
   const order = window.loadedOrders.find(o => o.id === orderId);
@@ -3389,6 +3539,13 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     }
   } else {
     try {
+      if (newWmsStatus === 'Despachado') {
+        const isValid = await validateOrderStockForDispatch([order]);
+        if (!isValid) {
+          applyWmsFiltersAndRender();
+          return;
+        }
+      }
       const updateData = { estado_wms: newWmsStatus };
       if (newWmsStatus === 'Despachado') {
         updateData.status = 'despachado';
