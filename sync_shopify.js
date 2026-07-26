@@ -102,7 +102,28 @@ async function syncShopifyData() {
   for (const integration of integrations) {
     console.log(`\n================================`);
     console.log(`Procesando tienda: ${integration.shop_url}`);
-    console.log(`Merchant ID: ${integration.merchant_id}`);
+    console.log(`Original Merchant ID: ${integration.merchant_id}`);
+    
+    // Resolver dinámicamente el merchant_id real usando productos del comercio
+    let activeMerchantId = integration.merchant_id;
+    try {
+      const { data: siblingProd } = await supabase
+        .from('products')
+        .select('merchant_id')
+        .eq('comercio', integration.comercio)
+        .limit(1)
+        .maybeSingle();
+      if (siblingProd && siblingProd.merchant_id) {
+        activeMerchantId = siblingProd.merchant_id;
+      }
+    } catch (err) {
+      console.error('Error al resolver merchant_id activo:', err.message);
+    }
+    
+    if (activeMerchantId !== integration.merchant_id) {
+      console.log(`Resolved Client Merchant ID: ${activeMerchantId}`);
+      integration.merchant_id = activeMerchantId;
+    }
     console.log(`================================`);
 
     // Renovar token si es necesario
@@ -240,11 +261,12 @@ async function syncOrders(integration) {
         let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
         let mappedSku = skuMap[cleanSku] || cleanSku;
         let hasEquivalence = !!skuMap[cleanSku];
+        let searchSku = mappedSku || item.variant_id.toString();
 
         // Buscar producto en catálogo por merchant_id y sku
         let query = supabase.from('products')
           .select('id')
-          .eq('sku', mappedSku)
+          .eq('sku', searchSku)
           .eq('merchant_id', integration.merchant_id);
 
         const { data: foundProduct } = await query.maybeSingle();
