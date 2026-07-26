@@ -1247,6 +1247,8 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
       alert('Error al reasignar el comercio: ' + err.message);
     }
   }
+};
+
 // Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas
 async function fetchEnviosUnificadosByRefs(allRefs) {
   if (!allRefs || allRefs.length === 0) return [];
