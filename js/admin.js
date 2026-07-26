@@ -1247,7 +1247,33 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
       alert('Error al reasignar el comercio: ' + err.message);
     }
   }
-};
+// Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas
+async function fetchEnviosUnificadosByRefs(allRefs) {
+  if (!allRefs || allRefs.length === 0) return [];
+  const uniqueRefs = [...new Set(allRefs)];
+  const CHUNK_SIZE = 150;
+  const promises = [];
+
+  for (let i = 0; i < uniqueRefs.length; i += CHUNK_SIZE) {
+    const chunk = uniqueRefs.slice(i, i + CHUNK_SIZE);
+    promises.push(
+      supabase
+        .from('envios_unificados')
+        .select('*')
+        .in('pedido_referencia', chunk)
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('Error fetching envios_unificados chunk:', error);
+            return [];
+          }
+          return data || [];
+        })
+    );
+  }
+
+  const chunksResults = await Promise.all(promises);
+  return chunksResults.flat();
+}
 
 async function renderAdminOrders() {
   window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
@@ -1360,14 +1386,7 @@ async function renderAdminOrders() {
       const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
       const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
-      const { data: shipData, error: shipError } = await supabase
-        .from('envios_unificados')
-        .select('*')
-        .in('pedido_referencia', allRefs);
-
-      if (!shipError && shipData) {
-        shipments = shipData;
-      }
+      shipments = await fetchEnviosUnificadosByRefs(allRefs);
     }
     window.loadedShipments = shipments;
 
@@ -1472,12 +1491,8 @@ async function renderAdminOrders() {
           const orderTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
           const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
-          const { data: shipData, error: shipError } = await supabase
-            .from('envios_unificados')
-            .select('*')
-            .in('pedido_referencia', allRefs);
-
-          if (!shipError && shipData) {
+          const shipData = await fetchEnviosUnificadosByRefs(allRefs);
+          if (shipData && shipData.length > 0) {
             window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
           }
 
@@ -2819,14 +2834,7 @@ window.refreshWmsOrders = async function(btn) {
       const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
       const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
-      const { data: shipData, error: shipError } = await supabase
-        .from('envios_unificados')
-        .select('*')
-        .in('pedido_referencia', allRefs);
-
-      if (!shipError && shipData) {
-        shipments = shipData;
-      }
+      shipments = await fetchEnviosUnificadosByRefs(allRefs);
     }
     window.loadedShipments = shipments;
 
@@ -2899,12 +2907,8 @@ window.refreshWmsOrders = async function(btn) {
           const hTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
           const allHRefs = [...hRefs, ...hIds, ...hTrackings];
 
-          const { data: shipData } = await supabase
-            .from('envios_unificados')
-            .select('*')
-            .in('pedido_referencia', allHRefs);
-
-          if (shipData) {
+          const shipData = await fetchEnviosUnificadosByRefs(allHRefs);
+          if (shipData && shipData.length > 0) {
             window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
           }
 

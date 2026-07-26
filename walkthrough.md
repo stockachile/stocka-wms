@@ -1444,4 +1444,20 @@ Hemos solucionado la lentitud extrema y carga infinita en el inicio de la admini
      ```
    - Gracias a este desacoplamiento, el tiempo de planificación y ejecución de la consulta bajó de **más de 10 segundos** (timeout) a **0.33 milisegundos** (una mejora de velocidad de casi 30,000 veces).
 
+---
 
+## 66. Consultas de Envíos en Trozos (Chunked Fetch) para Prevenir Desbordamiento de URL (WMS)
+
+Hemos solucionado el error de red `net::ERR_FAILED 520` (Cloudflare Unknown Error / URI Too Long) al cargar o refrescar pedidos en el panel de administración ([js/admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js)):
+
+1. **Origen del Problema**:
+   - Para asociar cada pedido con su respectivo despacho logístico, el frontend compilaba una lista gigante de referencias cruzadas (`allRefs` conteniendo IDs, números de orden externos y códigos de seguimiento de miles de pedidos cargados).
+   - Esta lista masiva era inyectada directamente en una sola consulta `.in('pedido_referencia', allRefs)`.
+   - PostgREST traduce el filtro `.in(...)` a parámetros en la URL (GET `?pedido_referencia=in.(...)`). Con miles de pedidos, la URL generada superaba los **60 Kilobytes**, superando los límites máximos permitidos por proxies (Cloudflare limita el tamaño de la cabecera HTTP/URL a 8-16 KB), gatillando un error de red `520` inmediato y congelando la interfaz.
+
+2. **Solución Implementada**:
+   - Implementamos la función asíncrona `fetchEnviosUnificadosByRefs(allRefs)`.
+   - **Remoción de Duplicados**: Primero, el sistema limpia la lista de referencias eliminando duplicados mediante `[...new Set(allRefs)]`, reduciendo considerablemente la cantidad de elementos.
+   - **Segmentación en Trozos (Chunking)**: Divide la lista en porciones o trozos pequeños de tamaño seguro (`CHUNK_SIZE = 150` elementos por consulta, generando URLs de apenas 3 KB a 5 KB).
+   - **Ejecución Concurrente**: Utiliza `Promise.all` para lanzar las consultas de forma paralela en base a un plan optimizado. Esto aprovecha el índice B-tree de `pedido_referencia` en la base de datos, retornando la información de manera inmediata y uniendo todas las respuestas mediante `.flat()`.
+   - Reemplazamos los 4 puntos de consulta masiva a `envios_unificados` para utilizar este nuevo cargador segmentado, eliminando por completo las caídas por desbordamiento de URL.
