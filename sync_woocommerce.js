@@ -290,7 +290,7 @@ async function syncOrders(integration, baseUrl, headers, warehouseId) {
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', finalOrderNumber)
         .maybeSingle();
 

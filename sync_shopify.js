@@ -195,7 +195,7 @@ async function syncOrders(integration) {
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, comercio')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', order.name)
         .eq('external_platform', 'Shopify')
         .maybeSingle();

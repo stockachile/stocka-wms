@@ -220,7 +220,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, comercio')
-    .eq('merchant_id', integration.merchant_id)
+    .eq('comercio', integration.comercio)
     .eq('external_order_number', groupId)
     .eq('external_platform', 'MercadoLibre')
     .maybeSingle();

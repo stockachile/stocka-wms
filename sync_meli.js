@@ -461,11 +461,11 @@ async function syncMerchantOrders(integration) {
       const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
       const targetStatus = mapMeliStatus(shippingStatus);
 
-      // B. Verificar si el pedido ya existe en el WMS
+      // B. Verificar si el pedido ya existe en el WMS (buscando por comercio en vez de merchant_id para evitar duplicados si cambia la cuenta vinculada)
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status, comercio')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', groupId)
         .eq('external_platform', 'MercadoLibre')
         .maybeSingle();

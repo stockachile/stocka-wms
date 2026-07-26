@@ -253,7 +253,7 @@ async function syncMerchantOrders(integration) {
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status, label_base64, comercio')
-        .eq('merchant_id', integration.merchant_id)
+        .eq('comercio', integration.comercio)
         .eq('external_order_number', orderNumber)
         .eq('external_platform', 'Falabella')
         .maybeSingle();

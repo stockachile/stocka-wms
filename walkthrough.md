@@ -1462,3 +1462,50 @@ Hemos solucionado el error de red `net::ERR_FAILED 520` (Cloudflare Unknown Erro
    - **Ejecución Concurrente**: Utiliza `Promise.all` para lanzar las consultas de forma paralela en base a un plan optimizado. Esto aprovecha el índice B-tree de `pedido_referencia` en la base de datos, retornando la información de manera inmediata y uniendo todas las respuestas mediante `.flat()`.
    - Reemplazamos los 4 puntos de consulta masiva a `envios_unificados` para utilizar este nuevo cargador segmentado, eliminando por completo las caídas por desbordamiento de URL.
    - **Estabilidad de Código**: Corregimos un breve error de sintaxis accidental en la inserción de la función del helper que omitía la llave de cierre `};` al final de `window.reassignOrderCommerce`, garantizando que la carga de ES Modules en el navegador compile perfectamente sin arrojar `SyntaxError: Unexpected end of input`.
+
+---
+
+## 67. Integración de Razón Social y RUT de Comercios (WMS)
+
+Hemos implementado la integración y visualización del RUT y Razón Social de los comercios en el panel de administración del WMS, permitiendo enlazar cada cuenta con su entidad fiscal correspondiente:
+
+1. **Campos en el Listado Principal**:
+   - Agregamos una nueva columna **Razón Social / RUT** en la tabla de Configuración de Comercios de la vista del Administrador.
+   - Si el comercio está asociado a una Razón Social y RUT en la configuración local (`comercios_adicional_config`), se muestra la información estructurada con un diseño limpio. Si no tiene datos asociados, se visualiza como *No enlazado* con tipografía atenuada.
+
+2. **Buscador Avanzado**:
+   - Actualizamos el buscador del panel de comercios para permitir filtrar y encontrar clientes no solo por su **Nombre** o **Sigla**, sino también por su **Razón Social** o **RUT** de forma instantánea.
+
+3. **Creación y Edición de Comercios**:
+   - **Formulario de Creación**: Se añadieron los campos opcionales **Razón Social de la Empresa** y **RUT de la Empresa** en el modal de creación (`showMerchantCreateModal`).
+   - **Formulario de Edición**: Se añadieron los mismos campos en el modal de configuración de comercio (`showMerchantEditModal`), precargados con los valores actuales.
+   - **Formateador de RUT**: Implementamos un formateador en tiempo real para el campo de RUT en ambos formularios. A medida que el usuario escribe, el sistema limpia caracteres inválidos, convierte a mayúsculas y añade los puntos y guion correspondientes (ej: de `761234567` a `76.123.456-7`).
+   - **Persistencia**: Al guardar o crear, el RUT y la Razón Social se envían de forma automática a la base de datos Supabase, actualizando la tabla `comercios_adicional_config`.
+   - **Script SQL Actualizado**: Actualizamos el modal de migración SQL (`showMerchantMigrationModal`) y el archivo de script `supabase_schema_comercios_config_adicional.sql` para incluir las columnas `rut` y `razon_social` junto con las instrucciones `ALTER TABLE` para su compatibilidad retrospectiva.
+
+---
+
+## 68. Corrección de Pedidos Duplicados de MercadoLibre y Desacoplamiento por Comercio (WMS)
+
+Hemos diagnosticado, limpiado de la base de datos y prevenido a futuro la aparición de pedidos duplicados provenientes de MercadoLibre en la cuenta del comercio **MAGIC MAKEUP**:
+
+1. **Causa Raíz del Problema**:
+   - Originalmente, la integración de MercadoLibre para Magic Makeup estaba vinculada bajo la cuenta y `merchant_id` del dueño original (MLG).
+   - Recientemente, la integración fue re-vinculada bajo las credenciales del usuario administrador (Felipe), asociando el nuevo `merchant_id` de Felipe al mismo comercio `MAGIC MAKEUP` y mismo `username` de MercadoLibre (`751215607`).
+   - Al ejecutarse la sincronización cron (`sync_meli.js`) o recibirse notificaciones del webhook (`meli-webhook`), el sistema buscaba órdenes existentes filtrando estrictamente por `merchant_id`: `.eq('merchant_id', integration.merchant_id).eq('external_order_number', orderId)`.
+   - Dado que el `merchant_id` de la integración cambió (de MLG a Felipe), la búsqueda de los pedidos importados previamente bajo la cuenta de MLG no arrojaba resultados. Esto provocaba que el sincronizador los interpretara erróneamente como "nuevos pedidos", duplicándolos en la base de datos e importando una versión vacía (sin ítems) bajo el nuevo `merchant_id` de Felipe, mientras que el original (con ítems) seguía existiendo bajo el `merchant_id` de MLG.
+
+2. **Campaña de Limpieza y Unificación (Hot-fix)**:
+   - Rastreábamos 60 órdenes duplicadas en la base de datos de producción.
+   - **Remoción de Duplicados Vacíos**: Eliminamos las 60 filas duplicadas vacías creadas recientemente bajo el `merchant_id` de Felipe.
+   - **Migración y Consistencia**: Actualizamos las 96 órdenes reales remanentes (que conservaban sus correspondientes registros de ítems bajo el `merchant_id` de MLG) para transferir su propiedad al `merchant_id` actual de la integración (Felipe), garantizando consistencia absoluta sin perder ningún historial ni asignación de bodega.
+
+3. **Prevención de Duplicados en Todas las Integraciones**:
+   - **Búsqueda por Comercio**: Modificamos los scripts de sincronización (`sync_meli.js`, `sync_shopify.js`, `sync_tiendanube.js`, `sync_jumpseller.js`, `sync_woocommerce.js`, `sync_paris.js`, `sync_falabella.js`, `sync_walmart.js`) y la Edge Function `meli-webhook` para buscar pedidos existentes comparando por el nombre único del comercio (`comercio`) en lugar del `merchant_id` del usuario que configuró la integración:
+     ```javascript
+     .eq('comercio', integration.comercio)
+     .eq('external_order_number', orderNumber)
+     ```
+   - Esto desacopla por completo la identidad de las órdenes de las cuentas individuales, previniendo duplicados si se renuevan credenciales o si cambia el administrador encargado del enlace.
+   - **Despliegue de Edge Function**: Desplegamos la nueva versión del webhook de MercadoLibre (`meli-webhook`) de forma exitosa en el entorno de Supabase.
+
