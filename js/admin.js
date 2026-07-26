@@ -297,6 +297,73 @@ window.updateWmsOrderField = async function(orderId, field, value) {
   }
 };
 
+// Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
+window.getOriginalPlatformStatus = function(order) {
+  if (order.external_platform === 'Shopify' && order.raw_shopify_data) {
+    const raw = order.raw_shopify_data;
+    const fin = raw.financial_status || 'unknown';
+    const ful = raw.fulfillment_status || 'unfulfilled';
+    return {
+      platform: 'Shopify',
+      details: [
+        { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
+        { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
+      ]
+    };
+  }
+  if (order.raw_woocommerce_data) {
+    const raw = order.raw_woocommerce_data;
+    const status = raw.status || 'unknown';
+    let color = '#6b7280';
+    if (status === 'processing') color = '#3b82f6';
+    else if (status === 'completed') color = '#10b981';
+    else if (status === 'cancelled') color = '#ef4444';
+    else if (status === 'pending') color = '#f59e0b';
+    return {
+      platform: 'WooCommerce',
+      details: [
+        { label: 'Estado', value: status, color: color }
+      ]
+    };
+  }
+  if (order.raw_jumpseller_data) {
+    const raw = order.raw_jumpseller_data;
+    const status = raw.status || 'unknown';
+    let color = '#6b7280';
+    const statusLower = status.toLowerCase();
+    if (statusLower === 'paid' || statusLower === 'pagado') color = '#10b981';
+    else if (statusLower === 'pending' || statusLower === 'pendiente') color = '#f59e0b';
+    else if (statusLower === 'canceled' || statusLower === 'cancelado') color = '#ef4444';
+    return {
+      platform: 'Jumpseller',
+      details: [
+        { label: 'Estado', value: status, color: color }
+      ]
+    };
+  }
+  if (order.raw_falabella_data) {
+    const raw = order.raw_falabella_data;
+    const status = raw.status || raw.state || 'unknown';
+    return {
+      platform: 'Falabella',
+      details: [
+        { label: 'Estado', value: status, color: '#3b82f6' }
+      ]
+    };
+  }
+  if (order.raw_meli_data) {
+    const raw = order.raw_meli_data;
+    const status = raw.status || 'unknown';
+    return {
+      platform: 'MercadoLibre',
+      details: [
+        { label: 'Estado', value: status, color: status === 'paid' ? '#10b981' : '#3b82f6' }
+      ]
+    };
+  }
+  return null;
+};
+
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
   try {
@@ -1795,7 +1862,7 @@ window.applyWmsFiltersAndRender = function() {
       if (colKey === 'comercio') val = o.comercio;
       else if (colKey === 'origen') val = o.origen || o.external_platform || 'Manual';
       else if (colKey === 'agenda') val = o.agenda;
-      else if (colKey === 'operador') val = o.operador || window.pickerOperatorsMap[o.external_order_number || o.id] || '';
+      else if (colKey === 'operador') val = o.operador || '';
       else if (colKey === 'shipping_method') val = o.shipping_method;
       else if (colKey === 'periodo_facturacion') val = o.periodo_facturacion;
       else if (colKey === 'status') val = o.status;
@@ -1879,12 +1946,25 @@ window.applyWmsFiltersAndRender = function() {
       (order.tracking_number && s.pedido_referencia === order.tracking_number)
     );
 
-    // Priorizar el envío que coincide exactamente con el tracking_number actual del pedido
-    if (orderShipments.length > 1 && order.tracking_number) {
+    // Priorizar los envíos según:
+    // 1. Coincidencia exacta con el tracking_number actual del pedido
+    // 2. Si tiene movimiento (global_status = 'DESPACHADO')
+    // 3. Fecha de actualización más reciente
+    if (orderShipments.length > 1) {
       orderShipments.sort((a, b) => {
-        const aMatch = a.tracking === order.tracking_number ? 1 : 0;
-        const bMatch = b.tracking === order.tracking_number ? 1 : 0;
-        return bMatch - aMatch;
+        if (order.tracking_number) {
+          const aMatch = a.tracking === order.tracking_number ? 1 : 0;
+          const bMatch = b.tracking === order.tracking_number ? 1 : 0;
+          if (aMatch !== bMatch) return bMatch - aMatch;
+        }
+        
+        const aMoved = a.global_status === 'DESPACHADO' ? 1 : 0;
+        const bMoved = b.global_status === 'DESPACHADO' ? 1 : 0;
+        if (aMoved !== bMoved) return bMoved - aMoved;
+
+        const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return bDate - aDate;
       });
     }
 
@@ -2152,11 +2232,11 @@ window.applyWmsFiltersAndRender = function() {
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
     if (order.label_base64) {
-      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
     } else if (order.label_url) {
-      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
     } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') {
-      labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05);"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
+      labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
     }
 
     let courier_destino = '';
@@ -2337,7 +2417,7 @@ window.applyWmsFiltersAndRender = function() {
     else if (order.estado_wms === 'En preparación') wmsColor = '#f59e0b'; // warning
 
     const currentAgenda = order.agenda || '';
-    const currentOperador = order.operador || window.pickerOperatorsMap[order.external_order_number || order.id] || '';
+    const currentOperador = order.operador || '';
     
     let tempAgendas = [...(window.agendaOptions || [])];
     if (currentAgenda && !tempAgendas.includes(currentAgenda)) {
@@ -2376,6 +2456,24 @@ window.applyWmsFiltersAndRender = function() {
     const periodHtml = order.periodo_facturacion 
       ? `<span onclick="window.changeOrderBillingPeriod('${order.id}', '${order.periodo_facturacion}')" style="background-color: ${pColor.bg}; color: ${pColor.text}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; cursor: pointer; border: 1px solid ${pColor.text}33; display: inline-block; transition: all 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1" title="Editar periodo de facturación">${order.periodo_facturacion}</span>`
       : `<button onclick="window.changeOrderBillingPeriod('${order.id}', '')" style="background: transparent; border: 1px dashed var(--color-border); color: var(--color-text-muted); padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.7rem; font-weight: 500; cursor: pointer; transition: all 0.2s; outline: none;" onmouseover="this.style.borderColor='var(--color-primary)'; this.style.color='var(--color-primary)';" onmouseout="this.style.borderColor='var(--color-border)'; this.style.color='var(--color-text-muted)';">+ Asignar</button>`;
+
+    // Obtener estado original de la plataforma
+    let originalPlatformStatusHtml = '';
+    const origStatus = window.getOriginalPlatformStatus(order);
+    if (origStatus) {
+      originalPlatformStatusHtml = `
+        <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; text-align: left;">
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado en Plataforma:</span>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${origStatus.details.map(d => `
+              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+                ${d.label}: ${d.value}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
 
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
@@ -2466,6 +2564,7 @@ window.applyWmsFiltersAndRender = function() {
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
                   <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
                   <span><strong>Agenda Picking:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
+                  <span><strong>Operario Picker:</strong> <span style="font-weight: 600; color: var(--color-success);">${window.pickerOperatorsMap[order.external_order_number || order.id] || 'No asignado / En proceso'}</span></span>
                   <button onclick="window.editWmsOrderPickingInfo('${order.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; width: fit-content; margin-top: 0.25rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
                     <i class="ri-edit-line"></i> Editar Picking
                   </button>
@@ -2500,29 +2599,65 @@ window.applyWmsFiltersAndRender = function() {
                 ${originalPacksHtml}
               </div>
 
-              <!-- Col 3: Integración y Logística -->
-              <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-truck-line"></i> Logística e Integración
+              <!-- Col 3: Integración y Logística (Diseño Premium Dinámico) -->
+              <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.2rem;">
+                <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
+                  <i class="ri-git-repository-commits-line" style="font-size: 1.1rem;"></i> Integración y Despacho
                 </h4>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || courier_destino || '-'}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
-                <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem; margin-bottom: 0.5rem;">
-                  <i class="ri-edit-line"></i> Editar Courier/Tracking
-                </button>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;"><strong>Etiqueta:</strong> ${labelHtml}</p>
-                <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+                
+                <!-- Grupo 1: Origen de la Orden -->
+                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-instance-line" style="font-size: 0.9rem;"></i> Plataforma:</span>
+                    <span>${originHtml}</span>
+                  </div>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-hashtag" style="font-size: 0.9rem;"></i> ID Pedido:</span>
+                    <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
+                  </div>
+                  ${originalPlatformStatusHtml}
+                </div>
+
+                <!-- Grupo 2: Courier y Tracking -->
+                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                  <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                    <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Courier Asignado:</span>
+                    <span style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${order.courier || courier_destino || 'No asignado'}
+                    </span>
+                  </div>
+
+                  <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                    <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Seguimiento (Tracking):</span>
+                    <div>${trackingHtml}</div>
+                  </div>
+
+                  <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; align-items: stretch;">
+                    <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="flex: 1; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;">
+                      <i class="ri-edit-line"></i> Editar Envío
+                    </button>
+                    ${order.label_url || order.label_base64 || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
+                      <div style="flex: 1; display: flex;">
+                        ${labelHtml}
+                      </div>
+                    ` : ''}
+                  </div>
+                </div>
+
+                <!-- Grupo 3: Auto Track -->
+                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: left;">
+                  <h5 style="margin: 0 0 0.5rem 0; font-size: 0.78rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-radar-line" style="color: var(--color-success); font-size: 0.95rem;"></i> Auto Track (Monitoreo)
+                  </h5>
                   ${shipmentStatusHtml}
                 </div>
-                
-                <!-- Botón para ver datos crudos de integración -->
+
+                <!-- Botón de datos crudos -->
                 ${rawJsonBtnHtml}
 
-                <!-- Reasignar Comercio de la Orden -->
-                <div class="form-group" style="margin-top: 1rem; margin-bottom: 0; background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
-                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600; display: block; color: var(--color-text-main);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
+                <!-- Reasignar Comercio -->
+                <div class="form-group" style="margin: 0; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: block; color: var(--color-text-muted);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
                   <select onchange="window.reassignOrderCommerce('${order.id}', this.value)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
                     ${(window.wmsAllComercios || []).map(c => `<option value="${c}" ${c === order.comercio ? 'selected' : ''}>${c}</option>`).join('')}
                   </select>
@@ -23678,7 +23813,7 @@ window.toggleColumnFilterPopover = function(event, columnKey, columnName) {
     if (columnKey === 'comercio') val = o.comercio;
     else if (columnKey === 'origen') val = o.origen || o.external_platform || 'Manual';
     else if (columnKey === 'agenda') val = o.agenda;
-    else if (columnKey === 'operador') val = o.operador || window.pickerOperatorsMap[o.external_order_number || o.id] || '';
+    else if (columnKey === 'operador') val = o.operador || '';
     else if (columnKey === 'shipping_method') val = o.shipping_method;
     else if (columnKey === 'periodo_facturacion') val = o.periodo_facturacion;
     else if (columnKey === 'status') val = o.status;

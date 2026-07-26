@@ -1199,6 +1199,14 @@ export async function renderIncidenciasAdmin(appContent) {
                   </div>
 
                   <div style="text-align: right; margin-top: 1rem; display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+                    ${inc.status === 'pendiente' ? `
+                      <button class="btn btn-outline btn-resolve-incidencia-admin" data-id="${inc.id}" style="color: var(--color-success); border-color: rgba(34, 197, 94, 0.3); padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                        <i class="ri-checkbox-circle-line"></i> Marcar Resuelta
+                      </button>
+                      <button class="btn btn-outline btn-discard-incidencia-admin" data-id="${inc.id}" style="color: var(--color-warning); border-color: rgba(245, 158, 11, 0.3); padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                        <i class="ri-close-circle-line"></i> Descartar
+                      </button>
+                    ` : ''}
                     <button class="btn btn-outline btn-edit-incidencia" data-id="${inc.id}" style="border-color: var(--color-border); color: var(--color-text-main); padding: 0.4rem 0.75rem; font-size: 0.85rem;">
                       <i class="ri-edit-line"></i> Editar Incidencia
                     </button>
@@ -1317,6 +1325,74 @@ export async function renderIncidenciasAdmin(appContent) {
           alert('Error al guardar mensaje: ' + err.message);
           btn.disabled = false;
           btn.innerHTML = '<i class="ri-save-line"></i> Guardar Mensaje';
+        }
+      });
+    });
+
+    // Resolver incidencia desde el admin
+    document.querySelectorAll('.btn-resolve-incidencia-admin').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const incId = btn.getAttribute('data-id');
+        const comment = prompt('Escribe una nota o comentario de resolución (opcional):');
+        if (comment === null) return; // cancelado
+        
+        try {
+          btn.disabled = true;
+          const finalComment = comment.trim() ? `[Admin]: ${comment.trim()}` : '[Resuelto por Admin]';
+          const { error } = await supabase
+            .from('incidencias')
+            .update({
+              status: 'resuelta',
+              comment: finalComment,
+              resolved_at: new Date().toISOString()
+            })
+            .eq('id', incId);
+
+          if (error) throw error;
+          
+          alert('Incidencia marcada como RESUELTA exitosamente.');
+          await loadAllIncidencias();
+          if (window.updateAdminBadges) {
+            window.updateAdminBadges();
+          }
+        } catch (err) {
+          console.error('Error al resolver incidencia:', err);
+          alert('Error al resolver: ' + err.message);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Descartar incidencia desde el admin
+    document.querySelectorAll('.btn-discard-incidencia-admin').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const incId = btn.getAttribute('data-id');
+        const comment = prompt('Escribe una nota o comentario del descarte (opcional):');
+        if (comment === null) return; // cancelado
+        
+        try {
+          btn.disabled = true;
+          const finalComment = comment.trim() ? `[Admin]: ${comment.trim()}` : '[Descartado por Admin]';
+          const { error } = await supabase
+            .from('incidencias')
+            .update({
+              status: 'descartada',
+              comment: finalComment,
+              resolved_at: new Date().toISOString()
+            })
+            .eq('id', incId);
+
+          if (error) throw error;
+          
+          alert('Incidencia marcada como DESCARTADA exitosamente.');
+          await loadAllIncidencias();
+          if (window.updateAdminBadges) {
+            window.updateAdminBadges();
+          }
+        } catch (err) {
+          console.error('Error al descartar incidencia:', err);
+          alert('Error al descartar: ' + err.message);
+          btn.disabled = false;
         }
       });
     });

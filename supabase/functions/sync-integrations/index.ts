@@ -86,7 +86,8 @@ serve(async (req) => {
       'LightData': 'sync_lightdata.yml',
       'Optiroute': 'optiroute_sync.yml',
       'Walmart': 'sync_walmart.yml',
-      'Shopify': 'sync_shopify.yml'
+      'Shopify': 'sync_shopify.yml',
+      'Tiendanube': 'sync_tiendanube.yml'
     }
 
     const workflowFile = workflowMap[platform]

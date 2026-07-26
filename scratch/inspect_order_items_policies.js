@@ -25,13 +25,15 @@ const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function run() {
-  console.log("=== Listing exposed functions ===");
+  console.log("=== Querying pg_policies for order_items ===");
   try {
-    const { data, error } = await supabase.rpc('get_exposed_functions');
+    const { data, error } = await supabase.rpc('exec_sql', { 
+      sql: `SELECT json_agg(t)::text FROM (SELECT policyname, roles, cmd, qual, with_check FROM pg_policies WHERE tablename = 'order_items') t` 
+    });
     if (error) {
       console.error("Error executing query:", error);
     } else {
-      console.log("Exposed functions:", data);
+      console.log("Policies:", JSON.parse(data || '[]'));
     }
   } catch (e) {
     console.error("Exception occurred:", e);

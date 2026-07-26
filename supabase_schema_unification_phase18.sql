@@ -34,6 +34,11 @@ BEGIN
          CONTINUE;
        END IF;
 
+       -- Si es Bodega Central (Default/Virtual), omitir control de stock en esta etapa
+       IF item.warehouse_id = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' THEN
+         CONTINUE;
+       END IF;
+
        -- Obtener cantidad física disponible en la bodega asignada
        SELECT COALESCE(quantity, 0) INTO v_available_qty
        FROM inventory

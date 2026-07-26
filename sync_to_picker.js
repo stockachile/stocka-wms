@@ -64,7 +64,7 @@ async function run() {
         agenda,
         sucursal_pickeo,
         operador,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -98,7 +98,9 @@ async function run() {
         const wmsItemsMap = {};
         wmsOrder.order_items.forEach(oi => {
           if (oi.products?.is_virtual) return;
-          const sku = (oi.products?.sku || '').trim().toUpperCase();
+          const sku = (oi.products?.send_barcode_to_picker && oi.products?.barcode)
+            ? oi.products.barcode.trim().toUpperCase()
+            : (oi.products?.sku || '').trim().toUpperCase();
           if (sku) {
             wmsItemsMap[sku] = (wmsItemsMap[sku] || 0) + (parseInt(oi.quantity, 10) || 0);
           }
@@ -150,14 +152,14 @@ async function run() {
               order_number: orderNo,
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: prod.sku || 'SKU-TEMP',
+              sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
               name: prod.name || 'Producto WMS',
               color: opt.color || null,
               talla: opt.talla || opt.size || null,
               manga: opt.manga || null,
               cuello: opt.cuello || null,
               client_name: wmsOrder.customer_name || 'Sin nombre',
-              tracking: wmsOrder.tracking_number || '',
+              tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? orderNo : (wmsOrder.tracking_number || ''),
               operator: wmsOrder.operador || '',
               totu: 0,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
