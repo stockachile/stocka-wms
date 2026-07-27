@@ -122,9 +122,11 @@ async function handleOrderCreate(merchantId, comercio, order) {
     external_platform: "Shopify",
     payment_status: order.financial_status,
     total_value: order.current_total_price,
-    customer_email: order.contact_email || order.email,
-    customer_phone: order.shipping_address?.phone,
-    customer_name: order.shipping_address ? `${order.shipping_address.first_name} ${order.shipping_address.last_name}` : "",
+    customer_email: order.contact_email || order.email || order.customer?.email || null,
+    customer_phone: order.shipping_address?.phone || order.billing_address?.phone || order.customer?.phone || null,
+    customer_name: (order.shipping_address ? `${order.shipping_address.first_name || ""} ${order.shipping_address.last_name || ""}`.trim() : null) || 
+                   (order.billing_address ? `${order.billing_address.first_name || ""} ${order.billing_address.last_name || ""}`.trim() : null) ||
+                   (order.customer ? `${order.customer.first_name || ""} ${order.customer.last_name || ""}`.trim() : null) || "No registrado",
     shipping_address: order.shipping_address?.address1,
     shipping_city: order.shipping_address?.city,
     shipping_complement: order.shipping_address?.address2,

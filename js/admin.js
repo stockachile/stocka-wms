@@ -2148,6 +2148,46 @@ window.applyWmsFiltersAndRender = function() {
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
     const qtyStr = order.cantidad !== null && order.cantidad !== undefined ? order.cantidad : order.order_items?.reduce((sum, oi) => sum + (oi.quantity || 0), 0);
 
+    // Fallbacks para datos del cliente cuando no tiene información de despacho (ej. retiros en sucursal)
+    let displayName = order.customer_name;
+    if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+      if (order.raw_shopify_data) {
+        const raw = order.raw_shopify_data;
+        const billing = raw.billing_address;
+        const cust = raw.customer;
+        if (billing) {
+          displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+        } else if (cust) {
+          displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+        }
+      }
+      if (!displayName || displayName.trim() === '') {
+        displayName = 'No registrado';
+      }
+    }
+
+    let displayEmail = order.customer_email;
+    if (!displayEmail || displayEmail === 'No registrado' || displayEmail.trim() === '') {
+      if (order.raw_shopify_data) {
+        const raw = order.raw_shopify_data;
+        displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+      }
+      if (!displayEmail || displayEmail.trim() === '') {
+        displayEmail = 'No registrado';
+      }
+    }
+
+    let displayPhone = order.customer_phone;
+    if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
+      if (order.raw_shopify_data) {
+        const raw = order.raw_shopify_data;
+        displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+      }
+      if (!displayPhone || displayPhone.trim() === '') {
+        displayPhone = 'No registrado';
+      }
+    }
+
     // Verificar si el pedido tiene stock insuficiente para sus ítems (excluyendo virtuales y cancelados)
     // Solo si el comercio tiene habilitado el seguimiento de inventario y el pedido es posterior al inicio
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
@@ -2556,9 +2596,9 @@ window.applyWmsFiltersAndRender = function() {
                 <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
                   <i class="ri-user-line"></i> Datos de Despacho
                 </h4>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${order.customer_name || 'No registrado'}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${order.customer_email || 'No registrado'}</p>
-                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${order.customer_phone || 'No registrado'}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${displayName}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${displayEmail}</p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Teléfono:</strong> ${displayPhone}</p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem; line-height: 1.4;">
                   <strong>Dirección:</strong> ${order.shipping_address || 'No registrada'} 
                   ${order.shipping_complement ? `, ${order.shipping_complement}` : ''}

@@ -1595,3 +1595,25 @@ Hemos corregido la validación de stock en el cliente (js/admin.js) al momento d
      * **Cambio de Estado Individual a "En preparación"** (window.updateWmsOrderStatus): Ahora determina el estado de seguimiento antes de armar la lista de ítems a verificar. Si está desactivado, salta la validación de stock.
      * **Validación de Stock de Despacho** (validateOrderStockForDispatch): Agregamos una cláusula de escape en el bucle principal de órdenes que ignora el pedido si su comercio no tiene habilitado el seguimiento.
    - Esto hace que los comercios sin seguimiento de stock omitan por completo la validación en cliente, resolviendo el bloqueo y permitiendo la preparación y el despacho de sus órdenes de forma normal.
+
+---
+
+## 72. Obtención Alternativa de Datos de Facturación/Cliente para Pedidos sin Envío (Shopify)
+
+Hemos resuelto la incidencia donde los pedidos de Shopify que son retirados en tienda (sin dirección de envío asociada) aparecían con el nombre del cliente y datos de contacto como "No registrado":
+
+1. **El Problema**:
+   - Cuando un pedido de Shopify tiene el método de entrega "Retiro en sucursal" (o similar), el payload no incluye `shipping_address`.
+   - Tanto el script de sincronización programada (`sync_shopify.js`) como la Edge Function del Webhook de Shopify (`supabase/functions/shopify-webhook/index.ts`) utilizaban únicamente `order.shipping_address` para extraer el nombre y teléfono del cliente.
+   - Al no existir esta sección de envío, los campos `customer_name` y `customer_phone` se guardaban como vacíos o nulos en la base de datos, mostrándose en el WMS como "No registrado".
+
+2. **Solución en Sincronizadores y Webhook**:
+   - Implementamos una lógica robusta de fallbacks sucesivos en `sync_shopify.js` y en la función `shopify-webhook` de Supabase:
+     * **Nombre del Cliente** (`customer_name`): Intenta leer de la dirección de envío (`shipping_address`). Si no existe, recurre a la dirección de facturación (`billing_address`). Si tampoco está, utiliza los datos de la cuenta de cliente de Shopify (`customer`). Si todo falla, queda como "No registrado".
+     * **Teléfono** (`customer_phone`): Busca en `shipping_address.phone`, luego en `billing_address.phone` y finalmente en `customer.phone` antes de dejarlo como nulo.
+     * **Email** (`customer_email`): Busca en `contact_email`, luego `email` y finalmente en `customer.email`.
+   - Desplegamos la Edge Function de Supabase (`shopify-webhook`) actualizada exitosamente.
+
+3. **Solución Dinámica en el Frontend (WMS)**:
+   - Para dar soporte inmediato a los pedidos existentes o históricos que ya se habían guardado con datos vacíos en la base de datos, modificamos las vistas principales del WMS en cliente (`js/admin.js` y `js/app.js`).
+   - Al renderizar cada orden en el listado, si `customer_name` (o el teléfono / email) es nulo, vacío o dice "No registrado", el frontend consulta dinámicamente el campo JSON `raw_shopify_data` para extraer los datos de la dirección de facturación o de la cuenta del cliente. Esto corrige visualmente todos los pedidos retroactivamente sin necesidad de re-sincronizar la base de datos.
