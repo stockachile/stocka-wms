@@ -59,7 +59,6 @@ async function run() {
         shipping_city,
         shipping_complement,
         tracking_number,
-        observation,
         estado_wms,
         agenda,
         sucursal_pickeo,

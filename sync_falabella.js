@@ -100,6 +100,27 @@ async function syncFalabellaData() {
       console.log(`📧 UserID: ${integration.username}`);
       console.log(`========================================`);
 
+      // Resolver dinámicamente el merchant_id real usando productos del comercio
+      let activeMerchantId = integration.merchant_id;
+      try {
+        const { data: siblingProd } = await supabase
+          .from('products')
+          .select('merchant_id')
+          .eq('comercio', integration.comercio)
+          .limit(1)
+          .maybeSingle();
+        if (siblingProd && siblingProd.merchant_id) {
+          activeMerchantId = siblingProd.merchant_id;
+        }
+      } catch (err) {
+        console.error('Error al resolver merchant_id activo:', err.message);
+      }
+      
+      if (activeMerchantId !== integration.merchant_id) {
+        console.log(`Resolved Client Merchant ID: ${activeMerchantId}`);
+        integration.merchant_id = activeMerchantId;
+      }
+
       await syncMerchantOrders(integration);
     }
 
@@ -249,6 +270,29 @@ async function syncMerchantOrders(integration) {
       const shipmentProviderItem = items.find(item => item.ShipmentProvider && item.ShipmentProvider.trim() !== '')?.ShipmentProvider;
       const courierName = shipmentProviderItem || 'Falabella';
 
+      // Agrupar ítems por SKU y recolectar nombres
+      const itemQuantities = {};
+      const itemNames = [];
+      for (const item of items) {
+        let sku = item.Sku || item.SellerSku;
+        if (sku) {
+          let cleanSku = sku.replace(/\s+/g, '');
+          // Aplicar equivalencia de SKU
+          let mappedSku = skuMap[cleanSku] || cleanSku;
+          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + 1;
+        }
+        if (item.Name && !itemNames.includes(item.Name)) {
+          itemNames.push(item.Name);
+        }
+      }
+
+      const flatSku = Object.keys(itemQuantities).join(', ');
+      const flatItemName = itemNames.join(', ');
+      const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
+
+      // Calcular valor total de la orden sumando precios de los ítems
+      const totalValue = items.reduce((sum, item) => sum + Number(item.ItemPrice || 0), 0);
+
       // 1. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
@@ -325,29 +369,6 @@ async function syncMerchantOrders(integration) {
         console.log(`--> Descargando etiqueta de despacho...`);
         labelBase64 = await downloadLabelBase64(integration, orderId);
 
-        // Agrupar ítems por SKU y recolectar nombres
-        const itemQuantities = {};
-        const itemNames = [];
-        for (const item of items) {
-          let sku = item.Sku || item.SellerSku;
-          if (sku) {
-            let cleanSku = sku.replace(/\s+/g, '');
-            // Aplicar equivalencia de SKU
-            let mappedSku = skuMap[cleanSku] || cleanSku;
-            itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + 1;
-          }
-          if (item.Name && !itemNames.includes(item.Name)) {
-            itemNames.push(item.Name);
-          }
-        }
-
-        const flatSku = Object.keys(itemQuantities).join(', ');
-        const flatItemName = itemNames.join(', ');
-        const flatQuantity = Object.values(itemQuantities).reduce((sum, qty) => sum + qty, 0);
-
-        // Calcular valor total de la orden sumando precios de los ítems
-        const totalValue = items.reduce((sum, item) => sum + Number(item.ItemPrice || 0), 0);
-
         // Mapear datos comunes del pedido
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
@@ -391,89 +412,90 @@ async function syncMerchantOrders(integration) {
         console.log(`📥 Insertado nuevo pedido local ${orderNumber} con estado temporal 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
+      }
 
-        // Registrar ítems en order_items
-        if (localOrderId && shouldInsertItems) {
-          for (const [sku, qty] of Object.entries(itemQuantities)) {
-            // Buscar producto por SKU en la base de datos
-            let { data: product } = await supabase
+      // Registrar ítems en order_items (fuera del if-else para que se ejecute si a un pedido existente le faltan ítems)
+      if (localOrderId && shouldInsertItems) {
+        for (const [sku, qty] of Object.entries(itemQuantities)) {
+          // Buscar producto por SKU en la base de datos
+          let { data: product } = await supabase
+            .from('products')
+            .select('id, comercio')
+            .eq('merchant_id', integration.merchant_id)
+            .eq('sku', sku)
+            .maybeSingle();
+
+          if (product && product.comercio !== integration.comercio) {
+            // Actualizar el comercio para mantenerlo al día con la integración
+            await supabase
               .from('products')
-              .select('id, comercio')
-              .eq('merchant_id', integration.merchant_id)
-              .eq('sku', sku)
-              .maybeSingle();
+              .update({ comercio: integration.comercio })
+              .eq('id', product.id);
+            product.comercio = integration.comercio;
+          }
 
-            if (product && product.comercio !== integration.comercio) {
-              // Actualizar el comercio para mantenerlo al día con la integración
-              await supabase
-                .from('products')
-                .update({ comercio: integration.comercio })
-                .eq('id', product.id);
-              product.comercio = integration.comercio;
-            }
+          if (!product) {
+            // Buscar barcode final del catálogo de Falabella
+            console.log(`🔍 Buscando barcode en el catálogo Falabella para SKU ${sku}...`);
+            const barcode = await fetchProductBarcode(integration, sku);
 
-            if (!product) {
-              // Buscar barcode final del catálogo de Falabella
-              console.log(`🔍 Buscando barcode en el catálogo Falabella para SKU ${sku}...`);
-              const barcode = await fetchProductBarcode(integration, sku);
+            // Auto-crear producto faltante
+            const orderItemDetail = items.find(item => {
+              let itemSku = item.Sku || item.SellerSku;
+              if (!itemSku) return false;
+              let cleanItemSku = itemSku.replace(/\s+/g, '');
+              let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
+              return mappedItemSku === sku;
+            });
+            const productName = orderItemDetail?.Name || 'Producto Falabella ' + sku;
+            const productPrice = Number(orderItemDetail?.ItemPrice || 0);
 
-              // Auto-crear producto faltante
-              const orderItemDetail = items.find(item => {
-                let itemSku = item.Sku || item.SellerSku;
-                if (!itemSku) return false;
-                let cleanItemSku = itemSku.replace(/\s+/g, '');
-                let mappedItemSku = skuMap[cleanItemSku] || cleanItemSku;
-                return mappedItemSku === sku;
-              });
-              const productName = orderItemDetail?.Name || 'Producto Falabella ' + sku;
-              const productPrice = Number(orderItemDetail?.ItemPrice || 0);
+            const { data: newProd, error: prodErr } = await supabase
+              .from('products')
+              .insert([{
+                merchant_id: integration.merchant_id,
+                comercio: integration.comercio,
+                sku: sku,
+                name: productName,
+                barcode: barcode,
+                price: productPrice,
+                description: 'Creado automáticamente desde integración de Falabella (Mirakl)',
+                raw_falabella_data: orderItemDetail
+              }])
+              .select('id')
+              .single();
 
-              const { data: newProd, error: prodErr } = await supabase
-                .from('products')
-                .insert([{
-                  merchant_id: integration.merchant_id,
-                  comercio: integration.comercio,
-                  sku: sku,
-                  name: productName,
-                  barcode: barcode,
-                  price: productPrice,
-                  description: 'Creado automáticamente desde integración de Falabella (Mirakl)',
-                  raw_falabella_data: orderItemDetail
-                }])
-                .select('id')
-                .single();
-
-              if (!prodErr && newProd) {
-                console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${productName}", Barcode: ${barcode})`);
-                product = newProd;
-              } else {
-                console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
-              }
-            }
-
-            if (product) {
-              const { error: itemErr } = await supabase
-                .from('order_items')
-                .insert([{
-                  order_id: localOrderId,
-                  product_id: product.id,
-                  warehouse_id: warehouseId,
-                  quantity: qty
-                }]);
-
-              if (itemErr) {
-                console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
-              } else {
-                console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
-              }
+            if (!prodErr && newProd) {
+              console.log(`   * Creado automáticamente producto para SKU: ${sku} ("${productName}", Barcode: ${barcode})`);
+              product = newProd;
             } else {
-              console.warn(`   ⚠️ SKU ${sku} no encontrado/creado en la base de datos. No se pudo registrar en la orden.`);
+              console.error(`   ❌ Error al crear producto para SKU ${sku}:`, prodErr?.message);
             }
           }
-        }
 
-        // Actualizar al estado real final mapeado
-        const targetStatus = mapFalabellaStatus(statusName);
+          if (product) {
+            const { error: itemErr } = await supabase
+              .from('order_items')
+              .insert([{
+                order_id: localOrderId,
+                product_id: product.id,
+                warehouse_id: warehouseId,
+                quantity: qty
+              }]);
+
+            if (itemErr) {
+              console.error(`   ❌ Error al registrar ítem SKU ${sku} para la orden:`, itemErr.message);
+            } else {
+              console.log(`   + Registrado ítem: SKU ${sku} x ${qty} (Stock Reservado)`);
+            }
+          } else {
+            console.warn(`   ⚠️ SKU ${sku} no encontrado/creado en la base de datos. No se pudo registrar en la orden.`);
+          }
+        }
+      }
+
+      // Actualizar al estado real final mapeado
+      const targetStatus = mapFalabellaStatus(statusName);
         if (targetStatus !== 'para procesar') {
           console.log(`🔄 Transicionando estado final de la orden a '${targetStatus}'...`);
           const { error: statusUpdateErr } = await supabase
@@ -488,7 +510,6 @@ async function syncMerchantOrders(integration) {
           }
         }
       }
-    }
   } catch (error) {
     console.error(`❌ Error sincronizando pedidos para ${integration.shop_url}:`, error.message);
   }

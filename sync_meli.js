@@ -118,6 +118,27 @@ async function syncMeliData() {
       console.log(`🏢 Comercio: ${integration.comercio}`);
       console.log(`========================================`);
 
+      // Resolver dinámicamente el merchant_id real usando productos del comercio
+      let activeMerchantId = integration.merchant_id;
+      try {
+        const { data: siblingProd } = await supabase
+          .from('products')
+          .select('merchant_id')
+          .eq('comercio', integration.comercio)
+          .limit(1)
+          .maybeSingle();
+        if (siblingProd && siblingProd.merchant_id) {
+          activeMerchantId = siblingProd.merchant_id;
+        }
+      } catch (err) {
+        console.error('Error al resolver merchant_id activo:', err.message);
+      }
+      
+      if (activeMerchantId !== integration.merchant_id) {
+        console.log(`Resolved Client Merchant ID: ${activeMerchantId}`);
+        integration.merchant_id = activeMerchantId;
+      }
+
       let syncError = null;
       try {
         await syncMerchantOrders(integration);

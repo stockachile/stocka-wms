@@ -1554,3 +1554,26 @@ Hemos integrado la visualización interactiva del RUT y Razón Social de los com
 8. **Ajuste de Superposición de Modals (z-index)**:
    - Corregimos el problema de orden de apilamiento en el WMS. Cuando el usuario abría el modal de "Detalle de Montos con Atraso" (que tiene `z-index: 1100`) e intentaba abrir el modal para "Enviar Desglose por Email", este último se abría por debajo.
    - Aplicamos `zIndex: 9999` inline al contenedor `#modal-send-billing-email` de forma dinámica, forzándolo a renderizarse correctamente por encima de cualquier modal de detalles del panel principal.
+
+---
+
+## 70. Corrección de Productos Vacíos en Sincronización y Envío de Pedidos al Picker (WMS)
+
+Hemos resuelto un problema estructural en la sincronización de catálogos y el envío de pedidos al sistema de picking (Picker) que causaba que pedidos de Falabella (y otras plataformas) se importaran vacíos (sin ítems) y no llegaran al Picker:
+
+1. **Causa Raíz de Pedidos Vacíos en Falabella**:
+   - Similar a lo solucionado para Shopify y Tiendanube, al re-vincular la integración bajo la cuenta de administración de Felipe, el script de sincronización de Falabella (`sync_falabella.js`) buscaba los productos del catálogo del comercio (MAGIC MAKEUP) utilizando el `merchant_id` de la integración vinculada (Felipe) en lugar del de la tienda original (MLG).
+   - Como no encontraba el SKU (`MAGIC064`) bajo el `merchant_id` de Felipe, intentaba auto-crearlo de nuevo. Sin embargo, esto violaba la restricción de clave única de SKU por comercio (`products_comercio_sku_key`), fallando de manera silenciosa y dejando la orden guardada en el WMS con 0 ítems asociados en la tabla `order_items`.
+
+2. **Falla de brackets en la Actualización de Pedidos Existentes**:
+   - Además de la búsqueda, el bloque de código encargado de registrar los ítems de las órdenes (`order_items`) en `sync_falabella.js` estaba anidado erróneamente dentro del bloque `else` (reservado solo para la creación de órdenes nuevas).
+   - Si una orden ya existía en el WMS pero le faltaban ítems en la base de datos (por ejemplo, porque la primera importación falló), el sistema detectaba que faltaban ítems (`shouldInsertItems = true`) pero nunca ejecutaba la inserción por estar dentro del bloque exclusivo de órdenes nuevas.
+
+3. **Corrección de la Sincronización General (Multicuentas)**:
+   - **Resolver Dinámico en Sincronizadores**: Agregamos el resolvedor dinámico de `merchant_id` en el inicio del procesamiento de todas las integraciones activas de los sincronizadores principales (`sync_falabella.js`, `sync_tiendanube.js`, `sync_jumpseller.js`, `sync_woocommerce.js`, `sync_paris.js`, `sync_walmart.js`, `sync_meli.js`). Esto permite heredar dinámicamente el `merchant_id` real del catálogo del comercio y asegura consistencia total.
+   - **Desacoplamiento de Registro de Ítems**: Refactorizamos `sync_falabella.js` extrayendo el bloque de cálculo de SKUs/cantidades y la inserción de ítems fuera del bloque condicional `if-else`. Ahora, si una orden ya existe en el WMS pero su detalle de ítems está vacío, el sincronizador es capaz de consultar el API, resolver el producto y poblar los ítems correctamente.
+
+4. **Saneamiento y Envío Exitoso de Pedido 3246115747**:
+   - Ejecutamos la sincronización actualizada, lo que recuperó el SKU `MAGIC064` (cantidad: 1) e insertó correctamente el ítem asociado a la orden `3246115747` de Falabella.
+   - Corregimos el script de sincronización bidireccional WMS <-> Picker (`sync_to_picker.js`) para remover la referencia a la columna inexistente `orders.observation`, que arrojaba un error de Postgres (`column orders.observation does not exist`) y bloqueaba todo el flujo de sincronización del picker.
+   - Forzamos la inserción del pedido saneado en el Picker, dejándolo 100% activo en el sistema (`active_orders`) bajo la sucursal asignada ("Sucursal Ñuñoa") y listo para preparación física.
