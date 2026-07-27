@@ -3134,8 +3134,13 @@ window.applyBulkWmsStatus = async function() {
     const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
 
     // A. Validar stock físico disponible para cada pedido (excluyendo virtuales) en la bodega de la sucursal destino
+    // Solo para comercios con seguimiento de stock activo
     const allItemsToCheck = [];
     selectedOrders.forEach(order => {
+      const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+      const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+      if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento
+
       (order.order_items || []).forEach(item => {
         if (!item.products?.is_virtual) {
           allItemsToCheck.push({
@@ -3361,6 +3366,10 @@ async function validateOrderStockForDispatch(ordersList) {
   const ordersToPrompt = [];
 
   for (const order of ordersList) {
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento
+
     const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
     const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
 
@@ -3561,7 +3570,11 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
     const targetWarehouseId = getWarehouseIdFromSucursal(formValues.sucursal);
 
     // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
-    const itemsToCheck = (order.order_items || []).filter(item => !item.products?.is_virtual);
+    const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
+    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    const itemsToCheck = isStockTrackingActive 
+      ? (order.order_items || []).filter(item => !item.products?.is_virtual)
+      : [];
     if (itemsToCheck.length > 0) {
       const productIds = itemsToCheck.map(item => item.product_id);
       const { data: invData, error: invErr } = await supabase

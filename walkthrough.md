@@ -1577,3 +1577,21 @@ Hemos resuelto un problema estructural en la sincronización de catálogos y el 
    - Ejecutamos la sincronización actualizada, lo que recuperó el SKU `MAGIC064` (cantidad: 1) e insertó correctamente el ítem asociado a la orden `3246115747` de Falabella.
    - Corregimos el script de sincronización bidireccional WMS <-> Picker (`sync_to_picker.js`) para remover la referencia a la columna inexistente `orders.observation`, que arrojaba un error de Postgres (`column orders.observation does not exist`) y bloqueaba todo el flujo de sincronización del picker.
    - Forzamos la inserción del pedido saneado en el Picker, dejándolo 100% activo en el sistema (`active_orders`) bajo la sucursal asignada ("Sucursal Ñuñoa") y listo para preparación física.
+
+---
+
+## 71. Validación Condicional de Stock en Frontend Según Configuración del Comercio (WMS)
+
+Hemos corregido la validación de stock en el cliente (js/admin.js) al momento de enviar pedidos a preparación ("En preparación") o al marcarlos como "Despachado", asegurando que el stock solo se valide para comercios que tengan habilitado el seguimiento de inventario:
+
+1. **El Problema**:
+   - Anteriormente, el frontend validaba la disponibilidad de stock físico de todas las órdenes seleccionadas antes de permitir el cambio de estado masivo o individual.
+   - Si un comercio no tenía activo el seguimiento de stock en el WMS (es decir, su campo inventario_seguimiento en la tabla comercios_adicional_config era false o null, como en el caso de **SMILE FOR PETS**), no tenía stock físico real registrado en el sistema.
+   - Como resultado, el frontend arrojaba la alerta de error "Stock Insuficiente Detectado" para estos comercios, bloqueando el envío al Picker de forma incorrecta, a pesar de que la base de datos permitía procesarlos sin restricciones.
+
+2. **Implementación de Filtro Condicional**:
+   - Modificamos las tres funciones de validación clave en js/admin.js:
+     * **Cambio de Estado Masivo a "En preparación"** (window.applyBulkWmsStatus): Ahora consulta el mapa window.loadedCommerceConfigsMap y salta la acumulación y validación de ítems para cualquier pedido cuyo comercio tenga inventario_seguimiento: false.
+     * **Cambio de Estado Individual a "En preparación"** (window.updateWmsOrderStatus): Ahora determina el estado de seguimiento antes de armar la lista de ítems a verificar. Si está desactivado, salta la validación de stock.
+     * **Validación de Stock de Despacho** (validateOrderStockForDispatch): Agregamos una cláusula de escape en el bucle principal de órdenes que ignora el pedido si su comercio no tiene habilitado el seguimiento.
+   - Esto hace que los comercios sin seguimiento de stock omitan por completo la validación en cliente, resolviendo el bloqueo y permitiendo la preparación y el despacho de sus órdenes de forma normal.
