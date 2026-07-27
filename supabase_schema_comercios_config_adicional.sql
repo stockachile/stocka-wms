@@ -7,9 +7,15 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     comercio_id UUID,                                -- ID del comercio (de v_comercios_config)
     inventario_seguimiento BOOLEAN NOT NULL DEFAULT false, -- Si se hace seguimiento al inventario o no
     pedido_trae_sigla BOOLEAN NOT NULL DEFAULT false,       -- Si el pedido trae de origen una sigla o no
+    rut TEXT,                                        -- RUT de la empresa asociada
+    razon_social TEXT,                               -- Razón Social de la empresa asociada
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Si la tabla ya existe en tu base de datos, ejecuta estas líneas en el Editor de SQL:
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
 
 -- 2. Habilitar RLS (Row Level Security)
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;

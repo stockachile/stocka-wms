@@ -1509,3 +1509,48 @@ Hemos diagnosticado, limpiado de la base de datos y prevenido a futuro la aparic
    - Esto desacopla por completo la identidad de las órdenes de las cuentas individuales, previniendo duplicados si se renuevan credenciales o si cambia el administrador encargado del enlace.
    - **Despliegue de Edge Function**: Desplegamos la nueva versión del webhook de MercadoLibre (`meli-webhook`) de forma exitosa en el entorno de Supabase.
 
+---
+
+## 69. Incorporación de RUT y Razón Social en Facturas por Emitir (WMS)
+
+Hemos integrado la visualización interactiva del RUT y Razón Social de los comercios en el listado de facturas pendientes de emisión en el sub-módulo de **Tareas y Pendientes** del panel de administración:
+
+1. **Consulta Unificada en Segundo Plano**:
+   - Modificamos la carga del Dashboard de Métricas (`loadBillingMetricsDashboard` y `refreshDashboardData`) para consultar las configuraciones fiscales registradas en la tabla `comercios_adicional_config` y los mapeos de agrupación en `billing_mappings` de Supabase.
+   - Guardamos esta información en las variables globales `cachedDashboardCommerceAdicionalConfig` y `cachedDashboardBillingMappings` al iniciar el dashboard o al refrescar sus datos.
+
+2. **Resolución de Mapeos Agrupados (Herencia de Datos Fiscales)**:
+   - Implementamos un resolvedor de nombres agrupados en la generación del mapa de configuración.
+   - Si una cuenta agrupadora de facturación (ej: `BIG BANG`) no tiene configuración directa en `comercios_adicional_config`, el sistema busca de manera inteligente los comercios individuales asociados (ej: `BACK IN TIME`, `DORMILONES`, `RELAJARTE`) a través de `billing_mappings` y hereda su RUT y Razón Social (`77.205.635-4 | BIG BANG SPA`) de forma automática.
+
+3. **Visualización Elegante en la Columna Comercio**:
+   - En la tabla de **Facturas por Emitir**, renderizamos el RUT y la Razón Social de cada comercio directamente en la columna **Comercio**, como un texto secundario en tamaño reducido (`0.725rem`) y en tono atenuado (`var(--color-text-muted)`). Esto evita saturar de columnas horizontales la grilla y mantiene un diseño móvil/desktop limpio.
+   - Si un comercio no cuenta con RUT o Razón Social registrada ni mapeos válidos con datos, se visualiza su nombre normalmente sin alterar el espaciado.
+   - El filtrado por Comercio, Período y Servicio continúa operando de forma reactiva sin alteración de sus atributos.
+
+4. **Botón de Copiado Rápido de RUT**:
+   - Agregamos un botón de copiado rápido (`window.copyRutToClipboard(rut, btnEl)`) con icono de portapapeles justo al lado del texto del RUT.
+   - El botón tiene un diseño mini adaptado (`16px` de ancho/alto) y realiza una limpieza automática de los puntos al copiar (p. ej., de `77.205.635-4` a `77205635-4`), que es el formato estándar con guion aceptado por los portales de facturación de Chile (SII, ERPs).
+   - Muestra la animación de confirmación con checkmark verde por 1.5 segundos al hacer clic.
+
+5. **Glosa/Título de Factura Dinámica**:
+   - Para agilizar aún más la digitación en los sistemas de facturación, el modal **"Registrar Factura Oficial"** ahora genera automáticamente el título/glosa estándar correspondiente al servicio y periodo:
+     * Si es Fulfillment: `SERV. FULFILLMENT MES-AAAA` (ej: `SERV. FULFILLMENT JUNIO-2026`).
+     * Si es Envíame: `SERV. ENVIAME MES-AAAA` (ej: `SERV. ENVIAME JUNIO-2026`).
+   - Esta glosa se muestra en la tarjeta de información y cuenta con un botón de copiado rápido (`window.copyTextToClipboard(text, btnEl)`) para que el usuario pueda copiarla directamente al portapapeles con un solo clic.
+
+6. **Buscador de Comercio en Tiempo Real (Tipo Lupa)**:
+   - Reemplazamos el antiguo selector `<select>` de Comercio por un campo de texto de búsqueda dinámica.
+   - Cuenta con un icono de lupa (`ri-search-line`) a la izquierda e interactúa en tiempo real al escribir (`oninput`).
+   - **Búsqueda Avanzada Unificada**: Además del nombre del comercio, la búsqueda busca coincidencias en el **RUT** (independiente de los puntos) y la **Razón Social** del comercio, permitiendo encontrar registros pendientes por cualquiera de estos tres identificadores al instante.
+
+7. **Validación de Duplicidad en Tiempo Real al Escribir**:
+   - Trasladamos la comprobación de duplicidad a un evento `input` dinámico con **debounce (350ms)** para evitar saturación de peticiones.
+   - Mientras el usuario escribe el folio, se muestra una indicación visual debajo del input: `🔍 Validando número...`
+   - **Caso Duplicado**: Si el número está ocupado, el borde del input se torna rojo, el botón **"Guardar y Confirmar"** se inhabilita completamente y se muestra el detalle del conflicto en texto rojo: `❌ El folio 1091 ya está en uso por MAGIC MAKEUP (Periodo - Servicio).`
+   - **Caso Disponible**: Si el número no registra duplicados, el borde se tiñe de verde, se habilita el botón de confirmación y se muestra `✓ Número de factura disponible.` en verde.
+   - Excluye el propio `recordId` en edición para evitar advertir sobre su propia confirmación previa.
+
+8. **Ajuste de Superposición de Modals (z-index)**:
+   - Corregimos el problema de orden de apilamiento en el WMS. Cuando el usuario abría el modal de "Detalle de Montos con Atraso" (que tiene `z-index: 1100`) e intentaba abrir el modal para "Enviar Desglose por Email", este último se abría por debajo.
+   - Aplicamos `zIndex: 9999` inline al contenedor `#modal-send-billing-email` de forma dinámica, forzándolo a renderizarse correctamente por encima de cualquier modal de detalles del panel principal.

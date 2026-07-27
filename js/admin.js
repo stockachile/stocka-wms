@@ -15916,6 +15916,8 @@ window.openEditPeriodModal = function(periodId, currentName, currentMonth, curre
 let cachedDashboardRecords = [];
 let cachedDashboardPeriods = [];
 let cachedDashboardCommerceStatus = [];
+let cachedDashboardCommerceAdicionalConfig = [];
+let cachedDashboardBillingMappings = [];
 
 async function loadBillingMetricsDashboard() {
   const container = document.getElementById('metrics-dashboard-container');
@@ -15948,10 +15950,36 @@ async function loadBillingMetricsDashboard() {
       .select('*');
       
     if (csError) throw csError;
+
+    let adcConfigs = [];
+    try {
+      const { data, error: adcError } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, rut, razon_social');
+      if (!adcError) {
+        adcConfigs = data || [];
+      }
+    } catch (e) {
+      console.warn("Error fetching comercios_adicional_config for dashboard:", e);
+    }
+
+    let billMappings = [];
+    try {
+      const { data, error: mErr } = await supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name');
+      if (!mErr) {
+        billMappings = data || [];
+      }
+    } catch (e) {
+      console.warn("Error fetching billing_mappings for dashboard:", e);
+    }
     
     cachedDashboardRecords = records || [];
     cachedDashboardPeriods = periods || [];
     cachedDashboardCommerceStatus = commerceStatus || [];
+    cachedDashboardCommerceAdicionalConfig = adcConfigs;
+    cachedDashboardBillingMappings = billMappings;
     
     if (cachedDashboardRecords.length === 0) {
       container.innerHTML = `
@@ -16818,12 +16846,61 @@ function renderDashboardPendingView() {
   const prevFiltersVisible = document.getElementById('pending-invoices-filters')?.style.display !== 'none';
   
   const invoicesToEmit = [];
+  const configMap = new Map();
+  if (Array.isArray(cachedDashboardCommerceAdicionalConfig)) {
+    cachedDashboardCommerceAdicionalConfig.forEach(c => {
+      if (c.comercio) {
+        configMap.set(c.comercio.toLowerCase().trim(), c);
+      }
+    });
+  }
+
+  if (Array.isArray(cachedDashboardBillingMappings)) {
+    cachedDashboardBillingMappings.forEach(m => {
+      if (m.comercio_nombre && m.billing_name) {
+        const origKey = m.comercio_nombre.toLowerCase().trim();
+        const billKey = m.billing_name.toLowerCase().trim();
+        if (configMap.has(origKey) && !configMap.has(billKey)) {
+          const config = configMap.get(origKey);
+          if (config && (config.rut || config.razon_social)) {
+            configMap.set(billKey, {
+              comercio: m.billing_name,
+              rut: config.rut,
+              razon_social: config.razon_social
+            });
+          }
+        }
+      }
+    });
+  }
+
   cachedDashboardRecords.forEach(r => {
+    const extra = configMap.get((r.comercio || '').toLowerCase().trim()) || {};
     if (r.factura_fulfillment === 'Facturar') {
-      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Fulfillment', amount: r.total_fulfillment, type: 'fulfillment', paymentStatus: r.pago_fulfillment || 'Sin estado' });
+      invoicesToEmit.push({ 
+        recordId: r.id, 
+        periodName: r.billing_periods?.name || '', 
+        commerce: r.comercio, 
+        service: 'Fulfillment', 
+        amount: r.total_fulfillment, 
+        type: 'fulfillment', 
+        paymentStatus: r.pago_fulfillment || 'Sin estado',
+        rut: extra.rut || '',
+        razonSocial: extra.razon_social || ''
+      });
     }
     if (r.factura_enviame === 'Facturar') {
-      invoicesToEmit.push({ recordId: r.id, periodName: r.billing_periods?.name || '', commerce: r.comercio, service: 'Envíame', amount: r.enviame, type: 'enviame', paymentStatus: r.pago_enviame || 'Sin estado' });
+      invoicesToEmit.push({ 
+        recordId: r.id, 
+        periodName: r.billing_periods?.name || '', 
+        commerce: r.comercio, 
+        service: 'Envíame', 
+        amount: r.enviame, 
+        type: 'enviame', 
+        paymentStatus: r.pago_enviame || 'Sin estado',
+        rut: extra.rut || '',
+        razonSocial: extra.razon_social || ''
+      });
     }
   });
   
@@ -16850,8 +16927,24 @@ function renderDashboardPendingView() {
   }
   
   let invoicesRows = invoicesToEmit.map(i => `
-    <tr data-commerce="${i.commerce}" data-period="${i.periodName}" data-service="${i.service}">
-      <td><strong>${i.commerce}</strong></td>
+    <tr data-commerce="${i.commerce}" data-rut="${i.rut || ''}" data-razon="${i.razonSocial || ''}" data-period="${i.periodName}" data-service="${i.service}">
+      <td>
+        <strong>${i.commerce}</strong>
+        ${i.rut || i.razonSocial ? `
+          <div style="font-size: 0.725rem; color: var(--color-text-muted); margin-top: 0.15rem; font-weight: normal; line-height: 1.2; display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap;">
+            ${i.rut ? `
+              <span style="display: inline-flex; align-items: center; gap: 0.2rem;">
+                RUT: ${i.rut}
+                <button class="copy-amount-btn" style="width: 16px; height: 16px; font-size: 0.6rem; border-radius: 2px;" onclick="copyRutToClipboard('${i.rut}', this)" title="Copiar RUT sin puntos">
+                  <i class="ri-file-copy-line"></i>
+                </button>
+              </span>
+            ` : ''}
+            ${i.rut && i.razonSocial ? '<span style="opacity: 0.5;">|</span>' : ''}
+            ${i.razonSocial ? `<span>${i.razonSocial}</span>` : ''}
+          </div>
+        ` : ''}
+      </td>
       <td>${i.periodName}</td>
       <td><span class="client-badge ${getServiceBadgeClass(i.service)}">${i.service}</span></td>
       <td><span class="client-badge ${getStatusClass(i.paymentStatus)}">${i.paymentStatus}</span></td>
@@ -16925,12 +17018,12 @@ function renderDashboardPendingView() {
         </div>
         <div id="pending-invoices-filters" style="display: none; margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border);">
           <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
-              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Comercio</label>
-              <select id="filter-pending-commerce" onchange="applyPendingInvoiceFilters()" style="padding: 0.4rem 0.6rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none;">
-                <option value="">Todos</option>
-                ${commerceOptions}
-              </select>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1.5; min-width: 200px;">
+              <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Buscar Comercio / RUT / Razón Social</label>
+              <div style="position: relative; display: flex; align-items: center; width: 100%;">
+                <i class="ri-search-line" style="position: absolute; left: 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; pointer-events: none;"></i>
+                <input type="text" id="filter-pending-commerce" oninput="applyPendingInvoiceFilters()" placeholder="Buscar por nombre, RUT o Razón Social..." style="padding: 0.4rem 0.6rem 0.4rem 1.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main); outline: none; width: 100%; box-sizing: border-box; height: 32px;">
+              </div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 160px;">
               <label style="font-size: 0.7rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Periodo</label>
@@ -17087,6 +17180,68 @@ window.copyAmountToClipboard = function(amount, btnEl) {
   });
 };
 
+// === Copy RUT to clipboard utility ===
+window.copyRutToClipboard = function(rut, btnEl) {
+  const cleanRut = String(rut).replace(/\./g, '').trim();
+  navigator.clipboard.writeText(cleanRut).then(() => {
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = cleanRut;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  });
+};
+
+// === Copy generic text to clipboard utility ===
+window.copyTextToClipboard = function(text, btnEl) {
+  const cleanText = String(text).trim();
+  navigator.clipboard.writeText(cleanText).then(() => {
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  }).catch(() => {
+    // Fallback for older browsers
+    const ta = document.createElement('textarea');
+    ta.value = cleanText;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const icon = btnEl.querySelector('i');
+    icon.className = 'ri-check-line';
+    btnEl.classList.add('copied');
+    setTimeout(() => {
+      icon.className = 'ri-file-copy-line';
+      btnEl.classList.remove('copied');
+    }, 1500);
+  });
+};
+
 // === Toggle pending invoices filters ===
 window.togglePendingFilters = function() {
   const filtersDiv = document.getElementById('pending-invoices-filters');
@@ -17101,6 +17256,8 @@ window.applyPendingInvoiceFilters = function() {
   const periodVal = document.getElementById('filter-pending-period')?.value || '';
   const serviceVal = document.getElementById('filter-pending-service')?.value || '';
   
+  const cleanCommerceVal = commerceVal.trim().toLowerCase();
+  
   const table = document.getElementById('pending-invoices-table');
   if (!table) return;
   
@@ -17108,7 +17265,11 @@ window.applyPendingInvoiceFilters = function() {
   let visibleCount = 0;
   
   rows.forEach(row => {
-    const matchCommerce = !commerceVal || row.dataset.commerce === commerceVal;
+    const matchCommerce = !cleanCommerceVal || 
+      (row.dataset.commerce || '').toLowerCase().includes(cleanCommerceVal) ||
+      (row.dataset.rut || '').replace(/\./g, '').toLowerCase().includes(cleanCommerceVal.replace(/\./g, '')) ||
+      (row.dataset.razon || '').toLowerCase().includes(cleanCommerceVal);
+      
     const matchPeriod = !periodVal || row.dataset.period === periodVal;
     const matchService = !serviceVal || row.dataset.service === serviceVal;
     
@@ -17198,6 +17359,43 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
     if (getRecErr) throw getRecErr;
     if (!record) throw new Error('No se encontró el registro de facturación.');
 
+    const configMap = new Map();
+    if (Array.isArray(cachedDashboardCommerceAdicionalConfig)) {
+      cachedDashboardCommerceAdicionalConfig.forEach(c => {
+        if (c.comercio) {
+          configMap.set(c.comercio.toLowerCase().trim(), c);
+        }
+      });
+    }
+
+    if (Array.isArray(cachedDashboardBillingMappings)) {
+      cachedDashboardBillingMappings.forEach(m => {
+        if (m.comercio_nombre && m.billing_name) {
+          const origKey = m.comercio_nombre.toLowerCase().trim();
+          const billKey = m.billing_name.toLowerCase().trim();
+          if (configMap.has(origKey) && !configMap.has(billKey)) {
+            const config = configMap.get(origKey);
+            if (config && (config.rut || config.razon_social)) {
+              configMap.set(billKey, {
+                comercio: m.billing_name,
+                rut: config.rut,
+                razon_social: config.razon_social
+              });
+            }
+          }
+        }
+      });
+    }
+
+    const extra = configMap.get((record.comercio || '').toLowerCase().trim()) || {};
+    const rut = extra.rut || '';
+    const razonSocial = extra.razon_social || '';
+    const amount = serviceType === 'fulfillment' ? (record.total_fulfillment || 0) : (record.enviame || 0);
+
+    const periodRaw = record.billing_periods?.name || '';
+    const formattedPeriod = periodRaw.replace(/[\s-]+/g, '-').toUpperCase();
+    const invoiceTitle = `${serviceType === 'fulfillment' ? 'SERV. FULFILLMENT' : 'SERV. ENVIAME'} ${formattedPeriod}`;
+
     showSavingBadge(false);
 
     // 2. Crear y renderizar el modal
@@ -17208,20 +17406,90 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
     modal.id = 'modal-register-dashboard-invoice';
     modal.className = 'modal-overlay active';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 450px; width: 90%;">
+      <div class="modal-content" style="max-width: 460px; width: 95%;">
         <div class="modal-header">
           <h3><i class="ri-file-add-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i> Registrar Factura Oficial</h3>
           <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
         </div>
         <form id="form-register-dashboard-invoice">
           <div class="modal-body" style="padding: 1.25rem;">
-            <div style="font-size: 0.8rem; background: rgba(37, 99, 235, 0.05); color: var(--color-primary); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.15); margin-bottom: 1.25rem; line-height: 1.45;">
-              Registrando factura de <strong>${serviceType === 'fulfillment' ? 'Fulfillment' : 'Courier Envíame'}</strong> para <strong>${record.comercio}</strong> (${record.billing_periods?.name || ''}).
+            
+            <!-- Tarjeta de Información de Cobro (Premium) -->
+            <div style="background: var(--color-surface-hover); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem; margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.6rem;">
+              
+              <!-- Fila: Comercio y Periodo -->
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
+                <div>
+                  <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Comercio</div>
+                  <div style="font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">${record.comercio}</div>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Periodo</div>
+                  <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${record.billing_periods?.name || ''}</div>
+                </div>
+              </div>
+
+              <!-- Fila: Datos de la Empresa (Razón Social y RUT) -->
+              ${rut || razonSocial ? `
+                <div style="display: flex; flex-direction: column; gap: 0.4rem; border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
+                  ${razonSocial ? `
+                    <div>
+                      <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Razón Social</div>
+                      <div style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main);">${razonSocial}</div>
+                    </div>
+                  ` : ''}
+                  ${rut ? `
+                    <div>
+                      <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">RUT</div>
+                      <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                        <i class="ri-government-line" style="color: var(--color-primary); font-size: 0.9rem;"></i>
+                        <span>${rut}</span>
+                        <button type="button" class="copy-amount-btn" style="width: 20px; height: 20px; font-size: 0.7rem;" onclick="copyRutToClipboard('${rut}', this)" title="Copiar RUT sin puntos">
+                          <i class="ri-file-copy-line"></i>
+                        </button>
+                      </div>
+                    </div>
+                  ` : ''}
+                </div>
+              ` : ''}
+
+              <!-- Fila: Glosa / Título de Factura (Copiable) -->
+              <div style="border-bottom: 1px dashed var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
+                <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Glosa / Detalle Factura</div>
+                <div style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); margin-top: 0.15rem;">
+                  <i class="ri-text" style="color: var(--color-primary); font-size: 0.95rem;"></i>
+                  <span>${invoiceTitle}</span>
+                  <button type="button" class="copy-amount-btn" style="width: 20px; height: 20px; font-size: 0.7rem;" onclick="copyTextToClipboard('${invoiceTitle}', this)" title="Copiar glosa">
+                    <i class="ri-file-copy-line"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Fila: Servicio y Monto -->
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Servicio</div>
+                  <span class="client-badge ${serviceType === 'fulfillment' ? 'status-purple' : 'status-teal'}" style="margin-top: 0.15rem; display: inline-block;">
+                    ${serviceType === 'fulfillment' ? 'Fulfillment' : 'Courier Envíame'}
+                  </span>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--color-text-muted); font-weight: 600; letter-spacing: 0.03em;">Monto a Facturar</div>
+                  <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 1.1rem; font-weight: 800; color: var(--color-primary); margin-top: 0.15rem;">
+                    <span>${window.formatCLP(amount)}</span>
+                    <button type="button" class="copy-amount-btn" style="width: 22px; height: 22px; font-size: 0.75rem;" onclick="copyAmountToClipboard(${amount}, this)" title="Copiar monto numérico">
+                      <i class="ri-file-copy-line"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
             </div>
 
             <div class="form-group" style="margin-bottom: 1.25rem;">
               <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Número de Factura</label>
-              <input type="number" id="reg-invoice-num" class="form-input" placeholder="Ej: 12345" min="1" required style="width: 100%; box-sizing: border-box; height: 38px; border-radius: var(--radius-sm);">
+              <input type="number" id="reg-invoice-num" class="form-input" placeholder="Ej: 12345" min="1" required style="width: 100%; box-sizing: border-box; height: 38px; border-radius: var(--radius-sm); transition: border-color 0.2s;">
+              <div id="reg-invoice-num-feedback" style="font-size: 0.75rem; margin-top: 0.3rem; font-weight: 500; display: none; line-height: 1.3;"></div>
             </div>
 
             <div class="form-group" style="margin-bottom: 1.25rem;">
@@ -17247,16 +17515,85 @@ window.markDashboardInvoiceAsIssued = async function(recordId, serviceType) {
     `;
     document.body.appendChild(modal);
 
-    // 3. Configurar el manejador del envío del formulario
+    // 3. Validación en tiempo real del número de factura al escribir (con debounce)
+    const invoiceNumInput = document.getElementById('reg-invoice-num');
+    const feedbackDiv = document.getElementById('reg-invoice-num-feedback');
+    const btnSubmit = document.getElementById('btn-submit-reg-invoice');
+    let validationTimeout = null;
+    let isNumberDuplicate = false;
+
+    invoiceNumInput.addEventListener('input', () => {
+      clearTimeout(validationTimeout);
+      const val = invoiceNumInput.value.trim();
+      const num = parseInt(val, 10);
+
+      if (!val || isNaN(num) || num <= 0) {
+        feedbackDiv.style.display = 'none';
+        invoiceNumInput.style.borderColor = '';
+        isNumberDuplicate = false;
+        btnSubmit.disabled = false;
+        return;
+      }
+
+      feedbackDiv.style.display = 'block';
+      feedbackDiv.style.color = 'var(--color-text-muted)';
+      feedbackDiv.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; vertical-align: middle;"></i> Validando número...';
+      invoiceNumInput.style.borderColor = '';
+      btnSubmit.disabled = true; // Deshabilitar mientras valida
+
+      validationTimeout = setTimeout(async () => {
+        try {
+          const { data: dupRecs, error: dupErr } = await supabase
+            .from('billing_records')
+            .select('id, comercio, billing_periods(name), num_factura, num_factura_enviame')
+            .or(`num_factura.eq.${num},num_factura_enviame.eq.${num}`);
+
+          if (dupErr) throw dupErr;
+
+          const realDups = (dupRecs || []).filter(r => r.id !== recordId);
+
+          if (realDups.length > 0) {
+            const dup = realDups[0];
+            const dupPeriod = dup.billing_periods?.name || 'Periodo Desconocido';
+            const isFulf = dup.num_factura === num;
+            const dupService = isFulf ? 'Fulfillment' : 'Courier Envíame';
+
+            feedbackDiv.style.color = '#ef4444';
+            feedbackDiv.innerHTML = `<i class="ri-error-warning-line"></i> El folio ${num} ya está en uso por <strong>${dup.comercio}</strong> (${dupPeriod} - ${dupService}).`;
+            invoiceNumInput.style.borderColor = '#ef4444';
+            isNumberDuplicate = true;
+            btnSubmit.disabled = true;
+          } else {
+            feedbackDiv.style.color = '#10b981';
+            feedbackDiv.innerHTML = `<i class="ri-checkbox-circle-line"></i> Número de factura disponible.`;
+            invoiceNumInput.style.borderColor = '#10b981';
+            isNumberDuplicate = false;
+            btnSubmit.disabled = false;
+          }
+        } catch (err) {
+          console.error('Error al validar folio:', err);
+          feedbackDiv.style.display = 'none';
+          invoiceNumInput.style.borderColor = '';
+          isNumberDuplicate = false;
+          btnSubmit.disabled = false;
+        }
+      }, 350);
+    });
+
+    // 4. Configurar el manejador del envío del formulario
     const form = document.getElementById('form-register-dashboard-invoice');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btnSubmit = document.getElementById('btn-submit-reg-invoice');
+      if (isNumberDuplicate) {
+        alert('Por favor, ingresa un número de factura que no esté duplicado.');
+        return;
+      }
+
       btnSubmit.disabled = true;
       btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Registrando...';
 
       try {
-        const num = parseInt(document.getElementById('reg-invoice-num').value.trim(), 10);
+        const num = parseInt(invoiceNumInput.value.trim(), 10);
         if (isNaN(num) || num <= 0) {
           alert('Número de factura no válido.');
           btnSubmit.disabled = false;
@@ -17431,7 +17768,34 @@ async function refreshDashboardData() {
       .from('billing_records')
       .select('*, billing_periods(name, status, period_month, period_year)');
     if (error) throw error;
+    
+    let adcConfigs = [];
+    try {
+      const { data, error: adcError } = await supabase
+        .from('comercios_adicional_config')
+        .select('comercio, rut, razon_social');
+      if (!adcError) {
+        adcConfigs = data || [];
+      }
+    } catch (e) {
+      console.warn("Error fetching config in refreshDashboardData:", e);
+    }
+
+    let billMappings = [];
+    try {
+      const { data, error: mErr } = await supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name');
+      if (!mErr) {
+        billMappings = data || [];
+      }
+    } catch (e) {
+      console.warn("Error fetching billing_mappings in refreshDashboardData:", e);
+    }
+
     cachedDashboardRecords = records || [];
+    cachedDashboardCommerceAdicionalConfig = adcConfigs;
+    cachedDashboardBillingMappings = billMappings;
     renderDashboardPendingView();
   } catch(err) {
     console.error('Error refreshing dashboard records:', err);
@@ -20181,6 +20545,8 @@ async function renderMerchantsAdmin() {
         inventario_seguimiento: extra.inventario_seguimiento || false,
         pedido_trae_sigla: extra.pedido_trae_sigla || false,
         inventario_inicio_pedidos: extra.inventario_inicio_pedidos || {},
+        rut: extra.rut || '',
+        razon_social: extra.razon_social || '',
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -20341,7 +20707,7 @@ async function renderMerchantsAdmin() {
 
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="8" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+        return `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
       }
       
       return list.map(c => {
@@ -20357,6 +20723,13 @@ async function renderMerchantsAdmin() {
           ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
           : `<span class="badge-status disabled">No</span>`;
 
+        const companyInfo = (c.razon_social || c.rut)
+          ? `<div>
+               <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
+               <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${c.rut || 'Sin RUT'}</div>
+             </div>`
+          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
+
         // Generar lista corta de integraciones activas
         const activeIntList = c.integrations.filter(i => i.is_active).map(i => i.platform);
         const intDisplay = activeIntList.length > 0 
@@ -20366,6 +20739,7 @@ async function renderMerchantsAdmin() {
         return `
           <tr>
             <td><strong>${c.nombre}</strong></td>
+            <td>${companyInfo}</td>
             <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
             <td>${billingBadge}</td>
             <td>${invBadge}</td>
@@ -20417,6 +20791,7 @@ async function renderMerchantsAdmin() {
             <thead>
               <tr>
                 <th>Comercio</th>
+                <th>Razón Social / RUT</th>
                 <th>Sigla</th>
                 <th>Estado Facturación</th>
                 <th>Seguimiento Inventario</th>
@@ -20442,7 +20817,9 @@ async function renderMerchantsAdmin() {
         const query = e.target.value.toLowerCase().trim();
         const filtered = comercios.filter(c => 
           c.nombre.toLowerCase().includes(query) || 
-          c.sigla.toLowerCase().includes(query)
+          c.sigla.toLowerCase().includes(query) ||
+          (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
+          (c.rut && c.rut.toLowerCase().includes(query))
         );
         tableBody.innerHTML = renderTableRows(filtered);
       });
@@ -20484,9 +20861,15 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     comercio_id UUID,
     inventario_seguimiento BOOLEAN NOT NULL DEFAULT false,
     pedido_trae_sigla BOOLEAN NOT NULL DEFAULT false,
+    rut TEXT,
+    razon_social TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Si la tabla ya existe, agregar estas columnas:
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -20671,6 +21054,16 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Razón Social de la Empresa</label>
+            <input type="text" id="merchant-create-razon-social" class="form-input" placeholder="Ej: IMPORTADORA SOCIEDAD ANONIMA" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">RUT de la Empresa</label>
+            <input type="text" id="merchant-create-rut" class="form-input" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
             <select id="merchant-create-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
               <option value="activo" selected>Activo (Servicio habilitado)</option>
@@ -20718,6 +21111,37 @@ window.showMerchantCreateModal = function() {
 
   document.body.appendChild(modal);
 
+  // Formatear RUT al escribir
+  const rutInput = document.getElementById('merchant-create-rut');
+  if (rutInput) {
+    rutInput.addEventListener('input', (e) => {
+      const clean = e.target.value.replace(/[^0-9kK]/g, '');
+      if (!clean) {
+        e.target.value = '';
+        return;
+      }
+      if (clean.length === 1) {
+        e.target.value = clean.toUpperCase();
+        return;
+      }
+      const dv = clean.slice(-1).toUpperCase();
+      const body = clean.slice(0, -1);
+      let formatted = '';
+      let i = body.length;
+      let count = 0;
+      while (i > 0) {
+        i--;
+        formatted = body.charAt(i) + formatted;
+        count++;
+        if (count === 3 && i > 0) {
+          formatted = '.' + formatted;
+          count = 0;
+        }
+      }
+      e.target.value = formatted + '-' + dv;
+    });
+  }
+
   const form = document.getElementById('form-create-merchant');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -20730,6 +21154,8 @@ window.showMerchantCreateModal = function() {
 
     const nombre = document.getElementById('merchant-create-nombre').value.trim().toUpperCase();
     const sigla = document.getElementById('merchant-create-sigla').value.trim().toUpperCase();
+    const razonSocial = document.getElementById('merchant-create-razon-social').value.trim().toUpperCase();
+    const rut = document.getElementById('merchant-create-rut').value.trim().toUpperCase();
     const billing = document.getElementById('merchant-create-billing').value;
     const inventory = !isMigration && document.getElementById('merchant-create-inventory').checked;
     const origensigla = !isMigration && document.getElementById('merchant-create-origensigla').checked;
@@ -20779,7 +21205,9 @@ window.showMerchantCreateModal = function() {
             comercio: nombre,
             comercio_id: id,
             inventario_seguimiento: inventory,
-            pedido_trae_sigla: origensigla
+            pedido_trae_sigla: origensigla,
+            rut: rut || null,
+            razon_social: razonSocial || null
           });
 
         if (configErr) throw configErr;
@@ -20838,6 +21266,16 @@ window.showMerchantEditModal = function(comercioName) {
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Sigla del Comercio *</label>
             <input type="text" id="merchant-edit-sigla" class="form-input" value="${commerce.sigla}" placeholder="Ej: BIT" maxlength="10" required style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador corto usado para despachos y reportes (máx 10 letras).</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Razón Social de la Empresa</label>
+            <input type="text" id="merchant-edit-razon-social" class="form-input" value="${commerce.razon_social || ''}" placeholder="Ej: IMPORTADORA SOCIEDAD ANONIMA" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">RUT de la Empresa</label>
+            <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
           </div>
 
           <div class="form-group" style="margin: 0;">
@@ -20947,6 +21385,37 @@ window.showMerchantEditModal = function(comercioName) {
   `;
 
   document.body.appendChild(modal);
+
+  // Formatear RUT al escribir
+  const rutInput = document.getElementById('merchant-edit-rut');
+  if (rutInput) {
+    rutInput.addEventListener('input', (e) => {
+      const clean = e.target.value.replace(/[^0-9kK]/g, '');
+      if (!clean) {
+        e.target.value = '';
+        return;
+      }
+      if (clean.length === 1) {
+        e.target.value = clean.toUpperCase();
+        return;
+      }
+      const dv = clean.slice(-1).toUpperCase();
+      const body = clean.slice(0, -1);
+      let formatted = '';
+      let i = body.length;
+      let count = 0;
+      while (i > 0) {
+        i--;
+        formatted = body.charAt(i) + formatted;
+        count++;
+        if (count === 3 && i > 0) {
+          formatted = '.' + formatted;
+          count = 0;
+        }
+      }
+      e.target.value = formatted + '-' + dv;
+    });
+  }
 
   // Escuchar cambios en checkbox de seguimiento para mostrar/ocultar los inputs de inicio
   const inventoryCheckbox = document.getElementById('merchant-edit-inventory');
@@ -21083,6 +21552,8 @@ window.showMerchantEditModal = function(comercioName) {
 
     const newSigla = document.getElementById('merchant-edit-sigla').value.trim().toUpperCase();
     const newBilling = document.getElementById('merchant-edit-billing').value;
+    const newRazonSocial = document.getElementById('merchant-edit-razon-social').value.trim().toUpperCase();
+    const newRut = document.getElementById('merchant-edit-rut').value.trim().toUpperCase();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
     const newOrigenSigla = !isMigration && document.getElementById('merchant-edit-origensigla').checked;
 
@@ -21130,7 +21601,9 @@ window.showMerchantEditModal = function(comercioName) {
             comercio_id: commerce.id,
             inventario_seguimiento: newInventory,
             pedido_trae_sigla: newOrigenSigla,
-            inventario_inicio_pedidos: startOrdersObj
+            inventario_inicio_pedidos: startOrdersObj,
+            rut: newRut || null,
+            razon_social: newRazonSocial || null
           });
 
         if (configErr) throw configErr;
@@ -23348,6 +23821,7 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
   modal = document.createElement('div');
   modal.id = 'modal-send-billing-email';
   modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999'; // Ensure it opens on top of the other details modal (e.g. details with delay)
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 500px;">
       <div class="modal-header">

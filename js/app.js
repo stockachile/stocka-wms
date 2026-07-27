@@ -11756,7 +11756,7 @@ window.renderDeclarations = async function() {
                     
                     <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.85rem;">
                       <label class="form-label" style="font-size: 0.8rem; font-weight: 600;">Unidades a Etiquetar en Bodega *</label>
-                      <input type="number" id="dec-labeling-qty" class="form-input" min="1" value="0" placeholder="Ej. 100" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; width: 100%;">
+                      <input type="number" id="dec-labeling-qty" class="form-input" value="0" placeholder="Ej. 100" style="padding: 0.4rem 0.6rem; font-size: 0.85rem; width: 100%;">
                     </div>
                   </div>
                 </div>
@@ -12395,10 +12395,12 @@ window.renderDeclarations = async function() {
         if (selectedType === 'completely') {
           labelingDetailsPanel.style.display = 'none';
           labelingQtyInput.removeAttribute('required');
+          labelingQtyInput.removeAttribute('min');
           labelingQtyInput.value = 0;
         } else {
           labelingDetailsPanel.style.display = 'block';
           labelingQtyInput.setAttribute('required', 'required');
+          labelingQtyInput.setAttribute('min', '1');
           if (selectedType === 'none') {
             labelingQtyInput.value = qtyDeclaredInput.value || 0;
             labelingQtyInput.setAttribute('readonly', 'true');
@@ -12449,10 +12451,108 @@ window.renderDeclarations = async function() {
         }
 
         const reader = new FileReader();
-        reader.onload = function(evt) {
+        reader.onload = async function(evt) {
           clientUploadedFileBase64 = evt.target.result.split(',')[1];
           clientUploadedFileName = file.name;
           fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+
+          // Parsear Excel en caliente para auto-completar cantidad y volumen
+          try {
+            const rows = await window.parseExcelData(clientUploadedFileBase64, true);
+            if (rows && rows.length > 1) {
+              const headerRow = rows[0];
+              const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+              const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+              
+              // Buscar columnas de dimensiones (Largo, Ancho, Alto)
+              const largoIdx = headerRow.findIndex(h => {
+                if (!h) return false;
+                const s = h.toString().trim().toLowerCase();
+                return s === 'largo' || s === 'largo (cm)' || s === 'length';
+              });
+              const anchoIdx = headerRow.findIndex(h => {
+                if (!h) return false;
+                const s = h.toString().trim().toLowerCase();
+                return s === 'ancho' || s === 'ancho (cm)' || s === 'width';
+              });
+              const altoIdx = headerRow.findIndex(h => {
+                if (!h) return false;
+                const s = h.toString().trim().toLowerCase();
+                return s === 'alto' || s === 'alto (cm)' || s === 'height';
+              });
+
+              if (qtyIdx !== -1) {
+                let totalQty = 0;
+                let totalVolume = 0;
+                const hasDimensions = (largoIdx !== -1 && anchoIdx !== -1 && altoIdx !== -1);
+                let dbProductsMap = {};
+
+                // Si no hay dimensiones en la planilla pero tenemos SKU, consultamos el catálogo maestro
+                if (!hasDimensions && skuIdx !== -1) {
+                  const sheetSkus = [];
+                  for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    if (row && row[skuIdx]) {
+                      sheetSkus.push(row[skuIdx].toString().trim());
+                    }
+                  }
+                  if (sheetSkus.length > 0) {
+                    const selectComm = document.getElementById('dec-comercio');
+                    const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+                    const { data: dbProds } = await supabase
+                      .from('products')
+                      .select('sku, volumen')
+                      .eq('comercio', commerce)
+                      .in('sku', sheetSkus);
+                    if (dbProds) {
+                      dbProds.forEach(p => {
+                        dbProductsMap[p.sku.trim().toUpperCase()] = parseFloat(p.volumen) || 0;
+                      });
+                    }
+                  }
+                }
+
+                for (let i = 1; i < rows.length; i++) {
+                  const row = rows[i];
+                  if (!row) continue;
+                  const isEmptyRow = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+                  if (isEmptyRow) continue;
+
+                  const qty = parseInt(row[qtyIdx], 10) || 0;
+                  totalQty += qty;
+
+                  if (hasDimensions) {
+                    const largoStr = row[largoIdx] ? row[largoIdx].toString().replace(',', '.') : '0';
+                    const anchoStr = row[anchoIdx] ? row[anchoIdx].toString().replace(',', '.') : '0';
+                    const altoStr = row[altoIdx] ? row[altoIdx].toString().replace(',', '.') : '0';
+                    const largo = parseFloat(largoStr) || 0;
+                    const ancho = parseFloat(anchoStr) || 0;
+                    const alto = parseFloat(altoStr) || 0;
+                    const unitVol = (largo * ancho * alto) / 1000000;
+                    totalVolume += (unitVol * qty);
+                  } else if (skuIdx !== -1 && row[skuIdx]) {
+                    const skuNorm = row[skuIdx].toString().trim().toUpperCase();
+                    const unitVol = dbProductsMap[skuNorm] || 0;
+                    totalVolume += (unitVol * qty);
+                  }
+                }
+
+                const qtyInput = document.getElementById('dec-qty-declared');
+                const volInput = document.getElementById('dec-volume-declared');
+
+                if (qtyInput && totalQty > 0) {
+                  qtyInput.value = totalQty;
+                  qtyInput.dispatchEvent(new Event('input'));
+                }
+                if (volInput && totalVolume > 0) {
+                  volInput.value = totalVolume.toFixed(4);
+                  volInput.dispatchEvent(new Event('input'));
+                }
+              }
+            }
+          } catch (excelErr) {
+            console.error('Error pre-calculando totales de planilla:', excelErr);
+          }
         };
         reader.onerror = function() {
           alert('Error al leer el archivo. Intente de nuevo.');
