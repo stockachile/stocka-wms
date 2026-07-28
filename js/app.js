@@ -5070,8 +5070,26 @@ window.applyClientWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       if (shipment.tracking) {
         const courierName = shipment.courier || 'Seguimiento';
-        const trackingLink = shipment.tracking_url && shipment.tracking_url !== 'N/A'
-          ? `<a href="${shipment.tracking_url}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
+        let trackingUrl = shipment.tracking_url;
+
+        // Recuperación de URL de seguimiento de LightData
+        if (shipment.source_table === 'lightdata_envios' && shipment.raw_data && shipment.raw_data[31]) {
+          const ldUrl = shipment.raw_data[31];
+          if (ldUrl && ldUrl.startsWith('http')) {
+            trackingUrl = ldUrl;
+          }
+        }
+        // Limpiar trackingUrl si corresponde al API interna de Envíame
+        if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
+          trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(shipment.tracking)}`;
+        }
+        // Limpiar si no es una URL real
+        if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
+          trackingUrl = null;
+        }
+
+        const trackingLink = trackingUrl && trackingUrl !== 'N/A'
+          ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</a>`
           : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
         
         const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
@@ -7975,6 +7993,56 @@ async function renderIntegrations() {
       const origen = document.getElementById('order-cust-origen').value;
       const externalId = document.getElementById('order-cust-external-id').value.trim();
 
+      // Aplicar reglas de prefijo para pedidos Manuales
+      let finalExternalId = externalId || `MAN-${Date.now()}`;
+      try {
+        const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+        
+        const { data: configData } = await supabase
+          .from('v_comercios_config')
+          .select('sigla')
+          .eq('nombre', commerce)
+          .maybeSingle();
+
+        const { data: adicionalConfig } = await supabase
+          .from('comercios_adicional_config')
+          .select('pedido_trae_sigla, plat_siglas_config')
+          .eq('comercio', commerce)
+          .maybeSingle();
+
+        let siglaComercio = configData?.sigla ? configData.sigla.trim().toUpperCase() : '';
+        let prefijoOrigen = '';
+        let agregarPrefijo = true; // Por defecto manual agrega sigla
+        
+        if (adicionalConfig) {
+          const platConfig = (adicionalConfig.plat_siglas_config || {})['Manual'];
+          if (platConfig) {
+            agregarPrefijo = platConfig.agregar_prefijo !== false;
+            prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+          } else {
+            agregarPrefijo = !adicionalConfig.pedido_trae_sigla;
+          }
+        }
+
+        let orderNumber = finalExternalId.toString().trim();
+        // Quitar prefijo de origen
+        if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+          orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+        }
+        // Añadir prefijo WMS
+        if (agregarPrefijo && siglaComercio) {
+          if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+            finalExternalId = `${siglaComercio}${orderNumber}`;
+          } else {
+            finalExternalId = orderNumber;
+          }
+        } else {
+          finalExternalId = orderNumber;
+        }
+      } catch (err) {
+        console.warn('⚠️ Error al aplicar prefijo a la orden manual:', err.message);
+      }
+
       // Consolidated values
       const totalCantidad = items.reduce((sum, i) => sum + i.quantity, 0);
       const orderSkus = items.map(i => i.sku).join(', ');
@@ -7998,7 +8066,7 @@ async function renderIntegrations() {
           shipping_method: shippingMethod || 'Por definir',
           origen: origen || 'Manual',
           external_platform: origen || 'Manual',
-          external_order_number: externalId || `MAN-${Date.now()}`,
+          external_order_number: finalExternalId,
           cantidad: totalCantidad,
           sku: orderSkus,
           item: orderItemsNames,

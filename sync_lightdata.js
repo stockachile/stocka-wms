@@ -240,7 +240,7 @@ async function syncLightData() {
       }
 
       const rawCreatedDateStr = row[6]; // Fecha AlphaGroup (Creado en LightData)
-      const rawUpdatedDateStr = row[24]; // Fecha estado (Última actualización en LightData)
+      const rawUpdatedDateStr = row[25]; // Fecha estado (Última actualización en LightData)
       const isoCreatedDate = parseAlphaGroupDate(rawCreatedDateStr);
       const isoUpdatedDate = parseAlphaGroupDate(rawUpdatedDateStr);
 
@@ -249,15 +249,15 @@ async function syncLightData() {
         empresa_comercio: String(row[10] || '').trim() || null, // Nombre Fantasia
         comercio: resolvedComercio,
         tracking: tracking || null,
-        tracking_url: String(row[30] || '').trim() || null, // URL Tracking
+        tracking_url: String(row[31] || '').trim() || null, // URL Tracking
         courier: 'CARRIER EXTERNO',
-        status: String(row[22] || '').trim() || null, // Estado
+        status: String(row[23] || '').trim() || null, // Estado
         servicio_tipo_envio: 'SAME DAY/24 HRS',
         nombre_destinatario: String(row[12] || '').trim() || null, // Nombre Destinatario
         telefono_destino: String(row[13] || '').trim() || null, // Tel. Destinatario
         email_cliente_destino: String(row[14] || '').trim() || null, // Email Destinatario
-        direccion_destino: String(row[16] || '').trim() || null, // Dirección
-        complemento_destino: String(row[29] || '').trim() || null, // Observaciones
+        direccion_destino: String(row[17] || '').trim() || null, // Dirección
+        complemento_destino: [row[29], row[30]].filter(x => x && String(x).trim()).map(x => String(x).trim()).join(', ') || null, // Observaciones
         comuna_destino: String(row[18] || '').trim() || null, // Localidad
         fecha_creacion_lightdata: isoCreatedDate,
         fecha_actualizacion_lightdata: isoUpdatedDate,

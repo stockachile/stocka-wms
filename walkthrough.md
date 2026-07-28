@@ -1617,3 +1617,76 @@ Hemos resuelto la incidencia donde los pedidos de Shopify que son retirados en t
 3. **Solución Dinámica en el Frontend (WMS)**:
    - Para dar soporte inmediato a los pedidos existentes o históricos que ya se habían guardado con datos vacíos en la base de datos, modificamos las vistas principales del WMS en cliente (`js/admin.js` y `js/app.js`).
    - Al renderizar cada orden en el listado, si `customer_name` (o el teléfono / email) es nulo, vacío o dice "No registrado", el frontend consulta dinámicamente el campo JSON `raw_shopify_data` para extraer los datos de la dirección de facturación o de la cuenta del cliente. Esto corrige visualmente todos los pedidos retroactivamente sin necesidad de re-sincronizar la base de datos.
+
+---
+
+## 73. Configuración de Prefijos por Plataforma de Venta (WMS)
+
+Hemos implementado un sistema completo y granular que permite a cada comercio configurar si se deben añadir y/o remover prefijos numéricos de pedidos de forma independiente por cada canal de ventas integrado (Shopify, WooCommerce, MercadoLibre, Falabella, Paris, Jumpseller, Tiendanube, Walmart y Manual):
+
+1. **Estructura de Base de Datos y Retrocompatibilidad**:
+   - Agregamos la columna `plat_siglas_config` de tipo `JSONB` a la tabla `public.comercios_adicional_config` en Supabase para almacenar las reglas de prefijos estructuradas por plataforma.
+   - Si no existe una regla parametrizada para un canal en la columna JSONB, el sistema recurre al comportamiento previo (fallback legacy) de la bandera booleana global `pedido_trae_sigla`.
+
+2. **Rediseño Completo de la Interfaz de Configuración (Administración)**:
+   - Modificamos los modales de **Creación** y **Edición** de comercios en `js/admin.js`, reemplazando el único toggle general *"Pedido de origen trae sigla"* por una grilla/tabla interactiva de plataformas.
+   - Por cada plataforma disponible se renderiza:
+     - Un interruptor/toggle (`agregar_prefijo`) que define si el WMS debe anteponer la sigla del comercio al número de orden al recibirlo.
+     - Un campo de texto (`prefijo_origen`, ej: `#` o `WEB-`) que indica si la orden ya viene con un prefijo preestablecido de fábrica para que el sistema lo limpie y remueva antes de procesar el pedido.
+
+3. **Lógica de Normalización en Scripts de Sincronización**:
+   - Modificamos los sincronizadores correspondientes para que limpien y agreguen los prefijos según la regla parametrizada de cada canal:
+     - [sync_woocommerce.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_woocommerce.js) (WooCommerce)
+     - [sync_tiendanube.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js) (Tiendanube)
+     - [sync_shopify.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_shopify.js) (Shopify)
+     - [sync_meli.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_meli.js) (MercadoLibre)
+     - [sync_jumpseller.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_jumpseller.js) (Jumpseller)
+     - [sync_walmart.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_walmart.js) (Walmart)
+     - [sync_falabella.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_falabella.js) (Falabella)
+     - [sync_paris.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_paris.js) (Paris)
+   - El algoritmo limpia primero el prefijo de origen (si coincide) y luego antepone la sigla del comercio si `agregar_prefijo` es verdadero, evitando duplicar siglas repetidas de manera preventiva.
+
+4. **Soporte en Pedidos Manuales (Cliente/WMS)**:
+   - Modificamos la creación manual de pedidos en `js/app.js` para aplicar el mismo flujo de validación y formateo de prefijos buscando la regla de la plataforma `Manual` configurada por el comercio.
+
+---
+
+## 74. Nueva Pestaña de Apelaciones y Observaciones en el Módulo de Facturación (Administración)
+
+Hemos implementado una pestaña dedicada de forma ordenada y centralizada en el Panel de Administración de Facturación para que el equipo administrativo pueda revisar y dar respuesta a las observaciones/apelaciones enviadas por los comercios:
+
+1. **Nueva Pestaña e Indicador Visual Reactivo**:
+   - Agregamos la pestaña **"Apelaciones / Observaciones"** en la barra de navegación del módulo de facturación.
+   - Cuenta con una etiqueta/badge dinámico (`pending-observations-badge`) en color naranjo/marrón (`#d97706`) que muestra la cantidad exacta de apelaciones pendientes de respuesta en tiempo real.
+
+2. **Grilla y Filtros Avanzados**:
+   - La pestaña muestra una tabla detallada con los campos: **Comercio**, **Periodo**, **Observación del Cliente**, **Última Actualización**, **Estado de la Apelación** y **Respuesta de la Administración**.
+   - **Buscador en Tiempo Real**: Permite filtrar las observaciones instantáneamente por el nombre del comercio.
+   - **Filtro por Estado**: Permite conmutar la vista para visualizar todas las observaciones, solo las "Pendientes de Respuesta" (seleccionado por defecto), las "Respondidas" o las resueltas ("Sin Observación").
+
+3. **Resolución Directa e Integrada**:
+   - Cada fila cuenta con un botón **"Responder"** que abre el modal administrativo de resolución (`openAdminBillingObservationModal`).
+   - Al guardar la respuesta, la grilla de observaciones se actualiza automáticamente junto con el contador del badge pendiente, eliminando la necesidad de recargar la página y manteniendo una experiencia de gestión sumamente premium y ágil.
+
+---
+
+## 73. Corrección de Enlaces de Seguimiento (API Envíame) y Corrección de Desplazamiento en LightData
+
+Hemos corregido y mejorado los enlaces de seguimiento para transportistas externos en el panel WMS:
+
+1. **Incidencia de Enlaces Envíame**:
+   - **El Problema**: Los envíos creados a través de Envíame registraban en la base de datos la URL de la API interna (`https://api.enviame.io/s2/companies/.../deliveries/.../tracking`). Al hacer clic en el WMS, esto mostraba un JSON plano en lugar de la interfaz de usuario de tracking.
+   - **La Solución**: Modificamos el frontend del WMS (`js/admin.js` y `js/app.js`) para que si detecta un enlace que apunte a la API de Envíame, lo limpie dinámicamente y genere la URL pública del portal de rastreo de Envíame utilizando el formato oficial: `https://tracking.enviame.io/?n={tracking_number}`.
+
+2. **Incidencia de Desplazamiento de Columnas de LightData**:
+   - **El Problema**: Detectamos que LightData añadió columnas a su exporte de Excel, lo que desplazó los índices de mapeo de `sync_lightdata.js` en +1 para todas las columnas a partir del índice 15. Esto provocaba que:
+     * El estado del envío se guardara con la longitud de coordenadas (`-70.7341292`) en lugar del texto del estado real.
+     * La URL de seguimiento se guardara con las observaciones de dirección (`Parcela 123`).
+     * Las fechas de actualización y direcciones estuvieran desfasadas o nulas.
+   - **La Solución**:
+     * Corregimos los índices de mapeo en `sync_lightdata.js` (ej. `direccion_destino` pasa a index 17, `status` a index 23, `fecha_actualizacion` a index 25, y `tracking_url` a index 31).
+     * Combinamos las observaciones de dirección de los índices 29 y 30 en `complemento_destino`.
+     * Agregamos lógica retroactiva en el frontend del WMS para que si un pedido histórico de LightData tiene una URL inválida, recupere la URL de tracking correcta directamente del arreglo raw guardado en `raw_lightdata_data.raw_data[31]`.
+
+3. **Visualización de Sub-courier Real**:
+   - Para aquellos pedidos que tienen el courier principal registrado genéricamente como `CARRIER EXTERNO` en el pedido, el frontend del WMS ahora muestra el sub-courier específico detectado en la tabla de envíos (ej. `RECIBELO` en lugar del genérico `CARRIER EXTERNO`).

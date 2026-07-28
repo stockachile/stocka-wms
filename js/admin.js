@@ -2311,7 +2311,36 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
 
-    const courierName = order.courier || courier_destino || 'Courier';
+    // Recuperación retroactiva de URL de seguimiento de LightData si se guardó mal
+    if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
+      const ldUrl = order.raw_lightdata_data.raw_data[31];
+      if (ldUrl && ldUrl.startsWith('http')) {
+        trackingUrl = ldUrl;
+      }
+    }
+    if (orderShipments.length > 0 && orderShipments[0].source_table === 'lightdata_envios' && orderShipments[0].raw_data && orderShipments[0].raw_data[31]) {
+      const ldUrl = orderShipments[0].raw_data[31];
+      if (ldUrl && ldUrl.startsWith('http')) {
+        trackingUrl = ldUrl;
+      }
+    }
+
+    // Limpiar trackingUrl si corresponde al API interna de Envíame
+    if (trackingUrl && (trackingUrl.includes('api.enviame.io/s2/') || trackingUrl.includes('api.enviame.io/api/'))) {
+      if (trackingNum) {
+        trackingUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(trackingNum)}`;
+      }
+    }
+
+    // Limpiar si no es una URL real
+    if (trackingUrl && !trackingUrl.startsWith('http://') && !trackingUrl.startsWith('https://')) {
+      trackingUrl = null;
+    }
+
+    const courierName = (order.courier && order.courier !== 'CARRIER EXTERNO') 
+      ? order.courier 
+      : (courier_destino || order.courier || 'Courier');
+
     if (trackingNum) {
       const trackingLink = trackingUrl && trackingUrl !== 'N/A'
         ? `<a href="${trackingUrl}" target="_blank" style="display:inline-flex; align-items:center; gap:0.25rem; font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${trackingNum}</a>`
@@ -2680,7 +2709,7 @@ window.applyWmsFiltersAndRender = function() {
                   <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
                     <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Courier Asignado:</span>
                     <span style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
-                      <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${order.courier || courier_destino || 'No asignado'}
+                      <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${courierName === 'Courier' ? 'No asignado' : courierName}
                     </span>
                   </div>
 
@@ -14240,7 +14269,7 @@ window.renderBillingAdmin = async function() {
     </div>
     
     <!-- Tabs -->
-    <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem;">
+    <div class="billing-tabs" style="display: flex; gap: 1rem; border-bottom: 1px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem; flex-wrap: wrap;">
       <button class="billing-tab-btn" id="tab-control-btn" onclick="switchBillingAdminTab('control')"><i class="ri-bill-line"></i> Control de Facturas</button>
       <button class="billing-tab-btn" id="tab-reports-btn" onclick="switchBillingAdminTab('reports')"><i class="ri-notification-3-line"></i> Avisos de Pago <span id="pending-reports-badge" class="badge badge-danger" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%;">0</span></button>
       <button class="billing-tab-btn active" id="tab-metrics-btn" onclick="switchBillingAdminTab('metrics')"><i class="ri-dashboard-line"></i> Dashboard</button>
@@ -14248,6 +14277,7 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn" id="tab-extra-btn" onclick="switchBillingAdminTab('extra')"><i class="ri-add-circle-line"></i> Saldos Adicionales</button>
       <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
       <button class="billing-tab-btn" id="tab-notification-logs-btn" onclick="switchBillingAdminTab('notification-logs')"><i class="ri-history-line"></i> Historial de Notificaciones</button>
+      <button class="billing-tab-btn" id="tab-observations-btn" onclick="switchBillingAdminTab('observations')"><i class="ri-question-answer-line"></i> Apelaciones / Observaciones <span id="pending-observations-badge" class="badge" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%; background: #d97706; color: white;">0</span></button>
     </div>
     
     <div id="tab-control-content" style="display: none;">
@@ -14330,14 +14360,45 @@ window.renderBillingAdmin = async function() {
         </div>
       </div>
     </div>
+
+    <div id="tab-observations-content" style="display: none;">
+      <div class="card">
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem;"><i class="ri-question-answer-line"></i> Apelaciones y Observaciones de Facturación</h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">Revisa y responde las solicitudes de revisión de cobros y discrepancias enviadas por los comercios</p>
+          </div>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);">Estado:</label>
+              <select id="obs-status-filter" class="form-input" style="margin: 0; height: 38px; font-size: 0.85rem;" onchange="filterObservationsGrid()">
+                <option value="all">Todos</option>
+                <option value="pendiente" selected>Pendientes de Respuesta</option>
+                <option value="respondida">Respondidas</option>
+                <option value="sin_observacion">Sin Observación / Resueltas</option>
+              </select>
+            </div>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input type="text" id="obs-search-input" class="form-input" placeholder="Buscar comercio..." style="padding-left: 2rem; margin: 0; width: 200px; height: 38px; box-sizing: border-box;" oninput="filterObservationsGrid()">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            </div>
+            <button onclick="loadBillingObservationsTab()" class="btn btn-outline" style="height: 38px; padding: 0.5rem 0.75rem;" title="Recargar"><i class="ri-refresh-line"></i></button>
+          </div>
+        </div>
+        <div class="card-body table-responsive" id="observations-list-container" style="padding: 0;">
+          <!-- Cargado dinámicamente -->
+        </div>
+      </div>
+    </div>
   `;
   
   await updatePendingReportsBadge();
+  await updatePendingObservationsBadge();
   switchBillingAdminTab('metrics');
 };
 
 window.switchBillingAdminTab = function(tabName) {
-  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs'];
+  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
     const content = document.getElementById(`tab-${t}-content`);
@@ -14366,6 +14427,8 @@ window.switchBillingAdminTab = function(tabName) {
     loadBillingContactsTab();
   } else if (tabName === 'notification-logs') {
     loadNotificationLogsTab();
+  } else if (tabName === 'observations') {
+    loadBillingObservationsTab();
   }
 };
 
@@ -14389,6 +14452,170 @@ async function updatePendingReportsBadge() {
     console.error('Error updating pending reports badge:', err);
   }
 }
+
+async function updatePendingObservationsBadge() {
+  try {
+    const { count, error } = await supabase
+      .from('billing_records')
+      .select('*', { count: 'exact', head: true })
+      .eq('observation_status', 'pendiente');
+    if (error) throw error;
+    const badge = document.getElementById('pending-observations-badge');
+    if (badge) {
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Error updating pending observations badge:', err);
+  }
+}
+
+window.loadBillingObservationsTab = async function() {
+  const container = document.getElementById('observations-list-container');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Cargando observaciones y apelaciones...
+    </div>
+  `;
+
+  try {
+    const { data: records, error } = await supabase
+      .from('billing_records')
+      .select('*, billing_periods(name)')
+      .order('observation_updated_at', { ascending: false });
+
+    if (error) throw error;
+
+    // Filtrar solo los registros que tienen alguna observación o estado de observación activo
+    window.cachedBillingObservations = (records || []).filter(r => {
+      const hasObs = r.client_observation && r.client_observation.trim() !== '';
+      const hasStatus = r.observation_status && r.observation_status !== 'sin_observacion';
+      return hasObs || hasStatus;
+    });
+
+    window.filterObservationsGrid();
+    
+    // Actualizar el contador de la pestaña
+    await updatePendingObservationsBadge();
+  } catch (err) {
+    console.error('Error loading billing observations:', err);
+    container.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-danger);">
+        <i class="ri-error-warning-line" style="font-size: 2.5rem; display: block; margin-bottom: 1rem;"></i>
+        <p style="font-weight: 600;">Error al cargar las observaciones</p>
+        <p style="font-size: 0.85rem; margin-top: 0.25rem;">${err.message || JSON.stringify(err)}</p>
+      </div>
+    `;
+  }
+};
+
+window.filterObservationsGrid = function() {
+  const container = document.getElementById('observations-list-container');
+  if (!container) return;
+
+  const statusVal = document.getElementById('obs-status-filter')?.value || 'pendiente';
+  const searchVal = (document.getElementById('obs-search-input')?.value || '').trim().toLowerCase();
+
+  const list = window.cachedBillingObservations || [];
+
+  const filtered = list.filter(r => {
+    // 1. Filtrar por estado
+    if (statusVal !== 'all') {
+      const status = r.observation_status || 'sin_observacion';
+      if (status !== statusVal) return false;
+    }
+    // 2. Filtrar por comercio
+    if (searchVal) {
+      const commerce = (r.comercio || '').toLowerCase();
+      if (!commerce.includes(searchVal)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        No se encontraron observaciones que coincidan con los filtros.
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <table class="table" style="width: 100%; border-collapse: collapse;">
+      <thead>
+        <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; text-align: left;">
+          <th style="padding: 0.75rem 1rem;">Comercio</th>
+          <th style="padding: 0.75rem 1rem;">Periodo</th>
+          <th style="padding: 0.75rem 1rem; width: 35%;">Observación Cliente</th>
+          <th style="padding: 0.75rem 1rem;">Última Actualización</th>
+          <th style="padding: 0.75rem 1rem;">Estado Apelación</th>
+          <th style="padding: 0.75rem 1rem; width: 25%;">Respuesta Administración</th>
+          <th style="padding: 0.75rem 1rem; text-align: center;">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  filtered.forEach(r => {
+    const periodName = r.billing_periods?.name || 'Periodo Desconocido';
+    const clientObs = r.client_observation || '<em style="color: var(--color-text-muted);">Sin texto</em>';
+    const adminResp = r.admin_response || '<em style="color: var(--color-text-muted); font-size: 0.8rem;">Sin respuesta aún</em>';
+    
+    // Formatear fecha
+    let dateStr = '-';
+    if (r.observation_updated_at) {
+      dateStr = new Date(r.observation_updated_at).toLocaleString('es-CL', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    // Badge de estado
+    let badgeHtml = '';
+    const status = r.observation_status || 'sin_observacion';
+    if (status === 'pendiente') {
+      badgeHtml = `<span class="client-badge" style="background: rgba(217, 119, 6, 0.1); color: #d97706; border: 1px solid rgba(217, 119, 6, 0.2); font-weight: 600;">Pendiente</span>`;
+    } else if (status === 'respondida') {
+      badgeHtml = `<span class="client-badge status-green">Respondida</span>`;
+    } else {
+      badgeHtml = `<span class="client-badge status-gray">Resuelta</span>`;
+    }
+
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: top;">
+        <td style="padding: 1.25rem 1rem; font-weight: 600; color: var(--color-text-main);">${r.comercio}</td>
+        <td style="padding: 1.25rem 1rem; color: var(--color-text-muted); font-size: 0.85rem;">${periodName}</td>
+        <td style="padding: 1.25rem 1rem; font-size: 0.85rem; line-height: 1.4; color: var(--color-text-main); white-space: pre-wrap;">${clientObs}</td>
+        <td style="padding: 1.25rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">${dateStr}</td>
+        <td style="padding: 1.25rem 1rem; vertical-align: middle;">${badgeHtml}</td>
+        <td style="padding: 1.25rem 1rem; font-size: 0.85rem; line-height: 1.4; color: var(--color-text-main); white-space: pre-wrap;">${adminResp}</td>
+        <td style="padding: 1.25rem 1rem; text-align: center; vertical-align: middle;">
+          <button class="btn btn-primary btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${r.period_id}')" title="Resolver / Responder" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem; height: 30px;">
+            <i class="ri-question-answer-line"></i> Responder
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `
+      </tbody>
+    </table>
+  `;
+
+  container.innerHTML = html;
+};
 
 async function loadBillingPeriods() {
   const container = document.getElementById('periods-list-container');
@@ -20600,6 +20827,8 @@ async function renderMerchantsAdmin() {
         inventario_inicio_pedidos: extra.inventario_inicio_pedidos || {},
         rut: extra.rut || '',
         razon_social: extra.razon_social || '',
+        plat_siglas_config: extra.plat_siglas_config || {},
+        email_colaborador: extra.email_colaborador || '',
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -20776,10 +21005,11 @@ async function renderMerchantsAdmin() {
           ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
           : `<span class="badge-status disabled">No</span>`;
 
-        const companyInfo = (c.razon_social || c.rut)
+        const companyInfo = (c.razon_social || c.rut || c.email_colaborador)
           ? `<div>
                <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${c.rut || 'Sin RUT'}</div>
+               ${c.email_colaborador ? `<div style="font-size: 0.7rem; color: var(--color-primary); margin-top: 0.15rem; word-break: break-all;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.email_colaborador}</div>` : ''}
              </div>`
           : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
 
@@ -20916,6 +21146,8 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     pedido_trae_sigla BOOLEAN NOT NULL DEFAULT false,
     rut TEXT,
     razon_social TEXT,
+    plat_siglas_config JSONB DEFAULT '{}'::jsonb,
+    email_colaborador TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -20923,6 +21155,8 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
 -- Si la tabla ya existe, agregar estas columnas:
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_siglas_config JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -21117,6 +21351,12 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
+            <input type="email" id="merchant-create-email-colaborador" class="form-input" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Correo de la cuenta de colaborador utilizada en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
             <select id="merchant-create-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
               <option value="activo" selected>Activo (Servicio habilitado)</option>
@@ -21139,16 +21379,50 @@ window.showMerchantCreateModal = function() {
             </div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-create-origensigla" ${disabledAttr}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-create-origensigla" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Pedido trae Sigla de Origen</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Indica si las órdenes de compra ya vienen con la sigla integrada desde la plataforma externa.</p>
-              ${migrationTip}
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Configuración de Prefijos por Plataforma</label>
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                <thead>
+                  <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Plataforma</th>
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; text-align: center; width: 90px; color: var(--color-text-main);">Añadir Sigla</th>
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Quitar Prefijo Origen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(() => {
+                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Walmart', 'Manual'];
+                    return platformsList.map(plat => {
+                      const checked = 'checked'; // default to adding the prefix
+                      const disabled = isMigration ? 'disabled' : '';
+                      return `
+                        <tr style="border-bottom: 1px solid var(--color-border);">
+                          <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; border: none;">
+                            <i class="${
+                              plat === 'Shopify' ? 'ri-shopping-bag-3-line' :
+                              plat === 'WooCommerce' ? 'ri-wordpress-line' :
+                              plat === 'MercadoLibre' ? 'ri-hand-heart-line' :
+                              plat === 'Manual' ? 'ri-draft-line' : 'ri-store-2-line'
+                            }"></i> ${plat}
+                          </td>
+                          <td style="padding: 0.5rem 0.75rem; text-align: center; border: none;">
+                            <label class="merchant-switch">
+                              <input type="checkbox" class="plat-prefix-toggle" data-platform="${plat}" ${checked} ${disabled}>
+                              <span class="merchant-slider"></span>
+                            </label>
+                          </td>
+                          <td style="padding: 0.5rem 0.75rem; border: none;">
+                            <input type="text" class="form-input plat-prefix-origin" data-platform="${plat}" value="" placeholder="Ej: # o WEB-" ${disabled} style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: auto; margin: 0; width: 100%; box-sizing: border-box; text-transform: uppercase;">
+                          </td>
+                        </tr>
+                      `;
+                    }).join('');
+                  })()}
+                </tbody>
+              </table>
             </div>
+            ${migrationTip}
           </div>
 
           <div id="create-merchant-alert-container" style="margin: 0;"></div>
@@ -21209,9 +21483,23 @@ window.showMerchantCreateModal = function() {
     const sigla = document.getElementById('merchant-create-sigla').value.trim().toUpperCase();
     const razonSocial = document.getElementById('merchant-create-razon-social').value.trim().toUpperCase();
     const rut = document.getElementById('merchant-create-rut').value.trim().toUpperCase();
+    const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
     const billing = document.getElementById('merchant-create-billing').value;
     const inventory = !isMigration && document.getElementById('merchant-create-inventory').checked;
-    const origensigla = !isMigration && document.getElementById('merchant-create-origensigla').checked;
+
+    // Obtener configuración de prefijos por plataforma
+    const platSiglasConfig = {};
+    if (!isMigration) {
+      const platformToggles = document.querySelectorAll('#form-create-merchant .plat-prefix-toggle');
+      platformToggles.forEach(toggle => {
+        const platform = toggle.getAttribute('data-platform');
+        const originInput = document.querySelector(`#form-create-merchant .plat-prefix-origin[data-platform="${platform}"]`);
+        platSiglasConfig[platform] = {
+          agregar_prefijo: toggle.checked,
+          prefijo_origen: originInput ? originInput.value.trim().toUpperCase() : ''
+        };
+      });
+    }
 
     // Validar nombre duplicado
     const exists = window.cachedAdminMerchants.some(c => c.nombre.toUpperCase() === nombre);
@@ -21258,9 +21546,11 @@ window.showMerchantCreateModal = function() {
             comercio: nombre,
             comercio_id: id,
             inventario_seguimiento: inventory,
-            pedido_trae_sigla: origensigla,
+            pedido_trae_sigla: !platSiglasConfig.Manual?.agregar_prefijo,
             rut: rut || null,
-            razon_social: razonSocial || null
+            razon_social: razonSocial || null,
+            plat_siglas_config: platSiglasConfig,
+            email_colaborador: emailColaborador || null
           });
 
         if (configErr) throw configErr;
@@ -21329,6 +21619,12 @@ window.showMerchantEditModal = function(comercioName) {
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">RUT de la Empresa</label>
             <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
+            <input type="email" id="merchant-edit-email-colaborador" class="form-input" value="${commerce.email_colaborador || ''}" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Correo de la cuenta de colaborador utilizada en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
           </div>
 
           <div class="form-group" style="margin: 0;">
@@ -21414,16 +21710,54 @@ window.showMerchantEditModal = function(comercioName) {
             </div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
-            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
-              <input type="checkbox" id="merchant-edit-origensigla" ${commerce.pedido_trae_sigla ? 'checked' : ''} ${disabledAttr}>
-              <span class="merchant-slider"></span>
-            </label>
-            <div>
-              <label for="merchant-edit-origensigla" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Pedido trae Sigla de Origen</label>
-              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Indica si las órdenes de compra ya vienen con la sigla integrada desde la plataforma externa.</p>
-              ${migrationTip}
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Configuración de Prefijos por Plataforma</label>
+            <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                <thead>
+                  <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Plataforma</th>
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; text-align: center; width: 90px; color: var(--color-text-main);">Añadir Sigla</th>
+                    <th style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">Quitar Prefijo Origen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${(() => {
+                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Walmart', 'Manual'];
+                    return platformsList.map(plat => {
+                      const conf = (commerce.plat_siglas_config || {})[plat] || {
+                        agregar_prefijo: !commerce.pedido_trae_sigla,
+                        prefijo_origen: ''
+                      };
+                      const checked = conf.agregar_prefijo ? 'checked' : '';
+                      const disabled = isMigration ? 'disabled' : '';
+                      return `
+                        <tr style="border-bottom: 1px solid var(--color-border);">
+                          <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; border: none;">
+                            <i class="${
+                              plat === 'Shopify' ? 'ri-shopping-bag-3-line' :
+                              plat === 'WooCommerce' ? 'ri-wordpress-line' :
+                              plat === 'MercadoLibre' ? 'ri-hand-heart-line' :
+                              plat === 'Manual' ? 'ri-draft-line' : 'ri-store-2-line'
+                            }"></i> ${plat}
+                          </td>
+                          <td style="padding: 0.5rem 0.75rem; text-align: center; border: none;">
+                            <label class="merchant-switch">
+                              <input type="checkbox" class="plat-prefix-toggle" data-platform="${plat}" ${checked} ${disabled}>
+                              <span class="merchant-slider"></span>
+                            </label>
+                          </td>
+                          <td style="padding: 0.5rem 0.75rem; border: none;">
+                            <input type="text" class="form-input plat-prefix-origin" data-platform="${plat}" value="${conf.prefijo_origen || ''}" placeholder="Ej: # o WEB-" ${disabled} style="font-size: 0.75rem; padding: 0.25rem 0.5rem; height: auto; margin: 0; width: 100%; box-sizing: border-box; text-transform: uppercase;">
+                          </td>
+                        </tr>
+                      `;
+                    }).join('');
+                  })()}
+                </tbody>
+              </table>
             </div>
+            ${migrationTip}
           </div>
 
           <div id="edit-merchant-alert-container" style="margin: 0;"></div>
@@ -21607,8 +21941,22 @@ window.showMerchantEditModal = function(comercioName) {
     const newBilling = document.getElementById('merchant-edit-billing').value;
     const newRazonSocial = document.getElementById('merchant-edit-razon-social').value.trim().toUpperCase();
     const newRut = document.getElementById('merchant-edit-rut').value.trim().toUpperCase();
+    const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
-    const newOrigenSigla = !isMigration && document.getElementById('merchant-edit-origensigla').checked;
+
+    // Obtener configuración de prefijos por plataforma
+    const newPlatSiglasConfig = {};
+    if (!isMigration) {
+      const platformToggles = document.querySelectorAll('#form-edit-merchant .plat-prefix-toggle');
+      platformToggles.forEach(toggle => {
+        const platform = toggle.getAttribute('data-platform');
+        const originInput = document.querySelector(`#form-edit-merchant .plat-prefix-origin[data-platform="${platform}"]`);
+        newPlatSiglasConfig[platform] = {
+          agregar_prefijo: toggle.checked,
+          prefijo_origen: originInput ? originInput.value.trim().toUpperCase() : ''
+        };
+      });
+    }
 
     // Obtener los límites iniciales de pedidos por canal
     const startOrderInputs = document.querySelectorAll('.start-order-input');
@@ -21653,10 +22001,12 @@ window.showMerchantEditModal = function(comercioName) {
             comercio: commerce.nombre,
             comercio_id: commerce.id,
             inventario_seguimiento: newInventory,
-            pedido_trae_sigla: newOrigenSigla,
+            pedido_trae_sigla: !newPlatSiglasConfig.Manual?.agregar_prefijo,
             inventario_inicio_pedidos: startOrdersObj,
             rut: newRut || null,
-            razon_social: newRazonSocial || null
+            razon_social: newRazonSocial || null,
+            plat_siglas_config: newPlatSiglasConfig,
+            email_colaborador: newEmailColaborador || null
           });
 
         if (configErr) throw configErr;
@@ -21780,9 +22130,17 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
           showSavingBadge(true);
           setTimeout(() => showSavingBadge(false), 800);
 
-          const body = document.getElementById(`records-body-${periodId}`);
+           const body = document.getElementById(`records-body-${periodId}`);
           if (body) {
             await loadBillingRecords(periodId, body);
+          }
+
+          // Recargar también la pestaña de apelaciones y su contador si existe
+          if (typeof loadBillingObservationsTab === 'function') {
+            loadBillingObservationsTab().catch(e => console.warn(e));
+          }
+          if (typeof updatePendingObservationsBadge === 'function') {
+            updatePendingObservationsBadge().catch(e => console.warn(e));
           }
         } catch (err) {
           console.error(err);
@@ -22562,10 +22920,24 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // A. Envíos de auto track (como Enviame / Blue Express, etc.)
     for (const s of orderShipments) {
       if (s.tracking) {
+        let tUrl = s.tracking_url;
+        if (s.source_table === 'lightdata_envios' && s.raw_data && s.raw_data[31]) {
+          const ldUrl = s.raw_data[31];
+          if (ldUrl && ldUrl.startsWith('http')) {
+            tUrl = ldUrl;
+          }
+        }
+        if (tUrl && (tUrl.includes('api.enviame.io/s2/') || tUrl.includes('api.enviame.io/api/'))) {
+          tUrl = `https://tracking.enviame.io/?n=${encodeURIComponent(s.tracking)}`;
+        }
+        if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
+          tUrl = null;
+        }
+
         detectedOptions.push({
           courier: s.courier || 'Courier',
           tracking: s.tracking,
-          tracking_url: s.tracking_url || null,
+          tracking_url: tUrl || null,
           source: 'Auto Track (Envío)',
           status: s.global_status || 'SIN MOVIMIENTO'
         });
@@ -22575,10 +22947,20 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // B. Envíos de LightData (Etiqueta Alpha)
     const alphaDid = order.raw_lightdata_data?.did || order.raw_lightdata_data?.id;
     if (alphaDid) {
+      let tUrl = order.raw_lightdata_data?.tracking_url;
+      if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
+        const ldUrl = order.raw_lightdata_data.raw_data[31];
+        if (ldUrl && ldUrl.startsWith('http')) {
+          tUrl = ldUrl;
+        }
+      }
+      if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
+        tUrl = null;
+      }
       detectedOptions.push({
         courier: 'CARRIER EXTERNO',
         tracking: String(alphaDid),
-        tracking_url: order.raw_lightdata_data?.tracking_url || null,
+        tracking_url: tUrl || null,
         source: 'Etiqueta Alpha (LightData)',
         status: 'EN PREPARACIÓN'
       });
