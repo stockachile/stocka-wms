@@ -1975,8 +1975,12 @@ window.applyWmsFiltersAndRender = function() {
         const getMovedScore = (s) => {
           let gStatus = s.global_status;
           let statusText = s.status || '';
-          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
-            statusText = s.raw_data[23];
+          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+            if (s.raw_data && s.raw_data[23]) {
+              statusText = s.raw_data[23];
+            } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+              statusText = order.raw_lightdata_data.raw_data[23];
+            }
           }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             const rawStatus = statusText.toLowerCase().trim();
@@ -2252,8 +2256,12 @@ window.applyWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       let globStatus = shipment.global_status;
       let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-        statusText = shipment.raw_data[23];
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+        if (shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          statusText = order.raw_lightdata_data.raw_data[23];
+        }
       }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatus = statusText.toLowerCase().trim();
@@ -2396,8 +2404,12 @@ window.applyWmsFiltersAndRender = function() {
         const shipment = orderShipments[0];
         let globStatus = shipment.global_status;
         let statusText = shipment.status || '';
-        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-          statusText = shipment.raw_data[23];
+        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+          if (shipment.raw_data && shipment.raw_data[23]) {
+            statusText = shipment.raw_data[23];
+          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+            statusText = order.raw_lightdata_data.raw_data[23];
+          }
         }
         if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
           const rawStatusLower = statusText.toLowerCase().trim();
@@ -2440,8 +2452,12 @@ window.applyWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       let globStatus = shipment.global_status;
       let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-        statusText = shipment.raw_data[23];
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+        if (shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          statusText = order.raw_lightdata_data.raw_data[23];
+        }
       }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatusLower = statusText.toLowerCase().trim();
@@ -2468,13 +2484,24 @@ window.applyWmsFiltersAndRender = function() {
         badgeBg = '#fee2e2';
         badgeColor = '#991b1b';
       }
+
+      let platformBadge = '';
+      if (shipment.source_table === 'lightdata_envios') {
+        platformBadge = `<span class="badge" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">LightData</span>`;
+      } else if (shipment.source_table === 'enviame_shipments') {
+        platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
+      } else if (shipment.source_table === 'optiroute_orders') {
+        platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
+      }
       
       shipmentStatusHtml = `
-        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <strong>Estado Despacho:</strong> 
           <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
-            ${globStatus} <span style="font-size: 0.7rem; font-weight: 500; text-transform: none;">(${rawStatus})</span>
+            ${globStatus}
           </span>
+          ${platformBadge}
+          ${rawStatus && rawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${rawStatus}</span>` : ''}
         </p>
         <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
           <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
@@ -2769,6 +2796,14 @@ window.applyWmsFiltersAndRender = function() {
                   </table>
                 </div>
                 ${originalPacksHtml}
+
+                <!-- Reasignar Comercio -->
+                <div class="form-group" style="margin-top: 1.25rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
+                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: block; color: var(--color-text-muted);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
+                  <select onchange="window.reassignOrderCommerce('${order.id}', this.value)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    ${(window.wmsAllComercios || []).map(c => `<option value="${c}" ${c === order.comercio ? 'selected' : ''}>${c}</option>`).join('')}
+                  </select>
+                </div>
               </div>
 
               <!-- Col 3: Integración y Logística (Diseño Premium Dinámico) -->
@@ -2826,14 +2861,6 @@ window.applyWmsFiltersAndRender = function() {
 
                 <!-- Botón de datos crudos -->
                 ${rawJsonBtnHtml}
-
-                <!-- Reasignar Comercio -->
-                <div class="form-group" style="margin: 0; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border);">
-                  <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: block; color: var(--color-text-muted);"><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i> Reasignar Comercio / Tienda</label>
-                  <select onchange="window.reassignOrderCommerce('${order.id}', this.value)" class="form-input" style="padding: 0.25rem; font-size: 0.8rem; width: 100%; font-weight: 500; cursor: pointer; border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
-                    ${(window.wmsAllComercios || []).map(c => `<option value="${c}" ${c === order.comercio ? 'selected' : ''}>${c}</option>`).join('')}
-                  </select>
-                </div>
               </div>
 
             </div>
@@ -23053,10 +23080,17 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     for (const s of orderShipments) {
       if (s.tracking) {
         let tUrl = s.tracking_url;
-        if (s.source_table === 'lightdata_envios' && s.raw_data && s.raw_data[31]) {
-          const ldUrl = s.raw_data[31];
-          if (ldUrl && ldUrl.startsWith('http')) {
-            tUrl = ldUrl;
+        if (s.source_table === 'lightdata_envios') {
+          if (s.raw_data && s.raw_data[31]) {
+            const ldUrl = s.raw_data[31];
+            if (ldUrl && ldUrl.startsWith('http')) {
+              tUrl = ldUrl;
+            }
+          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
+            const ldUrl = order.raw_lightdata_data.raw_data[31];
+            if (ldUrl && ldUrl.startsWith('http')) {
+              tUrl = ldUrl;
+            }
           }
         }
         if (tUrl && (tUrl.includes('api.enviame.io/s2/') || tUrl.includes('api.enviame.io/api/'))) {
@@ -23068,8 +23102,12 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
 
         let gStatus = s.global_status;
         let statusText = s.status || '';
-        if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
-          statusText = s.raw_data[23];
+        if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+          if (s.raw_data && s.raw_data[23]) {
+            statusText = s.raw_data[23];
+          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+            statusText = order.raw_lightdata_data.raw_data[23];
+          }
         }
         if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
           const rawStatus = statusText.toLowerCase().trim();

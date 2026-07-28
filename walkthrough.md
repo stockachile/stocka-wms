@@ -1789,4 +1789,98 @@ Hemos corregido un error de maquetación HTML en la pestaña de integración de 
    - Agregamos los dos cierres de contenedor `</div>` faltantes al final del timeline del panel derecho de la pestaña de MercadoLibre (`js/app.js`), independizando correctamente cada panel.
    - Con esta corrección, la navegación entre las pestañas de **Walmart**, **WooCommerce**, **Jumpseller** y **Tiendanube** vuelve a funcionar con total normalidad y respuesta inmediata.
 
+---
+
+## 81. Robustecimiento de Fallbacks para Despachos de LightData en WMS (Cliente y Administrador)
+
+Hemos robustecido la consistencia de los datos de despacho de LightData en todo el WMS, asegurando que no se pierdan estados reales ni enlaces de seguimiento en ningún punto de la interfaz:
+
+1. **Fallback Inteligente a `order.raw_lightdata_data`**:
+   - En las vistas detalladas del pedido (tanto para cliente en `js/app.js` como administrador en `js/admin.js`) y en las funciones de ordenamiento de la grilla de pedidos, si un envío proviene de LightData y su campo de estado es una coordenada decimal, el WMS busca proactivamente la descripción textual en el JSON histórico de la integración (`order.raw_lightdata_data.raw_data[23]`).
+   - Del mismo modo, el enlace de seguimiento de LightData se recupera directamente del JSON histórico (`order.raw_lightdata_data.raw_data[31]`) si el registro de la tabla unificada de envíos no lo tiene disponible.
+
+2. **Badges de Plataforma Integrados**:
+   - Diseñamos y agregamos badges distintivos para cada plataforma de origen de despacho (**LightData**, **Envíame**, **OptiRoute**) en la vista detallada de órdenes del cliente, alineándolos estéticamente con el panel del administrador y facilitando la identificación instantánea del courier por parte del usuario.
+
+3. **Consistencia de Badges en la Grilla Principal**:
+   - Actualizamos la columna y fila de badges de despacho de la grilla principal para resolver adecuadamente las coordenadas geográficas de LightData a su estado global correspondiente (`DESPACHADO`, `ALERTA` o `SIN MOVIMIENTO`), garantizando una experiencia de usuario sin información desalineada.
+
+---
+
+## 82. Reubicación del Módulo "Reasignar Comercio / Tienda"
+
+Para evitar sobrecargar visualmente la columna de **Integración y Despacho** (Columna 3 en el detalle del pedido) y mantener un flujo de trabajo más limpio e intuitivo:
+
+1. **Reubicación de la Sección**:
+   - Movimos la sección **Reasignar Comercio / Tienda** (el selector de comercios) al final de la columna central de **Ítems del Pedido** (Columna 2), justo debajo del desglose de productos.
+2. **Estilo y Espaciado**:
+   - Se le aplicó un margen superior de `1.25rem` (`margin-top: 1.25rem;`) y se mantuvo el borde discontinuo estilo premium, logrando que el selector esté perfectamente integrado y no genere contaminación visual en el panel de transportes.
+
+---
+
+## 83. Consistencia de la Vista de Detalles del Pedido en el Portal del Cliente (Tags y Datos Premium sin Edición)
+
+Hemos mejorado drásticamente la consistencia de la interfaz del portal de clientes (`js/app.js`) para alinearla al diseño premium del administrador:
+
+1. **Alineación Estética de Integración y Despacho**:
+   - Reemplazamos la columna 3 simplificada del cliente por el diseño premium estructurado en tarjetas de la vista de administrador.
+   - El cliente ahora visualiza el bloque de **Origen de la Orden** (Plataforma, ID de Pedido, Estado de Plataforma), el bloque de **Courier y Tracking** (Courier Asignado, Enlace de Seguimiento con badges de estado global/crudo y botón de etiqueta si corresponde), y el bloque de **Auto Track / Monitoreo** (con su diseño dinámico de Radar).
+
+2. **Sin Capacidad de Edición para el Cliente**:
+   - Aislamos todos los controles y botones de edición de la columna 3 (tales como "Editar Envío", "Editar Picking", selectores de reasignación) para que el cliente únicamente visualice la información en formato de lectura premium, resguardando la integridad operacional del WMS.
+
+3. **Reubicación y Organización de Campos Logísticos**:
+   - Agrupamos de forma prolija los campos de logística interna (**Sucursal Pickeo**, **Agenda Picking**, **Fecha Procesamiento** y **Operador Courier**) en una sección de lectura con bordes punteados al final de la columna 1 (**Datos de Despacho**).
+   - Añadimos la columna `sucursal_pickeo` a la consulta de órdenes principal de la sección de clientes para garantizar su correcta visualización.
+
+4. **Soporte Completo de Etiqueta (Descarga y Enlace)**:
+   - Añadimos soporte para renderizar tanto etiquetas descargables en Base64 como enlaces directos a etiquetas externas (`order.label_url`) para que los clientes puedan consultar o descargar el archivo original directamente si está disponible.
+
+---
+
+## 84. Consistencia Total de Visibilidad de Despacho y Estados de Seguimiento para el Cliente
+
+Para cumplir a cabalidad con la solicitud de que el portal del cliente tenga la misma visibilidad y visualización exacta de envíos y estados que la del administrador:
+
+1. **Remoción de Filtro `visible_to_client`**:
+   - Eliminamos la restricción `.eq('visible_to_client', true)` de todas las consultas Supabase hacia la tabla `envios_unificados` en `js/app.js`.
+   - Esto permite que el cliente recupere los registros de despacho y tracking para sus pedidos de forma irrestricta (al igual que el administrador), solucionando el problema donde los envíos quedaban invisibles debido a dicho flag.
+   - La seguridad de los datos se mantiene garantizada a nivel de comercio/proveedor mediante el filtrado de pertenencia por `companyList` de la cuenta.
+
+2. **Visibilidad de Badges de Seguimiento en la Rejilla y Modal**:
+   - Al cargar correctamente la información de despacho unificado sin filtros restrictivos, ahora se renderizan en tiempo real los badges de estado global (`DESPACHADO`, `ALERTA`, etc.) y el estado particular descriptivo tanto en la columna de badges de la fila de la grilla principal de pedidos como en la tarjeta de Auto Track del detalle del pedido.
+
+---
+
+## 85. Optimización Chunked para Carga de Despachos Unificados en Cliente (Prevención de Error HTTP 414)
+
+Al cargar la lista de despachos unificados asociados a los pedidos del cliente en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js):
+
+1. **El Problema**:
+   - Las consultas a `envios_unificados` usaban `.in('pedido_referencia', allRefs)` con una lista que contenía los identificadores de todos los pedidos cargados del mes (más de 1,500 referencias en clientes de alto volumen).
+   - Esto resultaba en peticiones HTTP con URLs excesivamente largas que excedían los límites del servidor (HTTP 414 URI Too Large), causando que la consulta fallara silenciosamente y dejara la lista de envíos vacía, mostrando el seguimiento como `-`.
+
+2. **La Solución (Consulta Segmentada)**:
+   - Implementamos la función `fetchEnviosUnificadosByRefs(allRefs)` en el cliente con un tamaño de lote (`CHUNK_SIZE`) de 150 elementos, idéntica a la optimización del panel de administración.
+   - Reemplazamos las llamadas directas de consulta de despachos tanto para la carga inicial de la grilla como para la carga en segundo plano del historial histórico.
+   - Esto garantiza la correcta asociación de despachos (incluyendo los de OptiRoute/Stocka X como el del pedido `MAG5609`) bajo cualquier volumen de órdenes.
+
+---
+
+## 86. Corrección de RLS para el Registro de Observaciones de Facturación (Portal Cliente)
+
+Hemos detectado y corregido un problema de seguridad a nivel de base de datos (RLS) que impedía a los usuarios cliente enviar comentarios u observaciones sobre sus facturas:
+
+1. **Causa Raíz de la Falla Silenciosa**:
+   - En la tabla `public.billing_records`, existía una política de lectura (`FOR SELECT`) para clientes, pero no una política que permitiera la actualización (`FOR UPDATE`).
+   - Como resultado, cuando un cliente (por ejemplo, `mlg@magicmakeup.cl`) rellenaba la apelación en el portal y enviaba la solicitud, la API de Supabase rechazaba el `UPDATE` retornando `0` filas actualizadas. En la interfaz cliente esto no arrojaba un error de red y simulaba un éxito aparente, pero el comentario nunca llegaba a guardarse.
+
+2. **Aplicación de la Nueva Política de UPDATE**:
+   - Diseñamos la política `"Clientes pueden actualizar observaciones de sus comercios"` para la tabla `public.billing_records`.
+   - Esta política restringe la actualización para que el usuario autenticado solo pueda modificar registros que pertenezcan a su comercio (siguiendo el mismo esquema riguroso del filtrado de lectura).
+   - Generamos el archivo de migración [supabase_schema_billing_records_policy_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing_records_policy_fix.sql) con las sentencias correspondientes y actualizamos el archivo consolidado [supabase_schema_billing.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing.sql).
+
+
+
+
 
