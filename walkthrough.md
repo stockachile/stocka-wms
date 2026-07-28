@@ -1690,3 +1690,22 @@ Hemos corregido y mejorado los enlaces de seguimiento para transportistas extern
 
 3. **Visualización de Sub-courier Real**:
    - Para aquellos pedidos que tienen el courier principal registrado genéricamente como `CARRIER EXTERNO` en el pedido, el frontend del WMS ahora muestra el sub-courier específico detectado en la tabla de envíos (ej. `RECIBELO` en lugar del genérico `CARRIER EXTERNO`).
+
+---
+
+## 76. Priorización de Envíos Activos y Homogeneización de Estado Global de Despacho (WMS)
+
+Hemos resuelto la incidencia de visualización en el panel WMS (tanto para administradores como para clientes) donde se mostraban estados de despacho "Sin Movimiento" para pedidos que ya contaban con etiquetas activas despachadas, debido a la coexistencia de múltiples etiquetas o desfases de estados:
+
+1. **Priorización de Envíos en Movimiento**:
+   - Modificamos el algoritmo de ordenamiento de envíos (`orderShipments.sort`) en `js/admin.js` y `js/app.js` para priorizar los envíos que tienen movimiento real (`DESPACHADO` o `ALERTA`) sobre aquellos que están estancados en `"SIN MOVIMIENTO"` o son etiquetas antiguas canceladas/sin retirar.
+   - Esto asegura que si un pedido tiene una etiqueta de Envíame estancada en `"SIN MOVIMIENTO"` y una etiqueta de LightData con movimiento real, el WMS seleccione y muestre de manera prioritaria el envío activo.
+
+2. **Resolución Dinámica de Estado Global para LightData**:
+   - Descubrimos que la función de base de datos `get_global_status` no mapeaba estados específicos de LightData (tales como *"En planta de procesamiento"*, *"Clasificado en planta"*, o *"Recepcionado en planta"*), retornando `NULL` y provocando que el WMS los mostrara de manera predeterminada como `"SIN MOVIMIENTO"`.
+   - Implementamos un resolvedor dinámico en el frontend (`js/admin.js` y `js/app.js`) que traduce estos estados de LightData a su estado real de `"DESPACHADO"` o `"ALERTA"` al vuelo en las vistas principales de la grilla y en el modal de edición de despachos.
+   - Creamos la migración SQL [supabase_schema_unification_phase19.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_unification_phase19.sql) para actualizar la función `get_global_status` en la base de datos de Supabase y recalcular el estado global para todos los registros históricos.
+
+3. **Filtrado de Coordenadas Geográficas en Estado Crudo**:
+   - Corregimos el problema visual donde el WMS renderizaba coordenadas de longitud/latitud (ej. `'-70.5786311'`) en la columna de estado.
+   - Añadimos un filtro de expresiones regulares en el frontend que detecta si el estado es un valor numérico/coordenada decimal y lo oculta visualmente mostrando un guion estándar `'-'`.

@@ -236,6 +236,50 @@ async function syncProducts(integration, headers) {
 async function syncOrders(integration, headers, warehouseId) {
   console.log('--> Extrayendo pedidos desde Jumpseller...');
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // Jumpseller default is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Jumpseller'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para Jumpseller: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
   try {
@@ -269,10 +313,23 @@ async function syncOrders(integration, headers, warehouseId) {
 
     for (const item of ordersList) {
       const o = item.order;
-      const orderNumber = `#JS-${o.id}`;
+      let orderNumber = `#JS-${o.id}`;
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderNumber = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderNumber = `${siglaComercio}${orderNumber}`;
+        }
+      }
       const statusName = o.status; // 'Pending', 'Paid', 'Canceled', 'Abandoned', 'Open'
 
-      console.log(`\nProcesando pedido Jumpseller ID: ${orderNumber} (Estado actual: ${statusName})`);
+      console.log(`\nProcesando pedido Jumpseller ID: ${finalOrderNumber} (Estado actual: ${statusName})`);
 
       // Clasificación de estados
       const isDelivered = o.shipment_status === 'shipped' || o.shipment_status === 'delivered';
@@ -284,7 +341,7 @@ async function syncOrders(integration, headers, warehouseId) {
         .from('orders')
         .select('id, status')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', orderNumber)
+        .eq('external_order_number', finalOrderNumber)
         .eq('external_platform', 'Jumpseller')
         .maybeSingle();
 
@@ -313,7 +370,7 @@ async function syncOrders(integration, headers, warehouseId) {
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
-        external_order_number: orderNumber,
+        external_order_number: finalOrderNumber,
         external_platform: 'Jumpseller',
         payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
         total_value: totalValue,

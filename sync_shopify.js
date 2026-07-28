@@ -144,6 +144,50 @@ async function syncOrders(integration) {
   console.log('--> Extrayendo pedidos...');
   const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any`;
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // Shopify default fallback is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Shopify'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy for Shopify
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para Shopify: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar primera bodega asignada al comerciante
   const { data: whRelation } = await supabase
     .from('merchants_warehouses')
@@ -191,19 +235,34 @@ async function syncOrders(integration) {
     console.log(`Se encontraron ${orders.length} pedidos.`);
 
     for (const order of orders) {
+      let orderNumber = (order.name || '').toString().trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderNumber = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderNumber = `${siglaComercio}${orderNumber}`;
+        }
+      }
+
       // Intentar buscar si el pedido ya existe en nuestra BD
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', order.name)
+        .eq('external_order_number', finalOrderNumber)
         .eq('external_platform', 'Shopify')
         .maybeSingle();
 
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
-        external_order_number: order.name, // Ej: #1001
+        external_order_number: finalOrderNumber, // Ej: #1001
         external_platform: 'Shopify',
         payment_status: order.financial_status,
         total_value: order.current_total_price,

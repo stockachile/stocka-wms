@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     pedido_trae_sigla BOOLEAN NOT NULL DEFAULT false,       -- Si el pedido trae de origen una sigla o no
     rut TEXT,                                        -- RUT de la empresa asociada
     razon_social TEXT,                               -- Razón Social de la empresa asociada
+    plat_siglas_config JSONB DEFAULT '{}'::jsonb,    -- Configuración de siglas y prefijos por plataforma
+    email_colaborador TEXT,                          -- Correo para cuentas de colaborador en marketplaces
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -16,6 +18,8 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
 -- Si la tabla ya existe en tu base de datos, ejecuta estas líneas en el Editor de SQL:
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_siglas_config JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
 
 -- 2. Habilitar RLS (Row Level Security)
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;

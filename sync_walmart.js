@@ -385,6 +385,50 @@ async function syncMerchantOrders(integration) {
     throw new Error("No hay bodega configurada para este comercio");
   }
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // Walmart default is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Walmart'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para Walmart: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
   try {
@@ -518,12 +562,27 @@ async function syncMerchantOrders(integration) {
       const targetStatus = mapWalmartStatus(finalWalmartStatus);
       const shippingMethod = order.shippingInfo?.methodCode || 'Standard';
 
+      let orderNumber = orderId.trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderId = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderId = `${siglaComercio}${orderNumber}`;
+        }
+      }
+
       // B. Verificar si el pedido ya existe en el WMS
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', orderId)
+        .eq('external_order_number', finalOrderId)
         .eq('external_platform', 'Walmart')
         .maybeSingle();
 
@@ -539,7 +598,7 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update({ payment_status: finalWalmartStatus, status: 'cancelado', created_at: order.orderDate })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${orderId} cancelado en Walmart. Actualizado en WMS.`);
+          console.log(`🚫 Pedido ${finalOrderId} cancelado en Walmart. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido
           const updatePayload = {
@@ -557,7 +616,7 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update(updatePayload)
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${orderId} (Estado: ${targetStatus})`);
+          console.log(`📝 Actualizado pedido local ${finalOrderId} (Estado: ${targetStatus})`);
         }
 
         // Verificar si tiene ítems registrados
@@ -572,7 +631,7 @@ async function syncMerchantOrders(integration) {
       } else {
         // C. Es un pedido nuevo
         if (isCancelled) {
-          console.log(`ℹ️ Pedido ${orderId} está cancelado en origen y no existe localmente. Omitiendo creación.`);
+          console.log(`ℹ️ Pedido ${finalOrderId} está cancelado en origen y no existe localmente. Omitiendo creación.`);
           continue;
         }
 
@@ -618,7 +677,7 @@ async function syncMerchantOrders(integration) {
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
           comercio: resolvedCommerce,
-          external_order_number: orderId,
+          external_order_number: finalOrderId,
           external_platform: 'Walmart',
           payment_status: finalWalmartStatus,
           total_value: totalAmount,
@@ -645,11 +704,11 @@ async function syncMerchantOrders(integration) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${orderId}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${finalOrderId}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${orderId} con estado temporal 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderId} con estado temporal 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
 

@@ -177,6 +177,50 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // Falabella default is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Falabella'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para Falabella: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
   try {
@@ -228,10 +272,23 @@ async function syncMerchantOrders(integration) {
 
     for (const order of orders) {
       const orderId = order.OrderId;
-      const orderNumber = order.OrderNumber || orderId;
+      let orderNumber = (order.OrderNumber || orderId).toString().trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderNumber = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderNumber = `${siglaComercio}${orderNumber}`;
+        }
+      }
       const statusName = (order.Statuses && order.Statuses.Status ? order.Statuses.Status : (order.Status || "")).toLowerCase().trim();
       
-      console.log(`\nProcesando pedido Falabella ID: ${orderId} (N° Venta: ${orderNumber}, Estado: ${statusName})`);
+      console.log(`\nProcesando pedido Falabella ID: ${orderId} (N° Venta: ${finalOrderNumber}, Estado: ${statusName})`);
 
       const isCancelled = statusName.includes('cancel') || statusName.includes('refund');
 
@@ -298,7 +355,7 @@ async function syncMerchantOrders(integration) {
         .from('orders')
         .select('id, status, label_base64, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', orderNumber)
+        .eq('external_order_number', finalOrderNumber)
         .eq('external_platform', 'Falabella')
         .maybeSingle();
 
@@ -323,7 +380,7 @@ async function syncMerchantOrders(integration) {
               created_at: new Date(order.CreatedAt).toISOString() 
             })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${orderNumber} cancelado en Falabella. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderNumber} cancelado en Falabella. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido
           await supabase
@@ -338,7 +395,7 @@ async function syncMerchantOrders(integration) {
               created_at: new Date(order.CreatedAt).toISOString() 
             })
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${orderNumber} (Tracking: ${trackingNum}, Courier: ${courierName})`);
+          console.log(`📝 Actualizado pedido local ${finalOrderNumber} (Tracking: ${trackingNum}, Courier: ${courierName})`);
         }
 
         // Si existe pero no tiene etiqueta de despacho, intentar descargarla
@@ -361,7 +418,7 @@ async function syncMerchantOrders(integration) {
           .eq('order_id', localOrderId);
 
         if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${orderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
+          console.log(`ℹ️ Pedido existente ${finalOrderNumber} no tiene ítems registrados. Se procederá a ingresarlos.`);
           shouldInsertItems = true;
         }
       } else {
@@ -373,7 +430,7 @@ async function syncMerchantOrders(integration) {
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
           comercio: integration.comercio,
-          external_order_number: orderNumber,
+          external_order_number: finalOrderNumber,
           external_platform: 'Falabella',
           payment_status: statusName,
           total_value: totalValue,
@@ -405,11 +462,11 @@ async function syncMerchantOrders(integration) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${orderNumber}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${finalOrderNumber}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${orderNumber} con estado temporal 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderNumber} con estado temporal 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
       }

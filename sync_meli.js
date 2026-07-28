@@ -318,6 +318,50 @@ async function syncMerchantOrders(integration) {
     throw new Error("No hay bodega configurada para este comercio");
   }
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // MercadoLibre default is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['MercadoLibre'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para MercadoLibre: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
   try {
@@ -482,12 +526,27 @@ async function syncMerchantOrders(integration) {
       const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
       const targetStatus = mapMeliStatus(shippingStatus);
 
+      let orderNumber = groupId.trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalGroupId = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalGroupId = `${siglaComercio}${orderNumber}`;
+        }
+      }
+
       // B. Verificar si el pedido ya existe en el WMS (buscando por comercio en vez de merchant_id para evitar duplicados si cambia la cuenta vinculada)
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, status, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', groupId)
+        .eq('external_order_number', finalGroupId)
         .eq('external_platform', 'MercadoLibre')
         .maybeSingle();
 
@@ -503,7 +562,7 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update({ payment_status: group.status, status: 'cancelado', created_at: group.date_created })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${groupId} cancelado en MercadoLibre. Actualizado en WMS.`);
+          console.log(`🚫 Pedido ${finalGroupId} cancelado en MercadoLibre. Actualizado en WMS.`);
         } else {
           // Actualizar datos del pedido sin sobreescribir el comercio para preservar reasignaciones manuales
           const updatePayload = {
@@ -521,7 +580,7 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update(updatePayload)
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${groupId} (Estado: ${targetStatus}, SLA: ${formattedSla})`);
+          console.log(`📝 Actualizado pedido local ${finalGroupId} (Estado: ${targetStatus}, SLA: ${formattedSla})`);
         }
 
         // Verificar si tiene ítems registrados
@@ -623,7 +682,7 @@ async function syncMerchantOrders(integration) {
         const orderDataToSave = {
           merchant_id: integration.merchant_id,
           comercio: resolvedCommerce,
-          external_order_number: groupId,
+          external_order_number: finalGroupId,
           external_platform: 'MercadoLibre',
           payment_status: group.status,
           total_value: group.total_value,
@@ -650,11 +709,11 @@ async function syncMerchantOrders(integration) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${groupId}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${finalGroupId}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${groupId} con estado temporal 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalGroupId} con estado temporal 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
 

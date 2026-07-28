@@ -235,8 +235,12 @@ async function syncProducts(integration, storeId, headers) {
 async function syncOrders(integration, storeId, headers, warehouseId) {
   console.log('--> Extrayendo pedidos desde Tiendanube...');
 
-  // Obtener sigla del comercio y configuración de pedido_trae_sigla
-  let prefix = '';
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = true;
+  let hasPlatConfig = false;
+
   if (integration.comercio) {
     try {
       const { data: configData } = await supabase
@@ -245,16 +249,31 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         .eq('nombre', integration.comercio)
         .maybeSingle();
 
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
       const { data: adicionalConfig } = await supabase
         .from('comercios_adicional_config')
-        .select('pedido_trae_sigla')
+        .select('pedido_trae_sigla, plat_siglas_config')
         .eq('comercio', integration.comercio)
         .maybeSingle();
 
-      const traeSigla = adicionalConfig ? adicionalConfig.pedido_trae_sigla : false;
-      if (configData && configData.sigla && !traeSigla) {
-        prefix = configData.sigla.trim().toUpperCase();
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Tiendanube'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = !adicionalConfig.pedido_trae_sigla;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = true;
       }
+      console.log(`ℹ️ Configuración de prefijo para Tiendanube: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
     } catch (err) {
       console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
     }
@@ -294,8 +313,20 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
 
     for (const order of orders) {
       const orderId = order.id.toString();
-      const orderNumber = order.number ? order.number.toString() : orderId;
-      const finalOrderNumber = prefix ? `${prefix}${orderNumber}` : orderNumber;
+      let orderNumber = (order.number ? order.number.toString() : orderId).trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderNumber = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderNumber = `${siglaComercio}${orderNumber}`;
+        }
+      }
       
       // Mapeo de estados en Tiendanube
       // status: open, closed, cancelled

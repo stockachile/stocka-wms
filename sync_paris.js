@@ -121,6 +121,50 @@ async function syncMerchantOrders(integration) {
     return;
   }
 
+  // Obtener sigla del comercio y configuración de prefijos por plataforma
+  let siglaComercio = '';
+  let prefijoOrigen = '';
+  let agregarPrefijo = false; // Paris default is false
+  let hasPlatConfig = false;
+
+  if (integration.comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from('v_comercios_config')
+        .select('sigla')
+        .eq('nombre', integration.comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from('comercios_adicional_config')
+        .select('pedido_trae_sigla, plat_siglas_config')
+        .eq('comercio', integration.comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})['Paris'];
+        if (platConfig) {
+          hasPlatConfig = true;
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || '').trim().toUpperCase();
+        } else {
+          // Fallback legacy
+          agregarPrefijo = false;
+        }
+      } else {
+        // Fallback default
+        agregarPrefijo = false;
+      }
+      console.log(`ℹ️ Configuración de prefijo para Paris: Sigla="${siglaComercio}", HasPlatConfig=${hasPlatConfig}, AgregarPrefijo=${agregarPrefijo}, PrefijoOrigen="${prefijoOrigen}"`);
+    } catch (err) {
+      console.error('⚠️ Error al consultar configuración de sigla para el comercio:', err.message);
+    }
+  }
+
   // Cargar equivalencias de SKU para este comercio
   const skuMap = {};
   try {
@@ -190,9 +234,23 @@ async function syncMerchantOrders(integration) {
 
     for (const order of orders) {
       const orderId = order.subOrderNumber || order.originOrderNumber || order.id;
+      let orderNumber = orderId.toString().trim();
+
+      // 1. Quitar prefijo de origen si coincide
+      if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+        orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+      }
+
+      // 2. Aplicar prefijo del WMS si corresponde
+      let finalOrderId = orderNumber;
+      if (agregarPrefijo && siglaComercio) {
+        if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+          finalOrderId = `${siglaComercio}${orderNumber}`;
+        }
+      }
       const statusName = order.status?.name || 'created';
       
-      console.log(`\nProcesando pedido París ID: ${orderId} (Estado actual: ${statusName})`);
+      console.log(`\nProcesando pedido París ID: ${finalOrderId} (Estado actual: ${statusName})`);
 
       // Clasificación de estados
       const isDelivered = statusName === 'delivered' || order.status?.id === 4;
@@ -207,7 +265,7 @@ async function syncMerchantOrders(integration) {
         .from('orders')
         .select('id, status, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', orderId)
+        .eq('external_order_number', finalOrderId)
         .eq('external_platform', 'Paris')
         .maybeSingle();
 
@@ -257,7 +315,7 @@ async function syncMerchantOrders(integration) {
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
-        external_order_number: orderId,
+        external_order_number: finalOrderId,
         external_platform: 'Paris',
         payment_status: statusName,
         total_value: totalValue,
@@ -286,14 +344,14 @@ async function syncMerchantOrders(integration) {
             .from('orders')
             .update({ ...orderDataToSave, status: 'cancelado' })
             .eq('id', existingOrder.id);
-          console.log(`🚫 Pedido ${orderId} cancelado en París. Actualizado en el WMS.`);
+          console.log(`🚫 Pedido ${finalOrderId} cancelado en París. Actualizado en el WMS.`);
         } else {
           // Actualizar datos del pedido manteniendo el estado WMS actual
           await supabase
             .from('orders')
             .update(orderDataToSave)
             .eq('id', existingOrder.id);
-          console.log(`📝 Actualizado pedido local ${orderId}`);
+          console.log(`📝 Actualizado pedido local ${finalOrderId}`);
         }
         localOrderId = existingOrder.id;
 
@@ -305,7 +363,7 @@ async function syncMerchantOrders(integration) {
           .eq('order_id', localOrderId);
 
         if (!itemsCheckErr && (!existingItems || existingItems.length === 0)) {
-          console.log(`ℹ️ Pedido existente ${orderId} no tiene ítems registrados. Se procederá a ingresarlos.`);
+          console.log(`ℹ️ Pedido existente ${finalOrderId} no tiene ítems registrados. Se procederá a ingresarlos.`);
           shouldInsertItems = true;
         }
       } else if (isActive) {
@@ -317,15 +375,15 @@ async function syncMerchantOrders(integration) {
           .single();
 
         if (insErr) {
-          console.error(`❌ Error al insertar pedido local ${orderId}:`, insErr.message);
+          console.error(`❌ Error al insertar pedido local ${finalOrderId}:`, insErr.message);
           continue;
         }
 
-        console.log(`📥 Insertado nuevo pedido local ${orderId} con estado 'para procesar'`);
+        console.log(`📥 Insertado nuevo pedido local ${finalOrderId} con estado 'para procesar'`);
         localOrderId = newOrder.id;
         shouldInsertItems = true;
       } else {
-        console.log(`ℹ️ Pedido ${orderId} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
+        console.log(`ℹ️ Pedido ${finalOrderId} ignorado por estar en estado final (cancelado/entregado) y no existir en WMS.`);
       }
 
       if (localOrderId && shouldInsertItems) {

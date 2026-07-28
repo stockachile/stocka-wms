@@ -616,6 +616,9 @@ console.log('DEBUG: Iniciando js/admin.js...');
 function getDisplayStatusName(rawStatus) {
   if (!rawStatus) return 'Desconocido';
   const statusLower = rawStatus.trim().toLowerCase();
+  if (/^-?\d+\.\d+$/.test(statusLower)) {
+    return 'En reparto';
+  }
   switch (statusLower) {
     case 'delivered':
       return 'Entregado';
@@ -1964,20 +1967,33 @@ window.applyWmsFiltersAndRender = function() {
     );
 
     // Priorizar los envíos según:
-    // 1. Coincidencia exacta con el tracking_number actual del pedido
-    // 2. Si tiene movimiento (global_status = 'DESPACHADO')
+    // 1. Si tiene movimiento (global_status = 'DESPACHADO' o 'ALERTA', evaluado dinámicamente)
+    // 2. Coincidencia exacta con el tracking_number actual del pedido
     // 3. Fecha de actualización más reciente
     if (orderShipments.length > 1) {
       orderShipments.sort((a, b) => {
+        const getMovedScore = (s) => {
+          let gStatus = s.global_status;
+          if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+            const rawStatus = (s.status || '').toLowerCase().trim();
+            if (s.source_table === 'lightdata_envios') {
+              if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie')) {
+                gStatus = 'DESPACHADO';
+              }
+            }
+          }
+          return (gStatus === 'DESPACHADO' || gStatus === 'ALERTA') ? 1 : 0;
+        };
+
+        const aMoved = getMovedScore(a);
+        const bMoved = getMovedScore(b);
+        if (aMoved !== bMoved) return bMoved - aMoved;
+
         if (order.tracking_number) {
           const aMatch = a.tracking === order.tracking_number ? 1 : 0;
           const bMatch = b.tracking === order.tracking_number ? 1 : 0;
           if (aMatch !== bMatch) return bMatch - aMatch;
         }
-        
-        const aMoved = a.global_status === 'DESPACHADO' ? 1 : 0;
-        const bMoved = b.global_status === 'DESPACHADO' ? 1 : 0;
-        if (aMoved !== bMoved) return bMoved - aMoved;
 
         const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0;
         const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0;
@@ -2349,7 +2365,21 @@ window.applyWmsFiltersAndRender = function() {
       let shipStatusBadge = '';
       if (orderShipments.length > 0) {
         const shipment = orderShipments[0];
-        const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
+        let globStatus = shipment.global_status;
+        if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+          const rawStatusLower = (shipment.status || '').toLowerCase().trim();
+          if (shipment.source_table === 'lightdata_envios') {
+            if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie')) {
+              globStatus = 'DESPACHADO';
+            } else if (rawStatusLower === 'cancelado') {
+              globStatus = 'ALERTA';
+            } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
+              globStatus = 'SIN MOVIMIENTO';
+            }
+          }
+        }
+        if (!globStatus) globStatus = 'SIN MOVIMIENTO';
+
         let badgeBg = '#e5e7eb';
         let badgeColor = '#4b5563';
         
@@ -2370,8 +2400,22 @@ window.applyWmsFiltersAndRender = function() {
     let shipmentStatusHtml = '';
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
-      const rawStatus = shipment.status || '-';
+      let globStatus = shipment.global_status;
+      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+        const rawStatusLower = (shipment.status || '').toLowerCase().trim();
+        if (shipment.source_table === 'lightdata_envios') {
+          if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie')) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatusLower === 'cancelado') {
+            globStatus = 'ALERTA';
+          } else if (rawStatusLower === 'no retirado' || rawStatusLower === 'a retirar') {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        }
+      }
+      if (!globStatus) globStatus = 'SIN MOVIMIENTO';
+
+      const rawStatus = (shipment.status && !/^-?\d+\.\d+$/.test(shipment.status)) ? shipment.status : '-';
       let badgeBg = '#e5e7eb';
       let badgeColor = '#4b5563';
       
@@ -22934,12 +22978,26 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
           tUrl = null;
         }
 
+        let gStatus = s.global_status;
+        if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+          const rawStatus = (s.status || '').toLowerCase().trim();
+          if (s.source_table === 'lightdata_envios') {
+            if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie')) {
+              gStatus = 'DESPACHADO';
+            } else if (rawStatus === 'cancelado') {
+              gStatus = 'ALERTA';
+            } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+              gStatus = 'SIN MOVIMIENTO';
+            }
+          }
+        }
+
         detectedOptions.push({
           courier: s.courier || 'Courier',
           tracking: s.tracking,
           tracking_url: tUrl || null,
           source: 'Auto Track (Envío)',
-          status: s.global_status || 'SIN MOVIMIENTO'
+          status: gStatus || 'SIN MOVIMIENTO'
         });
       }
     }
@@ -22957,12 +23015,21 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       if (tUrl && !tUrl.startsWith('http://') && !tUrl.startsWith('https://')) {
         tUrl = null;
       }
+      let gStatus = order.raw_lightdata_data?.global_status;
+      if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
+        const rawStatus = (order.raw_lightdata_data?.status || '').toLowerCase().trim();
+        if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie')) {
+          gStatus = 'DESPACHADO';
+        } else if (rawStatus === 'cancelado') {
+          gStatus = 'ALERTA';
+        }
+      }
       detectedOptions.push({
         courier: 'CARRIER EXTERNO',
         tracking: String(alphaDid),
         tracking_url: tUrl || null,
         source: 'Etiqueta Alpha (LightData)',
-        status: 'EN PREPARACIÓN'
+        status: gStatus || 'EN PREPARACIÓN'
       });
     }
 
