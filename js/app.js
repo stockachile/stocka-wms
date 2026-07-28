@@ -6428,18 +6428,6 @@ async function renderIntegrations() {
                   </div>
                 </div>
 
-                <!-- Step 4 -->
-                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
-                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">4</div>
-                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
-                      <i class="ri-plug-2-line" style="color: var(--color-primary);"></i> Conexión de Respaldo vía API
-                    </h4>
-                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
-                      Posteriormente, nos pondremos en contacto contigo para establecer una <strong>segunda conexión complementaria vía API</strong>. Esta conexión funcionará como un canal de respaldo (fallback) secundario para asegurar la máxima estabilidad en la descarga de órdenes.
-                    </p>
-                  </div>
-                </div>
 
               </div>
             </div>
