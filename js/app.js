@@ -4889,11 +4889,19 @@ window.applyClientWmsFiltersAndRender = function() {
       orderShipments.sort((a, b) => {
         const getMovedScore = (s) => {
           let gStatus = s.global_status;
+          let statusText = s.status || '';
+          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
+            statusText = s.raw_data[23];
+          }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
-            const rawStatus = (s.status || '').toLowerCase().trim();
+            const rawStatus = statusText.toLowerCase().trim();
             if (s.source_table === 'lightdata_envios') {
-              if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie')) {
+              if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
                 gStatus = 'DESPACHADO';
+              } else if (rawStatus === 'cancelado') {
+                gStatus = 'ALERTA';
+              } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+                gStatus = 'SIN MOVIMIENTO';
               }
             }
           }
@@ -5128,10 +5136,14 @@ window.applyClientWmsFiltersAndRender = function() {
           : `<span style="display:inline-flex; align-items:center; gap:0.25rem; color: var(--color-text-main); font-weight:600;"><i class="ri-truck-line"></i> ${courierName}: ${shipment.tracking}</span>`;
         
         let globStatus = shipment.global_status;
+        let statusText = shipment.status || '';
+        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        }
         if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-          const rawStatusLower = (shipment.status || '').toLowerCase().trim();
+          const rawStatusLower = statusText.toLowerCase().trim();
           if (shipment.source_table === 'lightdata_envios') {
-            if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie')) {
+            if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
               globStatus = 'DESPACHADO';
             } else if (rawStatusLower === 'cancelado') {
               globStatus = 'ALERTA';
@@ -5153,8 +5165,8 @@ window.applyClientWmsFiltersAndRender = function() {
           badgeColor = '#991b1b';
         }
         
-        const rawStatus = (shipment.status && !/^-?\d+\.\d+$/.test(shipment.status)) ? shipment.status : '';
-        const rawStatusSpan = rawStatus 
+        const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
+        const rawStatusSpan = (rawStatus && rawStatus !== '-') 
           ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${rawStatus}</span>` 
           : '';
 
@@ -5168,10 +5180,14 @@ window.applyClientWmsFiltersAndRender = function() {
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
       let globStatus = shipment.global_status;
+      let statusText = shipment.status || '';
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
+        statusText = shipment.raw_data[23];
+      }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
-        const rawStatusLower = (shipment.status || '').toLowerCase().trim();
+        const rawStatusLower = statusText.toLowerCase().trim();
         if (shipment.source_table === 'lightdata_envios') {
-          if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie')) {
+          if (rawStatusLower.includes('camino') || rawStatusLower.includes('planta') || rawStatusLower.includes('recepcionado') || rawStatusLower.includes('procesamiento') || rawStatusLower.includes('clasificado') || rawStatusLower.includes('entregado') || rawStatusLower.includes('nadie') || rawStatusLower.includes('reparto') || rawStatusLower.includes('tránsito') || rawStatusLower.includes('transito') || rawStatusLower.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatusLower)) {
             globStatus = 'DESPACHADO';
           } else if (rawStatusLower === 'cancelado') {
             globStatus = 'ALERTA';
@@ -5182,7 +5198,7 @@ window.applyClientWmsFiltersAndRender = function() {
       }
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
-      const rawStatus = (shipment.status && !/^-?\d+\.\d+$/.test(shipment.status)) ? shipment.status : '-';
+      const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
       let badgeBg = '#e5e7eb';
       let badgeColor = '#4b5563';
       
@@ -5344,7 +5360,25 @@ window.applyClientWmsFiltersAndRender = function() {
     let shipmentBadgeHtml = '';
     if (orderShipments.length > 0) {
       const shipment = orderShipments[0];
-      const globStatus = shipment.global_status || 'SIN MOVIMIENTO';
+      let globStatus = shipment.global_status;
+      let statusText = shipment.status || '';
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
+        statusText = shipment.raw_data[23];
+      }
+      if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
+        const rawStatus = statusText.toLowerCase().trim();
+        if (shipment.source_table === 'lightdata_envios') {
+          if (rawStatus.includes('camino') || rawStatus.includes('planta') || rawStatus.includes('recepcionado') || rawStatus.includes('procesamiento') || rawStatus.includes('clasificado') || rawStatus.includes('entregado') || rawStatus.includes('nadie') || rawStatus.includes('reparto') || rawStatus.includes('tránsito') || rawStatus.includes('transito') || rawStatus.includes('ruta') || /^-?\d+\.\d+$/.test(rawStatus)) {
+            globStatus = 'DESPACHADO';
+          } else if (rawStatus === 'cancelado') {
+            globStatus = 'ALERTA';
+          } else if (rawStatus === 'no retirado' || rawStatus === 'a retirar') {
+            globStatus = 'SIN MOVIMIENTO';
+          }
+        }
+      }
+      if (!globStatus) globStatus = 'SIN MOVIMIENTO';
+
       const courierName = shipment.courier || 'Courier';
       let badgeBg = '#e5e7eb';
       let badgeColor = '#4b5563';
@@ -5699,13 +5733,33 @@ async function renderIntegrations() {
       window.activeIntegrationCommerce = assignedComercios[0];
     }
 
-    // Obtener las integraciones de este comercio
-    const { data: integrationsList, error: fetchErr } = await supabase
-      .from('merchant_integrations')
-      .select('*')
-      .eq('comercio', window.activeIntegrationCommerce);
-
-    if (fetchErr) throw fetchErr;
+    // Obtener las integraciones de este comercio y su configuración adicional
+    let emailColaborador = null;
+    let integrationsList = [];
+    try {
+      const [integrationsRes, configRes] = await Promise.all([
+        supabase
+          .from('merchant_integrations')
+          .select('*')
+          .eq('comercio', window.activeIntegrationCommerce),
+        supabase
+          .from('comercios_adicional_config')
+          .select('email_colaborador')
+          .eq('comercio', window.activeIntegrationCommerce)
+          .maybeSingle()
+      ]);
+      if (integrationsRes.error) throw integrationsRes.error;
+      integrationsList = integrationsRes.data || [];
+      emailColaborador = configRes.data ? configRes.data.email_colaborador : null;
+    } catch(err) {
+      console.error("Error fetching integrations/config details:", err);
+      const { data, error: fetchErr } = await supabase
+        .from('merchant_integrations')
+        .select('*')
+        .eq('comercio', window.activeIntegrationCommerce);
+      if (fetchErr) throw fetchErr;
+      integrationsList = data || [];
+    }
 
     const shopifyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Shopify') : null;
     const parisIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Paris') : null;
@@ -5797,6 +5851,30 @@ async function renderIntegrations() {
 
     const isObserver = userRole === 'observer';
     const disabledAttr = isObserver ? 'disabled' : '';
+
+    let emailColaboradorHtml = '';
+    if (emailColaborador) {
+      emailColaboradorHtml = `
+        <div style="background: rgba(16, 185, 129, 0.04); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: var(--radius-sm); padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+          <div>
+            <span style="display: block; font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.02em;">Correo de Invitación Generado:</span>
+            <strong style="font-size: 0.9rem; color: var(--color-success); font-family: monospace;">${emailColaborador}</strong>
+          </div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="window.copyToClipboard('${emailColaborador}', this)" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; height: auto;">
+            <i class="ri-file-copy-line"></i> Copiar Correo
+          </button>
+        </div>
+      `;
+    } else {
+      emailColaboradorHtml = `
+        <div style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: var(--radius-sm); padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-error-warning-line" style="color: #ef4444; font-size: 1.25rem;"></i>
+          <span style="font-size: 0.85rem; color: var(--color-text-main);">
+            ⚠️ <strong>Correo no configurado:</strong> Tu comercio no tiene asignado un correo de colaboración en la base de datos. Por favor, <strong>comunícate con tu KAM de Stocka</strong> para que lo configure.
+          </span>
+        </div>
+      `;
+    }
 
     const shopifyButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -6158,7 +6236,7 @@ async function renderIntegrations() {
 
         <!-- TAB: MercadoLibre -->
         <div id="tab-meli" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; align-items: start;">
             <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
               <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
                 <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
@@ -6207,7 +6285,7 @@ async function renderIntegrations() {
             <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
               <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
                 <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
+                  <span><i class="ri-book-open-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
                 </h3>
               </div>
               <div class="card-body" style="padding: 1.5rem;">
@@ -6263,6 +6341,110 @@ async function renderIntegrations() {
               </div>
             </div>
           </div>
+
+          <!-- Pasos a Seguir Luego de la Integración -->
+          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 1.5rem 0 0 0; background-color: var(--color-surface);">
+            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <span><i class="ri-git-commit-line" style="color: var(--color-primary);"></i></span> Pasos Críticos Después de la Integración
+              </h3>
+            </div>
+            <div class="card-body" style="padding: 1.5rem;">
+              <p style="margin-top: 0; color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                Una vez conectada la integración técnica, debes completar el proceso de permisos de colaboración para que Stocka pueda procesar, imprimir etiquetas y preparar tus pedidos físicamente. Sigue estos pasos:
+              </p>
+              
+              <!-- Timeline Container -->
+              <div style="display: flex; flex-direction: column; gap: 1.5rem; position: relative;">
+                <!-- Vertical Line -->
+                <div style="position: absolute; left: 15px; top: 10px; bottom: 10px; width: 2px; background: var(--color-border); z-index: 1;"></div>
+                
+                <!-- Step 1 -->
+                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">1</div>
+                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                      <span>Invitación a Colaborador de Marketplace</span>
+                      <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Obligatorio</span>
+                    </h4>
+                    <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                      Debes invitarnos como colaboradores en tu cuenta de MercadoLibre utilizando el correo electrónico asignado para tu comercio.
+                    </p>
+                    
+                    <!-- Email Check Block -->
+                    ${emailColaboradorHtml}
+                  </div>
+                </div>
+
+                <!-- Step 2 -->
+                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">2</div>
+                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                      <span>Creación y Configuración del Rol de Colaborador</span>
+                      <a href="https://vendedores.mercadolibre.cl/nota/administra-tus-propiedades-de-forma-agil-con-colaboradores" target="_blank" style="font-size: 0.75rem; text-decoration: none; color: var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border: none; background: transparent;">
+                        <i class="ri-book-open-line"></i> Guía Oficial de ML <i class="ri-external-link-line"></i>
+                      </a>
+                    </h4>
+                    <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                      Al crear la invitación a colaborador en MercadoLibre, debes definir un <strong>Rol</strong> con acceso a las funciones básicas necesarias para el procesamiento físico de tus ventas. Asigna estrictamente los siguientes permisos:
+                    </p>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; font-size: 0.8rem; margin-top: 0.5rem;">
+                      <!-- Permiso Ventas -->
+                      <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #f59e0b;">
+                        <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-handbag-line"></i> Publicación y Ventas</strong>
+                        <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
+                          <li>Permisos de <strong>"Administrar mis ventas"</strong>.</li>
+                          <li>Permitir las <strong>descargas de excel de ventas</strong>.</li>
+                          <li style="color: var(--color-text-muted); opacity: 0.7; font-style: italic;">Opcional: Permisos para ver métricas.</li>
+                        </ul>
+                      </div>
+                      
+                      <!-- Permiso Envios -->
+                      <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #3b82f6;">
+                        <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Envíos y Logística</strong>
+                        <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
+                          <li>Poder revisar <strong>horarios de envío</strong>.</li>
+                          <li>Definir <strong>tiempo y capacidad</strong>.</li>
+                          <li>Ver <strong>código de autorización</strong> (requerido para logística inversa).</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Step 3 -->
+                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">3</div>
+                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                      <span>Notificación Inmediata a Stocka (Límite 24 hrs)</span>
+                      <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Crítico</span>
+                    </h4>
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                      Una vez que envíes la invitación por MercadoLibre, <strong>notifica de inmediato a tu KAM de Stocka</strong>. La invitación oficial de MercadoLibre expira automáticamente en un lapso de <strong>24 horas</strong> y requiere aceptación manual por nuestro equipo.
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Step 4 -->
+                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">4</div>
+                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+                      <i class="ri-plug-2-line" style="color: var(--color-primary);"></i> Conexión de Respaldo vía API
+                    </h4>
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                      Posteriormente, nos pondremos en contacto contigo para establecer una <strong>segunda conexión complementaria vía API</strong>. Esta conexión funcionará como un canal de respaldo (fallback) secundario para asegurar la máxima estabilidad en la descarga de órdenes.
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
         </div>
 
         <!-- TAB: Walmart -->
