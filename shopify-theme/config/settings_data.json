@@ -1,0 +1,303 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "current": {
+    "use_favicon": true,
+    "favicon": "shopify://shop_images/Diseno_sin_titulo_70.png",
+    "use_ajax_atc": false,
+    "show_scroll_top_button": false,
+    "container_width": 1280,
+    "container_fluid_width": 1620,
+    "container_fluid_offset": 65,
+    "color_primary": "#000000",
+    "color_main_bg": "#fff",
+    "color_field_bg": "#ededed",
+    "color_body_text": "#000000",
+    "color_heading_text": "#080808",
+    "color_sub_text": "#666666",
+    "color_btn_bg": "#05fa93",
+    "color_btn_bg_hover": "#5e17eb",
+    "color_btn_text": "#000000",
+    "prod_sale_price_color": "#666666",
+    "prod_type_color": "#666666",
+    "color_annoucement_bg": "#5e17eb",
+    "color_topbar_bg": "#5e17eb",
+    "color_topbar_text": "#fff",
+    "color_header_bg": "#ededed",
+    "color_header_link": "{{ shop.brand.colors.secondary[0].foreground }}",
+    "color_header_transparent": "#ffffff",
+    "color_cart_wishlist_count": "rgba(0,0,0,0)",
+    "bg_cart_wishlist_count": "rgba(0,0,0,0)",
+    "color_menu_bar_bg": "#000000",
+    "color_menu_bar_text": "#f8f8f8",
+    "color_footer_bg": "#ffffff",
+    "color_footer_text": "#000000",
+    "color_footer_subtext": "#666666",
+    "color_footer_link": "#666666",
+    "color_footer_link_hover": "#000000",
+    "color_footer_bg_mb": "#ffffff",
+    "color_footer_bottom_bg": "#000000",
+    "color_footer_bottom_text": "#dedede",
+    "color_footer_bottom_bg_mb": "#000000",
+    "color_border": "#dedede",
+    "img_overlay_opacity": 20,
+    "tooltip_background_color": "#000000",
+    "type_base_font": "poppins_n4",
+    "use_custom_font_body": false,
+    "custom_body_font": "https://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-Medium.ttf?v=1630680028@500\nhttps://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-Bold.ttf?v=1630680028@700\nhttps://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-SemiBold.ttf?v=1630680548@600",
+    "custom_body_weight": "500",
+    "type_header_font": "poppins_n7",
+    "use_custom_font_heading": false,
+    "custom_heading_font": "https://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-Medium.ttf?v=1630680028@500\nhttps://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-Bold.ttf?v=1630680028@700\nhttps://cdn.shopify.com/s/files/1/0595/7291/2305/files/Raleway-SemiBold.ttf?v=1630680548@600",
+    "custom_heading_weight": "700",
+    "type_header_base_size": 35,
+    "btn_border_radius": 80,
+    "btn_line_height": 20,
+    "btn_weight": "700",
+    "pcard_layout": "2",
+    "pcard_alignment": "center",
+    "pcard_image_ratio": "1/1",
+    "show_swatch_option": false,
+    "show_badge_soldout": false,
+    "show_cart_button": false,
+    "show_quickview_button": false,
+    "show_wishlist_button": false,
+    "show_compare_button": false,
+    "show_vendor": false,
+    "variant_option_design1": "button",
+    "variant_option_design2": "color",
+    "variant_option_design3": "color",
+    "product_colors": "red: #FF6961,\nyellow: #FDDA76,\nblack: #000000,\nblack band: #000000,\nblue: #8DB4D2,\ngreen: #C1E1C1,\npurple: #B19CD9,\nsilver: #EEEEEF,\nwhite: #FFFFFF,\nbrown: #836953,\nlight brown: #B5651D,\ndark turquoise: #23cddc,\norange: #FFB347,\ntan: #E9D1BF,\nviolet: #B490B0,\npink: #FFD1DC,\ngrey: #E0E0E0,\nsky: #96BDC6,\npale leaf: #CCD4BF,\nlight blue: #b1c5d4,\ndark grey: #aca69f,\nbeige: #EBE6DB,\nbeige band: #EED9C4,\ndark blue: #063e66,\ncream: #FFFFCC,\nlight pink: #FBCFCD,\nmint: #bedce3,\ndark gray: #3A3B3C,\nrosy brown: #c4a287,\nlight grey:#D3D3D3,\ncopper: #B87333,\nrose gold: #ECC5C0,\nnight blue: #151B54,\ncoral: #FF7F50,\nlight purple: #C6AEC7",
+    "filter_color1": "Gingham",
+    "filter_color2": "flannel",
+    "article_show_date": false,
+    "article_show_excerpt": true,
+    "article_show_button": true,
+    "share_image": "shopify://shop_images/Fulfillment_Ecommerce.png",
+    "share_facebook": true,
+    "share_pinterest": true,
+    "contact_phone_number": "+56939247487",
+    "contact_email": "felipe@stocka.cl",
+    "find_store": "contacto",
+    "social_twitter_link": "",
+    "social_twitter_label": "",
+    "social_facebook_link": "https://fb.me/Stocka.cl",
+    "social_facebook_label": "Dale Like!",
+    "social_pinterest_link": "",
+    "social_pinterest_label": "",
+    "social_instagram_link": "https://www.instagram.com/stocka.cl",
+    "social_instagram_label": "Síguenos!",
+    "social_tumblr_link": "https://www.linkedin.com/company/stocka-cl/",
+    "social_tumblr_label": "Linkedin",
+    "social_whatsapp_link": "https://wa.me/56939247487",
+    "social_whatsapp_label": "Escríbenos!",
+    "cart_estimate_shipping": false,
+    "popular_search_queries": "Contacto, Precios, Servicios",
+    "search_unavailable_products": "HIDE",
+    "wishlist_page": "contacto",
+    "product_compare_page": "product-compare",
+    "gm_api": "AIzaSyB7Le_jtwEMdaMj8OOG3AbKvTtd6on-nCc",
+    "instagram_token": "IGQVJYRlJ6UGpEUDFseUVCbmZANY1NGRUxVSXdleTFXWGlJeTNjRWVHc045Y19FX0VGVG9QTFQ5YVYwUjV5SFQ3cTh4S1RDbWF5RHRYcXNVU2JhSVo5WGpENlEzYlFlNFJJaFJoSnhwaEJQOVNWOVZAzdgZDZD",
+    "custom_css": "/* Custom css */\n.top_bar-label {\n  font-size: 15px;\n  line-height: 1.2;\n  font-weight: 700;\n  padding: 3px 15px;\n  border-radius: 20px;\n  background: #E94D38;\n  margin-right: 10px;\n  color: #fff;\n}\n.sf-cart-count, .sf-wishlist-count,\n.sf-nav li.sf-menu-item-parent a.sf__parent-item {\n  font-weight: 700;\n}\n.sf__btn.sf__btn-white, a.sf__btn.sf__btn-white,\n.sf__btn.sf__btn-link, a.sf__btn.sf__btn-link {\n  color: var(--color-primary);\n}\n.sf__btn.sf__btn-link:before, a.sf__btn.sf__btn-link:before,\n.sf__btn.sf__btn-link:after, a.sf__btn.sf__btn-link:after {\n  height: 1px;\n}\n.section__header {\n  margin-bottom: 40px;\n}\n.home-banner__slideshow[id$=\"1621243260e1af0c20\"] .sf__slide-content .slide__block-title {\n  line-height: 1.14;\n  margin-bottom: 17px;\n}\n.home-banner__slideshow[id$=\"1621243260e1af0c20\"] .sf__slide-content .slide__block-description {\n  line-height: 2;\n  font-size: 18px;\n  margin-bottom: 28px;\n}\n.collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__info {\n  top: 0;\n  display: flex;\n  flex-direction: column;\n  justify-content: center;\n}\n.collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__info h3 a {\n  font-size: 22px;\n  font-weight: 700;\n  line-height: 1.14;\n  margin-bottom: 7px;\n}\n.collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__image {\n  border-radius: 5px;\n}\n.collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__info .sf__btn-icon {\n  display: none;\n}\n.sf__pcard .sf__pcard-name,\n.sf__pcard .sf__pcard-price.price--on-sale .prod__price {\n  font-weight: 700;\n}\n.sf__pcard .sf__pcard-price.price--on-sale .prod__price {\n  color: #E94D38;\n}\n.image__with-text .content__heading {\n  line-height: 1.28;\n  font-size: 50px;\n  margin-bottom: 25px;\n}\n.image__with-text .prose {\n  margin-bottom: 25px;\n}\n.sf-icon-box[id$=\"16306855824867f977\"] .sf-icon-box__text h3 {\n  line-height: 1.14;\n  color: #000;\n  font-size: 22px;\n  margin-bottom: 16px;\n} \n.sf__footer-block-title {\n  font-weight: 700 !important;\n  font-size: 18px;\n}\n.sf-footer form.sf__footer-form-newsletter.form__style-minimal .sf__newletter__form-input {\n  border-color: #3D6642;\n}\n.sf-footer form.sf__footer-form-newsletter.form__style-minimal .sf__newletter__form-input::placeholder {\n  color: var(--color-primary);\n}\n.sf-footer form.sf__footer-form-newsletter.form__style-minimal svg path {\n  fill: #3D6642;\n}\n\n\n@media(min-width: 1024px) {\n  .sf__footer-block-newsletter {\n  \tpadding-right: 50px;\n  }\n  .sf__footer-block-newsletter .sf__footer-block-title {\n    font-size: 36px;\n    line-height: 1.5;\n    margin-bottom: 12px;\n    color: var(--color-primary);\n      }\n  .sf__footer-block-newsletter .sf__newsletter-block-desc {\n    padding: 0;\n    margin-bottom: 30px;\n  }\n}\n\n@media(min-width: 1280px) {\n  .collection-list[id$=\"16225316461d1cff80\"] .collection-list__inner--overflow {\n    padding-right: calc((100vw - 1280px)/ 2 + 5px);\n    padding-left: calc((100vw - 1280px) / 2 + 5px);\n  }\n}\n\n@media(min-width: 1536px) {\n  .sf__footer-block-newsletter {\n  \tpadding-right: 195px;\n  }\n}\n\n@media(min-width: 1680px) {\n  .home-banner__slideshow[id$=\"1621243260e1af0c20\"] .sf__slide-content .slide__block-title {\n    font-size: 70px;\n  }\n}\n\n@media(max-width: 767px) {\n  .home-banner__slideshow[id$=\"1621243260e1af0c20\"] .sf__slide-content .sf__mobile-button {\n    width: 100%;\n    color: var(--color-btn-text);\n    background: var(--color-btn-bg);\n  }\n  .image__with-text .content__heading {\n    font-size: 34px;\n  }\n  .collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__info {\n    padding: 12px;\n    position: absolute;\n  }\n  .collection-list[id$=\"16225316461d1cff80\"] .collection-card--inside .collection-card__info h3 a {\n    font-size: 16px !important;\n    margin-bottom: 0;\n  }\n}",
+    "show_variant_swatch_image": true,
+    "use_theme_currencies": true,
+    "theme_currencies": "USD | EUR | GBP | VND",
+    "bg_cart_count": "#da3f3f",
+    "sections": {
+      "annoucement": {
+        "type": "annoucement",
+        "settings": {
+          "show_announcement": false,
+          "homepage_only": true,
+          "show_close": true,
+          "message": "Free shipping for all orders from $60+",
+          "message_link": "",
+          "show_divider": false
+        }
+      },
+      "header": {
+        "type": "header",
+        "blocks": {
+          "ea9b6fb7-1851-4d8c-97b4-34ced6444026": {
+            "type": "topbar",
+            "disabled": true,
+            "settings": {
+              "show_divider": true,
+              "show_phone_numb": true,
+              "show_email": true,
+              "show_social_links": false,
+              "show_stores_page": true,
+              "show_currency_switcher": false,
+              "show_language_switcher": false,
+              "alert_message": "<a href=\"https://stocka.cl/pages/precios-1\" title=\"ver precios\"><p><span class=\"top_bar-label\">promo</span> <span style=\"font-weight: 600; font-size: 15px;\"> almacenaje gratis 1er mes! 🔥</span></p></a>"
+            }
+          }
+        },
+        "block_order": [
+          "ea9b6fb7-1851-4d8c-97b4-34ced6444026"
+        ],
+        "settings": {
+          "header_design": "logo-left-menu-center",
+          "container": "container",
+          "header_sticky": true,
+          "transparent_on_top": false,
+          "logo_text": "stocka.cl - fulfillment para ecommerce",
+          "logo": "shopify://shop_images/Stocka_1300_x_500_px_519_x_200_px_3.png",
+          "logo_mobile": "shopify://shop_images/Stocka_1300_x_500_px_519_x_200_px_3.png",
+          "logo_svg": "",
+          "logo_mobile_svg": "",
+          "logo_transparent_svg": "",
+          "logo_max_width": 150,
+          "sticky_logo_max_width": 150,
+          "mobile_logo_max_width": 135,
+          "main_menu": "main-menu",
+          "secondary_menu": "footer",
+          "mobile_menu": "",
+          "uppercase_parent_level": false,
+          "search": "show_icon",
+          "show_account_icon": true,
+          "show_cart_icon": false,
+          "show_wishlist_icon": false,
+          "show_compare_icon": false,
+          "show_currency_switcher": false,
+          "show_language_switcher": false
+        }
+      },
+      "footer": {
+        "type": "footer",
+        "blocks": {
+          "d52b2e95-3004-41c1-811a-dc91aa709fb6": {
+            "type": "custom_text",
+            "settings": {
+              "title": "",
+              "image": "shopify://shop_images/Stocka_1300_x_500_px_519_x_200_px_3.png",
+              "image_max": "250px",
+              "description": "<p>Simplificamos la logística de tu Ecommerce.</p>",
+              "width": "33%",
+              "order_first": false,
+              "open_default": false
+            }
+          },
+          "e7d2774a-59d7-4885-8323-5d42dd0eeb17": {
+            "type": "our_store",
+            "settings": {
+              "title": "Fulfillment Integral",
+              "description": "<p>El servicio más completo de fulfillment para ecommerce lo encuentras aquí, llega a todo Chile con procesamiento eficiente y entregas express. Impulsa tus ventas y escala tu negocio con la logística integral que Stocka te puede entregar.</p>",
+              "show_email": false,
+              "show_phone": false,
+              "show_socials_link": true,
+              "width": "25%",
+              "order_first": false,
+              "open_default": true
+            }
+          },
+          "custom_text_HVpzwa": {
+            "type": "custom_text",
+            "settings": {
+              "title": "Contacto",
+              "image_max": "200px",
+              "description": "<ul><li><strong>Sucursal Matriz </strong><a href=\"https://maps.app.goo.gl/R62QWBiEopXns1Dw5\" target=\"_blank\" title=\"https://maps.app.goo.gl/R62QWBiEopXns1Dw5\">Campos de Deportes 405, Ñuñoa</a></li></ul><p>Lu-Vi 10.30-14 y 15-17 hrs.</p><p>Sa: 10.30 a 14 hrs</p><ul><li><strong>Soporte </strong>+569 3394 2358</li><li><strong>Contacto Comercial</strong></li></ul><p>Felipe.tp@stocka.cl</p><p>+569 3924 7487</p>",
+              "width": "25%",
+              "order_first": false,
+              "open_default": false
+            }
+          },
+          "99012f78-3bc9-40bc-baf5-52a4c7646361": {
+            "type": "menu",
+            "settings": {
+              "menu": "empresa",
+              "title": "Información",
+              "width": "25%",
+              "order_first": false,
+              "open_default": false
+            }
+          },
+          "d51911b5-b141-4b15-b376-644f3bb3353d": {
+            "type": "newsletter",
+            "settings": {
+              "title": "Subscríbete",
+              "description": "Recibe información sobre nuestros servicios, novedades, y contenido de valor.",
+              "email_placeholder": "email",
+              "form_style": "bordered",
+              "show_social": false,
+              "show_agree_checkbox": false,
+              "width": "25%",
+              "order_first": false,
+              "open_default": true
+            }
+          }
+        },
+        "block_order": [
+          "d52b2e95-3004-41c1-811a-dc91aa709fb6",
+          "e7d2774a-59d7-4885-8323-5d42dd0eeb17",
+          "custom_text_HVpzwa",
+          "99012f78-3bc9-40bc-baf5-52a4c7646361",
+          "d51911b5-b141-4b15-b376-644f3bb3353d"
+        ],
+        "settings": {
+          "design": "footer-3",
+          "container": "container-fluid",
+          "bordered": true,
+          "copyright": "<p></p><span style=\"font-size: 16px;\">© 2025, Stocka Spa, Santiago, Chile. Todos los derechos reservados.</span>",
+          "show_currency_selector": false,
+          "show_language_selector": false,
+          "show_social_links": false,
+          "show_payment_icons": false,
+          "payment_icons_width": 100
+        }
+      },
+      "mobile-sticky-bar": {
+        "type": "mobile-sticky-bar",
+        "settings": {
+          "show_mobile_sticky": false,
+          "show_home_icon": true,
+          "show_collection_icon": false,
+          "show_cart_icon": false,
+          "show_search_icon": true,
+          "show_account_icon": false,
+          "show_wishlist_icon": true
+        }
+      }
+    },
+    "content_for_index": [],
+    "blocks": {
+      "13669795325273674392": {
+        "type": "shopify://apps/releasit-cod-form-upsells/blocks/app-embed/72faf214-4174-4fec-886b-0d0e8d3af9a2",
+        "disabled": false,
+        "settings": {}
+      },
+      "6588702529468458379": {
+        "type": "shopify://apps/ecomposer-landing-page-builder/blocks/app-embed/a0fc26e1-7741-4773-8b27-39389b4fb4a0",
+        "disabled": false,
+        "settings": {}
+      },
+      "6868439170666289573": {
+        "type": "shopify://apps/foxkit-sales-boost/blocks/foxkit-theme-helper/13f41957-6b79-47c1-99a2-e52431f06fff",
+        "disabled": false,
+        "settings": {
+          "enable_ajax_atc": true
+        }
+      },
+      "5017882195547572635": {
+        "type": "shopify://apps/sc-easy-redirects/blocks/app/be3f8dbd-5d43-46b4-ba43-2d65046054c2",
+        "disabled": false,
+        "settings": {}
+      },
+      "6610233760104865948": {
+        "type": "shopify://apps/pushowl-brevo/blocks/pushowl-app-embed-3d2ff2b5/fa20c3ba-38bf-43e0-ba5c-431f6ae07d95",
+        "disabled": false,
+        "settings": {}
+      }
+    }
+  },
+  "presets": {
+    "Default": {}
+  }
+}

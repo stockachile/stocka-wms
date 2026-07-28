@@ -1,0 +1,318 @@
+{%- comment -%}
+  Stocka Custom Downloads Section
+  Supports dynamic integration with Supabase database (WMS service_docs table) 
+  and fallback/manual blocks inside Shopify.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+{% assign bg_color = section.settings.background_color %}
+{% assign has_bg = false %}
+
+{% unless bg_color == "rgba(0,0,0,0)" or bg_color == blank %}
+    {% assign has_bg = true %}
+{% endunless %}
+
+{% capture container %}
+    {{ section.settings.container }}
+    {% if has_bg == false %} section-my {% else %} section-py {% endif %}
+{% endcapture %}
+
+<style>
+  .stocka-download-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stocka-download-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+</style>
+
+<section
+  id="stocka-downloads-{{ section.id }}"
+  class="relative {{ section.settings.custom_class }}"
+  style="background-color: {{ section.settings.background_color }};"
+>
+  <div class="{{ container }} mx-auto px-4">
+    
+    <!-- Section Header -->
+    {% if settings.heading != blank or settings.subheading != blank %}
+      <div class="max-w-2xl mx-auto mb-10 md:mb-16 text-center">
+        {% if settings.subheading != blank %}
+          <p class="text-sm font-semibold tracking-wider text-blue-600 uppercase mb-2">{{ settings.subheading }}</p>
+        {% endif %}
+        {% if settings.heading != blank %}
+          <h2 class="text-3xl md:text-4xl font-bold tracking-tight text-slate-900 mb-4">{{ settings.heading }}</h2>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if settings.connect_wms %}
+      <!-- Dynamic WMS / Supabase Render -->
+      <div id="wms-downloads-loading-{{ section.id }}" class="flex flex-col items-center justify-center py-12">
+        <svg class="animate-spin h-8 w-8 text-blue-600 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="text-sm text-slate-500">Cargando documentación desde el WMS...</p>
+      </div>
+
+      <div id="wms-downloads-grid-{{ section.id }}" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 hidden">
+        <!-- JS will populate cards here -->
+      </div>
+
+      <div id="wms-downloads-error-{{ section.id }}" class="text-center py-6 text-red-500 hidden">
+        <p>Hubo un problema al cargar los documentos dinámicos.</p>
+        <button id="wms-retry-btn-{{ section.id }}" class="mt-4 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg">Reintentar</button>
+      </div>
+      
+      <!-- Script to fetch docs from Supabase -->
+      <script>
+        document.addEventListener("DOMContentLoaded", function() {
+          const supabaseUrl = "https://ejtjfaucnxbikrwjwwdu.supabase.co";
+          const anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak";
+          
+          const loadingEl = document.getElementById("wms-downloads-loading-{{ section.id }}");
+          const gridEl = document.getElementById("wms-downloads-grid-{{ section.id }}");
+          const errorEl = document.getElementById("wms-downloads-error-{{ section.id }}");
+          const retryBtn = document.getElementById("wms-retry-btn-{{ section.id }}");
+          
+          function fetchWmsDocs() {
+            loadingEl.classList.remove("hidden");
+            gridEl.classList.add("hidden");
+            errorEl.classList.add("hidden");
+            
+            // Build query
+            let queryUrl = `${supabaseUrl}/rest/v1/service_docs?select=*`;
+            {% if settings.wms_folder != blank %}
+              queryUrl += `&folder=eq.{{ settings.wms_folder | escape }}`;
+            {% endif %}
+            // Order by created_at desc
+            queryUrl += `&order=created_at.desc`;
+
+            fetch(queryUrl, {
+              headers: {
+                "apikey": anonKey,
+                "Authorization": `Bearer ${anonKey}`
+              }
+            })
+            .then(res => {
+              if (!res.ok) throw new Error("API response error");
+              return res.json();
+            })
+            .then(data => {
+              loadingEl.classList.add("hidden");
+              
+              if (!data || data.length === 0) {
+                // If no dynamic data, fall back to manual blocks
+                renderManualBlocks();
+                return;
+              }
+
+              gridEl.innerHTML = "";
+              data.forEach(doc => {
+                const card = document.createElement("div");
+                card.className = "stocka-download-card bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between";
+                
+                card.innerHTML = `
+                  <div>
+                    <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 mb-4 tracking-wider uppercase">
+                      ${doc.folder || "Documento"}
+                    </span>
+                    <h3 class="text-lg font-bold text-slate-900 mb-2">${doc.name}</h3>
+                    ${doc.description ? `<p class="text-sm text-slate-500 mb-6 leading-relaxed">${doc.description}</p>` : '<div class="mb-6"></div>'}
+                  </div>
+                  <a href="${doc.file_url}" target="_blank" class="sf__btn sf__btn-secondary w-full text-center justify-center py-3">
+                    Descargar PDF
+                  </a>
+                `;
+                gridEl.appendChild(card);
+              });
+              
+              gridEl.classList.remove("hidden");
+            })
+            .catch(err => {
+              console.error("Supabase fetch failed:", err);
+              // Fallback to manual blocks first
+              if (document.querySelectorAll("#stocka-downloads-{{ section.id }} .manual-card").length > 0) {
+                loadingEl.classList.add("hidden");
+                renderManualBlocks();
+              } else {
+                loadingEl.classList.add("hidden");
+                errorEl.classList.remove("hidden");
+              }
+            });
+          }
+
+          function renderManualBlocks() {
+            const manualCards = document.querySelectorAll("#stocka-downloads-{{ section.id }} .manual-card");
+            manualCards.forEach(c => c.classList.remove("hidden"));
+            gridEl.classList.remove("hidden");
+          }
+
+          retryBtn.addEventListener("click", fetchWmsDocs);
+          fetchWmsDocs();
+        });
+      </script>
+
+      <!-- Hidden container with manual cards as fallback / preview -->
+      <div class="manual-card-container hidden">
+        {% for block in section.blocks %}
+          {% assign doc = block.settings %}
+          <div class="manual-card stocka-download-card bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hidden" {{ block.shopify_attributes }}>
+            <div>
+              <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 mb-4 tracking-wider uppercase">
+                {{ doc.folder | default: "Fulfillment" }}
+              </span>
+              <h3 class="text-lg font-bold text-slate-900 mb-2">{{ doc.title }}</h3>
+              {% if doc.description != blank %}
+                <p class="text-sm text-slate-500 mb-6 leading-relaxed">{{ doc.description }}</p>
+              {% endif %}
+            </div>
+            <a href="{{ doc.file_url | default: doc.file_picker }}" target="_blank" class="sf__btn sf__btn-secondary w-full text-center justify-center py-3">
+              {{ doc.button_label | default: "DESCARGAR PDF" }}
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+
+    {% else %}
+      <!-- Manual Render Mode (Shopify Editor Blocks Only) -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        {% for block in section.blocks %}
+          {% assign doc = block.settings %}
+          <div class="stocka-download-card bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between" {{ block.shopify_attributes }}>
+            <div>
+              <span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 mb-4 tracking-wider uppercase">
+                {{ doc.folder | default: "Fulfillment" }}
+              </span>
+              <h3 class="text-lg font-bold text-slate-900 mb-2">{{ doc.title }}</h3>
+              {% if doc.description != blank %}
+                <p class="text-sm text-slate-500 mb-6 leading-relaxed">{{ doc.description }}</p>
+              {% endif %}
+            </div>
+            {%- assign download_link = doc.file_url -%}
+            {%- if doc.file_picker != blank -%}
+              {%- assign download_link = doc.file_picker -%}
+            {%- endif -%}
+            <a href="{{ download_link | default: '#' }}" target="_blank" class="sf__btn sf__btn-secondary w-full text-center justify-center py-3">
+              {{ doc.button_label | default: "DESCARGAR PDF" }}
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Stocka Downloads",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Título",
+      "default": "Descarga y revisa nuestras presentaciones"
+    },
+    {
+      "type": "text",
+      "id": "subheading",
+      "label": "Subtítulo",
+      "default": "DOCUMENTACIÓN OFICIAL"
+    },
+    {
+      "type": "checkbox",
+      "id": "connect_wms",
+      "label": "Conectar dinámicamente con WMS Supabase",
+      "default": true,
+      "info": "Si se marca, traerá los documentos automáticamente desde la base de datos de tu WMS."
+    },
+    {
+      "type": "text",
+      "id": "wms_folder",
+      "label": "Filtrar por Carpeta WMS (Opcional)",
+      "info": "Ej: OPERACIONES o ENVIAME. Deja en blanco para mostrar todo."
+    },
+    {
+      "type": "header",
+      "content": "Ajustes Generales"
+    },
+    {
+      "type": "select",
+      "id": "container",
+      "label": "Ancho del contenedor",
+      "default": "container",
+      "options": [
+        { "value": "container", "label": "Normal" },
+        { "value": "container-fluid", "label": "Ancho Completo" }
+      ]
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Color de Fondo",
+      "default": "#f8fafc"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS Personalizada"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "download_item",
+      "name": "Documento Manual",
+      "settings": [
+        {
+          "type": "text",
+          "id": "title",
+          "label": "Nombre del Documento",
+          "default": "Servicios de Fulfillment"
+        },
+        {
+          "type": "text",
+          "id": "folder",
+          "label": "Carpeta / Tag",
+          "default": "OPERACIONES"
+        },
+        {
+          "type": "textarea",
+          "id": "description",
+          "label": "Descripción",
+          "default": "Revisa nuestra presentación comercial de servicios logísticos integrales."
+        },
+        {
+          "type": "text",
+          "id": "file_url",
+          "label": "URL del PDF (Enlace externo)",
+          "info": "Introduce un enlace de descarga, ej: un link de HubSpot o drive."
+        },
+        {
+          "type": "url",
+          "id": "file_picker",
+          "label": "Archivo subido a Shopify (Opcional)",
+          "info": "Selecciona el archivo si lo subiste directamente a Shopify (Contenido > Archivos)."
+        },
+        {
+          "type": "text",
+          "id": "button_label",
+          "label": "Texto del Botón",
+          "default": "DESCARGAR PDF"
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Downloads",
+      "blocks": [
+        { "type": "download_item", "settings": { "title": "Servicios de Fulfillment", "folder": "Fulfillment" } },
+        { "type": "download_item", "settings": { "title": "Punto de retiro y Vitrina", "folder": "Retiros" } },
+        { "type": "download_item", "settings": { "title": "Despachos X-PRESS", "folder": "Despachos" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

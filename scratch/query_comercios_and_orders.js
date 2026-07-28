@@ -1,44 +1,39 @@
+const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const path = require('path');
-const { createClient } = require('@supabase/supabase-js');
 
-// Parse .env manually
+// Cargar archivo .env
 const envPath = path.join(__dirname, '..', '.env');
-const envContent = fs.readFileSync(envPath, 'utf8');
-
-const env = {};
-envContent.split('\n').forEach(line => {
-  const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
-  if (match) {
-    const key = match[1];
-    let value = match[2] || '';
-    if (value.startsWith('"') && value.endsWith('"')) {
-      value = value.substring(1, value.length - 1);
+let env = {};
+if (fs.existsSync(envPath)) {
+  const content = fs.readFileSync(envPath, 'utf8');
+  content.split(/\r?\n/).forEach(line => {
+    if (!line || line.startsWith('#')) return;
+    const [key, ...valueParts] = line.split('=');
+    if (key && valueParts.length > 0) {
+      env[key.trim()] = valueParts.join('=').trim().replace(/^['"]|['"]$/g, '');
     }
-    env[key] = value.trim();
-  }
-});
+  });
+}
 
-const supabaseUrl = env.SUPABASE_URL;
-const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY;
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 async function run() {
-  console.log("=== Querying merchant_integrations ===");
-  const { data: integrations, error } = await supabase
-    .from('merchant_integrations')
-    .select('*');
+  console.log("=== Checking current database records for MAG5609 ===");
   
-  if (error) {
-    console.error(error);
-    return;
-  }
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, external_order_number, status, estado_wms, courier, tracking_number')
+    .eq('external_order_number', 'MAG5609');
   
-  console.log("All Integrations:");
-  integrations.forEach(i => {
-    console.log(`ID: ${i.id}, Comercio: ${i.comercio}, Platform: ${i.platform}, Active: ${i.is_active}, CreatedAt: ${i.created_at}`);
-  });
+  console.log("Order state in DB:", orders);
+
+  const { data: shipments } = await supabase
+    .from('envios_unificados')
+    .select('id, status, global_status, updated_at')
+    .eq('pedido_referencia', 'MAG5609');
+  
+  console.log("Shipment state in DB:", shipments);
 }
 
 run();

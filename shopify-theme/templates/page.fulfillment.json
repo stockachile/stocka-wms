@@ -1,0 +1,146 @@
+{
+  "sections": {
+    "hero": {
+      "type": "stocka-hero",
+      "settings": {
+        "layout_style": "split",
+        "badge_text": "Tú solo vendes",
+        "title": "Almacenamos,\nEmpaquetamos,\nDespachamos.",
+        "text": "",
+        "button_1_label": "Pide una cotización",
+        "button_1_link": "/pages/contacto",
+        "button_2_label": "Revisa las tarifas",
+        "button_2_link": "/pages/tarifas",
+        "show_reviews": true,
+        "reviews_score": "4.6",
+        "reviews_count_text": "18 reviews",
+        "bg_color": "#ffffff",
+        "primary_accent_color": "#5c24ff"
+      }
+    },
+    "features_split": {
+      "type": "stocka-features-list",
+      "settings": {
+        "layout_mode": "image-left",
+        "title_split": "Tú solo vendes, olvídate de todo lo demás",
+        "text_split": "<p>Contamos con el servicio más completo de fulfillment que puedas encontrar. Nos encargamos de todo el proceso operativo para que te enfoques en el crecimiento de tu marca.</p>",
+        "button_label": "Ver tarifas",
+        "button_link": "/pages/tarifas",
+        "button_style": "sf__btn-primary",
+        "container": "container",
+        "background_color": "#ffffff"
+      },
+      "blocks": {
+        "feat_almacenamiento": {
+          "type": "feature_item",
+          "settings": {
+            "title": "Almacenamos tus productos",
+            "text": "Los guardamos en nuestros centros logísticos seguros en Ñuñoa, ordenados y listos para despacho."
+          }
+        },
+        "feat_armado": {
+          "type": "feature_item",
+          "settings": {
+            "title": "Armamos tus pedidos (Pick & Packing)",
+            "text": "Preparamos tus ventas B2C y B2B al instante, personalizando el empaque según tus directrices."
+          }
+        },
+        "feat_entrega": {
+          "type": "feature_item",
+          "settings": {
+            "title": "Nos encargamos de las entregas",
+            "text": "Same Day en Santiago y despachos a todo Chile con cobertura nacional y couriers integrados."
+          }
+        },
+        "feat_inversa": {
+          "type": "feature_item",
+          "settings": {
+            "title": "Gestionamos tu logística inversa",
+            "text": "Controlamos los retornos y devoluciones de tus clientes para reingreso rápido a stock."
+          }
+        }
+      },
+      "block_order": [
+        "feat_almacenamiento",
+        "feat_armado",
+        "feat_entrega",
+        "feat_inversa"
+      ]
+    },
+    "downloads": {
+      "type": "stocka-downloads",
+      "settings": {
+        "heading": "Descarga y revisa nuestras presentaciones de servicios",
+        "subheading": "DOCUMENTACIÓN OFICIAL",
+        "connect_wms": true,
+        "wms_folder": "SitioWeb",
+        "background_color": "#f8fafc"
+      },
+      "blocks": {
+        "dl_fulfillment": {
+          "type": "download_item",
+          "settings": {
+            "title": "Servicios de Fulfillment",
+            "folder": "Fulfillment",
+            "description": "Revisa nuestra presentación comercial de servicios logísticos integrales.",
+            "file_url": "https://hubs.ly/Q02R4PLC0"
+          }
+        },
+        "dl_retiro": {
+          "type": "download_item",
+          "settings": {
+            "title": "Punto de retiro y Vitrina",
+            "folder": "Punto de Retiro",
+            "description": "Detalles de ubicación, tarifas y horarios para nuestro punto de Ñuñoa.",
+            "file_url": "https://hubs.ly/Q02R4Ps90"
+          }
+        },
+        "dl_despachos": {
+          "type": "download_item",
+          "settings": {
+            "title": "Despachos",
+            "folder": "Despachos",
+            "description": "Información sobre coberturas, tiempos de entrega y couriers integrados.",
+            "file_url": "https://hubs.ly/Q02R4Pcr0"
+          }
+        }
+      },
+      "block_order": [
+        "dl_fulfillment",
+        "dl_retiro",
+        "dl_despachos"
+      ]
+    },
+    "blog_posts": {
+      "type": "blog-posts",
+      "settings": {
+        "heading": "Artículos Recientes del Blog",
+        "subheading": "LOGÍSTICA Y ECOMMERCE",
+        "description": "Mantente informado con nuestros ebooks, guías y consejos estratégicos para optimizar tus ventas.",
+        "header_alignment": "center",
+        "container": "container",
+        "background_color": "#ffffff",
+        "blog": "news",
+        "limit": 3
+      }
+    },
+    "contact_form": {
+      "type": "stocka-contact-form",
+      "settings": {
+        "heading": "Pide una cotización personalizada",
+        "subheading": "COTIZA AQUÍ",
+        "description": "<p>Escríbenos y nuestro equipo comercial te enviará una propuesta adaptada a tus necesidades en minutos.</p>",
+        "submit_label": "Solicitar Cotización",
+        "background_color": "#f8fafc"
+      }
+    }
+  },
+  "order": [
+    "hero",
+    "features_split",
+    "downloads",
+    "blog_posts",
+    "contact_form"
+  ]
+}
+

@@ -1,0 +1,115 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "page-faqs",
+      "blocks": {
+        "custom-content": {
+          "type": "content",
+          "settings": {
+            "content": "<p> A continuación encontraras preguntas y respuestas frecuentes de nuestros clientes, en caso de que no quede clara la respuesta o tu consulta sea otra, escríbenos a nuestro email: contacto@stocka.cl </p>"
+          }
+        },
+        "accordion-1": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Cuánto demora en estar listo el pedido para retiro?",
+            "content": "<p>Los pedidos ingresados hasta las 16:00 horas podrán ser retirados el mismo día hasta las 20:00 horas, contando con un tiempo de armado de pedidos de 1 hora desde el ingreso. Una vez que el pedido se encuentre listo para retiro, al cliente y a ti le llegará un correo electrónico con instrucciones de retiro.</p><p>Solo puede retirar quien haya realizado la compra, validando su identidad.</p>",
+            "open": true
+          }
+        },
+        "accordion-2": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Mis clientes pueden hacer cambios o devoluciones en su tienda?",
+            "content": "<p>Si, los clientes pueden realizar cambios o devoluciones según condiciones de cada tienda.</p>",
+            "open": false
+          }
+        },
+        "accordion-3": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Realizan envíos en la región metropolitana y otras regiones?",
+            "content": "<p>Si, realizamos envíos en la RM en alianza a pymes de despacho, y también realizamos envíos a regiones junto a diferentes courier según la necesidad de cada cliente.</p>",
+            "open": false
+          }
+        },
+        "accordion-4": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Existe un límite de productos que puedo almacenar?",
+            "content": "<p>No, en Stocka no tenemos un límite de productos que puedas almacenar con nosotros, pero esto se verá limitado según la capacidad de almacenaje que poseamos. </p>",
+            "open": false
+          }
+        },
+        "accordion-5": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Puedo almacenar alimentos en sus bodegas?",
+            "content": "<p>No, por el momento no contamos con almacenamiento de productos perecibles o que necesiten refrigeración en nuestras bodegas. </p>",
+            "open": false
+          }
+        },
+        "145b7335-fc33-48a5-b6f3-9dd76614a165": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Poseen estacionamiento en Stocka?",
+            "content": "<p>Si, contamos con estacionamiento que pueden utilizar al momento de venir a dejar stock, o también para que sus clientes usen al momento<br/>de retirar sus pedidos.</p>",
+            "open": false
+          }
+        },
+        "572833ee-7ede-45d4-911b-20bbdad51df0": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Puedo solo utilizar el punto de retiro?",
+            "content": "<p>Si, puedes escoger la opción de planes y servicios que más se acomode a tus necesidades. </p>",
+            "open": false
+          }
+        },
+        "4dddc4a5-3e8c-4e17-a1b4-2172a7ef2e3d": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Cómo puedo ser punto de servicio Stocka?",
+            "content": "<p>Para ser punto de servicio Stocka y conocer las condiciones escríbenos con tu ubicación y capacidad de almacenamiento a: stockachile@gmail.com</p>",
+            "open": false
+          }
+        },
+        "acfd0f55-6c39-4e0e-91de-5546596525f9": {
+          "type": "accordion",
+          "settings": {
+            "title": "¿Mis clientes pueden pagar al momento de la entrega?",
+            "content": "<p>Si! En Stocka le damos la opción a tus clientes de pagar al momento de retirar el pedido. Esto no tiene costo adicional para ti en caso de que el cliente pague con efectivo o transferencia. Pero si el pago se realiza con tarjeta se aplicarán los siguientes cargos adicionales:<br/><em>Tarjeta crédito 2,52% + $40 </em><strong>*</strong><br/><em>Tarjeta debito 1,30% + $30</em>  <strong>*</strong></p><p><strong>*</strong>Valores más IVA</p>",
+            "open": false
+          }
+        }
+      },
+      "block_order": [
+        "custom-content",
+        "accordion-1",
+        "accordion-2",
+        "accordion-3",
+        "accordion-4",
+        "accordion-5",
+        "145b7335-fc33-48a5-b6f3-9dd76614a165",
+        "572833ee-7ede-45d4-911b-20bbdad51df0",
+        "4dddc4a5-3e8c-4e17-a1b4-2172a7ef2e3d",
+        "acfd0f55-6c39-4e0e-91de-5546596525f9"
+      ],
+      "settings": {
+        "container": "container",
+        "menu": ""
+      }
+    }
+  },
+  "order": [
+    "main"
+  ]
+}

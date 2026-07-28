@@ -1,0 +1,369 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "page-about-us",
+      "settings": {}
+    },
+    "custom-content": {
+      "type": "custom-content",
+      "blocks": {
+        "f5e88f1f-ff68-4d03-b686-0cb9fe62fab1": {
+          "type": "text",
+          "settings": {
+            "title": "<h4 class=\"about__block-heading\">Nuestro servicio se adapta a tus necesidades</h4>\n<p class=\"about__block-subheading\">Solo pagas por los servicios que deseas contratar, nuestra estructura de precios se acomoda a tu negocio, y además con el costo más competitivo del mercado.<br></p>",
+            "subheading": "",
+            "text": "",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "large",
+            "text_color": "black",
+            "button_label": "➜ Quiero Contratar!",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "sf__btn-large",
+            "block_custom_class": "sf__about-block sf__about-block-text sf__about-block-text-1"
+          }
+        },
+        "28e3ce35-e364-43f3-ba87-18b633233063": {
+          "type": "text",
+          "settings": {
+            "title": "<h4 class=\"about__block-heading\">La estrutura de precios se  compone de 3 bases: Almacenaje, Preparación, Despachos.</h4>",
+            "subheading": "",
+            "text": "<p>Sin costo fijo mensual, ni comisiones, solo pagas por el servicio que utilizas en cuanto al almacenaje, y solo pagarás por preparación y despachos en caso de que gestionemos pedidos de tu negocio.</p>",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": "sf__about-block sf__about-block-text sf__about-block-text-2"
+          }
+        }
+      },
+      "block_order": [
+        "f5e88f1f-ff68-4d03-b686-0cb9fe62fab1",
+        "28e3ce35-e364-43f3-ba87-18b633233063"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container",
+        "background_color": "#ededed",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 15,
+        "custom_class": "sf__page-about"
+      }
+    },
+    "1645572445dcc50aa3": {
+      "type": "testimonials",
+      "blocks": {
+        "16455724454c5b0965-0": {
+          "type": "testimonial",
+          "settings": {
+            "title": "0 a 25 pedidos",
+            "description": "<p>$50.000</p>",
+            "footer": "<p>$50.000</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "16455724454c5b0965-1": {
+          "type": "testimonial",
+          "settings": {
+            "title": "Love it so much",
+            "description": "<p>\"Short dress in a printed viscose weave with a round neckline, opening with a button at the back of the Seams with small frill trims at the waist and on the sleeves and skirt. Unlined.\"</p>",
+            "footer": "<p>Dean D. US</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "16455724454c5b0965-2": {
+          "type": "testimonial",
+          "settings": {
+            "title": "Love it so much",
+            "description": "<p>\"Short dress in a printed viscose weave with a round neckline, opening with a button at the back of the Seams with small frill trims at the waist and on the sleeves and skirt. Unlined.\"</p>",
+            "footer": "<p>Dean D. US</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "16455724454c5b0965-3": {
+          "type": "testimonial",
+          "settings": {
+            "title": "Love it so much",
+            "description": "<p>\"Short dress in a printed viscose weave with a round neckline, opening with a button at the back of the Seams with small frill trims at the waist and on the sleeves and skirt. Unlined.\"</p>",
+            "footer": "<p>Dean D. US</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "16455724454c5b0965-4": {
+          "type": "testimonial",
+          "settings": {
+            "title": "Love it so much",
+            "description": "<p>\"Short dress in a printed viscose weave with a round neckline, opening with a button at the back of the Seams with small frill trims at the waist and on the sleeves and skirt. Unlined.\"</p>",
+            "footer": "<p>Dean D. US</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "16455724454c5b0965-5": {
+          "type": "testimonial",
+          "settings": {
+            "title": "Love it so much",
+            "description": "<p>\"Short dress in a printed viscose weave with a round neckline, opening with a button at the back of the Seams with small frill trims at the waist and on the sleeves and skirt. Unlined.\"</p>",
+            "footer": "<p>Dean D. US</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        }
+      },
+      "block_order": [
+        "16455724454c5b0965-0",
+        "16455724454c5b0965-1",
+        "16455724454c5b0965-2",
+        "16455724454c5b0965-3",
+        "16455724454c5b0965-4",
+        "16455724454c5b0965-5"
+      ],
+      "settings": {
+        "heading": "Almacenaje",
+        "subheading": "",
+        "description": "El costo de Almacenaje varia de acuerdo a la cantidad de pedidos que procesemos mensualmente. Con una mayor cantidad de ventas el costo por m3 es menor!",
+        "header_alignment": "center",
+        "container": "w-full",
+        "background_color": "",
+        "design": "testimonials-2",
+        "show_stars": false,
+        "autorotate": false,
+        "show_navigation": true,
+        "show_pagination": true,
+        "star_color": "#000",
+        "custom_class": ""
+      }
+    },
+    "icon-box": {
+      "type": "icon-box",
+      "blocks": {
+        "c8a16382-6620-4bcf-ba3e-1bb9d69d5b77": {
+          "type": "iconbox",
+          "settings": {
+            "title": "Free Shipping",
+            "description": "<p>Free Shipping for orders over £130</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "13184979-bd7f-482c-865f-60738819a029": {
+          "type": "iconbox",
+          "settings": {
+            "title": "Money Guarantee",
+            "description": "<p>Within 30 days for an exchange.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "c4cf2072-efce-4cb9-b184-14404b61e2a3": {
+          "type": "iconbox",
+          "settings": {
+            "title": "Online Support",
+            "description": "<p>24 hours a day, 7 days a week</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "8e15d521-c62b-4552-a64a-94ead24641e5": {
+          "type": "iconbox",
+          "settings": {
+            "title": "Flexible Payment",
+            "description": "<p>Pay with Multiple Credit Cards</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "c8a16382-6620-4bcf-ba3e-1bb9d69d5b77",
+        "13184979-bd7f-482c-865f-60738819a029",
+        "c4cf2072-efce-4cb9-b184-14404b61e2a3",
+        "8e15d521-c62b-4552-a64a-94ead24641e5"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ffffff",
+        "item_per_row": 4,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "horizontal",
+        "image_max_width": "30px",
+        "content_alignment": "start",
+        "hover_effect": "none",
+        "enable_slider": false,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": false,
+        "use_grid_column_mb": false,
+        "custom_class": "sf__page-about"
+      }
+    },
+    "1645573209360e3e77": {
+      "type": "custom-content",
+      "blocks": {
+        "57fb149a-af32-4bca-925d-25ae089a953d": {
+          "type": "text",
+          "settings": {
+            "title": "$50.000",
+            "subheading": "hjlh",
+            "text": "<p>Usa este texto para compartir información sobre tu marca con tus clientes. Describe un producto, comparte anuncios o recibe clientes en tu tienda.</p>",
+            "width": "16%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "d02e010a-964a-4a23-9203-ba35a53e2338": {
+          "type": "text",
+          "settings": {
+            "title": "Habla de tu marca",
+            "subheading": "",
+            "text": "<p>Usa este texto para compartir información sobre tu marca con tus clientes. Describe un producto, comparte anuncios o recibe clientes en tu tienda.</p>",
+            "width": "16%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "2af60929-2d1c-48f2-b208-c64307e237d1": {
+          "type": "text",
+          "settings": {
+            "title": "Habla de tu marca",
+            "subheading": "",
+            "text": "<p>Usa este texto para compartir información sobre tu marca con tus clientes. Describe un producto, comparte anuncios o recibe clientes en tu tienda.</p>",
+            "width": "16%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "e2d8099c-8c0f-45ba-89e1-f2c381ad5687": {
+          "type": "text",
+          "settings": {
+            "title": "Habla de tu marca",
+            "subheading": "",
+            "text": "<p>Usa este texto para compartir información sobre tu marca con tus clientes. Describe un producto, comparte anuncios o recibe clientes en tu tienda.</p>",
+            "width": "16%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "49dfe056-4cc9-4cee-85f2-17b99b7f5a74": {
+          "type": "text",
+          "settings": {
+            "title": "Habla de tu marca",
+            "subheading": "hjlh",
+            "text": "<p>Usa este texto para compartir información sobre tu marca con tus clientes. Describe un producto, comparte anuncios o recibe clientes en tu tienda.</p>",
+            "width": "25%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "57fb149a-af32-4bca-925d-25ae089a953d",
+        "d02e010a-964a-4a23-9203-ba35a53e2338",
+        "2af60929-2d1c-48f2-b208-c64307e237d1",
+        "e2d8099c-8c0f-45ba-89e1-f2c381ad5687",
+        "49dfe056-4cc9-4cee-85f2-17b99b7f5a74"
+      ],
+      "settings": {
+        "heading": "Custom content",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 35,
+        "use_scroll_mobile": false,
+        "gap_mobile": 11,
+        "custom_class": ""
+      }
+    }
+  },
+  "order": [
+    "main",
+    "custom-content",
+    "1645572445dcc50aa3",
+    "icon-box",
+    "1645573209360e3e77"
+  ]
+}

@@ -1,0 +1,253 @@
+{%- comment -%}
+  Stocka Custom Contact / Cotización Form Section
+  Beautiful, corporate-grade quotation form that runs natively on Shopify.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+{% assign bg_color = section.settings.background_color %}
+{% assign has_bg = false %}
+
+{% unless bg_color == "rgba(0,0,0,0)" or bg_color == blank %}
+    {% assign has_bg = true %}
+{% endunless %}
+
+{% capture container %}
+    {{ section.settings.container }}
+    {% if has_bg == false %} section-my {% else %} section-py {% endif %}
+{% endcapture %}
+
+<style>
+  .stocka-form-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    outline: none;
+    transition: all 0.2s ease;
+    font-size: 0.95rem;
+    background-color: #ffffff;
+  }
+  .stocka-form-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+  .stocka-form-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #334155;
+  }
+</style>
+
+<section
+  id="stocka-contact-{{ section.id }}"
+  class="relative {{ section.settings.custom_class }}"
+  style="background-color: {{ section.settings.background_color }};"
+>
+  <div class="{{ container }} mx-auto px-4">
+    <div class="max-w-3xl mx-auto bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-xl">
+      
+      <!-- Section Header -->
+      <div class="text-center mb-8 md:mb-10">
+        {% if settings.subheading != blank %}
+          <p class="text-sm font-semibold tracking-wider text-blue-600 uppercase mb-2">{{ settings.subheading }}</p>
+        {% endif %}
+        {% if settings.heading != blank %}
+          <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-3">{{ settings.heading }}</h2>
+        {% endif %}
+        {% if settings.description != blank %}
+          <div class="text-slate-500 text-sm md:text-base leading-relaxed">{{ settings.description }}</div>
+        {% endif %}
+      </div>
+
+      <!-- Native Shopify Contact Form -->
+      {%- form 'contact', id: 'stocka-cotizar-form' -%}
+        {%- capture success_message -%}
+          {{ 'contact.form.post_success' | t | default: "¡Gracias! Tu solicitud de cotización ha sido enviada con éxito. Nos pondremos en contacto contigo a la brevedad." }}
+        {%- endcapture -%}
+        
+        {% render 'form__success', form: form, success_message: success_message %}
+        {% render 'form__error', form: form %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <!-- Nombre Completo -->
+          <div>
+            <label for="stocka-form-name-{{ section.id }}" class="stocka-form-label">Nombre Completo *</label>
+            <input 
+              type="text" 
+              id="stocka-form-name-{{ section.id }}"
+              name="contact[name]" 
+              class="stocka-form-input"
+              placeholder="Ej: Juan Pérez" 
+              required
+              value="{% if form.name %}{{ form.name }}{% elsif customer %}{{ customer.name }}{% endif %}"
+            >
+          </div>
+
+          <!-- Correo Electrónico -->
+          <div>
+            <label for="stocka-form-email-{{ section.id }}" class="stocka-form-label">Correo Electrónico *</label>
+            <input 
+              type="email" 
+              id="stocka-form-email-{{ section.id }}"
+              name="contact[email]" 
+              class="stocka-form-input"
+              placeholder="juan@tuempresa.com" 
+              required
+              autocorrect="off" 
+              autocapitalize="off"
+              value="{% if form.email %}{{ form.email }}{% elsif customer %}{{ customer.email }}{% endif %}"
+            >
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <!-- Teléfono -->
+          <div>
+            <label for="stocka-form-phone-{{ section.id }}" class="stocka-form-label">Teléfono / WhatsApp *</label>
+            <input 
+              type="tel" 
+              id="stocka-form-phone-{{ section.id }}"
+              name="contact[phone]" 
+              class="stocka-form-input"
+              placeholder="+56 9 1234 5678" 
+              required
+              value="{% if form.phone %}{{ form.phone }}{% elsif customer %}{{ customer.phone }}{% endif %}"
+            >
+          </div>
+
+          <!-- Nombre de Empresa -->
+          <div>
+            <label for="stocka-form-company-{{ section.id }}" class="stocka-form-label">Nombre de tu Tienda / Empresa *</label>
+            <input 
+              type="text" 
+              id="stocka-form-company-{{ section.id }}"
+              name="contact[Empresa]" 
+              class="stocka-form-input"
+              placeholder="Ej: Mi Tienda Online" 
+              required
+            >
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+          <!-- Sitio Web / Redes Sociales -->
+          <div>
+            <label for="stocka-form-website-{{ section.id }}" class="stocka-form-label">Sitio Web o Instagram</label>
+            <input 
+              type="text" 
+              id="stocka-form-website-{{ section.id }}"
+              name="contact[SitioWeb]" 
+              class="stocka-form-input"
+              placeholder="www.mitienda.cl o @mitienda" 
+            >
+          </div>
+
+          <!-- Volumen Estimado de Pedidos -->
+          <div>
+            <label for="stocka-form-volume-{{ section.id }}" class="stocka-form-label">Volumen Estimado de Pedidos Mensuales *</label>
+            <select 
+              id="stocka-form-volume-{{ section.id }}"
+              name="contact[VolumenPedidos]" 
+              class="stocka-form-input"
+              required
+            >
+              <option value="" disabled selected>Selecciona una opción</option>
+              <option value="0 - 100 pedidos">0 - 100 pedidos / mes</option>
+              <option value="101 - 500 pedidos">101 - 500 pedidos / mes</option>
+              <option value="501 - 1000 pedidos">501 - 1000 pedidos / mes</option>
+              <option value="Más de 1000 pedidos">Más de 1000 pedidos / mes</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Comentarios Adicionales -->
+        <div class="mb-8">
+          <label for="stocka-form-message-{{ section.id }}" class="stocka-form-label">¿Qué tipo de productos vendes u otra aclaración?</label>
+          <textarea 
+            id="stocka-form-message-{{ section.id }}"
+            name="contact[body]" 
+            class="stocka-form-input"
+            rows="4" 
+            placeholder="Escribe aquí detalles sobre tus requerimientos, integración con canales, tipo de productos, etc."
+          >{%- if form.body -%}{{ form.body }}{%- endif -%}</textarea>
+        </div>
+
+        <!-- Botón de Envío -->
+        <div class="text-center">
+          <button 
+            type="submit" 
+            class="sf__btn sf__btn-primary sf__btn-large w-full md:w-auto px-10 py-4 justify-center"
+          >
+            {{ settings.submit_label | default: "Enviar Solicitud" }}
+          </button>
+        </div>
+
+      {%- endform -%}
+
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Stocka Contact Form",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Título",
+      "default": "Pide una cotización personalizada"
+    },
+    {
+      "type": "text",
+      "id": "subheading",
+      "label": "Subtítulo",
+      "default": "COTIZA NUESTRO SERVICIO"
+    },
+    {
+      "type": "richtext",
+      "id": "description",
+      "label": "Descripción",
+      "default": "<p>Completa la información sobre tu negocio y nos pondremos en contacto contigo con una propuesta a tu medida en menos de 24 horas.</p>"
+    },
+    {
+      "type": "text",
+      "id": "submit_label",
+      "label": "Texto del Botón",
+      "default": "Enviar Solicitud de Cotización"
+    },
+    {
+      "type": "header",
+      "content": "Ajustes Generales"
+    },
+    {
+      "type": "select",
+      "id": "container",
+      "label": "Ancho del contenedor",
+      "default": "container",
+      "options": [
+        { "value": "container", "label": "Normal" },
+        { "value": "container-fluid", "label": "Ancho Completo" }
+      ]
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Color de Fondo",
+      "default": "#ffffff"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS Personalizada"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Contact Form"
+    }
+  ]
+}
+{% endschema %}

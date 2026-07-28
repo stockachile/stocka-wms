@@ -1,0 +1,55 @@
+{%- assign st = section.settings -%}
+
+{%- assign filters_type = st.filters_type -%}
+{%- assign show_filter = st.show_filter -%}
+{%- assign hide_filters_node = false -%}
+{%- if show_filter == false and st.show_sorting -%}
+  {%- assign show_filter = true -%}
+  {%- assign hide_filters_node = true -%}
+  {%- assign filters_type = 'storefront_filters' -%}
+{%- endif -%}
+
+{%- assign has_filter = false -%}
+{%- if section.blocks.size > 0 -%}
+  {%- assign has_filter = true -%}
+{%- endif -%}
+
+{%- if filters_type == 'storefront_filters' -%}
+  {%- for filter in collection.filters -%}
+    {%- if forloop.first -%}
+      {%- if forloop.length > 0 -%}
+        {%- assign has_filter = true -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+
+{%- assign position = st.sidebar -%}
+{%- assign sidebar_title = st.sidebar_title -%}
+
+{%- if show_filter and has_filter -%}
+  <div class="sf__sidebar touch-none {% if hide_filters_node %}hidden{% endif %}" data-type="{{ position }}">
+    <div class="sf__sidebar-content overscroll-contain h-full{% if sidebar_title == blank %} sf__sidebar--no-title{% endif %}">
+      {%- if sidebar_title != blank -%}
+        <h3 class="text-3xl p-5 font-medium {% if position != 'fixed' %}xl:px-0 xl:mb-8 xl:py-0{% endif %}">{{ sidebar_title }}</h3>
+      {%- endif -%}
+      <div class="sf__sidebar-close cursor-pointer absolute top-4 right-4{% if position != 'fixed' %} xl:hidden{% endif %}">
+        {%- render 'icon', name: 'x', size: 'large' -%}
+      </div>
+      <div class="p-5 pt-0 {% if position != 'fixed' %} xl:p-0{% endif %}">
+        <div class="sf__filter-wrapper">
+          {%- if filters_type == 'storefront_filters' -%}
+            {%- for block in section.blocks -%}
+              {%- if block.type == 'collections' -%}
+                {%- render 'widget-collections-list', block: block, title_class: 'text-base font-medium' -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- render 'storefront-filters', section: section -%}
+          {%- else -%}
+            {%- render 'filter-by-tags', section: section -%}
+          {%- endif -%}
+        </div>
+      </div>
+    </div>
+  </div>
+{%- endif -%}

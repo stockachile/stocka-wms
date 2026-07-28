@@ -1,0 +1,31 @@
+{% assign default = 'products.product.add_to_cart' | t %}
+{% if is_preorder == nil %}
+  {%- capture is_preorder -%}{%- render 'check-preorder', product: product -%}{%- endcapture -%}
+{% endif %}
+{%- assign is_preorder = is_preorder | append: '' -%}
+
+{% if is_preorder == "true" %}
+  {% capture btn_text %}{{ 'products.product.preorder' | t }}{% endcapture %}
+  {% if btn_text contains 'translation missing' %}
+    {% capture btn_text %}Pre-order{% endcapture %}
+  {% endif %}
+  <input type="hidden" name="properties[Pre-order item]" value="true">
+  <input type="hidden" name="properties[_foxDiscount[plugin]]" value="PreOrder">
+  <input type="hidden" name="properties[_foxDiscount[offer_id]]" value="{{ product.metafields.foxkit.preorder.id }}">
+{% endif %}
+
+<button
+  type="submit"
+  name="add"
+  class="add-to-cart sf__btn flex-grow flex-shrink not-change relative {{ class }} {% unless product.selected_or_first_available_variant.available %}disabled{% endunless %}"
+  data-atc-text="{{ btn_text | default: default }}"
+>
+  {% render 'atc-spinner' %}
+  <span class="not-change atc-text">
+    {% if product.available %}
+      {{ btn_text | default: default }}
+    {% else %}
+      {{ 'products.product.sold_out' | t }}
+    {% endif %}
+  </span>
+</button>

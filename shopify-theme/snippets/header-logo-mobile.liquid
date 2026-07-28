@@ -1,0 +1,50 @@
+{%- capture class -%}
+  sf-logo sf-logo--mobile px-4 {{ box_size }} {{ justify | default: 'justify-center' }} {% if header_settings.logo %}has-logo-img{% endif %}
+{%- endcapture -%}
+{% capture logo_alt %}{{ section.settings.logo.alt | default: shop.name }}{% endcapture %}
+
+{% assign default_logo = header_settings.logo %}
+{% assign logo_mobile = header_settings.logo_mobile %}
+{% assign logo_svg = header_settings.logo_svg %}
+{% assign logo_mobile_svg = header_settings.logo_mobile_svg %}
+
+{% assign has_logo_mobile = false %}
+{% if logo_mobile != blank or logo_mobile_svg != blank %}
+  {% assign has_logo_mobile = true %}
+{% endif %}
+
+{% if logo_svg != blank %}
+  {% assign default_logo = logo_svg %}
+{% endif %}
+
+<div class="{{ class | strip_newlines }}">
+    {% if default_logo != blank %}
+      {% assign default_class = 'sf-logo-default' %}
+      {% if has_logo_mobile == true %}
+        {% assign default_class = default_class | append: ' hidden md:block' %}
+      {% endif %}
+      <a href="{{ routes.root_url }}" class="block py-2.5 logo-img relative" title="{{ shop.name }}">
+        {% if logo_svg != blank %}
+          <div class="sf-image {{ default_class }}">
+            <img src="{{ logo_svg }}" alt="{{ logo_alt }}">
+          </div>
+        {% else %}
+          {% render 'responsive-image', image_class: 'inline-block', image: default_logo, wrapper_class: default_class, alt: logo_alt %}
+        {% endif %}
+
+        {% if has_logo_mobile == true %}
+          {% if logo_mobile_svg != blank %}
+            <div class="sf-image sf-logo-mobile md:hidden">
+              <img src="{{ logo_mobile_svg }}" alt="{{ logo_alt }}">
+            </div>
+          {% else %}
+            {% render 'responsive-image', image_class: 'inline-block', image: logo_mobile, wrapper_class: 'sf-logo-mobile md:hidden', alt: logo_alt %}
+          {% endif %}
+        {% endif %}
+      </a>
+    {% else %}
+      <a href="{{ routes.root_url }}" class="block text-center">
+        <strong>{{ header_settings.logo_text | default: shop.name }}</strong>
+      </a>
+    {% endif %}
+</div>

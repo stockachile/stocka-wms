@@ -1,0 +1,91 @@
+<script>
+	var Globo = Globo || {};
+    var globoFormbuilderRecaptchaInit = function(){};
+    Globo.FormBuilder = Globo.FormBuilder || {};
+    Globo.FormBuilder.url = "https://form.globosoftware.net";
+    Globo.FormBuilder.shop = {
+        settings : {
+            reCaptcha : {
+                siteKey : '',
+                recaptchaType : 'v2',
+                languageCode : 'es-419'
+            },
+            hideWaterMark : false,
+            encryptionFormId : true,
+            copyright: `Powered by G: <a href="https://apps.shopify.com/form-builder-contact-form" target="_blank">Form Builder</a>`,
+            scrollTop: true,
+            additionalColumns: []        },
+        pricing:{
+            features:{
+                fileUpload : 2,
+                removeCopyright : false,
+                bulkOrderForm: false,
+                cartForm: false,
+            }
+        },
+        configuration: {
+            money_format:  "{{ shop.money_format | replace: '"', "'" }}"
+        },
+        encryption_form_id : true
+    };
+    Globo.FormBuilder.forms = [];
+
+    {% if customer %}
+        Globo.FormBuilder.customer = {
+            id : '{{ customer.id }}',
+            name : `{{ customer.name }}`,
+            email : '{{ customer.email }}',
+            phone : '{{ customer.phone }}',
+            first_name : '{{ customer.first_name }}',
+            last_name : '{{ customer.last_name }}',
+            tags: []
+        };
+
+        Globo.FormBuilder.customer.tags = Globo.FormBuilder.customer.tags.concat(
+            {%- if customer.tags.size > 0 -%}                {%- for tag in customer.tags -%}                    {%- unless forloop.first -%},{%- endunless -%}                    `{{ tag }}`                {%- endfor -%}            {%- endif -%}        );
+        Globo.FormBuilder.customer.default_address = {{ customer.default_address | json }};
+
+        {% capture globo_customer %}customer_{{ customer.id }}{% endcapture %}        {% assign customerMetafield = shop.metafields.g_formbuilder[globo_customer] %}        Globo.FormBuilder.customer.metafields = {{ customerMetafield.value | json }};
+
+    {% endif %}
+    Globo.FormBuilder.page = {
+        title : document.title.replaceAll('"', "'"),
+        href : window.location.href,
+        type: "{{ request.page_type }}"
+    };
+    {% if request.page_type == 'product' %}
+    Globo.FormBuilder.product= {
+        title : `{{ product.title }}`,
+        type : `{{ product.type }}`,
+        vendor : `{{ product.vendor }}`
+    }
+    {% endif %}
+    Globo.FormBuilder.assetFormUrls = [];
+            Globo.FormBuilder.assetFormUrls[72699] = "{{ 'globo.formbuilder.data.72699.js' | asset_url }}";
+            
+    
+    window.Globo.FormBuilder.forms = [];
+    {%- assign idSize = shop.metafields.g_formbuilder.formIds.value | size -%}
+    {% if idSize > 0 %}
+        {% for id in shop.metafields.g_formbuilder.formIds.value %}
+        {% capture form %}form_{{id}}{% endcapture %}
+        {% assign currentMetafield = shop.metafields.g_formbuilder[form] %}
+        window.Globo.FormBuilder.forms[{{id}}] = {{ currentMetafield.value | json }}[{{id}}];
+        {% endfor %}
+    {% else %}
+        {%- assign formSize = shop.metafields.g_formbuilder.forms.value | size -%}
+        {% if formSize > 0 %}
+        window.Globo.FormBuilder.forms = {{ shop.metafields.g_formbuilder.forms }};
+        {% endif %}
+    {% endif %}
+    
+</script>
+
+
+{{ shop.metafields.g_formbuilder.initialStyles }}
+
+{% capture GF_appScript %}{{ 'globo.formbuilder.index.js' | asset_url }}{% endcapture %}
+<script>
+    Globo.FormBuilder.__webpack_public_path__ = "{{ GF_appScript | split: 'globo.formbuilder.index.js' | first }}"
+</script>
+<script src="{{GF_appScript}}" defer></script>

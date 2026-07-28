@@ -1,0 +1,420 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "page",
+      "disabled": true,
+      "settings": {}
+    },
+    "16496101755cbc4168": {
+      "type": "image-with-text-2",
+      "settings": {
+        "container": "w-full",
+        "hero_size": "adapt",
+        "show_overlay": true,
+        "image": "shopify://shop_images/fulfillment_chile_stocka.png",
+        "bg_position": "center",
+        "image_link": "",
+        "parallax": true,
+        "content_in_container": false,
+        "content_position": "left middle",
+        "text_alignment": "left",
+        "text_size": "medium",
+        "text_color": "white",
+        "title": "Fulfillment para Ecommerce",
+        "subtitle": "Tú vendes y de la logística nos encargamos nosotros",
+        "text": "<p>Olvídate de armar paquetes, y no te preocupes de donde guardar tus productos, te ofrecemos almacenamiento on-demand para controlar tus costos y nos encargamos de preparar tus ventas para entregar los pedidos a tus clientes con despachos express.</p>",
+        "button_label": "Me interesa",
+        "button_link": "shopify://pages/contacto",
+        "button_style": "sf__btn-primary",
+        "button_size": "",
+        "mb_image": "shopify://shop_images/stocka_fulfillment.png",
+        "use_content_above": false,
+        "custom_class": ""
+      }
+    },
+    "16455713549e9e0d1e": {
+      "type": "custom-content",
+      "blocks": {
+        "eaea37e6-571a-4ec9-b684-6d963bd800cc": {
+          "type": "text",
+          "settings": {
+            "title": "Almacenamiento on-demand 📦",
+            "subheading": "No pagues de más",
+            "text": "<p>Solo pagas por el espacio que utilizas, no necesitas arrendar una bodega completa, ni pagar por estanterías que no utilizarás, tú defines cuánto stock quieres almacenar y decides tu ritmo de re-stock según tus flujos de venta.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "ver tarifas",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "8a691c63-960a-4e51-be4b-febe771e7398": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/almacenamiento_on_demand_stocka.gif",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "eaea37e6-571a-4ec9-b684-6d963bd800cc",
+        "8a691c63-960a-4e51-be4b-febe771e7398"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "b1dde3fb-2d04-43f7-86f2-68db1d7cb1eb": {
+      "type": "custom-content",
+      "blocks": {
+        "template--15861476327643__b1dde3fb-2d04-43f7-86f2-68db1d7cb1eb-1679263496f2663bc3-0": {
+          "type": "text",
+          "settings": {
+            "title": "stock online",
+            "subheading": "",
+            "text": "<p>Sigue el estado de tu inventario online, revisa cuándo vas a necesitar ingresar nuevo stock a nuestras bodegas.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "75a05823-5cf1-4e12-9ad5-d759c965b240": {
+          "type": "text",
+          "settings": {
+            "title": "sin minimos",
+            "subheading": "",
+            "text": "<p>No te exigiremos cantidades mínimas ni máximas para almacenar, tú estableces tus límites.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "template--15861476327643__b1dde3fb-2d04-43f7-86f2-68db1d7cb1eb-1679263496f2663bc3-0",
+        "75a05823-5cf1-4e12-9ad5-d759c965b240"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "365b7e7b-71cc-4ef1-8a9b-34982b400eb4": {
+      "type": "custom-content",
+      "blocks": {
+        "e3a10532-0152-430f-8757-6f54772f3aed": {
+          "type": "text",
+          "settings": {
+            "title": "Preparación personalizada de  pedidos 🫶",
+            "subheading": "Como si lo hicieras tú",
+            "text": "<p>Armamos tus pedidos a tu medida, puedes quedarte con el servicio standard o establecer personalizaciones en el packaging según lo prefieras.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "ver tarifas",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "d90ceb1d-0ce8-4380-88eb-d73614a5ccf1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/preparacion_de_pedidos_stocka.gif",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "e3a10532-0152-430f-8757-6f54772f3aed",
+        "d90ceb1d-0ce8-4380-88eb-d73614a5ccf1"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "58ecf4ad-dfd7-433a-b1da-386fadbd1102": {
+      "type": "custom-content",
+      "blocks": {
+        "d8375396-3fa3-419d-8478-3e358053055b": {
+          "type": "text",
+          "settings": {
+            "title": "personalizado",
+            "subheading": "",
+            "text": "<p>Podemos armar tus pedidos con tu empaque personalizado o podemos también enviar con un empaque standard que ya está considerando en la tarifa que pagas por pedido preprarado.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "98d0eaea-2c9f-4c62-a110-3873c04fe1d6": {
+          "type": "text",
+          "settings": {
+            "title": "registro",
+            "subheading": "",
+            "text": "<p>Tendrás el registro de tu pedido preparado, si lo deseas podrás revisarlo para verificar que tus pedidos se están armando correctamente.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "d8375396-3fa3-419d-8478-3e358053055b",
+        "98d0eaea-2c9f-4c62-a110-3873c04fe1d6"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "434cda27-3dfe-462c-bf1b-8f1a07cc76fe": {
+      "type": "custom-content",
+      "blocks": {
+        "f4ae3334-5faa-4c34-8ac0-c29a2454985e": {
+          "type": "text",
+          "settings": {
+            "title": "Despachos a super velocidad ⚡️",
+            "subheading": "Entregas el mismo día",
+            "text": "<p>Armamos tus pedidos a tu medida, puedes quedarte con el servicio standard o establecer personalizaciones en el packaging según lo prefieras.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "ver tarifas",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "add37af1-3241-4009-8241-5ffdc17f852a": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/delivery_stocka.gif",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "f4ae3334-5faa-4c34-8ac0-c29a2454985e",
+        "add37af1-3241-4009-8241-5ffdc17f852a"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "9f50193a-9011-4fe9-a6af-2cf76f0924c0": {
+      "type": "custom-content",
+      "blocks": {
+        "7f6c9fbe-42b5-4a7c-9b14-bd7c386f3d5d": {
+          "type": "text",
+          "settings": {
+            "title": "same day",
+            "subheading": "",
+            "text": "<p>Entregamos a tus clientes el mismo día en la región metropolitana, y a regiones con las opciones más convenientes para entregas a tiempo.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "ver más",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-link",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "59bc443c-9a34-4271-9fae-15ff670b5b60": {
+          "type": "text",
+          "settings": {
+            "title": "cash on delivery",
+            "subheading": "",
+            "text": "<p>Vende con pago en destino en comunas de la Región Metropolitana, ofrece a tus clientes pagar su compra cuando la recibe directamente al conductor.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "me interesa",
+            "button_link": "shopify://pages/contacto",
+            "button_style": "sf__btn-link",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "7f6c9fbe-42b5-4a7c-9b14-bd7c386f3d5d",
+        "59bc443c-9a34-4271-9fae-15ff670b5b60"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "5bde6c15-2de5-4b3c-9b56-80db159fef67": {
+      "type": "custom-content",
+      "blocks": {
+        "template--15861476327643__5bde6c15-2de5-4b3c-9b56-80db159fef67-1679263496f2663bc3-0": {
+          "type": "text",
+          "settings": {
+            "title": "¿Quieres que te contactemos?",
+            "subheading": "",
+            "text": "",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "template--15861476327643__5bde6c15-2de5-4b3c-9b56-80db159fef67-1679263496f2663bc3-0"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "14dcd40f-14b7-4cf5-a56e-f40a1e178192": {
+      "type": "custom-liquid",
+      "settings": {
+        "custom_liquid": "{formbuilder:NzI2OTk=}",
+        "custom_class": ""
+      }
+    }
+  },
+  "order": [
+    "main",
+    "16496101755cbc4168",
+    "16455713549e9e0d1e",
+    "b1dde3fb-2d04-43f7-86f2-68db1d7cb1eb",
+    "365b7e7b-71cc-4ef1-8a9b-34982b400eb4",
+    "58ecf4ad-dfd7-433a-b1da-386fadbd1102",
+    "434cda27-3dfe-462c-bf1b-8f1a07cc76fe",
+    "9f50193a-9011-4fe9-a6af-2cf76f0924c0",
+    "5bde6c15-2de5-4b3c-9b56-80db159fef67",
+    "14dcd40f-14b7-4cf5-a56e-f40a1e178192"
+  ]
+}

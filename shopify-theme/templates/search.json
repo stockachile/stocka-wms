@@ -1,0 +1,98 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "page-search",
+      "settings": {}
+    },
+    "1645816301ac98a741": {
+      "type": "icon-box",
+      "blocks": {
+        "16458163018f584af5-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/online-shop_1.png",
+            "title": "Precios",
+            "description": "<p>Revisa aquí los costos de servicio.</p>",
+            "link": "shopify://pages/precios-1",
+            "button_label": "Ver planes",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "sf__btn-small"
+          }
+        },
+        "16458163018f584af5-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/atencion-al-cliente.png",
+            "title": "Te contactamos!",
+            "description": "<p>Déjanos una solicitud de contacto.</p>",
+            "link": "shopify://pages/contacto",
+            "button_label": "Contáctame",
+            "button_link": "shopify://pages/contacto",
+            "button_style": "sf__btn-primary",
+            "button_size": "sf__btn-small"
+          }
+        },
+        "16458163018f584af5-2": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/caja.png",
+            "title": "Servicios",
+            "description": "<p>Conocer más de lo que ofrecemos</p>",
+            "link": "shopify://pages/precios-1",
+            "button_label": "Servicios",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "sf__btn-small"
+          }
+        }
+      },
+      "block_order": [
+        "16458163018f584af5-0",
+        "16458163018f584af5-1",
+        "16458163018f584af5-2"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "rgba(0,0,0,0)",
+        "item_per_row": 3,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "horizontal",
+        "image_max_width": "70px",
+        "content_alignment": "center",
+        "hover_effect": "scaling-down",
+        "enable_slider": false,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": false,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "1645816248fa9cf183": {
+      "type": "globo-formbuilder",
+      "settings": {
+        "form_id": "NzI2OTk="
+      }
+    }
+  },
+  "order": [
+    "main",
+    "1645816301ac98a741",
+    "1645816248fa9cf183"
+  ]
+}

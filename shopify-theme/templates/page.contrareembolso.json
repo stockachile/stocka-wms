@@ -1,0 +1,266 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "main": {
+      "type": "page",
+      "disabled": true,
+      "settings": {}
+    },
+    "16455713549e9e0d1e": {
+      "type": "custom-content",
+      "blocks": {
+        "eaea37e6-571a-4ec9-b684-6d963bd800cc": {
+          "type": "text",
+          "settings": {
+            "title": "Servicio de envíos con pago en destino",
+            "subheading": "Despega tus ventas hoy!",
+            "text": "<p>Ofrece a tus clientes despachos contra reembolso o contra entrega, donde podrán realizar el pago de sus compras en su domicilio cuando recibe su compra. Este modelo de ventas es conocido por su mayor tasa de conversión en ecommerce, impulsa tus ventas ofreciendo mas posibilidades de pago a tus clientes ahora.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "Obtener información",
+            "button_link": "shopify://pages/contacto",
+            "button_style": "sf__btn-link",
+            "button_size": "sf__btn-large",
+            "block_custom_class": ""
+          }
+        },
+        "f6182e67-2f8d-453d-95b3-486029a5d67f": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Despega_tus_ventas_con_Stocka.gif",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "eaea37e6-571a-4ec9-b684-6d963bd800cc",
+        "f6182e67-2f8d-453d-95b3-486029a5d67f"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#5ce1e6",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "f4a71793-ec89-4e98-8ceb-5e292ea00fb3": {
+      "type": "press",
+      "blocks": {
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-0": {
+          "type": "news",
+          "settings": {
+            "title": "<p>1.- Tu cliente hace un pedido en tu sitio web con la opción de pagar en destino.</p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        },
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-1": {
+          "type": "news",
+          "settings": {
+            "title": "<p>2.- Contactamos a cada cliente para confirmar su pedido y filtramos aquellas que tienen baja probabilidad de éxito.</p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka_1.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        },
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-2": {
+          "type": "news",
+          "settings": {
+            "title": "<p>3.- Agendamos la entrega con el cliente, con fecha y horario para coordinar la visita.</p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka_2.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        },
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-3": {
+          "type": "news",
+          "settings": {
+            "title": "<p>4.- Armamos el pedido, lo etiquetamos y se despacha con nuestros conductores equipados para recibir el pago.</p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka_3.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        },
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-4": {
+          "type": "news",
+          "settings": {
+            "title": "<p>5.- Entregamos su pedido al cliente y recibimos el pago con efectivo, transferencia o tarjetas de débito/crédito. </p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka_4.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        },
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-5": {
+          "type": "news",
+          "settings": {
+            "title": "<p>6.- Recibe semanalmente el abono de lo recaudado directamente a tu cuenta mediante transferencia bancaria.</p>",
+            "image": "shopify://shop_images/COD_Chile_Stocka_5.png",
+            "image_width": "150px",
+            "url": ""
+          }
+        }
+      },
+      "block_order": [
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-0",
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-1",
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-2",
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-3",
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-4",
+        "template--16719352201435__f4a71793-ec89-4e98-8ceb-5e292ea00fb3-16798639790ce0955c-5"
+      ],
+      "settings": {
+        "heading": "¿Cómo funciona?",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "show_divider": true,
+        "autoplay": true,
+        "custom_class": ""
+      }
+    },
+    "958d5451-82a3-4dec-b2b2-458063fd309e": {
+      "type": "custom-content",
+      "blocks": {
+        "template--16719352201435__958d5451-82a3-4dec-b2b2-458063fd309e-1679866731de7d9b3d-0": {
+          "type": "text",
+          "settings": {
+            "title": "Cobertura en 35 comunas de la RM",
+            "subheading": "Entregas en 12-24 hrs.",
+            "text": "<p>Contamos con conductores que llegan a las distintas comunas de las comunas urbanas de la Región Metropolitana recepcionando pagos con efectivo, transferencia y tarjetas de crédito y débito bancarias.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "Ver tarifas",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "template--16719352201435__958d5451-82a3-4dec-b2b2-458063fd309e-1679866731de7d9b3d-1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/COD_1.png",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "template--16719352201435__958d5451-82a3-4dec-b2b2-458063fd309e-1679866731de7d9b3d-0",
+        "template--16719352201435__958d5451-82a3-4dec-b2b2-458063fd309e-1679866731de7d9b3d-1"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#c6c6c6",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "715d270a-7487-48a1-80c4-3e22148042b4": {
+      "type": "custom-content",
+      "blocks": {
+        "template--16719352201435__715d270a-7487-48a1-80c4-3e22148042b4-1679866731de7d9b3d-0": {
+          "type": "text",
+          "settings": {
+            "title": "Carácteristicas del servicio",
+            "subheading": "",
+            "text": "<ul><li>Realizamos un filtro a tus ventas, donde verificamos con cada cliente que efectivamente recibirá su compra y lo podremos encontrar en su dirección de entrega.</li><li>Coordinamos el despacho con el cliente, nos aseguramos de entregar toda la información al delivery para mejorar las opciones de éxito en la entrega.</li><li>Se realizan 2 intentos de entrega, si en el primer intento no se logra entregar la compra entonces coordinamos el segundo intento con el cliente para conocer su disponibilidad horaria.</li><li>Realizamos confirmaciones de agenda y enviamos recordatorios de los pedidos de los clientes para evitar imposibilidades de entrega, cuando un cliente espera un pedido que no ha pagado puede olvidar facilmente que hizo esa compra.</li><li>Agendamos los pedidos para ser entregados de 12 a 24 hrs, las entregas se realizan durante el día entre 11 y 21 hrs de Lunes a Sábado.</li><li>Recibirás semanalmente el reporte de las entregas realizadas con el detalle de los montos recaudados, los costos de despacho, y el monto a pagar descontando la comisión de aquellos pagos recibidos con tarjetas. La comisión la cobra el operador del sistema de pago, actualmente trabajamos con la empresa Haulmer y su sistema de POS TUU.</li></ul>",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "306d7f14-6bb8-4f93-b76d-d7418a972790": {
+          "type": "text",
+          "settings": {
+            "title": "¿Quieres conocer más?",
+            "subheading": "",
+            "text": "",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "template--16719352201435__715d270a-7487-48a1-80c4-3e22148042b4-1679866731de7d9b3d-0",
+        "306d7f14-6bb8-4f93-b76d-d7418a972790"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "1b2492fc-a8e4-4ff7-aa4d-1d6f135cf26d": {
+      "type": "custom-liquid",
+      "settings": {
+        "custom_liquid": "{formbuilder:NzI2OTk=}",
+        "custom_class": ""
+      }
+    }
+  },
+  "order": [
+    "main",
+    "16455713549e9e0d1e",
+    "f4a71793-ec89-4e98-8ceb-5e292ea00fb3",
+    "958d5451-82a3-4dec-b2b2-458063fd309e",
+    "715d270a-7487-48a1-80c4-3e22148042b4",
+    "1b2492fc-a8e4-4ff7-aa4d-1d6f135cf26d"
+  ]
+}

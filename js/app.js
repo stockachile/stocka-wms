@@ -132,6 +132,73 @@ window.downloadBase64Pdf = function(base64, filename) {
   }
 };
 
+// Helper global para extraer y dar estilo al estado de la plataforma origen del pedido
+window.getOriginalPlatformStatus = function(order) {
+  if (order.external_platform === 'Shopify' && order.raw_shopify_data) {
+    const raw = order.raw_shopify_data;
+    const fin = raw.financial_status || 'unknown';
+    const ful = raw.fulfillment_status || 'unfulfilled';
+    return {
+      platform: 'Shopify',
+      details: [
+        { label: 'Pago', value: fin, color: fin === 'paid' ? '#10b981' : '#f59e0b' },
+        { label: 'Preparación', value: ful, color: ful === 'fulfilled' ? '#3b82f6' : '#6b7280' }
+      ]
+    };
+  }
+  if (order.raw_woocommerce_data) {
+    const raw = order.raw_woocommerce_data;
+    const status = raw.status || 'unknown';
+    let color = '#6b7280';
+    if (status === 'processing') color = '#3b82f6';
+    else if (status === 'completed') color = '#10b981';
+    else if (status === 'cancelled') color = '#ef4444';
+    else if (status === 'pending') color = '#f59e0b';
+    return {
+      platform: 'WooCommerce',
+      details: [
+        { label: 'Estado', value: status, color: color }
+      ]
+    };
+  }
+  if (order.raw_jumpseller_data) {
+    const raw = order.raw_jumpseller_data;
+    const status = raw.status || 'unknown';
+    let color = '#6b7280';
+    const statusLower = status.toLowerCase();
+    if (statusLower === 'paid' || statusLower === 'pagado') color = '#10b981';
+    else if (statusLower === 'pending' || statusLower === 'pendiente') color = '#f59e0b';
+    else if (statusLower === 'canceled' || statusLower === 'cancelado') color = '#ef4444';
+    return {
+      platform: 'Jumpseller',
+      details: [
+        { label: 'Estado', value: status, color: color }
+      ]
+    };
+  }
+  if (order.raw_falabella_data) {
+    const raw = order.raw_falabella_data;
+    const status = raw.status || raw.state || 'unknown';
+    return {
+      platform: 'Falabella',
+      details: [
+        { label: 'Estado', value: status, color: '#3b82f6' }
+      ]
+    };
+  }
+  if (order.raw_meli_data) {
+    const raw = order.raw_meli_data;
+    const status = raw.status || 'unknown';
+    return {
+      platform: 'MercadoLibre',
+      details: [
+        { label: 'Estado', value: status, color: status === 'paid' ? '#10b981' : '#3b82f6' }
+      ]
+    };
+  }
+  return null;
+};
+
 // Global function to toggle table action menus
 window.toggleTableActionMenu = function(event, btn) {
   event.stopPropagation();
@@ -4241,6 +4308,34 @@ window.fetchInventoryForClientOrders = async function(orders) {
   }
 };
 
+// Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas
+async function fetchEnviosUnificadosByRefs(allRefs) {
+  if (!allRefs || allRefs.length === 0) return [];
+  const uniqueRefs = [...new Set(allRefs)];
+  const CHUNK_SIZE = 150;
+  const promises = [];
+
+  for (let i = 0; i < uniqueRefs.length; i += CHUNK_SIZE) {
+    const chunk = uniqueRefs.slice(i, i + CHUNK_SIZE);
+    promises.push(
+      supabase
+        .from('envios_unificados')
+        .select('*')
+        .in('pedido_referencia', chunk)
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('Error fetching envios_unificados chunk:', error);
+            return [];
+          }
+          return data || [];
+        })
+    );
+  }
+
+  const chunksResults = await Promise.all(promises);
+  return chunksResults.flat();
+}
+
 async function renderOrders() {
   window.clientOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   const appContent = document.getElementById('app-content');
@@ -4348,6 +4443,7 @@ async function renderOrders() {
         agenda,
         operador,
         fecha_procesamiento,
+        sucursal_pickeo,
         order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
       `)
       .gte('created_at', startOfMonth);
@@ -4394,15 +4490,7 @@ async function renderOrders() {
       const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
       const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
-      const { data: shipData, error: shipError } = await supabase
-        .from('envios_unificados')
-        .select('*')
-        .in('pedido_referencia', allRefs)
-        .eq('visible_to_client', true);
-
-      if (!shipError && shipData) {
-        shipments = shipData;
-      }
+      shipments = await fetchEnviosUnificadosByRefs(allRefs);
     }
     window.clientLoadedShipments = shipments;
 
@@ -4475,13 +4563,8 @@ async function renderOrders() {
           const orderTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
           const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
 
-          const { data: shipData, error: shipError } = await supabase
-            .from('envios_unificados')
-            .select('*')
-            .in('pedido_referencia', allRefs)
-            .eq('visible_to_client', true);
-
-          if (!shipError && shipData) {
+          const shipData = await fetchEnviosUnificadosByRefs(allRefs);
+          if (shipData && shipData.length > 0) {
             window.clientLoadedShipments = [...(window.clientLoadedShipments || []), ...shipData];
           }
 
@@ -4890,8 +4973,12 @@ window.applyClientWmsFiltersAndRender = function() {
         const getMovedScore = (s) => {
           let gStatus = s.global_status;
           let statusText = s.status || '';
-          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && s.raw_data && s.raw_data[23]) {
-            statusText = s.raw_data[23];
+          if (s.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+            if (s.raw_data && s.raw_data[23]) {
+              statusText = s.raw_data[23];
+            } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+              statusText = order.raw_lightdata_data.raw_data[23];
+            }
           }
           if (!gStatus || gStatus === 'SIN MOVIMIENTO') {
             const rawStatus = statusText.toLowerCase().trim();
@@ -5106,7 +5193,9 @@ window.applyClientWmsFiltersAndRender = function() {
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
     if (order.label_base64) {
-      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_falabella_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: 600;"><i class="ri-download-2-line"></i> Descargar</button>`;
+    } else if (order.label_url) {
+      labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; text-decoration: none; border-radius: var(--radius-sm); transition: all 0.2s;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
     }
 
     if (orderShipments.length > 0) {
@@ -5116,10 +5205,17 @@ window.applyClientWmsFiltersAndRender = function() {
         let trackingUrl = shipment.tracking_url;
 
         // Recuperación de URL de seguimiento de LightData
-        if (shipment.source_table === 'lightdata_envios' && shipment.raw_data && shipment.raw_data[31]) {
-          const ldUrl = shipment.raw_data[31];
-          if (ldUrl && ldUrl.startsWith('http')) {
-            trackingUrl = ldUrl;
+        if (shipment.source_table === 'lightdata_envios') {
+          if (shipment.raw_data && shipment.raw_data[31]) {
+            const ldUrl = shipment.raw_data[31];
+            if (ldUrl && ldUrl.startsWith('http')) {
+              trackingUrl = ldUrl;
+            }
+          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[31]) {
+            const ldUrl = order.raw_lightdata_data.raw_data[31];
+            if (ldUrl && ldUrl.startsWith('http')) {
+              trackingUrl = ldUrl;
+            }
           }
         }
         // Limpiar trackingUrl si corresponde al API interna de Envíame
@@ -5137,8 +5233,12 @@ window.applyClientWmsFiltersAndRender = function() {
         
         let globStatus = shipment.global_status;
         let statusText = shipment.status || '';
-        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-          statusText = shipment.raw_data[23];
+        if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+          if (shipment.raw_data && shipment.raw_data[23]) {
+            statusText = shipment.raw_data[23];
+          } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+            statusText = order.raw_lightdata_data.raw_data[23];
+          }
         }
         if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
           const rawStatusLower = statusText.toLowerCase().trim();
@@ -5181,8 +5281,12 @@ window.applyClientWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       let globStatus = shipment.global_status;
       let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-        statusText = shipment.raw_data[23];
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+        if (shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          statusText = order.raw_lightdata_data.raw_data[23];
+        }
       }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatusLower = statusText.toLowerCase().trim();
@@ -5209,13 +5313,24 @@ window.applyClientWmsFiltersAndRender = function() {
         badgeBg = '#fee2e2';
         badgeColor = '#991b1b';
       }
+
+      let platformBadge = '';
+      if (shipment.source_table === 'lightdata_envios') {
+        platformBadge = `<span class="badge" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">LightData</span>`;
+      } else if (shipment.source_table === 'enviame_shipments') {
+        platformBadge = `<span class="badge" style="background-color: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">Envíame</span>`;
+      } else if (shipment.source_table === 'optiroute_orders') {
+        platformBadge = `<span class="badge" style="background-color: #ffedd5; color: #c2410c; border: 1px solid #fdbb2d; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); text-transform: uppercase;">OptiRoute</span>`;
+      }
       
       shipmentStatusHtml = `
-        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+        <p style="margin-bottom: 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <strong>Estado Despacho:</strong> 
           <span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.3px;">
-            ${globStatus} <span style="font-size: 0.7rem; font-weight: 500; text-transform: none;">(${rawStatus})</span>
+            ${globStatus}
           </span>
+          ${platformBadge}
+          ${rawStatus && rawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${rawStatus}</span>` : ''}
         </p>
         <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
           <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
@@ -5362,8 +5477,12 @@ window.applyClientWmsFiltersAndRender = function() {
       const shipment = orderShipments[0];
       let globStatus = shipment.global_status;
       let statusText = shipment.status || '';
-      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim()) && shipment.raw_data && shipment.raw_data[23]) {
-        statusText = shipment.raw_data[23];
+      if (shipment.source_table === 'lightdata_envios' && /^-?\d+\.\d+$/.test(statusText.trim())) {
+        if (shipment.raw_data && shipment.raw_data[23]) {
+          statusText = shipment.raw_data[23];
+        } else if (order.raw_lightdata_data && order.raw_lightdata_data.raw_data && order.raw_lightdata_data.raw_data[23]) {
+          statusText = order.raw_lightdata_data.raw_data[23];
+        }
       }
       if (!globStatus || globStatus === 'SIN MOVIMIENTO') {
         const rawStatus = statusText.toLowerCase().trim();
@@ -5460,6 +5579,24 @@ window.applyClientWmsFiltersAndRender = function() {
       ? `<span class="badge" style="background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem; cursor: help;" title="Falta stock: ${stockAlertDetails.join(', ')}"><i class="ri-alert-line"></i> SIN STOCK</span>`
       : '';
 
+    // Obtener estado original de la plataforma
+    let originalPlatformStatusHtml = '';
+    const origStatus = window.getOriginalPlatformStatus(order);
+    if (origStatus) {
+      originalPlatformStatusHtml = `
+        <div style="display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.25rem; text-align: left;">
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Estado en Plataforma:</span>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            ${origStatus.details.map(d => `
+              <span class="badge" style="background-color: ${d.color}15; color: ${d.color}; border: 1px solid ${d.color}33; font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.3px;">
+                ${d.label}: ${d.value}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.15s;">
         <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary); padding: 0.45rem 0.75rem;" onclick="window.toggleClientOrderRow('${order.id}')">
@@ -5522,7 +5659,15 @@ window.applyClientWmsFiltersAndRender = function() {
               </p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Ciudad/Comuna:</strong> ${order.shipping_city || '-'}</p>
               <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
-              <p style="margin-bottom: 0; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
+              
+              <!-- Información de Logística Adicional -->
+              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                <span><strong>Sucursal Pickeo:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.sucursal_pickeo || 'No asignada'}</span></span>
+                <span><strong>Agenda Picking:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.agenda || 'No definida'}</span></span>
+                <span><strong>Fecha Procesamiento:</strong> <span style="font-weight: 600; color: var(--color-primary);">${order.fecha_procesamiento || 'No definida'}</span></span>
+                <span><strong>Operador Courier:</strong> <span style="font-weight: 600; color: var(--color-success);">${order.operador || 'No asignado'}</span></span>
+              </div>
             </div>
 
             <!-- Col 2: Desglose de Productos -->
@@ -5550,22 +5695,57 @@ window.applyClientWmsFiltersAndRender = function() {
               ${originalPacksHtml}
             </div>
 
-            <!-- Col 3: Integración y Logística -->
-            <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-              <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                <i class="ri-truck-line"></i> Logística e Integración
+            <!-- Col 3: Integración y Despacho (Diseño Premium Dinámico) -->
+            <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.2rem;">
+              <h4 style="margin: 0; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
+                <i class="ri-git-repository-commits-line" style="font-size: 1.1rem;"></i> Integración y Despacho
               </h4>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Plataforma Origen:</strong> ${originHtml}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pedido Externo N°:</strong> <span style="font-family: monospace;">${order.external_order_number || '-'}</span></p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Courier:</strong> ${order.courier || '-'}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>N° Seguimiento:</strong> ${trackingHtml}</p>
-              <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+              
+              <!-- Grupo 1: Origen de la Orden -->
+              <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-instance-line" style="font-size: 0.9rem;"></i> Plataforma:</span>
+                  <span>${originHtml}</span>
+                </div>
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <span style="font-size: 0.825rem; color: var(--color-text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-hashtag" style="font-size: 0.9rem;"></i> ID Pedido:</span>
+                  <span style="font-family: monospace; font-size: 0.875rem; font-weight: 700; color: var(--color-text-main); background: var(--color-surface); padding: 0.1rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border);">${order.external_order_number || '-'}</span>
+                </div>
+                ${originalPlatformStatusHtml}
+              </div>
+
+              <!-- Grupo 2: Courier y Tracking -->
+              <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                  <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Courier Asignado:</span>
+                  <span style="font-size: 0.9rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-ship-2-line" style="color: var(--color-primary);"></i> ${order.courier || (orderShipments.length > 0 ? orderShipments[0].courier : null) || 'No asignado'}
+                  </span>
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 0.25rem; text-align: left;">
+                  <span style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 600;">Seguimiento (Tracking):</span>
+                  <div>${trackingHtml}</div>
+                </div>
+
+                ${(order.label_url || order.label_base64) ? `
+                  <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; align-items: stretch;">
+                    <div style="flex: 1; display: flex;">
+                      ${labelHtml}
+                    </div>
+                  </div>
+                ` : ''}
+              </div>
+
+              <!-- Grupo 3: Auto Track -->
+              <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: left;">
+                <h5 style="margin: 0 0 0.5rem 0; font-size: 0.78rem; color: var(--color-text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-radar-line" style="color: var(--color-success); font-size: 0.95rem;"></i> Auto Track (Monitoreo)
+                </h5>
                 ${shipmentStatusHtml}
               </div>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem; margin-top: 0.75rem;"><strong>Fecha Procesamiento:</strong> ${order.fecha_procesamiento || '-'}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Agenda Picking:</strong> ${order.agenda || '-'}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Operador:</strong> ${order.operador || '-'}</p>
-              <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Etiqueta de Envío:</strong> ${labelHtml}</p>
+
+              <!-- Botón de datos crudos -->
               ${rawJsonBtnHtml}
             </div>
 
@@ -8520,8 +8700,7 @@ async function renderShipments() {
     // Obtener la lista de couriers únicos para este comercio primero
     let courierQuery = supabase
       .from('envios_unificados')
-      .select('courier')
-      .eq('visible_to_client', true);
+      .select('courier');
     
     if (companyList.length > 0) {
       courierQuery = courierQuery.in('empresa_comercio_proveedor', companyList);
@@ -8533,8 +8712,7 @@ async function renderShipments() {
     // Fetch unique status list from database
     let statusQuery = supabase
       .from('envios_unificados')
-      .select('status')
-      .eq('visible_to_client', true);
+      .select('status');
     if (companyList.length > 0) {
       statusQuery = statusQuery.in('empresa_comercio_proveedor', companyList);
     }
@@ -8834,8 +9012,7 @@ async function renderShipments() {
         // 1. Query para obtener los estados de todos los despachos bajo los filtros actuales (para los contadores de las pestañas)
         let countQuery = supabase
           .from('envios_unificados')
-          .select('status')
-          .eq('visible_to_client', true);
+          .select('status');
 
         countQuery = applyVisibilityRulesToQuery(countQuery, rules);
 
@@ -8859,8 +9036,7 @@ async function renderShipments() {
         // 2. Query paginada y filtrada para la tabla
         let query = supabase
           .from('envios_unificados')
-          .select('*', { count: 'exact' })
-          .eq('visible_to_client', true);
+          .select('*', { count: 'exact' });
 
         query = applyVisibilityRulesToQuery(query, rules);
 
@@ -9152,8 +9328,7 @@ async function renderShipments() {
 
         let query = supabase
           .from('envios_unificados')
-          .select('*')
-          .eq('visible_to_client', true);
+          .select('*');
 
         query = applyVisibilityRulesToQuery(query, rules);
 

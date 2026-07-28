@@ -1,0 +1,609 @@
+{%- comment -%}
+  Stocka Custom Hero Banner - Hybrid Design
+  Supports both "Split (with tabs/images)" and "Centered (text-only)" layouts.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+
+<style>
+  .stocka-hero-container-{{ section.id }} {
+    background-color: {{ settings.bg_color }};
+    padding-top: 3.5rem;
+    padding-bottom: 3.5rem;
+  }
+  @media (min-width: 1024px) {
+    .stocka-hero-container-{{ section.id }} {
+      padding-top: 5rem;
+      padding-bottom: 5rem;
+    }
+  }
+  
+  /* Badge Style */
+  .stocka-hero-badge-{{ section.id }} {
+    display: inline-block;
+    background-color: {{ settings.badge_bg_color }};
+    color: {{ settings.badge_text_color }};
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.35rem 1rem;
+    border-radius: 9999px;
+    margin-bottom: 1.5rem;
+    text-transform: none;
+  }
+
+  /* Title */
+  .stocka-hero-title-{{ section.id }} {
+    font-family: inherit;
+    font-weight: 800;
+    line-height: 1.2;
+    color: #1e293b;
+    margin-bottom: 1.5rem;
+  }
+
+  /* Main Button: White background, black border, circular icon */
+  .stocka-btn-quote-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: #ffffff;
+    color: #000000 !important;
+    border: 1.5px solid #000000;
+    border-radius: 9999px;
+    padding: 0.4rem 0.4rem 0.4rem 1.5rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    transition: all 0.2s ease;
+    text-decoration: none !important;
+    min-width: 220px;
+  }
+  .stocka-btn-quote-{{ section.id }}:hover {
+    background-color: #f8fafc;
+    transform: translateY(-2px);
+  }
+  .stocka-btn-quote-icon-{{ section.id }} {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background-color: {{ settings.primary_accent_color }};
+    color: #ffffff;
+    margin-left: 1rem;
+  }
+
+  /* Secondary Link */
+  .stocka-link-rates-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    color: #000000 !important;
+    font-weight: 700;
+    font-size: 0.95rem;
+    text-decoration: underline !important;
+    transition: opacity 0.2s ease;
+  }
+  .stocka-link-rates-{{ section.id }}:hover {
+    opacity: 0.8;
+  }
+
+  /* Reviews Block */
+  .stocka-reviews-wrap-{{ section.id }} {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 2.5rem;
+  }
+  .stocka-avatars-{{ section.id }} {
+    display: flex;
+    align-items: center;
+  }
+  .stocka-avatar-img-{{ section.id }} {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    margin-right: -10px;
+    object-fit: cover;
+  }
+  .stocka-avatar-img-{{ section.id }}:last-child {
+    margin-right: 0;
+  }
+  .stocka-reviews-text-{{ section.id }} {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.85rem;
+    line-height: 1.3;
+  }
+  .stocka-reviews-rating-{{ section.id }} {
+    font-weight: 850;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+
+  /* Right Side Image Container with rounded corners */
+  .stocka-hero-img-box-{{ section.id }} {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border-radius: 60px 20px 60px 20px;
+    overflow: hidden;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  }
+  @media (max-width: 767px) {
+    .stocka-hero-img-box-{{ section.id }} {
+      aspect-ratio: 1 / 1;
+      border-radius: 40px 15px 40px 15px;
+    }
+  }
+  .stocka-hero-slide-img-{{ section.id }} {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out;
+    z-index: 1;
+  }
+  .stocka-hero-slide-img-{{ section.id }}.active {
+    opacity: 1;
+    z-index: 2;
+  }
+
+  /* Tabs inside image */
+  .stocka-hero-tabs-{{ section.id }} {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    padding: 6px;
+    border-radius: 9999px;
+    z-index: 10;
+    width: max-content;
+    max-width: 90%;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  }
+  .stocka-tab-btn-{{ section.id }} {
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+  }
+  @media (max-width: 640px) {
+    .stocka-tab-btn-{{ section.id }} {
+      font-size: 0.72rem;
+      padding: 6px 12px;
+    }
+  }
+  .stocka-tab-btn-{{ section.id }}.active {
+    background-color: {{ settings.primary_accent_color }};
+    color: #ffffff;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  }
+  .stocka-tab-btn-{{ section.id }}:not(.active):hover {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+</style>
+
+<section class="stocka-hero-container-{{ section.id }} {{ settings.custom_class }}">
+  <div class="container mx-auto px-4 md:px-6 lg:px-8">
+    
+    {% if settings.layout_style == 'centered' %}
+      <!-- Centered Layout (Text only) -->
+      <div class="max-w-3xl mx-auto text-center">
+        {% if settings.badge_text != blank %}
+          <span class="stocka-hero-badge-{{ section.id }}">
+            {{ settings.badge_text }}
+          </span>
+        {% endif %}
+
+        {% if settings.title != blank %}
+          <h1 class="stocka-hero-title-{{ section.id }} text-4xl md:text-5xl lg:text-6xl">
+            {{ settings.title | newline_to_br }}
+          </h1>
+        {% endif %}
+
+        {% if settings.text != blank %}
+          <div class="text-slate-600 text-base md:text-lg mb-8 mx-auto max-w-2xl rte prose">
+            {{ settings.text }}
+          </div>
+        {% endif %}
+
+        <div class="flex flex-wrap items-center justify-center gap-6">
+          {% if settings.button_1_label != blank %}
+            <a href="{{ settings.button_1_link | default: '#' }}" class="stocka-btn-quote-{{ section.id }}">
+              <span>{{ settings.button_1_label }}</span>
+              <span class="stocka-btn-quote-icon-{{ section.id }}">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"></path>
+                </svg>
+              </span>
+            </a>
+          {% endif %}
+          
+          {% if settings.button_2_label != blank %}
+            <a href="{{ settings.button_2_link | default: '#' }}" class="stocka-link-rates-{{ section.id }}">
+              {{ settings.button_2_label }}
+            </a>
+          {% endif %}
+        </div>
+      </div>
+
+    {% else %}
+      <!-- Split Layout (Left Content, Right Image Slider + Tabs) -->
+      <div class="flex flex-wrap items-center -mx-4 lg:-mx-8">
+        
+        <!-- Left Column: Content -->
+        <div class="w-full lg:w-1/2 px-4 lg:px-8 mb-10 lg:mb-0">
+          <div class="max-w-xl">
+            
+            <!-- Badge -->
+            {% if settings.badge_text != blank %}
+              <span class="stocka-hero-badge-{{ section.id }}">
+                {{ settings.badge_text }}
+              </span>
+            {% endif %}
+
+            <!-- Main Heading -->
+            {% if settings.title != blank %}
+              <h1 class="stocka-hero-title-{{ section.id }} text-4xl md:text-5xl lg:text-6xl">
+                {{ settings.title | newline_to_br }}
+              </h1>
+            {% endif %}
+
+            {% if settings.text != blank %}
+              <div class="text-slate-600 text-base md:text-lg mb-8 rte prose">
+                {{ settings.text }}
+              </div>
+            {% endif %}
+
+            <!-- CTA Buttons -->
+            <div class="flex flex-wrap items-center gap-6">
+              {% if settings.button_1_label != blank %}
+                <a href="{{ settings.button_1_link | default: '#' }}" class="stocka-btn-quote-{{ section.id }}">
+                  <span>{{ settings.button_1_label }}</span>
+                  <span class="stocka-btn-quote-icon-{{ section.id }}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"></path>
+                    </svg>
+                  </span>
+                </a>
+              {% endif %}
+              
+              {% if settings.button_2_label != blank %}
+                <a href="{{ settings.button_2_link | default: '#' }}" class="stocka-link-rates-{{ section.id }}">
+                  {{ settings.button_2_label }}
+                </a>
+              {% endif %}
+            </div>
+
+            <!-- Reviews Overlapping Block -->
+            {% if settings.show_reviews %}
+              <div class="stocka-reviews-wrap-{{ section.id }}">
+                <div class="stocka-avatars-{{ section.id }}">
+                  {% if settings.avatar_1 != blank %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="{{ settings.avatar_1 | image_url: width: 100 }}" alt="Reviewer 1">
+                  {% else %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-juxb8b6vGaavt-1.png?v=1698656649" alt="User 1">
+                  {% endif %}
+                  
+                  {% if settings.avatar_2 != blank %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="{{ settings.avatar_2 | image_url: width: 100 }}" alt="Reviewer 2">
+                  {% else %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-ZBAPpkLyY0avt-2.png?v=1698656737" alt="User 2">
+                  {% endif %}
+
+                  {% if settings.avatar_3 != blank %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="{{ settings.avatar_3 | image_url: width: 100 }}" alt="Reviewer 3">
+                  {% else %}
+                    <img class="stocka-avatar-img-{{ section.id }}" src="https://cdn.shopify.com/s/files/1/0726/1221/7115/files/ecom-no-replace-CdCBn6qTRTavt-3.png?v=1698656753" alt="User 3">
+                  {% endif %}
+                </div>
+                <div class="stocka-reviews-text-{{ section.id }}">
+                  <div class="stocka-reviews-rating-{{ section.id }}">
+                    {{ settings.reviews_score }}
+                    <svg class="w-4 h-4 fill-current text-yellow-500" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                    </svg>
+                  </div>
+                  <span class="text-slate-500 font-semibold">{{ settings.reviews_count_text }}</span>
+                </div>
+              </div>
+            {% endif %}
+
+          </div>
+        </div>
+
+        <!-- Right Column: Slide Image Container + Tabs -->
+        <div class="w-full lg:w-1/2 px-4 lg:px-8">
+          <div class="stocka-hero-img-box-{{ section.id }}">
+            
+            <!-- Image 1: Almacenamos -->
+            {% if settings.slide_image_1 != blank %}
+              <img class="stocka-hero-slide-img-{{ section.id }} active" data-slide="1" src="{{ settings.slide_image_1 | image_url: width: 800 }}" alt="Almacenamos">
+            {% else %}
+              <img class="stocka-hero-slide-img-{{ section.id }} active" data-slide="1" src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_21_903c3b07-66dc-4934-9a40-f7e070f7f866.png?v=1724372555" alt="Almacenamiento">
+            {% endif %}
+
+            <!-- Image 2: Empaquetamos -->
+            {% if settings.slide_image_2 != blank %}
+              <img class="stocka-hero-slide-img-{{ section.id }}" data-slide="2" src="{{ settings.slide_image_2 | image_url: width: 800 }}" alt="Empaquetamos">
+            {% else %}
+              <img class="stocka-hero-slide-img-{{ section.id }}" data-slide="2" src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_26_5ed411bd-b917-48a7-8649-6854a591cff2.png?v=1724388916" alt="Empaquetamos">
+            {% endif %}
+
+            <!-- Image 3: Despachamos -->
+            {% if settings.slide_image_3 != blank %}
+              <img class="stocka-hero-slide-img-{{ section.id }}" data-slide="3" src="{{ settings.slide_image_3 | image_url: width: 800 }}" alt="Despachamos">
+            {% else %}
+              <img class="stocka-hero-slide-img-{{ section.id }}" data-slide="3" src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_27_c6c1c71c-84bd-4a08-993e-6a6416d44655.png?v=1724389778" alt="Despachamos">
+            {% endif %}
+
+            <!-- Bottom Tabs Navigation -->
+            <div class="stocka-hero-tabs-{{ section.id }}">
+              <button class="stocka-tab-btn-{{ section.id }} active" data-target="1">{{ settings.tab_1_label | default: "Almacenamos" }}</button>
+              <button class="stocka-tab-btn-{{ section.id }}" data-target="2">{{ settings.tab_2_label | default: "Empaquetamos" }}</button>
+              <button class="stocka-tab-btn-{{ section.id }}" data-target="3">{{ settings.tab_3_label | default: "Despachamos" }}</button>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+    {% endif %}
+
+  </div>
+</section>
+
+{% if settings.layout_style == 'split' %}
+  <!-- Tabs functionality script -->
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      // Find the specific container to scope elements correctly
+      const sectionContainer = document.querySelector(".stocka-hero-container-{{ section.id }}");
+      if (!sectionContainer) return;
+      
+      const tabButtons = sectionContainer.querySelectorAll(".stocka-tab-btn-{{ section.id }}");
+      const slideImages = sectionContainer.querySelectorAll(".stocka-hero-slide-img-{{ section.id }}");
+      let currentSlide = 1;
+      let autoplayInterval;
+
+      function switchSlide(slideNumber) {
+        slideImages.forEach(img => {
+          if (img.getAttribute("data-slide") == slideNumber) {
+            img.classList.add("active");
+          } else {
+            img.classList.remove("active");
+          }
+        });
+
+        tabButtons.forEach(btn => {
+          if (btn.getAttribute("data-target") == slideNumber) {
+            btn.classList.add("active");
+          } else {
+            btn.classList.remove("active");
+          }
+        });
+        currentSlide = parseInt(slideNumber);
+      }
+
+      tabButtons.forEach(button => {
+        button.addEventListener("click", function() {
+          clearInterval(autoplayInterval);
+          const target = this.getAttribute("data-target");
+          switchSlide(target);
+          startAutoplay(); // Restart autoplay after user interaction
+        });
+      });
+
+      function startAutoplay() {
+        autoplayInterval = setInterval(function() {
+          let nextSlide = currentSlide + 1;
+          if (nextSlide > 3) {
+            nextSlide = 1;
+          }
+          switchSlide(nextSlide);
+        }, 4000); // changes image every 4 seconds
+      }
+
+      startAutoplay();
+    });
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Stocka Hybrid Hero",
+  "settings": [
+    {
+      "type": "select",
+      "id": "layout_style",
+      "label": "Estilo de Diseño",
+      "default": "split",
+      "options": [
+        { "value": "split", "label": "Dividido (Con pestañas e imágenes)" },
+        { "value": "centered", "label": "Centrado (Solo texto)" }
+      ]
+    },
+    {
+      "type": "color",
+      "id": "bg_color",
+      "label": "Color de Fondo",
+      "default": "#ffffff"
+    },
+    {
+      "type": "color",
+      "id": "primary_accent_color",
+      "label": "Color de Acento (Flecha y Tab Activo)",
+      "default": "#5c24ff"
+    },
+    {
+      "type": "header",
+      "content": "Pill / Badge"
+    },
+    {
+      "type": "text",
+      "id": "badge_text",
+      "label": "Texto del Badge",
+      "default": "Tú solo vendes"
+    },
+    {
+      "type": "color",
+      "id": "badge_bg_color",
+      "label": "Fondo del Badge",
+      "default": "#f3e8ff"
+    },
+    {
+      "type": "color",
+      "id": "badge_text_color",
+      "label": "Texto del Badge",
+      "default": "#9333ea"
+    },
+    {
+      "type": "header",
+      "content": "Textos Principales"
+    },
+    {
+      "type": "textarea",
+      "id": "title",
+      "label": "Título Principal (Soporta saltos de línea)",
+      "default": "Almacenamos,\nEmpaquetamos,\nDespachamos."
+    },
+    {
+      "type": "richtext",
+      "id": "text",
+      "label": "Descripción / Subtexto (Opcional)",
+      "default": "<p>Logística de fulfillment integral para ecommerce en Chile.</p>"
+    },
+    {
+      "type": "header",
+      "content": "Botón 1"
+    },
+    {
+      "type": "text",
+      "id": "button_1_label",
+      "label": "Etiqueta Botón 1",
+      "default": "Pide una cotización"
+    },
+    {
+      "type": "url",
+      "id": "button_1_link",
+      "label": "Enlace Botón 1"
+    },
+    {
+      "type": "header",
+      "content": "Botón 2"
+    },
+    {
+      "type": "text",
+      "id": "button_2_label",
+      "label": "Etiqueta Botón 2",
+      "default": "Revisa las tarifas"
+    },
+    {
+      "type": "url",
+      "id": "button_2_link",
+      "label": "Enlace Botón 2"
+    },
+    {
+      "type": "header",
+      "content": "Calificaciones / Reviews"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_reviews",
+      "label": "Mostrar bloque de reviews",
+      "default": true
+    },
+    {
+      "type": "image_picker",
+      "id": "avatar_1",
+      "label": "Avatar 1"
+    },
+    {
+      "type": "image_picker",
+      "id": "avatar_2",
+      "label": "Avatar 2"
+    },
+    {
+      "type": "image_picker",
+      "id": "avatar_3",
+      "label": "Avatar 3"
+    },
+    {
+      "type": "text",
+      "id": "reviews_score",
+      "label": "Calificación",
+      "default": "4.6"
+    },
+    {
+      "type": "text",
+      "id": "reviews_count_text",
+      "label": "Texto cantidad de reviews",
+      "default": "18 reviews"
+    },
+    {
+      "type": "header",
+      "content": "Imágenes y Pestañas del Slider (Derecha)"
+    },
+    {
+      "type": "text",
+      "id": "tab_1_label",
+      "label": "Pestaña 1",
+      "default": "Almacenamos"
+    },
+    {
+      "type": "image_picker",
+      "id": "slide_image_1",
+      "label": "Imagen Pestaña 1"
+    },
+    {
+      "type": "text",
+      "id": "tab_2_label",
+      "label": "Pestaña 2",
+      "default": "Empaquetamos"
+    },
+    {
+      "type": "image_picker",
+      "id": "slide_image_2",
+      "label": "Imagen Pestaña 2"
+    },
+    {
+      "type": "text",
+      "id": "tab_3_label",
+      "label": "Pestaña 3",
+      "default": "Despachamos"
+    },
+    {
+      "type": "image_picker",
+      "id": "slide_image_3",
+      "label": "Imagen Pestaña 3"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS Personalizada"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Hybrid Hero"
+    }
+  ]
+}
+{% endschema %}

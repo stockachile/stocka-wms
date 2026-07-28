@@ -1,0 +1,605 @@
+{%- comment -%}
+  Stocka Fulfillment 360 Section - Dynamic Version
+  Features hover-triggered card transitions, micro-animated icons, viewport scrolling animations,
+  and a configurable CTA download button at the bottom.
+{%- endcomment -%}
+
+{%- assign settings = section.settings -%}
+
+<style>
+  /* Base styles for the dark section */
+  .stocka-f360-section-{{ section.id }} {
+    background-color: {{ settings.background_color }};
+    padding: 4rem 1rem;
+    color: #ffffff;
+    overflow: hidden;
+  }
+  @media (min-width: 768px) {
+    .stocka-f360-section-{{ section.id }} {
+      padding: 6rem 2rem;
+    }
+  }
+
+  /* Header Styles */
+  .stocka-f360-header-{{ section.id }} {
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto 4rem auto;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-f360-section-{{ section.id }}.in-view .stocka-f360-header-{{ section.id }} {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  
+  .stocka-f360-main-title-{{ section.id }} {
+    font-size: 2.25rem;
+    font-weight: 800;
+    margin-bottom: 1.25rem;
+    background: linear-gradient(135deg, {{ settings.title_gradient_start }} 0%, {{ settings.title_gradient_end }} 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+  @media (min-width: 768px) {
+    .stocka-f360-main-title-{{ section.id }} {
+      font-size: 3.25rem;
+    }
+  }
+  .stocka-f360-main-desc-{{ section.id }} {
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: {{ settings.description_color }};
+  }
+  @media (min-width: 768px) {
+    .stocka-f360-main-desc-{{ section.id }} {
+      font-size: 1.1rem;
+    }
+  }
+
+  /* Symmetric 3-column Grid using explicit CSS Grid */
+  .stocka-f360-grid-{{ section.id }} {
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+    max-width: 1200px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  @media (min-width: 1024px) {
+    .stocka-f360-grid-{{ section.id }} {
+      display: grid;
+      grid-template-columns: 1fr 1.12fr 1fr;
+      gap: 2rem;
+      align-items: center;
+    }
+  }
+
+  /* Column flex settings */
+  .stocka-f360-col-{{ section.id }} {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    width: 100%;
+  }
+
+  /* Feature Item Card Layout with Hover Effects */
+  .stocka-f360-item-{{ section.id }} {
+    display: flex;
+    gap: 1.25rem;
+    align-items: flex-start;
+    width: 100%;
+    padding: 1.25rem;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.015);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    cursor: pointer;
+  }
+  
+  /* Hover elevation and lighting */
+  .stocka-f360-item-{{ section.id }}:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(129, 140, 248, 0.25);
+    box-shadow: 0 15px 30px -10px rgba(0, 0, 0, 0.6);
+    transform: translateY(-4px);
+  }
+  
+  /* Text and Icon alignment depending on column */
+  .stocka-f360-item-left-{{ section.id }} {
+    text-align: left;
+  }
+  .stocka-f360-item-right-{{ section.id }} {
+    text-align: left;
+  }
+  
+  @media (min-width: 1024px) {
+    .stocka-f360-item-left-{{ section.id }} {
+      text-align: left;
+    }
+    .stocka-f360-item-right-{{ section.id }} {
+      text-align: right;
+      flex-direction: row-reverse;
+    }
+  }
+
+  /* Icon Container and Hover Rotating glow */
+  .stocka-f360-icon-{{ section.id }} {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 46px;
+    height: 46px;
+    background-color: rgba(129, 140, 248, 0.1);
+    border: 1px solid rgba(129, 140, 248, 0.2);
+    border-radius: 12px;
+    color: {{ settings.icon_color }};
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-f360-icon-{{ section.id }} svg {
+    width: 24px !important;
+    height: 24px !important;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+  }
+  
+  /* Icon reaction inside hovered card */
+  .stocka-f360-item-{{ section.id }}:hover .stocka-f360-icon-{{ section.id }} {
+    background-color: {{ settings.icon_color }};
+    color: #0c0f16;
+    border-color: {{ settings.icon_color }};
+    transform: scale(1.12) rotate(6deg);
+    box-shadow: 0 0 15px rgba(129, 140, 248, 0.4);
+  }
+
+  /* Text elements inside feature blocks */
+  .stocka-f360-item-title-{{ section.id }} {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: {{ settings.item_title_color }};
+    transition: color 0.3s ease;
+  }
+  .stocka-f360-item-{{ section.id }}:hover .stocka-f360-item-title-{{ section.id }} {
+    color: #ffffff;
+  }
+  .stocka-f360-item-text-{{ section.id }} {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: {{ settings.item_text_color }};
+    margin: 0;
+  }
+
+  /* Center illustration container */
+  .stocka-f360-center-{{ section.id }} {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+  }
+  .stocka-f360-center-img-{{ section.id }} {
+    max-width: 100%;
+    height: auto;
+    object-fit: contain;
+    max-height: 380px;
+    display: block;
+    filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.3));
+    transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  
+  /* Center image interactive hover */
+  .stocka-f360-center-{{ section.id }}:hover .stocka-f360-center-img-{{ section.id }} {
+    transform: translateY(-6px) scale(1.03);
+  }
+
+  /* ----------------------------------------------------
+     CTA Button at the bottom
+     ---------------------------------------------------- */
+  .stocka-f360-cta-{{ section.id }} {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 3.5rem;
+    width: 100%;
+  }
+
+  /* Styled White Button */
+  .stocka-f360-btn-white-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #ffffff;
+    color: #000000 !important;
+    border: 1.5px solid #ffffff;
+    border-radius: 9999px;
+    padding: 0.8rem 2.25rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    text-decoration: none !important;
+    cursor: pointer;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  }
+  .stocka-f360-btn-white-{{ section.id }}:hover {
+    background-color: transparent;
+    color: #ffffff !important;
+    border-color: #ffffff;
+    transform: translateY(-3px);
+    box-shadow: 0 10px 20px rgba(255, 255, 255, 0.12);
+  }
+  .stocka-f360-btn-white-{{ section.id }} svg {
+    width: 20px;
+    height: 20px;
+    margin-left: 0.5rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+
+  /* Styled Primary Button */
+  .stocka-f360-btn-primary-{{ section.id }} {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: {{ settings.title_gradient_start }};
+    color: #ffffff !important;
+    border: 1.5px solid {{ settings.title_gradient_start }};
+    border-radius: 9999px;
+    padding: 0.8rem 2.25rem;
+    font-weight: 700;
+    font-size: 0.95rem;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    text-decoration: none !important;
+    cursor: pointer;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  }
+  .stocka-f360-btn-primary-{{ section.id }}:hover {
+    background-color: transparent;
+    border-color: {{ settings.title_gradient_start }};
+    transform: translateY(-3px);
+    box-shadow: 0 10px 20px rgba(129, 140, 248, 0.3);
+  }
+  .stocka-f360-btn-primary-{{ section.id }} svg {
+    width: 20px;
+    height: 20px;
+    margin-left: 0.5rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+  }
+
+  /* ----------------------------------------------------
+     SCROLL TRANSITION ANIMATIONS (Entrance Reveals)
+     ---------------------------------------------------- */
+  .stocka-f360-animate-left-{{ section.id }} {
+    opacity: 0;
+    transform: translateX(-40px);
+    transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-f360-animate-right-{{ section.id }} {
+    opacity: 0;
+    transform: translateX(40px);
+    transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .stocka-f360-animate-center-{{ section.id }} {
+    opacity: 0;
+    transform: scale(0.9) translateY(40px);
+    transition: opacity 1.1s cubic-bezier(0.16, 1, 0.3, 1), transform 1.1s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Triggered styles when in view (scoped to the entire section instead of just the grid) */
+  .stocka-f360-section-{{ section.id }}.in-view .stocka-f360-animate-left-{{ section.id }} {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .stocka-f360-section-{{ section.id }}.in-view .stocka-f360-animate-right-{{ section.id }} {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .stocka-f360-section-{{ section.id }}.in-view .stocka-f360-animate-center-{{ section.id }} {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+</style>
+
+<section class="stocka-f360-section-{{ section.id }} {{ settings.custom_class }}">
+  <div class="container mx-auto">
+    
+    <!-- Section Header -->
+    {% if settings.heading != blank or settings.description != blank %}
+      <div class="stocka-f360-header-{{ section.id }}">
+        {% if settings.heading != blank %}
+          <h2 class="stocka-f360-main-title-{{ section.id }}">
+            {{ settings.heading }}
+          </h2>
+        {% endif %}
+        {% if settings.description != blank %}
+          <p class="stocka-f360-main-desc-{{ section.id }}">
+            {{ settings.description }}
+          </p>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    <!-- Symmetric Layout Grid -->
+    <div class="stocka-f360-grid-{{ section.id }}">
+      
+      <!-- Left Column (3 items) -->
+      <div class="stocka-f360-col-{{ section.id }}">
+        {% assign left_index = 0 %}
+        {% for block in section.blocks %}
+          {% assign item = block.settings %}
+          {% if item.position == 'left' %}
+            {% assign left_index = left_index | plus: 1 %}
+            <div 
+              class="stocka-f360-item-{{ section.id }} stocka-f360-item-left-{{ section.id }} stocka-f360-animate-left-{{ section.id }}" 
+              style="transition-delay: {{ left_index | times: 150 }}ms;"
+              {{ block.shopify_attributes }}
+            >
+              <!-- Icon Container -->
+              <div class="stocka-f360-icon-{{ section.id }}">
+                {% if item.custom_svg != blank %}
+                  {{ item.custom_svg }}
+                {% else %}
+                  <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                {% endif %}
+              </div>
+              <!-- Text Content -->
+              <div class="stocka-f360-item-content-{{ section.id }}">
+                <h3 class="stocka-f360-item-title-{{ section.id }}">
+                  {{ item.title }}
+                </h3>
+                <p class="stocka-f360-item-text-{{ section.id }}">
+                  {{ item.text }}
+                </p>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <!-- Center Column (Illustration) -->
+      <div class="stocka-f360-center-{{ section.id }} stocka-f360-animate-center-{{ section.id }}">
+        {% if settings.center_image != blank %}
+          <img class="stocka-f360-center-img-{{ section.id }}" src="{{ settings.center_image | image_url: width: 700 }}" alt="Fulfillment 360">
+        {% else %}
+          <img class="stocka-f360-center-img-{{ section.id }}" src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Diseno_sin_titulo_25.png?v=1724377334" alt="Fulfillment 360">
+        {% endif %}
+      </div>
+
+      <!-- Right Column (3 items) -->
+      <div class="stocka-f360-col-{{ section.id }}">
+        {% assign right_index = 0 %}
+        {% for block in section.blocks %}
+          {% assign item = block.settings %}
+          {% if item.position == 'right' %}
+            {% assign right_index = right_index | plus: 1 %}
+            <div 
+              class="stocka-f360-item-{{ section.id }} stocka-f360-item-right-{{ section.id }} stocka-f360-animate-right-{{ section.id }}" 
+              style="transition-delay: {{ right_index | times: 150 }}ms;"
+              {{ block.shopify_attributes }}
+            >
+              <!-- Icon Container -->
+              <div class="stocka-f360-icon-{{ section.id }}">
+                {% if item.custom_svg != blank %}
+                  {{ item.custom_svg }}
+                {% else %}
+                  <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path></svg>
+                {% endif %}
+              </div>
+              <!-- Text Content -->
+              <div class="stocka-f360-item-content-{{ section.id }}">
+                <h3 class="stocka-f360-item-title-{{ section.id }}">
+                  {{ item.title }}
+                </h3>
+                <p class="stocka-f360-item-text-{{ section.id }}">
+                  {{ item.text }}
+                </p>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+    </div>
+
+    <!-- CTA Button at the Bottom -->
+    {% if settings.show_button and settings.button_label != blank %}
+      <div class="stocka-f360-cta-{{ section.id }}">
+        <a 
+          href="{{ settings.button_link | default: '#' }}" 
+          class="stocka-f360-btn-{{ settings.button_style }}-{{ section.id }} stocka-f360-animate-center-{{ section.id }}"
+          style="transition-delay: 500ms;"
+        >
+          <span>{{ settings.button_label }}</span>
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+          </svg>
+        </a>
+      </div>
+    {% endif %}
+
+  </div>
+</section>
+
+<!-- Scroll animations Intersection Observer script -->
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const section = document.querySelector(".stocka-f360-section-{{ section.id }}");
+    if (!section) return;
+    
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          section.classList.add("in-view");
+          observer.unobserve(entry.target); // Animate only once
+        }
+      });
+    }, {
+      threshold: 0.12 // Trigger when 12% is visible
+    });
+    
+    observer.observe(section);
+  });
+</script>
+
+{% schema %}
+{
+  "name": "Stocka Fulfillment 360",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Título Principal",
+      "default": "Fulfillment 360"
+    },
+    {
+      "type": "textarea",
+      "id": "description",
+      "label": "Descripción Corta",
+      "default": "Olvídate para siempre de armar paquetes y preocuparte por que tus ventas lleguen rápido a tus clientes, desde la venta nosotros nos hacemos cargo de todo."
+    },
+    {
+      "type": "image_picker",
+      "id": "center_image",
+      "label": "Ilustración Central"
+    },
+    {
+      "type": "header",
+      "content": "Botón de Llamado a la Acción (CTA)"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_button",
+      "label": "Mostrar Botón CTA",
+      "default": true
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Texto del Botón",
+      "default": "Descargar presentación"
+    },
+    {
+      "type": "url",
+      "id": "button_link",
+      "label": "Enlace del Botón (o archivo PDF)"
+    },
+    {
+      "type": "select",
+      "id": "button_style",
+      "label": "Estilo del Botón",
+      "default": "white",
+      "options": [
+        { "value": "white", "label": "Blanco / Transparente" },
+        { "value": "primary", "label": "Morado degradado (Acento)" }
+      ]
+    },
+    {
+      "type": "header",
+      "content": "Estilos y Colores"
+    },
+    {
+      "type": "color",
+      "id": "background_color",
+      "label": "Color de Fondo",
+      "default": "#000000"
+    },
+    {
+      "type": "color",
+      "id": "title_gradient_start",
+      "label": "Gradiente Título (Inicio)",
+      "default": "#818cf8"
+    },
+    {
+      "type": "color",
+      "id": "title_gradient_end",
+      "label": "Gradiente Título (Fin)",
+      "default": "#c084fc"
+    },
+    {
+      "type": "color",
+      "id": "description_color",
+      "label": "Color de la Descripción",
+      "default": "#94a3b8"
+    },
+    {
+      "type": "color",
+      "id": "item_title_color",
+      "label": "Color del Título del Item",
+      "default": "#818cf8"
+    },
+    {
+      "type": "color",
+      "id": "item_text_color",
+      "label": "Color de la Descripción del Item",
+      "default": "#e2e8f0"
+    },
+    {
+      "type": "color",
+      "id": "icon_color",
+      "label": "Color del Icono",
+      "default": "#818cf8"
+    },
+    {
+      "type": "text",
+      "id": "custom_class",
+      "label": "Clase CSS Personalizada"
+    }
+  ],
+  "blocks": [
+    {
+      "type": "feature_block",
+      "name": "Item de Característica",
+      "settings": [
+        {
+          "type": "select",
+          "id": "position",
+          "label": "Columna / Posición",
+          "default": "left",
+          "options": [
+            { "value": "left", "label": "Columna Izquierda (Texto Izquierda)" },
+            { "value": "right", "label": "Columna Derecha (Texto Derecha)" }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "title",
+          "label": "Título",
+          "default": "Almacenamos"
+        },
+        {
+          "type": "textarea",
+          "id": "text",
+          "label": "Descripción / Texto",
+          "default": "Almacena tus productos en nuestros centros de fulfillment. Déjalos en las mejores manos."
+        },
+        {
+          "type": "html",
+          "id": "custom_svg",
+          "label": "Código SVG del Icono (Recomendado)",
+          "info": "Introduce el código del SVG."
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "Stocka Fulfillment 360",
+      "blocks": [
+        { "type": "feature_block", "settings": { "position": "left", "title": "Almacenamos" } },
+        { "type": "feature_block", "settings": { "position": "left", "title": "Armamos" } },
+        { "type": "feature_block", "settings": { "position": "left", "title": "Despachamos" } },
+        { "type": "feature_block", "settings": { "position": "right", "title": "Inventario" } },
+        { "type": "feature_block", "settings": { "position": "right", "title": "Punto de Retiro" } },
+        { "type": "feature_block", "settings": { "position": "right", "title": "Logística inversa" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

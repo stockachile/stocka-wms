@@ -122,6 +122,20 @@ async function run() {
     console.log(orders.slice(0, 5));
   }
 
+  // 6. Test querying envios_unificados via client client
+  console.log("Querying envios_unificados via client client...");
+  const { data: shipments, error: shipError } = await clientPortal
+    .from('envios_unificados')
+    .select('*')
+    .eq('pedido_referencia', 'MAG5609');
+
+  if (shipError) {
+    console.error("Shipment query failed:", shipError);
+  } else {
+    console.log(`Shipment query successful! Returned ${shipments.length} shipments.`);
+    console.log(shipments);
+  }
+
   // Clean up
   console.log("Cleaning up test user...");
   await adminClient.auth.admin.deleteUser(userId);

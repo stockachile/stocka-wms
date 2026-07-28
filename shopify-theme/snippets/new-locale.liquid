@@ -1,0 +1,15 @@
+{%- capture text -%}{{ key | t }}{%- endcapture -%}
+{%- if text contains 'translation missing' -%}
+  {%- case key -%}
+    {%- when 'collections.paginate.load_more' -%}
+      Load more
+    {%- when 'products.product.xr_button' -%}
+      View in your space
+    {%- when 'products.product.xr_button_label' -%}
+      View in your space, loads item in augmented reality window
+    {%- else -%}
+      <span style="display: none;">Translation key not found!</span>
+  {%- endcase -%}
+{%- else -%}
+  {{- text | strip_newlines | strip -}}
+{%- endif -%}

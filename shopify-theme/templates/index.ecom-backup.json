@@ -1,0 +1,1185 @@
+/*
+ * ------------------------------------------------------------
+ * IMPORTANT: The contents of this file are auto-generated.
+ *
+ * This file may be updated by the Shopify admin theme editor
+ * or related systems. Please exercise caution as any changes
+ * made to this file may be overwritten.
+ * ------------------------------------------------------------
+ */
+{
+  "sections": {
+    "1621243260e1af0c20": {
+      "type": "slider",
+      "blocks": {
+        "126a4f51-1f48-47a2-839f-9b4957cb9122": {
+          "type": "video_slide",
+          "settings": {
+            "video": "https://cdn.shopify.com/videos/c/o/v/4df55436fc83441fbcba8cb2ad469d38.mp4",
+            "content_in_container": false,
+            "content_position": "left middle",
+            "text_alignment": "left",
+            "text_size": "medium",
+            "text_color": "white",
+            "subheading": "",
+            "title": "Tú vendes, \n<p>Nosotros hacemos\n</p><p>el resto</p>",
+            "description": "<p>Almacenamos tus productos, preparamos tus pedidos cuando vendes y gestionamos el despacho a tus clientes.</p>",
+            "image_link": "",
+            "button_text": "Me Interesa!",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "show_footer": false,
+            "footer_alignment": "start",
+            "footer_text": "Ver Tarifas",
+            "footer_button": "Shop Now",
+            "footer_link": "shopify://pages/precios-1"
+          }
+        },
+        "1621243260e1af0c20-0": {
+          "type": "slider_item",
+          "disabled": true,
+          "settings": {
+            "background": "shopify://shop_images/Diseno_sin_titulo_3.jpg",
+            "mb_background": "shopify://shop_images/Sin_titulo_600_x_480_px.jpg",
+            "image_alignment": "center top",
+            "content_in_container": true,
+            "content_position": "left middle",
+            "text_alignment": "left",
+            "text_size": "medium",
+            "text_color": "white",
+            "subheading": "Simplificamos tu logística",
+            "title": "Almacenamos, <br>preparamos,\n<br>y despachamos.",
+            "description": "<p>Tú vende y nosotros hacemos el resto!</p>",
+            "image_link": "shopify://pages/precios-1",
+            "button_text": "Contáctame",
+            "button_link": "shopify://pages/contacto",
+            "button_style": "sf__btn-primary",
+            "button_size": "sf__btn-large",
+            "show_footer": true,
+            "footer_alignment": "start",
+            "footer_text": "Conoce los planes:",
+            "footer_button": "Planes",
+            "footer_link": "shopify://pages/precios-1"
+          }
+        }
+      },
+      "block_order": [
+        "126a4f51-1f48-47a2-839f-9b4957cb9122",
+        "1621243260e1af0c20-0"
+      ],
+      "settings": {
+        "container": "w-full",
+        "slideshow_height": "fullscreen",
+        "show_overlay": false,
+        "dots_position": "right",
+        "dots_color": "light",
+        "show_dots": true,
+        "show_arrows": false,
+        "autorotate": true,
+        "autorotate_speed": 4,
+        "use_content_above": false,
+        "custom_class": ""
+      }
+    },
+    "16496149580b0e72a5": {
+      "type": "icon-box",
+      "blocks": {
+        "1649614958fb202220-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_13.png",
+            "title": "Almacenamos",
+            "description": "<p>Deja tus productos en nuestra Sucursal en Santiago para llegar a todo Chile.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1649614958fb202220-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_14.png",
+            "title": "Armamos tus pedidos",
+            "description": "<p>Tus ventas se preparan al instante desde nuestra bodega.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1649614958fb202220-2": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_15.png",
+            "title": "Gestionamos tus envíos",
+            "description": "<p>Ofrecemos entregas Mismo Día y una amplia variedad de servicios.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "1649614958fb202220-0",
+        "1649614958fb202220-1",
+        "1649614958fb202220-2"
+      ],
+      "settings": {
+        "heading": "Simplificamos la logística de tu Ecommerce",
+        "subheading": "",
+        "description": "Desde hoy te puedes olvidar de tener que armar pedidos, embalar y etiquetar paquetes para cada envío de tu ecommerce, porque nosotros en Stocka nos hacemos cargo de todo desde el momento que generas una venta hasta la entrega a tu cliente.",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#700adf",
+        "item_per_row": 3,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "vertical",
+        "image_max_width": "90px",
+        "content_alignment": "center",
+        "hover_effect": "zoom-in",
+        "enable_slider": false,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": false,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "16499905753cf58b6c": {
+      "type": "custom-content",
+      "blocks": {
+        "1649990575f5904b6b-0": {
+          "type": "text",
+          "settings": {
+            "title": "Nuestro ecosistema de servicios",
+            "subheading": "",
+            "text": "<p>Apuntamos a ser un aporte al impulso de tus ventas, con servicios de preparación y despachos rápidos que permitan ofrecer a tus clientes una experiencia de compra que los haga desear volver a comprar.</p>",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "1649990575f5904b6b-1": {
+          "type": "image",
+          "disabled": true,
+          "settings": {
+            "image": "shopify://shop_images/Tu_stock_almacenado.png",
+            "link": "",
+            "width": "100%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "1649990575f5904b6b-0",
+        "1649990575f5904b6b-1"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "16502483908113731f": {
+      "type": "slider",
+      "blocks": {
+        "1650248389fc06d751-0": {
+          "type": "slider_item",
+          "settings": {
+            "background": "shopify://shop_images/Tu_stock_almacenado_4.png",
+            "mb_background": "shopify://shop_images/Tu_stock_almacenado_600_x_480_px_1.png",
+            "image_alignment": "center",
+            "content_in_container": false,
+            "content_position": "center top",
+            "text_alignment": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "subheading": "",
+            "title": "",
+            "description": "",
+            "image_link": "",
+            "button_text": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "show_footer": false,
+            "footer_alignment": "end",
+            "footer_text": "New Collection",
+            "footer_button": "Shop Now",
+            "footer_link": ""
+          }
+        }
+      },
+      "block_order": [
+        "1650248389fc06d751-0"
+      ],
+      "settings": {
+        "container": "container",
+        "slideshow_height": "adapt",
+        "show_overlay": false,
+        "dots_position": "bottom",
+        "dots_color": "dark",
+        "show_dots": false,
+        "show_arrows": false,
+        "autorotate": false,
+        "autorotate_speed": 5,
+        "use_content_above": false,
+        "custom_class": ""
+      }
+    },
+    "1630685114e1e4db13": {
+      "type": "image-with-text",
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "container": "container",
+        "background_color": "#ededed",
+        "item_gap": 100,
+        "item_gap_mobile": 30,
+        "image": "shopify://shop_images/Diseno_sin_titulo_31.png",
+        "link": "",
+        "layout": "left",
+        "image_column_size": "7",
+        "hover_effect": true,
+        "title": "Almacenamos",
+        "sub_title": "",
+        "text": "<p>Deja tus productos en nuestra bodega, y cada vez que realices una venta nosotros lo comenzaremos a preparar para su despacho. Nos podemos conectar a tu ecommerce, donde tendrás la posibilidad de ver el stock que tienes disponible, recibirás alertas de stock crítico y más!</p>",
+        "text_size": "medium",
+        "content_alignment": "left",
+        "button_label": "ver tarifas",
+        "button_link": "shopify://pages/precios-1",
+        "button_style": "sf__btn-primary",
+        "button_size": "",
+        "custom_class": ""
+      }
+    },
+    "164961797693e9f39a": {
+      "type": "icon-box",
+      "blocks": {
+        "1649617976f349485f-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_18.png",
+            "title": "Lleva el control de tu Stock",
+            "description": "<p>Inventario y registro de los movimientos en línea. Podrás ver tus unidades almacenadas en tiempo real.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1649617976f349485f-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_19.png",
+            "title": "Stock rotativo y a tu ritmo",
+            "description": "<p>Tú defines la frecuencia de re-stock, la idea es que no sea una preocupación para ti, puede ser semanal, quincenal, mensual, etc.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1649617976f349485f-2": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_20.png",
+            "title": "Recibimos tus productos",
+            "description": "<p>Podemos recibir directo de tus proveedores, recepcionamos, controlamos la calidad, inventariamos y te hacemos un reporte.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "1649617976f349485f-0",
+        "1649617976f349485f-1",
+        "1649617976f349485f-2"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "item_per_row": 3,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "vertical",
+        "image_max_width": "90px",
+        "content_alignment": "center",
+        "hover_effect": "zoom-in",
+        "enable_slider": true,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": true,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "16455647523a30409e": {
+      "type": "image-with-text",
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "container": "container",
+        "background_color": "#700adf",
+        "item_gap": 100,
+        "item_gap_mobile": 30,
+        "image": "shopify://shop_images/Diseno_sin_titulo_33.png",
+        "link": "",
+        "layout": "right",
+        "image_column_size": "7",
+        "hover_effect": true,
+        "title": "Preparamos",
+        "sub_title": "",
+        "text": "<p>Nos encargamos de armar tus pedidos, los dejamos listos para que sean despachados o retirados por tus clientes. Puedes personalizar tu packaging como quieras, lo armaremos como lo prefieras!</p>",
+        "text_size": "medium",
+        "content_alignment": "left",
+        "button_label": "ver tarifas",
+        "button_link": "shopify://pages/precios-1",
+        "button_style": "sf__btn-secondary",
+        "button_size": "",
+        "custom_class": ""
+      }
+    },
+    "16496243286f4c4405": {
+      "type": "icon-box",
+      "blocks": {
+        "1649624328c1258052-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_21.png",
+            "title": "Personaliza tu packaging",
+            "description": "<p>Armamos tus pedidos de la misma forma en que lo harías tú, con los detalles y personalizaciones que necesites.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1649624328c1258052-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_22.png",
+            "title": "Sin comisiones por Venta",
+            "description": "<p>Sin cobros abusivos, ni costos fijos, solo pagas cuando vendes, y a mayor ventas menor es el costo.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "1649624328c1258052-0",
+        "1649624328c1258052-1"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#700adf",
+        "item_per_row": 2,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "vertical",
+        "image_max_width": "90px",
+        "content_alignment": "center",
+        "hover_effect": "zoom-in",
+        "enable_slider": true,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": true,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "1645565953aaef45bb": {
+      "type": "image-with-text",
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "container": "container",
+        "background_color": "#ededed",
+        "item_gap": 100,
+        "item_gap_mobile": 30,
+        "image": "shopify://shop_images/Diseno_sin_titulo_34.png",
+        "link": "",
+        "layout": "left",
+        "image_column_size": "7",
+        "hover_effect": true,
+        "title": "Despachamos",
+        "sub_title": "",
+        "text": "<p>A través de servicios de delivery o couriers según el destino de tus ventas, nos encargaremos de gestionar el envío de todos los pedidos que procesemos. Tenemos la posibilidad de despachar tus pedidos con servicios <strong>Same Day</strong>, <strong>24 hrs</strong>, o tradicional. Tú eliges!</p>",
+        "text_size": "medium",
+        "content_alignment": "left",
+        "button_label": "ver tarifas",
+        "button_link": "shopify://pages/precios-1",
+        "button_style": "sf__btn-primary",
+        "button_size": "",
+        "custom_class": ""
+      }
+    },
+    "1650985385caf4f6ce": {
+      "type": "icon-box",
+      "blocks": {
+        "16509853856b4c24e5-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_28.png",
+            "title": "Ofrece Envíos Contraentrega",
+            "description": "<p>Tus clientes podrán pagar su producto durante la entrega.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "16509853856b4c24e5-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_29.png",
+            "title": "Servicios Same Day, 24 hrs.",
+            "description": "<p>Ofrece a tus cliente servicios express en RM y cobertura a todo Chile.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "16509853856b4c24e5-2": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_30.png",
+            "title": "Llevamos a puntos pick up",
+            "description": "<p>Dejamos tus pedidos en sucursales de couriers para el despacho.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "16509853856b4c24e5-0",
+        "16509853856b4c24e5-1",
+        "16509853856b4c24e5-2"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "item_per_row": 3,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "vertical",
+        "image_max_width": "90px",
+        "content_alignment": "center",
+        "hover_effect": "zoom-in",
+        "enable_slider": false,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": true,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "7bf8bed3-2835-4d5d-adb0-faa4f4321384": {
+      "type": "custom-content",
+      "blocks": {
+        "705561e9-6cef-4e07-b8c4-128b7a582220": {
+          "type": "text",
+          "settings": {
+            "title": "Procesamos tus ventas en Mercadolibre y Marketplaces",
+            "subheading": "",
+            "text": "<p>Con el almacenamiento de tus productos, podemos procesar las ventas que hagas en marketplaces como Mercadolibre, llevamos tus pedidos a centros de envío de Mercado Envíos, Chilexpress o también podemos enviar tus ventas con despachos FLEX a toda la región metropolitana.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "white",
+            "button_label": "Ver tarifas",
+            "button_link": "shopify://pages/precios-1",
+            "button_style": "sf__btn-secondary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "2d16c403-be1c-4b50-9c2c-21393b3e932f": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/imagen_2023-01-11_191502167.png",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "705561e9-6cef-4e07-b8c4-128b7a582220",
+        "2d16c403-be1c-4b50-9c2c-21393b3e932f"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#212120",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "1651553429a103a742": {
+      "type": "brands-list",
+      "blocks": {
+        "16515534295017e8c7-0": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/3.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "16515534295017e8c7-1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/2.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "16515534295017e8c7-2": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_35.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "16515534295017e8c7-3": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/4.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "3279a44f-ce98-45fb-b386-a9b2ce868e8e": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_37.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "2849d094-89a5-4113-a213-f19ce818bccf": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_43.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        },
+        "ec82ab2d-7c22-4796-95f4-66a05c80bc57": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_36.png",
+            "image_link": "",
+            "max_width": "90px"
+          }
+        }
+      },
+      "block_order": [
+        "16515534295017e8c7-0",
+        "16515534295017e8c7-1",
+        "16515534295017e8c7-2",
+        "16515534295017e8c7-3",
+        "3279a44f-ce98-45fb-b386-a9b2ce868e8e",
+        "2849d094-89a5-4113-a213-f19ce818bccf",
+        "ec82ab2d-7c22-4796-95f4-66a05c80bc57"
+      ],
+      "settings": {
+        "heading": "Cuentas con cobertura a todo Chile mediante:",
+        "subheading": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "item_per_row": 7,
+        "enable_slider": true,
+        "autorotate": true,
+        "autorotate_speed": 2,
+        "custom_class": ""
+      }
+    },
+    "164314511535766290": {
+      "type": "icon-box",
+      "blocks": {
+        "1643145114bc4e0d25-0": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/cash-on-delivery.png",
+            "title": "Pagos Contraentrega",
+            "description": "<p>Ofrece a tus clientes pagar al recibir sus pedidos.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1643145114bc4e0d25-1": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/exchange.png",
+            "title": "Servicio de Postventa",
+            "description": "<p>Nos encargamos de tus cambios y devoluciones.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        },
+        "1643145114bc4e0d25-2": {
+          "type": "iconbox",
+          "settings": {
+            "image": "shopify://shop_images/payment.png",
+            "title": "Punto de Venta",
+            "description": "<p>Da la opción de comprar en tienda a tus clientes.</p>",
+            "link": "",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-link",
+            "button_size": ""
+          }
+        }
+      },
+      "block_order": [
+        "1643145114bc4e0d25-0",
+        "1643145114bc4e0d25-1",
+        "1643145114bc4e0d25-2"
+      ],
+      "settings": {
+        "heading": "Otros Servicios",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ffffff",
+        "item_per_row": 3,
+        "item_gap": 30,
+        "item_gap_mobile": 10,
+        "card_style": "vertical",
+        "image_max_width": "90px",
+        "content_alignment": "center",
+        "hover_effect": "zoom-in",
+        "enable_slider": true,
+        "show_pagination": false,
+        "show_navigation": false,
+        "use_scroll_mobile": true,
+        "use_grid_column_mb": false,
+        "custom_class": ""
+      }
+    },
+    "1649866208a2bb37a8": {
+      "type": "custom-content",
+      "blocks": {
+        "38aa17de-19c6-419a-a662-451b9c8dfe3c": {
+          "type": "text",
+          "settings": {
+            "title": "ya confiaron en nosotros 👇",
+            "subheading": "",
+            "text": "<p>Y cuentan con nuestros servicios de almacenamiento, preparación de pedidos, gestión de despachos, punto de retiro, envíos con pago en destino, entre otros servicios.</p>",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "38aa17de-19c6-419a-a662-451b9c8dfe3c"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "16498666248117f9ee": {
+      "type": "brands-list",
+      "blocks": {
+        "164986662444aee548-0": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/MEDSKILLS_COLOR.png",
+            "image_link": "https://www.medskills.cl",
+            "max_width": "80px"
+          }
+        },
+        "164986662444aee548-1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/QUELOIDE_COLOR.png",
+            "image_link": "https://queloide.cl",
+            "max_width": "80px"
+          }
+        },
+        "164986662444aee548-2": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/SIBLA_COLOR.png",
+            "image_link": "",
+            "max_width": "80px"
+          }
+        },
+        "250e04c9-a563-4391-8ca0-fa320465b767": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/ARENAPARAGATOS_COLOR.png",
+            "image_link": "https://arenaparagato.cl",
+            "max_width": "80px"
+          }
+        },
+        "9e4f7e7b-7ce8-40da-9bae-fcd1c6fa37df": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/S_500_x_300_px_500_x_500_px_4.png",
+            "image_link": "",
+            "max_width": "80px"
+          }
+        },
+        "ddf650b9-fb25-46d4-923c-5711a5450894": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/MUKAVA.png",
+            "image_link": "https://www.mukava.cl",
+            "max_width": "80px"
+          }
+        },
+        "113755ab-bdd3-43e9-814f-15a250c4f62b": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/SARABEAUTY.png",
+            "image_link": "https://sarabeauty18.com",
+            "max_width": "80px"
+          }
+        },
+        "4e6fade5-f98a-4b2f-8ac1-db77984fb2c9": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/PORTONES_AUTOMAT.png",
+            "image_link": "https://PORTONESautomat.cl",
+            "max_width": "80px"
+          }
+        },
+        "44bae7e8-3104-4e48-b2e1-6ec77928aa7e": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/GATITOS_KAWAI.png",
+            "image_link": "https://gatitoskawaii.cl",
+            "max_width": "80px"
+          }
+        },
+        "78194c45-a5cd-4484-920f-ae4316ac8cb8": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/LAGARTOCOMPANY_COLOR.png",
+            "image_link": "https://lagartocompany.cl",
+            "max_width": "80px"
+          }
+        },
+        "bb291434-37f9-4de7-9e61-8c22d5deae0f": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/KICKSHOP_COLOR.png",
+            "image_link": "",
+            "max_width": "80px"
+          }
+        },
+        "8ec2b627-0daf-4e96-88ca-c5815697f626": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/COMFYPETYS.png",
+            "image_link": "https://www.comfypetys.com",
+            "max_width": "80px"
+          }
+        },
+        "47c8c6a5-dc3a-4755-a978-067eaa51303c": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/ENTREGADO.png",
+            "image_link": "",
+            "max_width": "80px"
+          }
+        },
+        "b3f53d74-6735-4d8c-b3e7-af80adea1b95": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/ENTREGADO_1.png",
+            "image_link": "https://bioenvases.cl",
+            "max_width": "80px"
+          }
+        },
+        "b99546c6-4706-431c-a6ac-3e0fbcc7a4d2": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/SERPA.png",
+            "image_link": "http://www.biogancechile.cl",
+            "max_width": "180px"
+          }
+        },
+        "38e7778b-1763-451c-876f-63142c6233a8": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/MAESE.png",
+            "image_link": "https://www.maese.cl",
+            "max_width": "180px"
+          }
+        },
+        "fd31994b-f606-4095-b874-c1340a8a0140": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/FRUTZ.png",
+            "image_link": "https://www.frutz.cl/",
+            "max_width": "180px"
+          }
+        },
+        "23ca43b0-c2b2-4cb1-9d16-89924df6f950": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/GLOBAL.png",
+            "image_link": "https://www.globalmv.cl",
+            "max_width": "180px"
+          }
+        },
+        "d7c3767c-1c78-43af-af83-ea4949e157fb": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/HOGARAZO.png",
+            "image_link": "https://hogarazo.com",
+            "max_width": "90px"
+          }
+        },
+        "7325fd65-05f7-41d2-b3fb-c92763705084": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/TRAILBOSS.png",
+            "image_link": "https://trailboss.cl",
+            "max_width": "90px"
+          }
+        },
+        "b3651e13-8446-4079-a764-ca2314bc34ad": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/ENTREGADO_2.png",
+            "image_link": "https://electroneslibres.cl",
+            "max_width": "90px"
+          }
+        }
+      },
+      "block_order": [
+        "164986662444aee548-0",
+        "164986662444aee548-1",
+        "164986662444aee548-2",
+        "250e04c9-a563-4391-8ca0-fa320465b767",
+        "9e4f7e7b-7ce8-40da-9bae-fcd1c6fa37df",
+        "ddf650b9-fb25-46d4-923c-5711a5450894",
+        "113755ab-bdd3-43e9-814f-15a250c4f62b",
+        "4e6fade5-f98a-4b2f-8ac1-db77984fb2c9",
+        "44bae7e8-3104-4e48-b2e1-6ec77928aa7e",
+        "78194c45-a5cd-4484-920f-ae4316ac8cb8",
+        "bb291434-37f9-4de7-9e61-8c22d5deae0f",
+        "8ec2b627-0daf-4e96-88ca-c5815697f626",
+        "47c8c6a5-dc3a-4755-a978-067eaa51303c",
+        "b3f53d74-6735-4d8c-b3e7-af80adea1b95",
+        "b99546c6-4706-431c-a6ac-3e0fbcc7a4d2",
+        "38e7778b-1763-451c-876f-63142c6233a8",
+        "fd31994b-f606-4095-b874-c1340a8a0140",
+        "23ca43b0-c2b2-4cb1-9d16-89924df6f950",
+        "d7c3767c-1c78-43af-af83-ea4949e157fb",
+        "7325fd65-05f7-41d2-b3fb-c92763705084",
+        "b3651e13-8446-4079-a764-ca2314bc34ad"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#ededed",
+        "item_per_row": 7,
+        "enable_slider": true,
+        "autorotate": true,
+        "autorotate_speed": 2,
+        "custom_class": ""
+      }
+    },
+    "16536071960cd03efe": {
+      "type": "testimonials",
+      "blocks": {
+        "165360719684afaacc-5": {
+          "type": "testimonial",
+          "settings": {
+            "title": "",
+            "description": "<p>\"El servicio de Stocka destaca, además de llevar registros claros y ser transparentes con su sistema, por su atención dedicada y su disposición atenta y confiable. Han sido de gran utilidad para nosotras como empresa\".</p>",
+            "footer": "<p>Gary Peña. Encargado Logística Queloide.cl</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        },
+        "f55dde63-f8c3-4a38-8658-8a8680d84775": {
+          "type": "testimonial",
+          "settings": {
+            "title": "",
+            "description": "<p>\"Hace tiempo buscaba una solución para la logística de mi negocio, ya que, al ser de la region del Maule el mayor flujo de pedidos se movía en Santiago permitiéndome llegar con mayor rapidez y de igual manera externalizar todo el proceso. Muy buen equipo de trabajo, flexible y comprometidos con el negocio\".</p>",
+            "footer": "<p>Cristian Vargas. CEO Medskills.cl</p>",
+            "image_text": "",
+            "image_link": "",
+            "product": ""
+          }
+        }
+      },
+      "block_order": [
+        "165360719684afaacc-5",
+        "f55dde63-f8c3-4a38-8658-8a8680d84775"
+      ],
+      "settings": {
+        "heading": "Opinión de nuestros clientes",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "w-full",
+        "background_color": "#700adf",
+        "design": "testimonials-4",
+        "show_stars": true,
+        "autorotate": true,
+        "show_navigation": true,
+        "show_pagination": true,
+        "star_color": "#ffffff",
+        "custom_class": ""
+      }
+    },
+    "16473528307d0adf88": {
+      "type": "custom-content",
+      "blocks": {
+        "16473528293cd0ac9d-0": {
+          "type": "text",
+          "settings": {
+            "title": "Hablemos por Videollamada!",
+            "subheading": "",
+            "text": "<p>Si te interesan nuestros servicios y quieres saber más de cómo podemos ajustar nuestros servicios a las necesidades de tu comercio agendemos una reunión! Así podremos conocer mejor los detalles particulares que requieres.</p>",
+            "width": "50%",
+            "alignment": "center",
+            "align_text": "left",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "Agendar una Reunión",
+            "button_link": "https://meetings.hubspot.com/stocka",
+            "button_style": "sf__btn-white",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        },
+        "16473528293cd0ac9d-1": {
+          "type": "image",
+          "settings": {
+            "image": "shopify://shop_images/Diseno_sin_titulo_10.png",
+            "link": "",
+            "width": "50%",
+            "alignment": "center",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "16473528293cd0ac9d-0",
+        "16473528293cd0ac9d-1"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "#6fe9d9",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "164735355814c39139": {
+      "type": "custom-content",
+      "blocks": {
+        "64da49f6-72fa-451b-814e-374bb0925534": {
+          "type": "text",
+          "settings": {
+            "title": "¿Quieres que te contactemos?",
+            "subheading": "",
+            "text": "<p>Completa el formulario a continuación y nos pondremos en contacto, te enviaremos información de nuestro servicio, luego si lo deseas podrás agendar una reunión con nosotros!</p>",
+            "width": "100%",
+            "alignment": "center",
+            "align_text": "center",
+            "text_size": "medium",
+            "text_color": "black",
+            "button_label": "",
+            "button_link": "",
+            "button_style": "sf__btn-primary",
+            "button_size": "",
+            "block_custom_class": ""
+          }
+        }
+      },
+      "block_order": [
+        "64da49f6-72fa-451b-814e-374bb0925534"
+      ],
+      "settings": {
+        "heading": "",
+        "subheading": "",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "",
+        "gap": 30,
+        "use_scroll_mobile": false,
+        "gap_mobile": 16,
+        "custom_class": ""
+      }
+    },
+    "1645564480b685f9a3": {
+      "type": "custom-liquid",
+      "settings": {
+        "custom_liquid": "{formbuilder:NzI2OTk=}",
+        "custom_class": ""
+      }
+    },
+    "5530bef7-767e-47d4-8a16-dc617da3106f": {
+      "type": "blog-posts",
+      "settings": {
+        "heading": "Blog",
+        "subheading": "Noticias e información de valor",
+        "description": "",
+        "header_alignment": "center",
+        "container": "container-fluid",
+        "background_color": "rgba(0,0,0,0)",
+        "blog": "news",
+        "limit": 3,
+        "column": 3,
+        "column_gap": 30,
+        "mobile_gap": 10,
+        "article_image_aspect_ratio": "16/9",
+        "article_align_content": "text-center",
+        "article_show_tags": false,
+        "article_show_date": true,
+        "article_show_excerpt": true,
+        "article_show_button": true,
+        "button_link": "shopify://blogs/news",
+        "button_text": "VER TODOS LOS ARTÍCULOS",
+        "button_style": "sf__btn-primary",
+        "button_size": "",
+        "use_scroll_mobile": true,
+        "custom_class": ""
+      }
+    },
+    "1647354804020c555f": {
+      "type": "instagram",
+      "custom_css": [],
+      "settings": {
+        "heading": "Estamos en Instagram!",
+        "subheading": "",
+        "description": "síguenos y conoce más de nuestros servicios",
+        "header_alignment": "center",
+        "container": "w-full",
+        "background_color": "rgba(0,0,0,0)",
+        "layout": "grid",
+        "images_count": 6,
+        "grid_columns": 6,
+        "gap": 5,
+        "mobile_gap": 10,
+        "profile": "https://www.instagram.com/stocka.cl",
+        "button_label": "@stocka.cl",
+        "custom_class": ""
+      }
+    }
+  },
+  "order": [
+    "1621243260e1af0c20",
+    "16496149580b0e72a5",
+    "16499905753cf58b6c",
+    "16502483908113731f",
+    "1630685114e1e4db13",
+    "164961797693e9f39a",
+    "16455647523a30409e",
+    "16496243286f4c4405",
+    "1645565953aaef45bb",
+    "1650985385caf4f6ce",
+    "7bf8bed3-2835-4d5d-adb0-faa4f4321384",
+    "1651553429a103a742",
+    "164314511535766290",
+    "1649866208a2bb37a8",
+    "16498666248117f9ee",
+    "16536071960cd03efe",
+    "16473528307d0adf88",
+    "164735355814c39139",
+    "1645564480b685f9a3",
+    "5530bef7-767e-47d4-8a16-dc617da3106f",
+    "1647354804020c555f"
+  ]
+}

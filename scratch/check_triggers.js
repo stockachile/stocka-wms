@@ -21,11 +21,11 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 async function checkTriggers() {
-  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'order_items' });
+  const { data: triggers, error } = await supabase.rpc('get_table_triggers', { t_name: 'optiroute_orders' });
   if (error) {
     console.error('Error fetching triggers:', error);
   } else {
-    console.log('Triggers on table "order_items":', triggers);
+    console.log('Triggers on table "optiroute_orders":', triggers);
   }
 }
 
