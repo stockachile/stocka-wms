@@ -5892,16 +5892,16 @@ async function renderIntegrations() {
     const falabellaButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasFalabella 
-          ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Falabella API</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Falabella</button>' +
-            '<button type="button" class="btn btn-primary" id="btn-sync-falabella" style="background-color: #84cc16; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Pedidos y Productos</button>');
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-falabella" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;"><i class="ri-plug-line"></i> Conectar Falabella API</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-falabella" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;"><i class="ri-link-unlink"></i> Desconectar Falabella</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-falabella" style="background-color: #84cc16; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;"><i class="ri-refresh-line"></i> Sincronizar Pedidos y Productos</button>');
 
     const meliButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasMeli 
-          ? '<button type="submit" class="btn btn-primary" id="btn-save-meli" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar MercadoLibre API</button>'
-          : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar MercadoLibre</button>' +
-            '<button type="button" class="btn btn-primary" id="btn-sync-meli" style="background-color: #f59e0b; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;">Sincronizar Productos</button>');
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-meli" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;"><i class="ri-plug-line"></i> Conectar MercadoLibre API</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-meli" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;"><i class="ri-link-unlink"></i> Desconectar MercadoLibre</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-meli" style="background-color: #f59e0b; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;"><i class="ri-refresh-line"></i> Sincronizar Productos</button>');
 
     const walmartButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -6172,64 +6172,162 @@ async function renderIntegrations() {
 
         <!-- TAB: Falabella -->
         <div id="tab-falabella" class="integration-tab-pane" style="display: none;">
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${falabellaStatusText}
-                   </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; align-items: start;">
+            <!-- Left Column: Form (Sticky) -->
+            <div style="position: sticky; top: 1.5rem;">
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Falabella Marketplace</h3>
                 </div>
-                <form id="form-falabella-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">URL de la API (Falabella)</label>
-                    <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                <div class="card-body" style="padding: 1.5rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasFalabella ? 'rgba(132, 204, 22, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasFalabella ? 'rgba(132, 204, 22, 0.2)' : 'var(--color-border)'};">
+                     <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div>
+                           <h4 style="margin: 0; font-size: 1.1rem; color: ${hasFalabella ? '#84cc16' : 'var(--color-text-main)'};">Falabella Store (Mirakl)</h4>
+                           <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos y descarga de etiquetas PDF.</p>
+                        </div>
+                     </div>
+                     <div>
+                        ${falabellaStatusText}
+                     </div>
                   </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">User ID / Email de Falabella</label>
-                    <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
-                    <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${falabellaButtonHtml}
-                  </div>
-                </form>
+                  <form id="form-falabella-integration">
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-link-m" style="color: var(--color-primary);"></i> URL de la API (Falabella)
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-compass-3-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="text" id="falabella-url" class="form-input" placeholder="ej. https://sellercenter-api.falabella.com" value="${falabellaUrl}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="padding-left: 2.25rem; background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-user-line" style="color: var(--color-primary);"></i> User ID / Email de Falabella
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-mail-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="email" id="falabella-user" class="form-input" placeholder="ej. hola@backintime.cl" value="${falabellaUser}" ${hasFalabella ? 'readonly' : 'required'} ${disabledAttr} style="padding-left: 2.25rem; background-color: ${hasFalabella || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem; ${hasFalabella ? 'display:none;' : ''}">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-key-line" style="color: var(--color-primary);"></i> API Key del Vendedor
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-shield-keyhole-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="password" id="falabella-token" class="form-input" placeholder="Ingresa tu API Key de Falabella" ${hasFalabella ? '' : 'required'} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                    </div>
+                    <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                      ${falabellaButtonHtml}
+                    </div>
+                  </form>
+                </div>
               </div>
             </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
-                </h3>
+
+            <!-- Right Column: Instructions, Steps (Scrollable Container) -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem; max-height: 80vh; overflow-y: auto; padding-right: 0.5rem; border-radius: 8px;">
+              
+              <!-- Card 1: Guía de Integración -->
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    <span><i class="ri-book-open-line" style="color: var(--color-primary);"></i></span> Guía de Integración Falabella
+                  </h3>
+                </div>
+                <div class="card-body" style="padding: 1.5rem;">
+                  <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <li>
+                      <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
+                      <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu Seller Center de Falabella (Mirakl) y ve a la sección de configuración de perfil / API Key. Necesitarás tu <strong style="color: var(--color-text-main);">User ID</strong> (email de acceso API) y la <strong style="color: var(--color-text-main);">API Key</strong> correspondiente.</p>
+                    </li>
+                    <li>
+                      <strong style="color: var(--color-text-main);">Configurar URL de la API:</strong>
+                      <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">La URL de producción es <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">https://sellercenter-api.falabella.com/</code>. Ingresa esta URL en el campo de la izquierda.</p>
+                    </li>
+                    <li>
+                      <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                      <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
+                    </li>
+                  </ol>
+                </div>
               </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Credenciales de API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu Seller Center de Falabella (Mirakl) y ve a la sección de configuración de perfil / API Key. Necesitarás tu <strong style="color: var(--color-text-main);">User ID</strong> (email de acceso API) y la <strong style="color: var(--color-text-main);">API Key</strong> correspondiente.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Configurar URL de la API:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">La URL de producción es <code style="background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 4px;">https://sellercenter-api.falabella.com/</code>. Ingresa esta URL en el campo de la izquierda.</p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que tus SKUs en Falabella coincidan de forma exacta con los SKUs en el WMS STOCKA para que las existencias se comprometan y descuenten automáticamente de forma correcta.</p>
-                  </li>
-                </ol>
+
+              <!-- Card 2: Pasos Críticos Después de la Integración -->
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 0; background-color: var(--color-surface);">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    <span><i class="ri-git-commit-line" style="color: var(--color-primary);"></i></span> Pasos Críticos Después de la Integración
+                  </h3>
+                </div>
+                <div class="card-body" style="padding: 1.5rem;">
+                  <p style="margin-top: 0; color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Una vez completada la conexión API, debes configurar el acceso de colaboración en Falabella Seller Center para que nuestro equipo pueda procesar y sincronizar las órdenes físicamente:
+                  </p>
+                  
+                  <!-- Timeline Container -->
+                  <div style="display: flex; flex-direction: column; gap: 1.5rem; position: relative;">
+                    <!-- Vertical Line -->
+                    <div style="position: absolute; left: 15px; top: 10px; bottom: 10px; width: 2px; background: var(--color-border); z-index: 1;"></div>
+                    
+                    <!-- Step 1 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">1</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                          <span>Invitación a Colaborador de Marketplace</span>
+                          <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Obligatorio</span>
+                        </h4>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          El usuario colaborador debe crearse utilizando el correo electrónico asignado específicamente para el uso de marketplaces en tu comercio.
+                        </p>
+                        
+                        <!-- Email Check Block -->
+                        ${emailColaboradorHtml}
+                      </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">2</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                          <span>Creación y Permisos de Usuario</span>
+                          <a href="https://ayudaseller.falabella.com/s/article/Administracion-de-usuarios?language=es" target="_blank" style="font-size: 0.75rem; text-decoration: none; color: var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border: none; background: transparent;">
+                            <i class="ri-book-open-line"></i> Guía de Falabella Center <i class="ri-external-link-line"></i>
+                          </a>
+                        </h4>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          Sigue las instrucciones del portal Seller Center de Falabella para la administración de usuarios. Al crear el acceso, asegúrate de asignar los siguientes permisos específicos:
+                        </p>
+                        
+                        <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid var(--color-primary); font-size: 0.8rem;">
+                          <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-shield-user-line"></i> Permiso Requerido:</strong>
+                          <span style="color: var(--color-text-muted); line-height: 1.4;">El usuario debe tener asignado el permiso de <strong style="color: var(--color-text-main);">seller order access</strong> en la plataforma.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">3</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                          <span>Notificación Inmediata a Stocka (Límite 24 hrs)</span>
+                          <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Crítico</span>
+                        </h4>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          Una vez que envíes la invitación o crees el usuario, <strong>notifica de inmediato a tu KAM de Stocka</strong>. Las invitaciones expiran en un corto plazo y requieren confirmación por nuestro equipo de soporte marketplace.
+                        </p>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
               </div>
+
             </div>
           </div>
         </div>
