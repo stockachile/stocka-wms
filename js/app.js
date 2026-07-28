@@ -6562,6 +6562,8 @@ async function renderIntegrations() {
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
         <!-- TAB: Walmart -->
         <div id="tab-walmart" class="integration-tab-pane" style="display: none;">
