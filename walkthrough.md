@@ -1774,3 +1774,19 @@ Hemos replicado y adaptado el diseño moderno y guiado en dos columnas para **Fa
    - **Paso 2: Creación y Permisos de Usuario**: Presenta la guía oficial de administración de usuarios en Falabella e instruye sobre el permiso obligatorio requerido por el personal de Stocka: **seller order access**.
    - **Paso 3: Notificación de Aceptación (Límite 24 hrs)**: Alerta al usuario sobre la caducidad del enlace de invitación, indicándole notificar a su KAM con prioridad crítica para proceder a la validación.
 
+---
+
+## 80. Corrección de Cierre de Contenedores en Pestaña de MercadoLibre (Walmart, WooCommerce, Tiendanube y Jumpseller Inactivos)
+
+Hemos corregido un error de maquetación HTML en la pestaña de integración de MercadoLibre que afectaba el funcionamiento de las pestañas siguientes:
+
+1. **El Problema**:
+   - Al realizar el rediseño y depurar tags anteriores en la pestaña de MercadoLibre (`tab-meli`), los contenedores del layout de rejilla (`display: grid`) y del contenedor de pestaña principal (`#tab-meli`) quedaron abiertos (sin sus correspondientes etiquetas `</div>` de cierre).
+   - Esto provocaba que el navegador interpretara las pestañas subsiguientes (Walmart, WooCommerce, Jumpseller y Tiendanube) como elementos anidados dentro de la pestaña de MercadoLibre.
+   - Como consecuencia, cuando `tab-meli` se ocultaba (`display: none`), arrastraba a todas las pestañas siguientes, haciendo que al hacer clic sobre ellas se activaran en código, pero permanecieran completamente invisibles.
+
+2. **La Solución**:
+   - Agregamos los dos cierres de contenedor `</div>` faltantes al final del timeline del panel derecho de la pestaña de MercadoLibre (`js/app.js`), independizando correctamente cada panel.
+   - Con esta corrección, la navegación entre las pestañas de **Walmart**, **WooCommerce**, **Jumpseller** y **Tiendanube** vuelve a funcionar con total normalidad y respuesta inmediata.
+
+
