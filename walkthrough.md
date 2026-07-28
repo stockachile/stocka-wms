@@ -1753,3 +1753,24 @@ Hemos implementado un rediseño completo de la interfaz de integración para **M
    - **Paso 1: Email de Colaborador**: Integra una consulta dinámica a `comercios_adicional_config`. Si existe un correo configurado, muestra un input de sólo lectura de color primario con un botón interactivo *"Copiar Email de Colaborador"* (`ri-file-copy-line`) para que el usuario copie la dirección asignada con un clic. Si no está configurado, renderiza un aviso recomendando contactar a su ejecutivo KAM de Stocka para la asignación de su correo de marketplace.
    - **Paso 2: Permisos del Rol**: Presenta una grilla con los permisos mínimos requeridos por el personal de bodega de Stocka (Publicación y Ventas, Envíos y Logística). Vincula directamente a la guía oficial de MercadoLibre mediante un enlace interactivo con icono externo.
    - **Paso 3: Notificación de Aceptación (Límite 24 hrs)**: Alerta al usuario sobre la caducidad automática de 24 horas del enlace de invitación oficial enviado por MercadoLibre, indicándole notificar a su KAM con prioridad crítica.
+
+---
+
+## 79. Rediseño de Vista de Integración Falabella (Formulario en Dos Columnas, Scroll Independiente y Guía de Colaborador)
+
+Hemos replicado y adaptado el diseño moderno y guiado en dos columnas para **Falabella Marketplace (Mirakl)** en el WMS Stocka (`js/app.js`):
+
+1. **Diseño de Dos Columnas (Split Layout)**:
+   - **Columna Izquierda (Formulario de Conexión)**: El formulario se configuró con `position: sticky; top: 1.5rem;`, permaneciendo fijo en pantalla.
+   - **Columna Derecha (Información y Guías)**: Las secciones de *Guía de Integración Falabella* y la nueva sección *Pasos Críticos Después de la Integración* se agruparon en un panel de scroll independiente (`max-height: 80vh; overflow-y: auto; padding-right: 0.5rem;`).
+
+2. **Detalles Visuales e Iconografía**:
+   - Agregamos iconos internos en la parte izquierda de cada campo de texto (`ri-compass-3-line` para URL API, `ri-mail-line` para User ID y `ri-shield-keyhole-line` para API Key).
+   - Los labels de los campos del formulario cuentan ahora con iconos descriptivos de color primario (`ri-link-m`, `ri-user-line`, `ri-key-line`).
+   - Añadimos iconos de acción a los botones de conexión/sincronización (`ri-plug-line` para conectar, `ri-link-unlink` para desconectar y `ri-refresh-line` para sincronizar pedidos y productos).
+
+3. **Guía de Colaborador y Timeline Post-Integración**:
+   - **Paso 1: Email de Colaborador**: Integra una consulta dinámica a `comercios_adicional_config`. Si existe un correo configurado, muestra un input de sólo lectura de color primario con un botón interactivo *"Copiar Email de Colaborador"* (`ri-file-copy-line`) para copiar la dirección asignada. Si no está configurado, renderiza un aviso recomendando contactar a su ejecutiva KAM.
+   - **Paso 2: Creación y Permisos de Usuario**: Presenta la guía oficial de administración de usuarios en Falabella e instruye sobre el permiso obligatorio requerido por el personal de Stocka: **seller order access**.
+   - **Paso 3: Notificación de Aceptación (Límite 24 hrs)**: Alerta al usuario sobre la caducidad del enlace de invitación, indicándole notificar a su KAM con prioridad crítica para proceder a la validación.
+
