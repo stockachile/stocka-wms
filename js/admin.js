@@ -2391,7 +2391,12 @@ window.applyWmsFiltersAndRender = function() {
           badgeColor = '#991b1b';
         }
         
-        shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>`;
+        const rawStatus = (shipment.status && !/^-?\d+\.\d+$/.test(shipment.status)) ? shipment.status : '';
+        const rawStatusSpan = rawStatus 
+          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${rawStatus}</span>` 
+          : '';
+
+        shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
       }
       
       trackingHtml = `<div style="display: flex; flex-direction: column; gap: 0.15rem;">${trackingLink}${shipStatusBadge ? `<div>${shipStatusBadge}</div>` : ''}</div>`;

@@ -1709,3 +1709,7 @@ Hemos resuelto la incidencia de visualización en el panel WMS (tanto para admin
 3. **Filtrado de Coordenadas Geográficas en Estado Crudo**:
    - Corregimos el problema visual donde el WMS renderizaba coordenadas de longitud/latitud (ej. `'-70.5786311'`) en la columna de estado.
    - Añadimos un filtro de expresiones regulares en el frontend que detecta si el estado es un valor numérico/coordenada decimal y lo oculta visualmente mostrando un guion estándar `'-'`.
+
+4. **Visualización Complementaria del Estado Particular/Crudo**:
+   - Agregamos la renderización del estado particular (ej: *"En planta de procesamiento"*, *"Listo para despacho"*, *"En reparto"*) directamente en la grilla principal de pedidos (debajo del badge del estado global).
+   - Esto permite que el usuario vea de un vistazo la información detallada del transportista complementando el estado global unificado, tanto en la vista de cliente como en la de administrador.
