@@ -1713,3 +1713,43 @@ Hemos resuelto la incidencia de visualización en el panel WMS (tanto para admin
 4. **Visualización Complementaria del Estado Particular/Crudo**:
    - Agregamos la renderización del estado particular (ej: *"En planta de procesamiento"*, *"Listo para despacho"*, *"En reparto"*) directamente en la grilla principal de pedidos (debajo del badge del estado global).
    - Esto permite que el usuario vea de un vistazo la información detallada del transportista complementando el estado global unificado, tanto en la vista de cliente como en la de administrador.
+
+---
+
+## 77. Corrección de Consistencia de Tracking y Edición de Despachos en Detalle de Pedido (WMS)
+
+Hemos resuelto de manera definitiva la inconsistencia visual de tracking en el modal de detalle del pedido y en las opciones de edición de tracking en el gestor de pedidos:
+
+1. **Resolución de URLs Híbridas en Detalle de Pedido**:
+   - Corregimos el bloque de tracking en el modal detallado del pedido (`js/admin.js` y `js/app.js`) para evitar que se mezclaran datos de couriers. Si un pedido posee múltiples etiquetas, la URL de seguimiento se extrae estrictamente del envío prioritized (evitando que se inyectara de forma retroactiva el enlace de LightData sobre el texto de Envíame).
+2. **Corrección de Estado Real de LightData desde `raw_data[23]`**:
+   - Si el estado de un envío de LightData es guardado como coordenada decimal debido al desfase de columnas histórico, el sistema recupera automáticamente el nombre legible del estado real (ej: *"En camino al destinatario"*) desde la columna oculta `raw_data[23]`.
+   - Esto permite que tanto el WMS como el modal de "Editar Courier y N° Seguimiento" resuelvan correctamente el estado global como `"DESPACHADO"`, mostrando la descripción real del movimiento en lugar de figurar como `"SIN MOVIMIENTO"` o `"En reparto"` falso positivo.
+3. **Eliminación de Opciones de Envío Duplicadas**:
+   - Filtramos las sugerencias del modal de "Editar Courier y N° Seguimiento" para evitar que se ofrezcan opciones redundantes (como la Etiqueta Alpha genérica de LightData) cuando ya se encuentra disponible el envío unificado correspondiente de LightData, previniendo confusiones operacionales.
+4. **Traducción Automática en la Vista de Envíos Consolidados**:
+   - Actualizamos la columna de estado en la pestaña de **Envíos Consolidados** (`js/admin.js`) para que si un envío de LightData tiene coordenadas en su estado físico, las traduzca utilizando su verdadero estado de `raw_data[23]`, visualizándolo como *"En camino al destinatario"* en lugar de la traducción genérica predeterminada.
+5. **Corrección de Tags e Indicador de Tracking en la Grilla Principal (Badges)**:
+   - Se actualizó la generación del badge de estado global de despacho (`shipmentBadgeHtml`) mostrado en la grilla principal de pedidos (debajo del ID del pedido en la fila de badges) tanto en `js/admin.js` como en `js/app.js`.
+   - Ahora, este badge también resuelve dinámicamente las coordenadas y los estados particulares a su estado global correspondiente (`DESPACHADO`, `ALERTA` o `SIN MOVIMIENTO`), garantizando alineación y coherencia absoluta con el detalle del panel derecho de integración.
+
+---
+
+## 78. Rediseño de Vista de Integración MercadoLibre (Formulario en Dos Columnas, Scroll Independiente y Timeline de Colaboradores)
+
+Hemos implementado un rediseño completo de la interfaz de integración para **MercadoLibre Marketplace** en el WMS Stocka (`js/app.js`):
+
+1. **Diseño de Dos Columnas (Split Layout)**:
+   - Dividimos la pantalla del tab de MercadoLibre en dos columnas principales.
+   - **Columna Izquierda (Formulario de Conexión)**: Se configuró con `position: sticky; top: 1.5rem;` para que permanezca flotando e inmóvil en pantalla mientras el usuario realiza scroll en la documentación de la derecha.
+   - **Columna Derecha (Información y Guías)**: Se agruparon las secciones de *Guía de Integración*, *Servicios y Tarifas* y *Pasos Críticos Después de la Integración* en un contenedor de scroll independiente (`max-height: 80vh; overflow-y: auto;`). Esto mantiene siempre visible el formulario a la izquierda.
+
+2. **Detalles Visuales e Iconografía**:
+   - Siguiendo el lenguaje de diseño del formulario de ingreso de stock, añadimos iconos internos alineados a la izquierda de cada campo de texto (ej: `ri-fingerprint-line` para Client ID, `ri-shield-keyhole-line` para Client Secret, `ri-compass-3-line` para Redirect URI, `ri-ticket-line` para Código de Autorización y `ri-loop-left-line` para Refresh Token).
+   - Los labels de los campos del formulario cuentan ahora con iconos descriptivos de color primario (`ri-key-line`, `ri-lock-password-line`, `ri-link-m`, `ri-qr-code-line`, `ri-refresh-line`).
+   - Se añadieron iconos de acción a los botones de control (`ri-plug-line` para conectar, `ri-link-unlink` para desconectar y `ri-refresh-line` para sincronizar pedidos).
+
+3. **Guía de Colaborador y Timeline Post-Integración**:
+   - **Paso 1: Email de Colaborador**: Integra una consulta dinámica a `comercios_adicional_config`. Si existe un correo configurado, muestra un input de sólo lectura de color primario con un botón interactivo *"Copiar Email de Colaborador"* (`ri-file-copy-line`) para que el usuario copie la dirección asignada con un clic. Si no está configurado, renderiza un aviso recomendando contactar a su ejecutivo KAM de Stocka para la asignación de su correo de marketplace.
+   - **Paso 2: Permisos del Rol**: Presenta una grilla con los permisos mínimos requeridos por el personal de bodega de Stocka (Publicación y Ventas, Envíos y Logística). Vincula directamente a la guía oficial de MercadoLibre mediante un enlace interactivo con icono externo.
+   - **Paso 3: Notificación de Aceptación (Límite 24 hrs)**: Alerta al usuario sobre la caducidad automática de 24 horas del enlace de invitación oficial enviado por MercadoLibre, indicándole notificar a su KAM con prioridad crítica.
