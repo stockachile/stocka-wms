@@ -6237,202 +6237,232 @@ async function renderIntegrations() {
         <!-- TAB: MercadoLibre -->
         <div id="tab-meli" class="integration-tab-pane" style="display: none;">
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; align-items: start;">
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
-                   <div style="display: flex; align-items: center; gap: 1rem;">
-                      <div>
-                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
-                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
-                      </div>
-                   </div>
-                   <div>
-                      ${meliStatusText}
-                   </div>
+            <!-- Left Column: Form (Sticky) -->
+            <div style="position: sticky; top: 1.5rem;">
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> MercadoLibre Marketplace</h3>
                 </div>
-                <form id="form-meli-integration">
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">Client ID (App ID)</label>
-                    <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                <div class="card-body" style="padding: 1.5rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasMeli ? 'rgba(245, 158, 11, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasMeli ? 'rgba(245, 158, 11, 0.2)' : 'var(--color-border)'};">
+                     <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div>
+                           <h4 style="margin: 0; font-size: 1.1rem; color: ${hasMeli ? '#f59e0b' : 'var(--color-text-main)'};">MercadoLibre Store (Official API)</h4>
+                           <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización de pedidos, control logístico y descarga de etiquetas.</p>
+                        </div>
+                     </div>
+                     <div>
+                        ${meliStatusText}
+                     </div>
                   </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Client Secret (Key)</label>
-                    <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem;">
-                    <label class="form-label" style="font-weight: 600;">Redirect URI</label>
-                    <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Código de Autorización (Authorization Code)</label>
-                    <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxx-xxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones. Debe incluir el guión y los números del final.</p>
-                  </div>
-                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
-                    <label class="form-label" style="font-weight: 600;">Refresh Token Existente (Opcional - Migración)</label>
-                    <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
-                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
-                  </div>
-                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                    ${meliButtonHtml}
-                  </div>
-                </form>
-              </div>
-            </div>
-            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
-              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                  <span><i class="ri-book-open-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
-                </h3>
-              </div>
-              <div class="card-body" style="padding: 1.5rem;">
-                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
-                  <li>
-                    <strong style="color: var(--color-text-main);">Obtener Código de Autorización:</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
-                      Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
-                      <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
-                      Inicia sesión, autoriza el acceso y copia el código de autorización completo que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=</strong>.<br>
-                      <span style="color: #ef4444; font-weight: 600;"><i class="ri-error-warning-line"></i> IMPORTANTE:</span> Asegúrate de copiar el código <strong>completo</strong>, incluyendo el guión y los números que vienen al final (ej: <code style="background-color: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-family: monospace;">TG-xxxxxxxxx-xxxxxxxxxx</code>). Si omites la parte final, la conexión fallará.
-                    </p>
-                  </li>
-                  <li>
-                    <strong style="color: var(--color-text-main);">Migración directa desde Google Sheets (Alternativa):</strong>
-                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
-                      Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong style="color: var(--color-text-main);">Refresh Token Existente</strong> extraído del Apps Script.
-                    </p>
-                  </li>
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <!-- Información de Servicios -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 1.5rem 0 0 0; background-color: var(--color-surface);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                <span><i class="ri-information-line" style="color: var(--color-primary);"></i></span> Servicios Disponibles y Tarifas
-              </h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6;">
-              <p style="margin-top: 0;">Stocka puede conectarse a tu cuenta de MercadoLibre para el procesamiento automatizado de tus ventas. Al integrar tu cuenta, podrás activar modalidades como <strong>Flex</strong>, <strong>MercadoEnvíos</strong> y gestionar envíos de mercadería a <strong>Full</strong>.</p>
-              
-              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 1.25rem;">
-                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-flashlight-line" style="color: #f59e0b; font-size: 1.1rem;"></i> MercadoLibre Flex</h4>
-                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de despacho Flex es de <strong>$3.200 + IVA</strong> y cubre las 36 comunas que ofrece MercadoLibre en la Región Metropolitana. Además se debe considerar el costo regular de preparación del pedido.</p>
-                </div>
-                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-truck-line" style="color: #3b82f6; font-size: 1.1rem;"></i> MercadoEnvíos</h4>
-                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo para pedidos de MercadoEnvíos corresponde únicamente al costo de preparación del pedido + un recargo de <strong>$100</strong>. No hay costos de despacho cobrados por Stocka.</p>
-                </div>
-                <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                  <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-building-2-line" style="color: #10b981; font-size: 1.1rem;"></i> Envíos FULL</h4>
-                  <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de procesamiento de envíos FULL se trata como un pedido normal (aplicando los recargos de SKU o unidades totales si corresponde), y conlleva un cargo adicional de <strong>$100 por unidad</strong>.</p>
-                </div>
-              </div>
-              
-              <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background-color: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.75rem;">
-                <i class="ri-customer-service-2-line" style="font-size: 1.5rem; color: var(--color-primary);"></i>
-                <p style="margin: 0; color: var(--color-primary); font-weight: 500; font-size: 0.9rem;">Para activar cada servicio, pueden contactar con nosotros a través de su ejecutiva KAM.</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Pasos a Seguir Luego de la Integración -->
-          <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 1.5rem 0 0 0; background-color: var(--color-surface);">
-            <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
-              <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-                <span><i class="ri-git-commit-line" style="color: var(--color-primary);"></i></span> Pasos Críticos Después de la Integración
-              </h3>
-            </div>
-            <div class="card-body" style="padding: 1.5rem;">
-              <p style="margin-top: 0; color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
-                Una vez conectada la integración técnica, debes completar el proceso de permisos de colaboración para que Stocka pueda procesar, imprimir etiquetas y preparar tus pedidos físicamente. Sigue estos pasos:
-              </p>
-              
-              <!-- Timeline Container -->
-              <div style="display: flex; flex-direction: column; gap: 1.5rem; position: relative;">
-                <!-- Vertical Line -->
-                <div style="position: absolute; left: 15px; top: 10px; bottom: 10px; width: 2px; background: var(--color-border); z-index: 1;"></div>
-                
-                <!-- Step 1 -->
-                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
-                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">1</div>
-                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
-                      <span>Invitación a Colaborador de Marketplace</span>
-                      <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Obligatorio</span>
-                    </h4>
-                    <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
-                      Debes invitarnos como colaboradores en tu cuenta de MercadoLibre utilizando el correo electrónico asignado para tu comercio.
-                    </p>
-                    
-                    <!-- Email Check Block -->
-                    ${emailColaboradorHtml}
-                  </div>
-                </div>
-
-                <!-- Step 2 -->
-                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
-                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">2</div>
-                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-                      <span>Creación y Configuración del Rol de Colaborador</span>
-                      <a href="https://vendedores.mercadolibre.cl/nota/administra-tus-propiedades-de-forma-agil-con-colaboradores" target="_blank" style="font-size: 0.75rem; text-decoration: none; color: var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border: none; background: transparent;">
-                        <i class="ri-book-open-line"></i> Guía Oficial de ML <i class="ri-external-link-line"></i>
-                      </a>
-                    </h4>
-                    <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
-                      Al crear la invitación a colaborador en MercadoLibre, debes definir un <strong>Rol</strong> con acceso a las funciones básicas necesarias para el procesamiento físico de tus ventas. Asigna estrictamente los siguientes permisos:
-                    </p>
-                    
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; font-size: 0.8rem; margin-top: 0.5rem;">
-                      <!-- Permiso Ventas -->
-                      <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #f59e0b;">
-                        <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-handbag-line"></i> Publicación y Ventas</strong>
-                        <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
-                          <li>Permisos de <strong>"Administrar mis ventas"</strong>.</li>
-                          <li>Permitir las <strong>descargas de excel de ventas</strong>.</li>
-                          <li style="color: var(--color-text-muted); opacity: 0.7; font-style: italic;">Opcional: Permisos para ver métricas.</li>
-                        </ul>
-                      </div>
-                      
-                      <!-- Permiso Envios -->
-                      <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #3b82f6;">
-                        <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Envíos y Logística</strong>
-                        <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
-                          <li>Poder revisar <strong>horarios de envío</strong>.</li>
-                          <li>Definir <strong>tiempo y capacidad</strong>.</li>
-                          <li>Ver <strong>código de autorización</strong> (requerido para logística inversa).</li>
-                        </ul>
+                  <form id="form-meli-integration">
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-key-line" style="color: var(--color-primary);"></i> Client ID (App ID)
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-fingerprint-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="text" id="meli-client-id" class="form-input" placeholder="ej. 34091030018433" value="${meliClientId || '34091030018433'}" readonly style="padding-left: 2.25rem; background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
                       </div>
                     </div>
-                  </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-lock-password-line" style="color: var(--color-primary);"></i> Client Secret (Key)
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-shield-keyhole-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="password" id="meli-client-secret" class="form-input" placeholder="Ingresa tu Client Secret" value="EJA46V6AKIWDAWG4xQ1y14pteBWR0yGl" readonly style="padding-left: 2.25rem; background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem;">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-link-m" style="color: var(--color-primary);"></i> Redirect URI
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-compass-3-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="text" id="meli-redirect-uri" class="form-input" placeholder="ej. https://www.google.com" value="${meliRedirectUri || 'https://www.google.com'}" readonly style="padding-left: 2.25rem; background-color: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-qr-code-line" style="color: var(--color-primary);"></i> Código de Autorización (Authorization Code)
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-ticket-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxx-xxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones. Debe incluir el guión y los números del final.</p>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
+                      <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                        <i class="ri-refresh-line" style="color: var(--color-primary);"></i> Refresh Token Existente (Opcional - Migración)
+                      </label>
+                      <div style="position: relative; display: flex; align-items: center;">
+                        <i class="ri-loop-left-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
+                        <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                      </div>
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
+                    </div>
+                    <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                      ${meliButtonHtml}
+                    </div>
+                  </form>
                 </div>
-
-                <!-- Step 3 -->
-                <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
-                  <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">3</div>
-                  <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-                    <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
-                      <span>Notificación Inmediata a Stocka (Límite 24 hrs)</span>
-                      <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Crítico</span>
-                    </h4>
-                    <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
-                      Una vez que envíes la invitación por MercadoLibre, <strong>notifica de inmediato a tu KAM de Stocka</strong>. La invitación oficial de MercadoLibre expira automáticamente en un lapso de <strong>24 horas</strong> y requiere aceptación manual por nuestro equipo.
-                    </p>
-                  </div>
-                </div>
-
-
               </div>
             </div>
+
+            <!-- Right Column: Instructions, Rates, Steps (Scrollable Container) -->
+            <div style="display: flex; flex-direction: column; gap: 1.5rem; max-height: 80vh; overflow-y: auto; padding-right: 0.5rem; border-radius: 8px;">
+              
+              <!-- Card 1: Guía de Integración -->
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    <span><i class="ri-book-open-line" style="color: var(--color-primary);"></i></span> Guía de Integración MercadoLibre
+                  </h3>
+                </div>
+                <div class="card-body" style="padding: 1.5rem;">
+                  <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <li>
+                      <strong style="color: var(--color-text-main);">Obtener Código de Autorización:</strong>
+                      <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                        Haz clic en el siguiente enlace para iniciar la autorización de la aplicación de MercadoLibre:<br>
+                        <a href="https://auth.mercadolibre.cl/authorization?response_type=code&client_id=34091030018433&redirect_uri=https://www.google.com" target="_blank" style="display: inline-block; background-color: var(--color-primary); color: var(--color-dark); padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; text-decoration: none; margin: 0.5rem 0; font-size: 0.85rem;">👉 Obtener Código de Autorización</a><br>
+                        Inicia sesión, autoriza el acceso y copia el código de autorización completo que aparece en la barra de direcciones después de <strong style="color: var(--color-text-main);">code=</strong>.<br>
+                        <span style="color: #ef4444; font-weight: 600;"><i class="ri-error-warning-line"></i> IMPORTANTE:</span> Asegúrate de copiar el código <strong>completo</strong>, incluyendo el guión y los números que vienen al final (ej: <code style="background-color: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 0.25rem; font-family: monospace;">TG-xxxxxxxxx-xxxxxxxxxx</code>). Si omites la parte final, la conexión fallará.
+                      </p>
+                    </li>
+                    <li>
+                      <strong style="color: var(--color-text-main);">Migración directa desde Google Sheets (Alternativa):</strong>
+                      <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                        Si ya tenías la cuenta conectada mediante el script de Google Sheets, deja el campo de código de autorización vacío y pega directamente tu <strong style="color: var(--color-text-main);">Refresh Token Existente</strong> extraído del Apps Script.
+                      </p>
+                    </li>
+                  </ol>
+                </div>
+              </div>
+
+              <!-- Card 2: Información de Servicios y Tarifas -->
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 0; background-color: var(--color-surface);">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    <span><i class="ri-information-line" style="color: var(--color-primary);"></i></span> Servicios Disponibles y Tarifas
+                  </h3>
+                </div>
+                <div class="card-body" style="padding: 1.5rem; color: var(--color-text-muted); font-size: 0.9rem; line-height: 1.6;">
+                  <p style="margin-top: 0;">Stocka puede conectarse a tu cuenta de MercadoLibre para el procesamiento automatizado de tus ventas. Al integrar tu cuenta, podrás activar modalidades como <strong>Flex</strong>, <strong>MercadoEnvíos</strong> y gestionar envíos de mercadería a <strong>Full</strong>.</p>
+                  
+                  <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1.25rem;">
+                    <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-flashlight-line" style="color: #f59e0b; font-size: 1.1rem;"></i> MercadoLibre Flex</h4>
+                      <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de despacho Flex es de <strong>$3.200 + IVA</strong> y cubre las 36 comunas que ofrece MercadoLibre en la Región Metropolitana. Además se debe considerar el costo regular de preparación del pedido.</p>
+                    </div>
+                    <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-truck-line" style="color: #3b82f6; font-size: 1.1rem;"></i> MercadoEnvíos</h4>
+                      <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo para pedidos de MercadoEnvíos corresponde únicamente al costo de preparación del pedido + un recargo de <strong>$100</strong>. No hay costos de despacho cobrados por Stocka.</p>
+                    </div>
+                    <div style="background: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-building-2-line" style="color: #10b981; font-size: 1.1rem;"></i> Envíos FULL</h4>
+                      <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">El costo de procesamiento de envíos FULL se trata como un pedido normal (aplicando los recargos de SKU o unidades totales si corresponde), y conlleva un cargo adicional de <strong>$100 por unidad</strong>.</p>
+                    </div>
+                  </div>
+                  
+                  <div style="margin-top: 1.5rem; padding: 1rem 1.25rem; background-color: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="ri-customer-service-2-line" style="font-size: 1.5rem; color: var(--color-primary);"></i>
+                    <p style="margin: 0; color: var(--color-primary); font-weight: 500; font-size: 0.9rem;">Para activar cada servicio, pueden contactar con nosotros a través de su ejecutiva KAM.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 3: Pasos a Seguir Luego de la Integración -->
+              <div class="card" style="border: none; box-shadow: var(--shadow-md); margin: 0; background-color: var(--color-surface);">
+                <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                  <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                    <span><i class="ri-git-commit-line" style="color: var(--color-primary);"></i></span> Pasos Críticos Después de la Integración
+                  </h3>
+                </div>
+                <div class="card-body" style="padding: 1.5rem;">
+                  <p style="margin-top: 0; color: var(--color-text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
+                    Una vez conectada la integración técnica, debes completar el proceso de permisos de colaboración para que Stocka pueda procesar, imprimir etiquetas y preparar tus pedidos físicamente. Sigue estos pasos:
+                  </p>
+                  
+                  <!-- Timeline Container -->
+                  <div style="display: flex; flex-direction: column; gap: 1.5rem; position: relative;">
+                    <!-- Vertical Line -->
+                    <div style="position: absolute; left: 15px; top: 10px; bottom: 10px; width: 2px; background: var(--color-border); z-index: 1;"></div>
+                    
+                    <!-- Step 1 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">1</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                          <span>Invitación a Colaborador de Marketplace</span>
+                          <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Obligatorio</span>
+                        </h4>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          Debes invitarnos como colaboradores en tu cuenta de MercadoLibre utilizando el correo electrónico asignado para tu comercio.
+                        </p>
+                        
+                        <!-- Email Check Block -->
+                        ${emailColaboradorHtml}
+                      </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">2</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                          <span>Creación y Configuración del Rol de Colaborador</span>
+                          <a href="https://vendedores.mercadolibre.cl/nota/administra-tus-propiedades-de-forma-agil-con-colaboradores" target="_blank" style="font-size: 0.75rem; text-decoration: none; color: var(--color-accent); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; border: none; background: transparent;">
+                            <i class="ri-book-open-line"></i> Guía Oficial de ML <i class="ri-external-link-line"></i>
+                          </a>
+                        </h4>
+                        <p style="margin: 0 0 0.75rem 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          Al crear la invitación a colaborador en MercadoLibre, debes definir un <strong>Rol</strong> con acceso a las funciones básicas necesarias para el procesamiento físico de tus ventas. Asigna estrictamente los siguientes permisos:
+                        </p>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.75rem; font-size: 0.8rem; margin-top: 0.5rem;">
+                          <!-- Permiso Ventas -->
+                          <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #f59e0b;">
+                            <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-handbag-line"></i> Publicación y Ventas</strong>
+                            <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
+                              <li>Permisos de <strong>"Administrar mis ventas"</strong>.</li>
+                              <li>Permitir las <strong>descargas de excel de ventas</strong>.</li>
+                              <li style="color: var(--color-text-muted); opacity: 0.7; font-style: italic;">Opcional: Permisos para ver métricas.</li>
+                            </ul>
+                          </div>
+                          
+                          <!-- Permiso Envios -->
+                          <div style="background: var(--color-surface); padding: 0.75rem; border-radius: var(--radius-sm); border-left: 3px solid #3b82f6;">
+                            <strong style="display: block; color: var(--color-text-main); margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Envíos y Logística</strong>
+                            <ul style="margin: 0; padding-left: 1rem; color: var(--color-text-muted); line-height: 1.4;">
+                              <li>Poder revisar <strong>horarios de envío</strong>.</li>
+                              <li>Definir <strong>tiempo y capacidad</strong>.</li>
+                              <li>Ver <strong>código de autorización</strong> (requerido para logística inversa).</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div style="display: flex; gap: 1rem; position: relative; z-index: 2;">
+                      <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: var(--color-dark); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; flex-shrink: 0; box-shadow: var(--shadow-glow);">3</div>
+                      <div style="flex: 1; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; justify-content: space-between;">
+                          <span>Notificación Inmediata a Stocka (Límite 24 hrs)</span>
+                          <span class="badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444; font-size: 0.7rem; border-radius: 4px; padding: 0.15rem 0.4rem; font-weight: 600;">Crítico</span>
+                        </h4>
+                        <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5;">
+                          Una vez que envíes la invitación por MercadoLibre, <strong>notifica de inmediato a tu KAM de Stocka</strong>. La invitación oficial de MercadoLibre expira automáticamente en un lapso de <strong>24 horas</strong> y requiere aceptación manual por nuestro equipo.
+                        </p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
           </div>
-        </div>
         </div>
 
         <!-- TAB: Walmart -->
