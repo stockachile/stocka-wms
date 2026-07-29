@@ -1,11 +1,11 @@
--- WMS STOCKA - Supabase Schema Phase 22: Dynamic Enviame ID Configuration
+-- WMS STOCKA - Supabase Schema Phase 22: Dynamic Enviame ID Configuration (Supports Multiple IDs)
 -- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
 
--- 1. Agregar columna enviame_id a la tabla de configuración adicional
+-- 1. Agregar columna enviame_id a la tabla de configuración adicional (por si acaso)
 ALTER TABLE public.comercios_adicional_config 
 ADD COLUMN IF NOT EXISTS enviame_id TEXT;
 
--- 2. Redefinir get_resolved_empresa para resolver por ID de Enviame
+-- 2. Redefinir get_resolved_empresa para resolver por uno o varios IDs de Enviame (separados por comas)
 CREATE OR REPLACE FUNCTION public.get_resolved_empresa(p_pedido_referencia TEXT, p_default_empresa TEXT)
 RETURNS TEXT AS $$
 DECLARE
@@ -21,7 +21,7 @@ BEGIN
     IF v_enviame_id_clean ~ '^[0-9]+$' THEN
       SELECT comercio INTO v_nombre
       FROM public.comercios_adicional_config
-      WHERE trim(enviame_id) = v_enviame_id_clean
+      WHERE v_enviame_id_clean = ANY(string_to_array(regexp_replace(enviame_id, '\s+', '', 'g'), ','))
       LIMIT 1;
       
       IF v_nombre IS NOT NULL THEN

@@ -265,7 +265,7 @@ async function syncMerchantOrders(integration) {
         .from('orders')
         .select('id, status, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderId)
+        .in('external_order_number', [orderNumber, finalOrderId])
         .eq('external_platform', 'Paris')
         .maybeSingle();
 

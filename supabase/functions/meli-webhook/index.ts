@@ -217,11 +217,13 @@ async function handleOrderNotification(orderId: string, integration: any, access
   const shippingMethod = expectedDate ? `${baseMethod} - SLA: ${formattedSla}` : baseMethod;
   const targetStatus = mapMeliStatus(shippingStatus);
 
+  const finalGroupId = await resolveMeliOrderNumber(integration.comercio, groupId);
+
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, comercio')
     .eq('comercio', integration.comercio)
-    .eq('external_order_number', groupId)
+    .in('external_order_number', [groupId, finalGroupId])
     .eq('external_platform', 'MercadoLibre')
     .maybeSingle();
 
@@ -366,7 +368,7 @@ async function handleOrderNotification(orderId: string, integration: any, access
     const orderDataToSave = {
       merchant_id: integration.merchant_id,
       comercio: resolvedCommerce,
-      external_order_number: groupId,
+      external_order_number: finalGroupId,
       external_platform: 'MercadoLibre',
       payment_status: group.status,
       total_value: group.total_value,
@@ -721,3 +723,56 @@ function getBarcodeFromAttributes(attributes: any[] | undefined, fallback: strin
   const barcodeAttr = attributes.find((a: any) => a.id === 'GTIN' || a.id === 'EAN' || a.id === 'UPC');
   return barcodeAttr && barcodeAttr.value_name ? barcodeAttr.value_name.trim() : fallback;
 }
+
+async function resolveMeliOrderNumber(comercio: string, originalGroupId: string): Promise<string> {
+  let orderNumber = (originalGroupId || "").toString().trim();
+  let siglaComercio = "";
+  let prefijoOrigen = "";
+  let agregarPrefijo = false;
+
+  if (comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from("v_comercios_config")
+        .select("sigla")
+        .eq("nombre", comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from("comercios_adicional_config")
+        .select("pedido_trae_sigla, plat_siglas_config")
+        .eq("comercio", comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})["MercadoLibre"];
+        if (platConfig) {
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
+        }
+      }
+    } catch (err: any) {
+      console.error("⚠️ Error al consultar configuración de sigla para el comercio:", err);
+    }
+  }
+
+  // 1. Quitar prefijo de origen si coincide
+  if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+    orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+  }
+
+  // 2. Aplicar prefijo del WMS si corresponde
+  let finalOrderNumber = orderNumber;
+  if (agregarPrefijo && siglaComercio) {
+    if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+      finalOrderNumber = `${siglaComercio}${orderNumber}`;
+    }
+  }
+
+  return finalOrderNumber;
+}
+

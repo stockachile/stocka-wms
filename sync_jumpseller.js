@@ -341,7 +341,7 @@ async function syncOrders(integration, headers, warehouseId) {
         .from('orders')
         .select('id, status')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderNumber)
+        .in('external_order_number', [orderNumber, finalOrderNumber])
         .eq('external_platform', 'Jumpseller')
         .maybeSingle();
 

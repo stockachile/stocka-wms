@@ -120,6 +120,49 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   const orderNumber = `#JS-${order.id}`;
   const statusName = order.status; // 'Pending', 'Paid', etc.
 
+  // Resolver prefijos de forma dinámica similar a sync_jumpseller.js
+  let prefix = "";
+  let prefijoOrigen = "";
+  let agregarPrefijo = false;
+  try {
+    const { data: configData } = await supabase
+      .from("v_comercios_config")
+      .select("sigla")
+      .eq("nombre", comercio)
+      .maybeSingle();
+
+    if (configData && configData.sigla) {
+      prefix = configData.sigla.trim().toUpperCase();
+    }
+
+    const { data: adicionalConfig } = await supabase
+      .from("comercios_adicional_config")
+      .select("plat_siglas_config")
+      .eq("comercio", comercio)
+      .maybeSingle();
+
+    if (adicionalConfig) {
+      const platConfig = (adicionalConfig.plat_siglas_config || {})["Jumpseller"];
+      if (platConfig) {
+        agregarPrefijo = platConfig.agregar_prefijo !== false;
+        prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
+      }
+    }
+  } catch (err: any) {
+    console.error("⚠️ Error consultando sigla de comercio para Jumpseller:", err.message);
+  }
+
+  let baseOrderNumber = orderNumber;
+  // 1. Quitar prefijo de origen si coincide
+  if (prefijoOrigen && baseOrderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+    baseOrderNumber = baseOrderNumber.substring(prefijoOrigen.length).trim();
+  }
+
+  // 2. Aplicar prefijo del WMS si corresponde
+  const finalOrderNumber = (agregarPrefijo && prefix && !baseOrderNumber.toUpperCase().startsWith(prefix))
+    ? `${prefix}${baseOrderNumber}`
+    : baseOrderNumber;
+
   // Clasificación de estados
   const isDelivered = order.shipment_status === 'shipped' || order.shipment_status === 'delivered';
   const isCancelled = ['Canceled', 'Abandoned', 'Open'].includes(statusName);
@@ -145,12 +188,12 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     console.error('⚠️ Error al cargar equivalencias de SKU:', err.message);
   }
 
-  // Verificar si existe el pedido
+  // Verificar si existe el pedido (tolerante a cambios de prefijo)
   const { data: existingOrder } = await supabase
     .from('orders')
     .select('id, status, estado_wms')
     .eq('merchant_id', merchantId)
-    .eq('external_order_number', orderNumber)
+    .in('external_order_number', [orderNumber, finalOrderNumber])
     .eq('external_platform', 'Jumpseller')
     .maybeSingle();
 
@@ -176,7 +219,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
   const orderData = {
     merchant_id: merchantId,
     comercio: comercio,
-    external_order_number: orderNumber,
+    external_order_number: finalOrderNumber,
     external_platform: 'Jumpseller',
     payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
     total_value: totalValue,

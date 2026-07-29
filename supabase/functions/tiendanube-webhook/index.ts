@@ -133,7 +133,7 @@ async function handleOrderCreate(merchantId: string, comercio: string, order: an
     .from("orders")
     .select("id")
     .eq("merchant_id", merchantId)
-    .eq("external_order_number", finalOrderNumber)
+    .in("external_order_number", [orderNumber, finalOrderNumber])
     .maybeSingle();
 
   if (existing) {

@@ -1952,8 +1952,44 @@ Transformamos la columna derecha estática de la página de inicio de sesión (`
 3. **Lógica de Control Asíncrona (Auth.js)**:
    - Agregamos la lógica en `js/auth.js` que gestiona la rotación automática cada 5 segundos y responde de inmediato al clic en los puntos indicadores (dots) inferiores para la navegación manual.
 
+---
 
+## 91. Corrección de Pedidos MercadoLibre Duplicados en Webhooks y Saneamiento de Datos
 
+Detectamos y corregimos un problema de duplicación de pedidos que afectaba a la integración de MercadoLibre:
 
+1. **Causa Raíz de la Duplicación**:
+   - La Edge Function `meli-webhook` insertaba las órdenes con su identificador original de MercadoLibre (ej: `2000014053625735`).
+   - El script programado `sync_meli.js` procesaba las órdenes aplicando el prefijo/sigla del comercio de forma automatizada (ej: `MAG2000014053625735` para MAGIC MAKEUP).
+   - Cuando el script programado buscaba si el pedido existía en la base de datos para no duplicarlo, buscaba por el formato con prefijo (`MAG2000014053625735`). Como el webhook lo había insertado sin prefijo (`2000014053625735`), no encontraba concordancia y volvía a insertar la orden, generando un duplicado.
 
+2. **Resolución en Webhooks (`supabase/functions/meli-webhook/index.ts`)**:
+   - Implementamos la función de resolución de prefijos `resolveMeliOrderNumber(comercio, originalGroupId)` que lee dinámicamente `v_comercios_config` y `comercios_adicional_config` para resolver el prefijo de MercadoLibre idénticamente al script `sync_meli.js`.
+   - Modificamos la comprobación de existencia previa en el webhook para buscar por ambos formatos usando `.in('external_order_number', [groupId, finalGroupId])`. Esto previene duplicaciones incluso si alguna orden fue creada inicialmente sin prefijo.
+   - Guardamos las nuevas órdenes en la base de datos usando el número unificado con prefijo (`finalGroupId`).
+
+3. **Saneamiento Histórico Total (`scratch/execute_meli_cleanup.js`)**:
+   - Desarrollamos un script de purga paginado inteligente que analizó toda la historia de pedidos de MercadoLibre (2,241 registros).
+   - Identificó 349 grupos duplicados y evaluó cuál de los registros conservar: priorizó el que tuviese un estado de WMS más avanzado en bodega (ej: `Despachado` o `Pickeado` sobre `En procesamiento`).
+   - Eliminó las 349 órdenes duplicadas sobrantes, renombró las conservadas al formato con prefijo unificado si era necesario, y actualizó concurrentemente la columna `pedido_referencia` en la tabla unificada de despachos (`envios_unificados`) para evitar que se perdiera el enlace de seguimiento en el portal de clientes.
+
+---
+
+## 92. Prevención Global de Duplicados por Cambios de Prefijo y Limpieza de Falabella y París
+
+Extendimos la solución de prevención de duplicados de forma proactiva y realizamos la limpieza en las demás plataformas integradas:
+
+1. **Detección e Identificación**:
+   - Analizamos toda la base de datos buscando duplicados en otras plataformas integradas. Detectamos un patrón de duplicados menor en **Falabella** (7 grupos) y **París** (26 grupos) afectando a comercios como `SERPA LTDA`, `MAGIC MAKEUP`, `RCT CHILE` y `THE SKIN STORE`.
+   - **Causa**: Estos duplicados ocurrieron cuando los comercios cambiaron su configuración de prefijos (`agregarPrefijo` habilitado/deshabilitado en base de datos) a mitad de camino. Los scripts de sincronización buscaban por el nuevo formato del número de orden, no encontraban el registro anterior y lo duplicaban.
+
+2. **Saneamiento Histórico Concurrente (`scratch/execute_all_platforms_cleanup.js`)**:
+   - Desarrollamos y ejecutamos un script de limpieza multicorreo enfocado en Falabella y París.
+   - Procesó 33 grupos duplicados históricos aplicando el mismo criterio operativo (conservando la orden con mayor estado operativo en WMS, renombrándola si correspondía, eliminando la duplicada inútil, y actualizando la columna unificada `pedido_referencia` en `envios_unificados`).
+
+3. **Protección Proactiva Transversal en Sincronizadores y Webhooks**:
+   - Para evitar duplicaciones futuras por cambios de configuración de siglas/prefijos en base de datos, modificamos todos los scripts y webhooks para que realicen búsquedas tolerantes a prefijos (`.in('external_order_number', [orderNumber, finalOrderNumber])`).
+   - Los archivos actualizados son:
+     * **Sincronizadores**: [sync_falabella.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_falabella.js), [sync_paris.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_paris.js), [sync_jumpseller.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_jumpseller.js) y [sync_tiendanube.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js).
+     * **Webhooks**: [supabase/functions/shopify-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-webhook/index.ts), [supabase/functions/jumpseller-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/jumpseller-webhook/index.ts) y [supabase/functions/tiendanube-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/tiendanube-webhook/index.ts).
 

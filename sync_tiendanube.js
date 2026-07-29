@@ -345,7 +345,7 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
         .from('orders')
         .select('id, status')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderNumber)
+        .in('external_order_number', [orderNumber, finalOrderNumber])
         .maybeSingle();
 
       // Mapear campos planos de la orden

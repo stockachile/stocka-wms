@@ -8309,19 +8309,57 @@ async function renderConsolidatedShipments() {
       'Listo para despacho': 0,
       'Entregado': 0,
       'No retirado': 0,
-      'Devolución': 0
+      'Devolución': 0,
+      'Reglas de Visibilidad': 0
     };
 
-    // 2. Fetch Unique Couriers, Statuses and Commerces for Initial Filter Dropdowns
-    const [couriersRes, statusesRes, comerciosRes] = await Promise.all([
+    // 2. Fetch Unique Couriers, Statuses, Commerces, Visibility Rules, and Profiles in parallel
+    const [couriersRes, statusesRes, comerciosRes, rulesRes, profilesRes] = await Promise.all([
       supabase.from('envios_unificados').select('courier'),
       supabase.from('envios_unificados').select('status'),
-      supabase.from('envios_unificados').select('empresa_comercio_proveedor')
+      supabase.from('envios_unificados').select('empresa_comercio_proveedor'),
+      supabase.from('reglas_visibilidad').select('*').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('id, email, full_name, company_name').neq('role', 'admin').order('email')
     ]);
 
     const initialCouriers = [...new Set((couriersRes.data || []).map(s => s.courier).filter(Boolean))].sort();
     const initialStatuses = [...new Set((statusesRes.data || []).map(s => s.status).filter(Boolean))].sort();
     const initialCommerces = [...new Set((comerciosRes.data || []).map(s => s.empresa_comercio_proveedor).filter(Boolean))].sort();
+    let visibilityRules = rulesRes.data || [];
+    const profiles = profilesRes.data || [];
+
+    const applyVisibilityRulesToQuery = (query, rules) => {
+      if (rules && rules.length > 0) {
+        rules.forEach(rule => {
+          const rCourier = rule.courier;
+          const rStatus = rule.status;
+          if (rCourier && rStatus) {
+            query = query.or(`courier.neq."${rCourier}",status.neq."${rStatus}"`);
+          } else if (rCourier) {
+            query = query.neq('courier', rCourier);
+          } else if (rStatus) {
+            query = query.neq('status', rStatus);
+          }
+        });
+      }
+      return query;
+    };
+
+    const applyVisibilityRulesToDataset = (dataset, rules) => {
+      if (!rules || rules.length === 0) return dataset;
+      return dataset.filter(row => {
+        for (const rule of rules) {
+          const rCourier = rule.courier;
+          const rStatus = rule.status;
+          const matchesCourier = !rCourier || row.courier === rCourier;
+          const matchesStatus = !rStatus || row.status === rStatus;
+          if (matchesCourier && matchesStatus) {
+            return false;
+          }
+        }
+        return true;
+      });
+    };
 
     // Render basic page wrapper with Filters, Tabs, Table and Pagination containers
     appContent.innerHTML = `
@@ -8385,27 +8423,31 @@ async function renderConsolidatedShipments() {
       <div id="shipments-tabs-container" style="margin-bottom: 1.25rem;"></div>
 
       <!-- Table Card -->
-      <div class="card" style="border: none; box-shadow: var(--shadow-md); background: var(--color-surface); border-radius: 8px;">
-        <div class="card-body table-responsive" style="padding: 0;">
-          <table class="data-table" style="width: 100%; margin: 0; border-collapse: collapse;">
-            <thead>
-              <tr>
-                <th class="sortable-header" data-sort="pedido_referencia" style="cursor: pointer; padding: 1rem;">Referencia <span class="sort-indicator">⇅</span></th>
-                <th class="sortable-header" data-sort="created_at" style="cursor: pointer; padding: 1rem; color: var(--color-accent);">Fecha <span class="sort-indicator">▼</span></th>
-                <th class="sortable-header" data-sort="empresa_comercio_proveedor" style="cursor: pointer; padding: 1rem;">Comercio <span class="sort-indicator">⇅</span></th>
-                <th class="sortable-header" data-sort="nombre_destinatario" style="cursor: pointer; padding: 1rem;">Destinatario <span class="sort-indicator">⇅</span></th>
-                <th class="sortable-header" data-sort="comuna_destino" style="cursor: pointer; padding: 1rem;">Comuna <span class="sort-indicator">⇅</span></th>
-                <th class="sortable-header" data-sort="courier" style="cursor: pointer; padding: 1rem;">Courier <span class="sort-indicator">⇅</span></th>
-                <th style="padding: 1rem;">Tracking</th>
-                <th class="sortable-header" data-sort="status" style="cursor: pointer; padding: 1rem;">Estado <span class="sort-indicator">⇅</span></th>
-                <th style="padding: 1rem;">Origen</th>
-              </tr>
-            </thead>
-            <tbody id="shipments-table-body">
-              <!-- Injected dynamically -->
-            </tbody>
-          </table>
+      <div class="card" id="shipments-table-card" style="border: none; box-shadow: var(--shadow-md); background: var(--color-surface); border-radius: 8px; overflow: visible;">
+        <div id="shipments-grid-container">
+          <div class="card-body table-responsive" style="padding: 0;">
+            <table class="data-table" style="width: 100%; margin: 0; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th class="sortable-header" data-sort="pedido_referencia" style="cursor: pointer; padding: 1rem;">Referencia <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-header" data-sort="created_at" style="cursor: pointer; padding: 1rem; color: var(--color-accent);">Fecha <span class="sort-indicator">▼</span></th>
+                  <th class="sortable-header" data-sort="empresa_comercio_proveedor" style="cursor: pointer; padding: 1rem;">Comercio <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-header" data-sort="nombre_destinatario" style="cursor: pointer; padding: 1rem;">Destinatario <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-header" data-sort="comuna_destino" style="cursor: pointer; padding: 1rem;">Comuna <span class="sort-indicator">⇅</span></th>
+                  <th class="sortable-header" data-sort="courier" style="cursor: pointer; padding: 1rem;">Courier <span class="sort-indicator">⇅</span></th>
+                  <th style="padding: 1rem;">Tracking</th>
+                  <th class="sortable-header" data-sort="status" style="cursor: pointer; padding: 1rem;">Estado <span class="sort-indicator">⇅</span></th>
+                  <th style="padding: 1rem;">Origen</th>
+                </tr>
+              </thead>
+              <tbody id="shipments-table-body">
+                <!-- Injected dynamically -->
+              </tbody>
+            </table>
+          </div>
         </div>
+        <!-- Rules Tab Container -->
+        <div id="visibility-rules-tab-container" style="display: none;"></div>
         <!-- Pagination controls container -->
         <div id="shipments-pagination-container"></div>
       </div>
@@ -8460,6 +8502,25 @@ async function renderConsolidatedShipments() {
       window.shipActiveTab = tab;
       currentPage = 1;
       
+      const gridContainer = document.getElementById('shipments-grid-container');
+      const rulesContainer = document.getElementById('visibility-rules-tab-container');
+      const filtersPanel = document.querySelector('.shipments-filters-panel');
+      const pagContainer = document.getElementById('shipments-pagination-container');
+
+      if (tab === 'Reglas de Visibilidad') {
+        if (filtersPanel) filtersPanel.style.display = 'none';
+        if (gridContainer) gridContainer.style.display = 'none';
+        if (rulesContainer) rulesContainer.style.display = 'block';
+        if (pagContainer) pagContainer.style.display = 'none';
+        await renderVisibilityRulesTabContent();
+        return;
+      }
+
+      if (filtersPanel) filtersPanel.style.display = 'grid';
+      if (gridContainer) gridContainer.style.display = 'block';
+      if (rulesContainer) rulesContainer.style.display = 'none';
+      if (pagContainer) pagContainer.style.display = 'block';
+
       const tabStatuses = tabMappings[tab];
       if (tabStatuses) {
         filters.statuses = [...tabStatuses];
@@ -8477,6 +8538,253 @@ async function renderConsolidatedShipments() {
       await fetchAndRenderTable();
     };
 
+    const renderVisibilityRulesTabContent = async () => {
+      const rulesContainer = document.getElementById('visibility-rules-tab-container');
+      
+      const { data: rules, error: rulesError } = await supabase
+        .from('reglas_visibilidad')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (rulesError) {
+        rulesContainer.innerHTML = `<p style="color:red; padding: 2rem;">Error al cargar las reglas: ${rulesError.message}</p>`;
+        return;
+      }
+
+      visibilityRules = rules || [];
+      tabCounts['Reglas de Visibilidad'] = visibilityRules.length;
+      renderTabs();
+
+      let userOptionsHtml = '<option value="">-- Seleccionar Usuario --</option>';
+      (profiles || []).forEach(p => {
+        const displayName = `${p.email} (${p.full_name || p.company_name || 'Sin Nombre'})`;
+        userOptionsHtml += `<option value="${p.id}" data-email="${p.email}">${displayName}</option>`;
+      });
+
+      let courierOptionsHtml = '<option value="">-- Cualquier Courier --</option>';
+      initialCouriers.forEach(c => {
+        courierOptionsHtml += `<option value="${c}">${c}</option>`;
+      });
+
+      let statusOptionsHtml = '<option value="">-- Cualquier Estado --</option>';
+      initialStatuses.forEach(st => {
+        statusOptionsHtml += `<option value="${st}">${getDisplayStatusName(st)}</option>`;
+      });
+
+      let rowsHtml = '';
+      if (visibilityRules.length === 0) {
+        rowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay reglas de visibilidad creadas.</td></tr>`;
+      } else {
+        visibilityRules.forEach(r => {
+          const dateStr = r.created_at ? new Date(r.created_at).toLocaleString() : '-';
+          const scopeBadge = r.scope === 'global' 
+            ? `<span style="background-color: #e0f2fe; color: #0369a1; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">Global</span>`
+            : `<span style="background-color: #fef3c7; color: #d97706; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight:600;">Por Usuario</span>`;
+          
+          const userDisplay = r.scope === 'global' ? 'Todos los usuarios' : (r.user_email || 'Desconocido');
+          const courierDisplay = r.courier ? `<span style="font-weight:600;">${r.courier}</span>` : '<em>Cualquiera</em>';
+          const statusDisplay = r.status ? `<span style="font-weight:600; color:var(--color-accent);">${getDisplayStatusName(r.status)}</span>` : '<em>Cualquiera</em>';
+
+          rowsHtml += `
+            <tr style="border-bottom: 1px solid var(--color-border);">
+              <td style="padding: 1rem 0.75rem;">${scopeBadge}</td>
+              <td style="padding: 1rem 0.75rem;">${userDisplay}</td>
+              <td style="padding: 1rem 0.75rem;">${courierDisplay}</td>
+              <td style="padding: 1rem 0.75rem;">${statusDisplay}</td>
+              <td style="padding: 1rem 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">${dateStr}</td>
+              <td style="padding: 1rem 0.75rem;">
+                <button class="btn btn-outline btn-danger btn-delete-rule" data-id="${r.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent;">
+                  <i class="ri-delete-bin-line"></i> Eliminar
+                </button>
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      rulesContainer.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; align-items: start; padding: 1.5rem;" id="visibility-rules-tab-grid">
+          
+          <!-- Create form -->
+          <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: none; margin: 0;">
+            <h3 style="margin: 0 0 1.25rem 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <i class="ri-add-line" style="color:var(--color-primary);"></i> Crear Nueva Regla
+            </h3>
+            
+            <form id="form-create-visibility-rule" style="display: flex; flex-direction: column; gap: 1rem; margin: 0;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Ámbito (Scope)</label>
+                <select id="rule-scope" class="form-input" required style="width:100%; box-sizing: border-box;">
+                  <option value="global">Global (Todos los clientes)</option>
+                  <option value="user">Por Usuario Específico</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="user-selection-group" style="display: none; margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Seleccionar Usuario</label>
+                <select id="rule-user-id" class="form-input" style="width:100%; box-sizing: border-box;">
+                  ${userOptionsHtml}
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Courier a Ocultar</label>
+                <select id="rule-courier" class="form-input" style="width:100%; box-sizing: border-box;">
+                  ${courierOptionsHtml}
+                </select>
+              </div>
+
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight:600; margin-bottom:0.25rem; display:block;">Estado a Ocultar</label>
+                <select id="rule-status" class="form-input" style="width:100%; box-sizing: border-box;">
+                  ${statusOptionsHtml}
+                </select>
+              </div>
+
+              <p style="font-size:0.75rem; color:var(--color-text-muted); margin: 0; line-height: 1.4;">
+                * Dejar Courier o Estado en "Cualquiera" aplicará la regla a todas las opciones de esa columna.
+              </p>
+
+              <button type="submit" class="btn btn-primary" style="width:100%; margin-top: 0.5rem; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer; height: 38px; border-radius: 4px;">
+                <i class="ri-eye-off-line"></i> Guardar Regla
+              </button>
+            </form>
+          </div>
+
+          <!-- Rules list -->
+          <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: none; margin: 0;">
+            <h3 style="margin: 0 0 1.25rem 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+              <i class="ri-list-check" style="color:var(--color-primary);"></i> Reglas de Exclusión Activas
+            </h3>
+
+            <div class="table-responsive" style="overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.875rem; min-width: 600px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); font-weight: 600; background: var(--color-bg);">
+                    <th style="padding: 0.75rem 0.5rem;">Ámbito</th>
+                    <th style="padding: 0.75rem 0.5rem;">Usuario / Email</th>
+                    <th style="padding: 0.75rem 0.5rem;">Courier</th>
+                    <th style="padding: 0.75rem 0.5rem;">Estado</th>
+                    <th style="padding: 0.75rem 0.5rem;">Creado</th>
+                    <th style="padding: 0.75rem 0.5rem; width: 100px;">Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="visibility-rules-table-body">
+                  ${rowsHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      `;
+
+      // Responsive style
+      if (!document.getElementById('visibility-rules-tab-responsive-style')) {
+        const styleTag = document.createElement('style');
+        styleTag.id = 'visibility-rules-tab-responsive-style';
+        styleTag.textContent = `
+          @media (min-width: 900px) {
+            #visibility-rules-tab-grid {
+              display: grid !important;
+              grid-template-columns: 280px 1fr !important;
+            }
+          }
+        `;
+        document.head.appendChild(styleTag);
+      }
+
+      // Setup listeners
+      const scopeSelect = document.getElementById('rule-scope');
+      const userSelectionGroup = document.getElementById('user-selection-group');
+      const ruleUserId = document.getElementById('rule-user-id');
+
+      if (scopeSelect && userSelectionGroup && ruleUserId) {
+        scopeSelect.addEventListener('change', () => {
+          if (scopeSelect.value === 'user') {
+            userSelectionGroup.style.display = 'block';
+            ruleUserId.setAttribute('required', 'true');
+          } else {
+            userSelectionGroup.style.display = 'none';
+            ruleUserId.removeAttribute('required');
+            ruleUserId.value = '';
+          }
+        });
+      }
+
+      const form = document.getElementById('form-create-visibility-rule');
+      if (form) {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          try {
+            const scope = document.getElementById('rule-scope').value;
+            const userId = scope === 'user' ? document.getElementById('rule-user-id').value : null;
+            let userEmail = null;
+            
+            if (scope === 'user') {
+              if (!userId) {
+                alert('Por favor selecciona un usuario.');
+                return;
+              }
+              const selectedOpt = document.getElementById('rule-user-id').selectedOptions[0];
+              userEmail = selectedOpt.getAttribute('data-email');
+            }
+
+            const courier = document.getElementById('rule-courier').value || null;
+            const status = document.getElementById('rule-status').value || null;
+
+            if (!courier && !status) {
+              alert('Por favor selecciona al menos un Courier o un Estado para ocultar.');
+              return;
+            }
+
+            const { error: insertError } = await supabase
+              .from('reglas_visibilidad')
+              .insert([{
+                scope,
+                user_id: userId,
+                user_email: userEmail,
+                courier,
+                status
+              }]);
+
+            if (insertError) throw insertError;
+
+            alert('Regla de visibilidad creada exitosamente.');
+            await renderVisibilityRulesTabContent();
+          } catch (err) {
+            console.error('Error al guardar la regla:', err);
+            alert(`Error al guardar la regla: ${err.message || err}`);
+          }
+        });
+      }
+
+      const tbodyRules = document.getElementById('visibility-rules-table-body');
+      if (tbodyRules) {
+        tbodyRules.querySelectorAll('.btn-delete-rule').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const ruleId = btn.getAttribute('data-id');
+            if (confirm('¿Estás seguro de que deseas eliminar esta regla de visibilidad?')) {
+              try {
+                const { error: deleteError } = await supabase
+                  .from('reglas_visibilidad')
+                  .delete()
+                  .eq('id', ruleId);
+
+                if (deleteError) throw deleteError;
+
+                alert('Regla de visibilidad de datos eliminada.');
+                await renderVisibilityRulesTabContent();
+              } catch (err) {
+                console.error('Error al eliminar la regla:', err);
+                alert(`Error al eliminar la regla: ${err.message || err}`);
+              }
+            }
+          });
+        });
+      }
+    };
+
     const renderTabs = () => {
       const tabColors = {
         'Todos': { bg: 'var(--color-bg)', text: 'var(--color-text-muted)' },
@@ -8484,10 +8792,11 @@ async function renderConsolidatedShipments() {
         'Listo para despacho': { bg: '#fef3c7', text: '#d97706' },
         'Entregado': { bg: '#dcfce7', text: '#22c55e' },
         'No retirado': { bg: '#fee2e2', text: '#ef4444' },
-        'Devolución': { bg: '#f3e8ff', text: '#a855f7' }
+        'Devolución': { bg: '#f3e8ff', text: '#a855f7' },
+        'Reglas de Visibilidad': { bg: '#f1f5f9', text: '#64748b' }
       };
 
-      const tabsList = ['Todos', 'Creado', 'Listo para despacho', 'Entregado', 'No retirado', 'Devolución'];
+      const tabsList = ['Todos', 'Creado', 'Listo para despacho', 'Entregado', 'No retirado', 'Devolución', 'Reglas de Visibilidad'];
       const activeTabCur = window.shipActiveTab || 'Todos';
 
       const tabsHtml = tabsList.map(tab => {
@@ -8545,13 +8854,14 @@ async function renderConsolidatedShipments() {
         'Listo para despacho': listoCount,
         'Entregado': entregadoCount,
         'No retirado': noRetiradoCount,
-        'Devolución': devolucionCount
+        'Devolución': devolucionCount,
+        'Reglas de Visibilidad': visibilityRules.length
       };
       renderTabs();
     };
 
     const updateTabCountsFromDataset = (dataset) => {
-      let baseFiltered = dataset;
+      let baseFiltered = applyVisibilityRulesToDataset(dataset, visibilityRules);
       if (filters.commerce) {
         baseFiltered = baseFiltered.filter(s => s.empresa_comercio_proveedor === filters.commerce);
       }
@@ -8608,7 +8918,8 @@ async function renderConsolidatedShipments() {
         'Listo para despacho': listoCount,
         'Entregado': entregadoCount,
         'No retirado': noRetiradoCount,
-        'Devolución': devolucionCount
+        'Devolución': devolucionCount,
+        'Reglas de Visibilidad': visibilityRules.length
       };
       renderTabs();
     };
@@ -8749,7 +9060,7 @@ async function renderConsolidatedShipments() {
 
       if (backgroundLoaded) {
         // Filter In-Memory
-        let filtered = [...backgroundData];
+        let filtered = applyVisibilityRulesToDataset([...backgroundData], visibilityRules);
 
         if (filters.commerce) {
           filtered = filtered.filter(s => s.empresa_comercio_proveedor === filters.commerce);
@@ -8816,6 +9127,8 @@ async function renderConsolidatedShipments() {
             .from('envios_unificados')
             .select('*', { count: 'exact' });
 
+          query = applyVisibilityRulesToQuery(query, visibilityRules);
+
           if (filters.commerce) {
             query = query.eq('empresa_comercio_proveedor', filters.commerce);
           }
@@ -8841,6 +9154,7 @@ async function renderConsolidatedShipments() {
 
           // Get counts for tabs
           let countQuery = supabase.from('envios_unificados').select('status');
+          countQuery = applyVisibilityRulesToQuery(countQuery, visibilityRules);
           if (filters.commerce) countQuery = countQuery.eq('empresa_comercio_proveedor', filters.commerce);
           if (filters.courier) countQuery = countQuery.eq('courier', filters.courier);
           if (filters.dateFrom) countQuery = countQuery.gte('created_at', filters.dateFrom + 'T00:00:00Z');
@@ -9142,7 +9456,7 @@ async function renderConsolidatedShipments() {
         let dataToExport = [];
         if (backgroundLoaded) {
           // Filter in-memory
-          let filtered = [...backgroundData];
+          let filtered = applyVisibilityRulesToDataset([...backgroundData], visibilityRules);
           if (filters.commerce) filtered = filtered.filter(s => s.empresa_comercio_proveedor === filters.commerce);
           if (filters.courier) filtered = filtered.filter(s => s.courier === filters.courier);
           if (filters.dateFrom) {
@@ -9170,6 +9484,7 @@ async function renderConsolidatedShipments() {
         } else {
           // Direct Database Query
           let query = supabase.from('envios_unificados').select('*');
+          query = applyVisibilityRulesToQuery(query, visibilityRules);
           if (filters.commerce) query = query.eq('empresa_comercio_proveedor', filters.commerce);
           if (filters.courier) query = query.eq('courier', filters.courier);
           if (filters.dateFrom) query = query.gte('created_at', filters.dateFrom + 'T00:00:00Z');
@@ -9939,10 +10254,7 @@ const CLIENT_MODULES = [
 const ADMIN_MODULES = [
   { id: 'orders_admin', label: 'Gestor de Pedidos' },
   { id: 'consolidated_shipments', label: 'Envíos Consolidados' },
-  { id: 'reassign_admin', label: 'Reubicar Stock' },
-  { id: 'manual_in_admin', label: 'Ingreso Manual' },
   { id: 'declarations_admin', label: 'Declaraciones de Ingreso' },
-  { id: 'upload_products_admin', label: 'Carga de Planillas' },
   { id: 'catalog', label: 'Catálogo' },
   { id: 'users_admin', label: 'Gestionar Usuarios' },
   { id: 'merchants_admin', label: 'Gestionar Comercios' },
@@ -22317,6 +22629,7 @@ window.showMerchantEditModal = function(comercioName) {
     const newRazonSocial = document.getElementById('merchant-edit-razon-social').value.trim().toUpperCase();
     const newRut = document.getElementById('merchant-edit-rut').value.trim().toUpperCase();
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
+    const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
 
     // Obtener configuración de prefijos por plataforma
