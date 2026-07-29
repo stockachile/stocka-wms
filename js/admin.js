@@ -1585,6 +1585,12 @@ async function renderAdminOrders() {
             <input type="text" id="search-orders" class="form-input" placeholder="Buscar por ID, SKU, Cliente, Tracking..." style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
           </div>
           <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-file-list-3-line"></i> Multiselección</label>
+            <button type="button" id="btn-wms-multiselect" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem; height: 38px; display: flex; align-items: center; justify-content: center; gap: 0.35rem; width: 100%; cursor: pointer; text-align: center; border: 1px solid var(--color-border); background-color: var(--color-surface); color: var(--color-text); transition: all 0.2s; border-radius: 4px;" onclick="window.openWmsMultiselectModal()">
+              <i class="ri-file-list-3-line" id="wms-multiselect-icon"></i> <span id="wms-multiselect-label">Multiselección</span>
+            </button>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio / Cliente</label>
             <select id="filter-merchant" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
               <option value="">Todos los comercios</option>
@@ -1766,12 +1772,44 @@ window.applyWmsFiltersAndRender = function() {
   const dateToInput = document.getElementById('filter-date-to');
 
   const searchText = (searchInput?.value || '').toLowerCase();
+  const multiselectText = window.wmsMultiselectText || '';
   const selectedMerchant = merchantSelect?.value || '';
   const selectedOrigen = origenSelect?.value || '';
   const selectedStatus = statusSelect?.value || '';
   const selectedExportStatus = exportStatusSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
+
+  // Parsear multiselección
+  const multiselectRefs = multiselectText
+    .split(/[\n,; \t]+/)
+    .map(r => r.trim())
+    .filter(Boolean);
+  const multiselectRefsSet = new Set(multiselectRefs.map(r => r.toUpperCase()));
+
+  // Actualizar el botón de multiselección
+  const btnMultiselect = document.getElementById('btn-wms-multiselect');
+  const labelMultiselect = document.getElementById('wms-multiselect-label');
+  if (btnMultiselect && labelMultiselect) {
+    if (multiselectRefsSet.size > 0) {
+      labelMultiselect.innerText = `Multiselección (${multiselectRefsSet.size})`;
+      btnMultiselect.style.borderColor = 'var(--color-primary)';
+      btnMultiselect.style.backgroundColor = 'rgba(79, 70, 229, 0.1)';
+      btnMultiselect.style.color = 'var(--color-primary)';
+    } else {
+      labelMultiselect.innerText = 'Multiselección';
+      btnMultiselect.style.borderColor = 'var(--color-border)';
+      btnMultiselect.style.backgroundColor = 'var(--color-surface)';
+      btnMultiselect.style.color = 'var(--color-text)';
+    }
+  }
+
+  const matchesMultiselect = (order) => {
+    if (multiselectRefsSet.size === 0) return true;
+    const extNo = (order.external_order_number || '').trim().toUpperCase();
+    const orderId = (order.id || '').trim().toUpperCase();
+    return multiselectRefsSet.has(extNo) || multiselectRefsSet.has(orderId);
+  };
 
   // Filtro de base para los dropdowns y buscador
   const matchesBaseFilters = (order) => {
@@ -1826,7 +1864,8 @@ window.applyWmsFiltersAndRender = function() {
     return orders.filter(o => {
       const matchBase = matchesBaseFilters(o);
       const matchTab = tabName === 'Todos' || o.estado_wms === tabName;
-      return matchBase && matchTab;
+      const matchMultiselect = matchesMultiselect(o);
+      return matchBase && matchTab && matchMultiselect;
     }).length;
   };
 
@@ -1872,6 +1911,7 @@ window.applyWmsFiltersAndRender = function() {
   const filtered = orders.filter(o => {
     const matchBase = matchesBaseFilters(o);
     const matchTab = window.wmsActiveTab === 'Todos' || o.estado_wms === window.wmsActiveTab;
+    const matchMultiselect = matchesMultiselect(o);
     
     // Filtros de columnas tipo Excel (AND logic)
     let matchColFilters = true;
@@ -1887,7 +1927,7 @@ window.applyWmsFiltersAndRender = function() {
       else if (colKey === 'periodo_facturacion') val = o.periodo_facturacion;
       else if (colKey === 'status') val = o.status;
       else if (colKey === 'estado_wms') val = o.estado_wms;
-      
+
       val = val === null || val === undefined ? '' : String(val).trim();
       if (!selectedVals.includes(val)) {
         matchColFilters = false;
@@ -1895,8 +1935,15 @@ window.applyWmsFiltersAndRender = function() {
       }
     }
     
-    return matchBase && matchTab && matchColFilters;
+    return matchBase && matchTab && matchColFilters && matchMultiselect;
   });
+
+  // Auto-seleccionar pedidos filtrados por el multiselect
+  if (multiselectRefsSet.size > 0) {
+    filtered.forEach(o => {
+      window.wmsSelectedOrderIds.add(o.id);
+    });
+  }
 
   // Actualizar estado visual de los iconos de filtros en cabeceras
   const colKeys = ['comercio', 'origen', 'agenda', 'operador', 'shipping_method', 'periodo_facturacion', 'status', 'estado_wms'];
@@ -6281,9 +6328,12 @@ async function renderAdminInventory() {
       <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
         <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio) para Inventario
       </label>
-      <select id="inv-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-        <option value="">-- Seleccione un Cliente --</option>
-      </select>
+      <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 400px;">
+        <input type="text" id="inv-admin-client-search" class="form-input" placeholder="🔍 Buscar comercio..." style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+        <select id="inv-admin-client-select" class="form-input" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+          <option value="">-- Seleccione un Cliente --</option>
+        </select>
+      </div>
     </div>
     <div id="inv-admin-workspace" style="display: none;">
     </div>
@@ -6309,11 +6359,30 @@ async function renderAdminInventory() {
     }
 
     const clientSelect = document.getElementById('inv-admin-client-select');
-    clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-      uniqueClients.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+    const searchInput = document.getElementById('inv-admin-client-search');
+
+    function populateSelect(filterText = '') {
+      const filtered = uniqueClients.filter(c => 
+        c.nombre.toLowerCase().includes(filterText.toLowerCase()) || 
+        c.sigla.toLowerCase().includes(filterText.toLowerCase())
+      );
+      clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
+        filtered.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+
+      if (window.activeAdminInventoryCommerce && filtered.some(c => c.nombre === window.activeAdminInventoryCommerce)) {
+        clientSelect.value = window.activeAdminInventoryCommerce;
+      }
+    }
+
+    populateSelect();
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        populateSelect(e.target.value);
+      });
+    }
 
     if (window.activeAdminInventoryCommerce) {
-      clientSelect.value = window.activeAdminInventoryCommerce;
       document.getElementById('inv-admin-workspace').style.display = 'block';
       renderAdminInventoryWorkspace(window.activeAdminInventoryCommerce);
     }
@@ -7458,9 +7527,12 @@ async function renderAdminCatalog() {
       <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
         <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)
       </label>
-      <select id="eq-admin-client-select" class="form-input" style="max-width: 400px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-        <option value="">-- Seleccione un Cliente --</option>
-      </select>
+      <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 400px;">
+        <input type="text" id="eq-admin-client-search" class="form-input" placeholder="🔍 Buscar comercio..." style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+        <select id="eq-admin-client-select" class="form-input" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+          <option value="">-- Seleccione un Cliente --</option>
+        </select>
+      </div>
       <div id="catalog-admin-stats-container" style="margin-top: 1.5rem; display: none;"></div>
     </div>
     <div id="eq-admin-workspace" style="display: none;">
@@ -7487,11 +7559,30 @@ async function renderAdminCatalog() {
     }
 
     const clientSelect = document.getElementById('eq-admin-client-select');
-    clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-      uniqueClients.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+    const searchInput = document.getElementById('eq-admin-client-search');
+
+    function populateSelect(filterText = '') {
+      const filtered = uniqueClients.filter(c => 
+        c.nombre.toLowerCase().includes(filterText.toLowerCase()) || 
+        c.sigla.toLowerCase().includes(filterText.toLowerCase())
+      );
+      clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
+        filtered.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
+
+      if (window.activeAdminComercio && filtered.some(c => c.nombre === window.activeAdminComercio)) {
+        clientSelect.value = window.activeAdminComercio;
+      }
+    }
+
+    populateSelect();
+
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        populateSelect(e.target.value);
+      });
+    }
 
     if (window.activeAdminComercio) {
-      clientSelect.value = window.activeAdminComercio;
       document.getElementById('eq-admin-workspace').style.display = 'block';
       renderAdminCatalogWorkspace(window.activeAdminComercio);
     }
@@ -23915,9 +24006,6 @@ window.bulkSetWmsOrderPickingInfo = async function() {
     }
 
     Swal.fire('¡Éxito!', `Se asignaron los datos de preparación a los ${ids.length} pedidos.`, 'success');
-    window.wmsSelectedOrderIds.clear();
-    const cbAll = document.getElementById('wms-select-all');
-    if (cbAll) cbAll.checked = false;
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error(err);
@@ -23982,9 +24070,6 @@ window.bulkSetWmsOrderOperador = async function() {
     }
 
     Swal.fire('¡Éxito!', `Se asignó el operador a los ${ids.length} pedidos.`, 'success');
-    window.wmsSelectedOrderIds.clear();
-    const cbAll = document.getElementById('wms-select-all');
-    if (cbAll) cbAll.checked = false;
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error(err);
@@ -24083,9 +24168,6 @@ window.bulkSetWmsOrderBillingPeriod = async function() {
     }
 
     Swal.fire('¡Éxito!', `Se asignó el periodo de facturación a los ${ids.length} pedidos.`, 'success');
-    window.wmsSelectedOrderIds.clear();
-    const cbAll = document.getElementById('wms-select-all');
-    if (cbAll) cbAll.checked = false;
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error(err);
@@ -28839,12 +28921,54 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
       if (onComplete) onComplete();
     } catch (err) {
       console.error(err);
-      alert('Error al realizar traslado: ' + err.message);
+       alert('Error al realizar traslado: ' + err.message);
       confirmBtn.disabled = false;
       confirmBtn.innerHTML = '<i class="ri-arrow-left-right-line"></i> Confirmar Traslado';
     }
   });
 }
+
+window.openWmsMultiselectModal = async function() {
+  const currentVal = window.wmsMultiselectText || '';
+  
+  const result = await Swal.fire({
+    title: 'Multiselección de Pedidos',
+    html: `
+      <div style="text-align: left; font-size: 0.9rem;">
+        <p style="margin-bottom: 0.75rem; color: var(--color-text-muted);">
+          Pega los números de pedido (o IDs de Supabase), separados por saltos de línea, comas, puntos y comas, o tabulaciones.
+        </p>
+        <textarea id="swal-multiselect-textarea" class="swal2-textarea" style="width: 100%; height: 200px; margin: 0; box-sizing: border-box; font-family: monospace; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; resize: vertical;" placeholder="SFP#3320&#10;SFP#3321&#10;...">${currentVal}</textarea>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Aplicar Filtro',
+    cancelButtonText: 'Cancelar',
+    denyButtonText: 'Limpiar Filtro',
+    showDenyButton: true,
+    focusConfirm: false,
+    preConfirm: () => {
+      return document.getElementById('swal-multiselect-textarea').value;
+    }
+  });
+
+  if (result.isConfirmed) {
+    window.wmsMultiselectText = result.value || '';
+    window.applyWmsFiltersAndRender();
+  } else if (result.isDenied) {
+    window.wmsMultiselectText = '';
+    window.applyWmsFiltersAndRender();
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'Filtro multiselección limpiado',
+      showConfirmButton: false,
+      timer: 2000
+    });
+  }
+};
+
 
 
 
