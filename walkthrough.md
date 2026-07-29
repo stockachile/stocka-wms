@@ -1880,6 +1880,58 @@ Hemos detectado y corregido un problema de seguridad a nivel de base de datos (R
    - Esta política restringe la actualización para que el usuario autenticado solo pueda modificar registros que pertenezcan a su comercio (siguiendo el mismo esquema riguroso del filtrado de lectura).
    - Generamos el archivo de migración [supabase_schema_billing_records_policy_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing_records_policy_fix.sql) con las sentencias correspondientes y actualizamos el archivo consolidado [supabase_schema_billing.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing.sql).
 
+---
+
+## 87. Sincronización de Prefijos en Webhooks y Limpieza de Pedidos Duplicados (SMILE FOR PETS)
+
+Detectamos y corregimos un problema de duplicación de pedidos que afectaba al comercio **SMILE FOR PETS** (y potencialmente a otros comercios con prefijos personalizados de Shopify):
+
+1. **Causa Raíz de la Duplicación**:
+   - En la base de datos existía el comercio `SMILE FOR PETS` con la sigla `SFP` configurada en `comercios_adicional_config` con `agregar_prefijo: true` para Shopify.
+   - El webhook en tiempo real (`shopify-webhook` Edge Function) insertaba las órdenes con su identificador original de Shopify (ej: `#3326`).
+   - El script programado `sync_shopify.js` procesaba las órdenes aplicando el prefijo (`SFP#3326`) y, al buscarlas en la base de datos para actualizar, no encontraba concordancia con `#3326`, por lo que insertaba un registro duplicado.
+
+2. **Resolución de la Duplicación en Webhooks**:
+   - Modificamos la Edge Function [index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-webhook/index.ts) para implementar la misma lógica de resolución de prefijos que `sync_shopify.js`, utilizando las consultas a `v_comercios_config` y `comercios_adicional_config`.
+   - Ahora, tanto el webhook como el script programado resuelven exactamente la misma referencia final (ej: `SFP#3326`), evitando la creación de duplicados a futuro.
+
+3. **Saneamiento de Datos Históricos**:
+   - Diseñamos y ejecutamos un script inteligente de purga ([execute_smile_cleanup.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/scratch/execute_smile_cleanup.js)) que analizó 50 grupos de duplicados de `SMILE FOR PETS`.
+   - El script priorizó conservar el registro con el estado más avanzado en el WMS (ej: `Pickeado` o `Despachado`) frente a `En procesamiento`.
+   - Eliminó las copias sobrantes respetando la integridad (eliminación en cascada de items) y formateó las órdenes conservadas con el prefijo correcto `SFP#` si no lo tenían, asegurando coherencia total de datos y eliminando los 50 grupos de duplicados.
+
+---
+
+## 88. Búsqueda por Lista de Pedidos (Multiselección) y Persistencia de Selección en WMS
+
+Hemos implementado dos importantes mejoras de usabilidad en el panel del WMS Administrador:
+
+1. **Botón de Multiselección y Ventana Modal**:
+   - Reemplazamos la caja de texto estática por un botón estilizado **"Multiselección"** en la barra de filtros del WMS.
+   - Al hacer clic, abre un modal emergente interactivo (SweetAlert) donde el operador puede pegar cómodamente los números de pedido o IDs de Supabase.
+   - El modal ofrece tres opciones claras: **Aplicar Filtro**, **Limpiar Filtro** y **Cancelar**.
+   - Al aplicar el filtro, el botón cambia dinámicamente de apariencia (borde y fondo en color primario de acento) y muestra el contador de pedidos filtrados (ej: `Multiselección (8)`).
+   - **Auto-selección Inteligente**: Al ingresar una lista de pedidos mediante el modal de multiselección, el sistema selecciona automáticamente y de forma inmediata todos los pedidos coincidentes en el WMS (marcándolos con el checkbox y sumándolos al conjunto de órdenes seleccionadas), de modo que el operador puede aplicar acciones masivas inmediatamente.
+
+2. **Persistencia de Selección tras Acciones Masivas**:
+   - Anteriormente, al ejecutar una acción masiva (como asignar operador, asignar datos de preparación o asignar periodo de facturación), la selección de pedidos se borraba (`wmsSelectedOrderIds.clear()`) de manera automática.
+   - Modificamos las funciones `bulkSetWmsOrderOperador`, `bulkSetWmsOrderPickingInfo` y `bulkSetWmsOrderBillingPeriod` para que **no limpien** el conjunto de pedidos seleccionados.
+   - Esto permite que los pedidos sigan seleccionados después de que la base de datos se actualice, facilitando al operador encadenar múltiples configuraciones masivas sucesivas sobre la misma selección de pedidos sin tener que volver a buscarlos y marcarlos.
+
+---
+
+## 89. Separación de Flujos de Registro e Incorporación en la Página de Acceso (Login)
+
+Modificamos la interfaz de la página de inicio de sesión (`index.html`) para diferenciar con total claridad el canal de nuevos clientes del canal de clientes existentes:
+
+1. **Doble Tarjeta Guiada (Dual-Path Layout)**:
+   - **¿Nuevo en Stocka? (Solicitar Alta)**: Mantenemos el recuadro con temática violeta (`--color-accent` / `@ri-rocket-2-line`) destinado a los comercios nuevos que desean iniciar su cotización e incorporación a Stocka, dirigiéndolos hacia `onboarding.html`.
+   - **¿Ya eres cliente de Stocka? (Crear Cuenta)**: Diseñamos una nueva tarjeta con bordes punteados de color esmeralda (`--color-success` / `@ri-user-add-line`) dedicada a los clientes con servicio contratado que únicamente necesitan su usuario para acceder al portal.
+
+2. **Remoción de Enlaces Confusos**:
+   - Eliminamos el enlace de texto plano simple del pie de página que decía *"¿No tienes una cuenta? Regístrate aquí"*. Esto evita que los clientes se confundan y realicen el flujo de onboarding comercial creyendo que es el registro regular del WMS.
+   - El nuevo botón *"Crear tu Cuenta de Usuario"* reutiliza el disparador de alternancia original (`#toggle-to-register`), asegurando compatibilidad nativa con la lógica existente de `js/auth.js`.
+
 
 
 
