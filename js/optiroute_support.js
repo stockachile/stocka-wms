@@ -393,6 +393,7 @@ export async function renderOptirouteSupport() {
               name: c.nombre_destinatario || 'Cliente sin nombre',
               phone: c.telefono_destino || '',
               address: c.direccion_destino || 'Sin Dirección',
+              complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
               status: c.status || 'Desconocido',
               status_code: w.status !== undefined ? w.status : 0,
@@ -556,6 +557,13 @@ export async function renderOptirouteSupport() {
         const supplier = dbInfo.supplier || detOrder?.supplier?.name || detOrder?.enterprise?.name || 'STOCKA';
         const comuna = dbInfo.comuna || detOrder?.address?.commune_string || detOrder?.address?.commune?.name || '';
         const tracking_url = dbInfo.tracking_url || detOrder?.tracking_url || '';
+        const complemento = [
+          detOrder?.address?.apartment_number,
+          detOrder?.address?.address_more_info,
+          detOrder?.address?.apartment,
+          w.address?.apartment_number,
+          w.address?.address_more_info
+        ].filter(Boolean).join(', ') || '';
 
         return {
           order: w.customer_order || w.order || 0,
@@ -563,6 +571,7 @@ export async function renderOptirouteSupport() {
           name: w.name || w.service_request?.subscription?.name || 'Cliente sin nombre',
           phone: phone,
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
+          complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
           status: getStatusName(w.status_name || w.status),
           status_code: w.status,
@@ -1007,12 +1016,15 @@ export async function renderOptirouteSupport() {
             addressStr += `, ${row[communeKey]}`;
           }
 
+          const compKey = keys.find(k => /depto|departamento|piso|oficina|complemento/i.test(k));
+
           return {
             order: idx + 1,
             reference: String(row[refKey] || `PL-${idx + 1}`).trim(),
             name: row[nameKey] || 'Cliente Sin Nombre',
             phone: row[phoneKey] ? String(row[phoneKey]).trim() : '',
             address: addressStr.trim() || 'Sin Dirección',
+            complemento: compKey && row[compKey] ? String(row[compKey]).trim() : '',
             address_status: 1, // consider simple success since we don't have API geocoding info here
             status: row[statusKey] || 'Cargado por Planilla',
             status_code: 1,
@@ -1057,6 +1069,9 @@ export async function renderOptirouteSupport() {
         from { transform: scale(0.95); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
       }
+      .swal2-container {
+        z-index: 999999 !important;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -1071,7 +1086,7 @@ export async function renderOptirouteSupport() {
     {
       id: 'problema_direccion',
       name: 'Problema con Dirección',
-      text: 'Hola {nombre}, te contactamos de {proveedor} por tu pedido {referencia}. Tenemos un problema con tu dirección: {direccion}, {comuna}. ¿Nos podrías confirmar las indicaciones o numeración de departamento/casa?'
+      text: 'Hola {nombre}, te contactamos de {proveedor} por tu pedido {referencia}. Tenemos un problema con tu dirección: {direccion} {complemento}, {comuna}. ¿Nos podrías confirmar las indicaciones?'
     },
     {
       id: 'entrega_exitosa',
@@ -1124,6 +1139,7 @@ export async function renderOptirouteSupport() {
         .replace(/{referencia}/g, item.reference || '')
         .replace(/{proveedor}/g, item.supplier || 'STOCKA')
         .replace(/{direccion}/g, item.address || '')
+        .replace(/{complemento}/g, item.complemento || '')
         .replace(/{comuna}/g, item.comuna || '')
         .replace(/{tracking_url}/g, item.tracking_url || '');
     }
@@ -1146,6 +1162,7 @@ export async function renderOptirouteSupport() {
               <span><strong>Destinatario:</strong> ${item.name}</span>
               <span><strong>Teléfono:</strong> ${item.phone}</span>
               <span><strong>Pedido:</strong> ${item.reference} (${item.supplier || 'STOCKA'})</span>
+              ${item.complemento ? `<span><strong>Complemento:</strong> ${item.complemento}</span>` : ''}
             </div>
 
             <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
@@ -1252,7 +1269,7 @@ export async function renderOptirouteSupport() {
               <div style="font-size: 0.7rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); line-height: 1.4; text-align: left;">
                 <strong>Campos dinámicos soportados:</strong><br>
                 <code>{nombre}</code>: Destinatario | <code>{referencia}</code>: Nro Pedido | <code>{proveedor}</code>: Comercio<br>
-                <code>{direccion}</code>: Dirección | <code>{comuna}</code>: Comuna | <code>{tracking_url}</code>: Link Seguimiento
+                <code>{direccion}</code>: Dirección | <code>{complemento}</code>: Depto/Ofic | <code>{comuna}</code>: Comuna | <code>{tracking_url}</code>: Link
               </div>
 
               <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
