@@ -253,11 +253,6 @@ export async function renderOptirouteSupport() {
 
         return `<option value="${rp.id}">${rp.name} (${dateStr}) - [${statusText}]</option>`;
       }).join('');
-
-      // Cargar automáticamente la primera ruta más reciente (desde caché o API)
-      if (results.length > 0) {
-        loadRouteData(results[0].id, false);
-      }
     } catch (err) {
       console.error('Error consultando planes de rutas:', err);
       selectRoutePlans.innerHTML = '<option value="">Error al cargar desde API (Usa carga manual)</option>';
@@ -617,14 +612,6 @@ export async function renderOptirouteSupport() {
   btnFetchRoute.addEventListener('click', () => {
     const routePlanId = selectRoutePlans.value;
     loadRouteData(routePlanId, false);
-  });
-
-  // Escuchar cambio en el selector de rutas
-  selectRoutePlans.addEventListener('change', () => {
-    const routePlanId = selectRoutePlans.value;
-    if (routePlanId) {
-      loadRouteData(routePlanId, false);
-    }
   });
 
   // Escuchar botón Forzar Actualización en Vivo
