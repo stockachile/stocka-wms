@@ -113,12 +113,67 @@ serve(async (req) => {
 // FUNCIONES DE MANEJO DE ORDENES
 // ==========================================
 
+async function resolveShopifyOrderNumber(comercio: string, shopifyOrderName: string): Promise<string> {
+  let orderNumber = (shopifyOrderName || "").toString().trim();
+  let siglaComercio = "";
+  let prefijoOrigen = "";
+  let agregarPrefijo = false;
+
+  if (comercio) {
+    try {
+      const { data: configData } = await supabase
+        .from("v_comercios_config")
+        .select("sigla")
+        .eq("nombre", comercio)
+        .maybeSingle();
+
+      if (configData && configData.sigla) {
+        siglaComercio = configData.sigla.trim().toUpperCase();
+      }
+
+      const { data: adicionalConfig } = await supabase
+        .from("comercios_adicional_config")
+        .select("pedido_trae_sigla, plat_siglas_config")
+        .eq("comercio", comercio)
+        .maybeSingle();
+
+      if (adicionalConfig) {
+        const platConfig = (adicionalConfig.plat_siglas_config || {})["Shopify"];
+        if (platConfig) {
+          agregarPrefijo = platConfig.agregar_prefijo !== false;
+          prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
+        }
+      }
+    } catch (err) {
+      console.error("⚠️ Error al consultar configuración de sigla para el comercio:", err);
+    }
+  }
+
+  // 1. Quitar prefijo de origen si coincide
+  if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
+    orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
+  }
+
+  // 2. Aplicar prefijo del WMS si corresponde
+  let finalOrderNumber = orderNumber;
+  if (agregarPrefijo && siglaComercio) {
+    if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
+      finalOrderNumber = `${siglaComercio}${orderNumber}`;
+    }
+  }
+
+  return finalOrderNumber;
+}
+
 async function handleOrderCreate(merchantId, comercio, order) {
+  const finalOrderNumber = await resolveShopifyOrderNumber(comercio, order.name);
+  console.log(`[Shopify Webhook] Resolviendo número de pedido para ${order.name}: ${finalOrderNumber}`);
+
   // Preparamos los datos del pedido principal
   const orderData = {
     merchant_id: merchantId,
     comercio: comercio,
-    external_order_number: order.name,
+    external_order_number: finalOrderNumber,
     external_platform: "Shopify",
     payment_status: order.financial_status,
     total_value: order.current_total_price,
@@ -141,11 +196,11 @@ async function handleOrderCreate(merchantId, comercio, order) {
     .from("orders")
     .select("id")
     .eq("merchant_id", merchantId)
-    .eq("external_order_number", order.name)
+    .eq("external_order_number", finalOrderNumber)
     .maybeSingle();
 
   if (existing) {
-    console.log(`El pedido ${order.name} ya existe en WMS, omitiendo inserción.`);
+    console.log(`El pedido ${finalOrderNumber} ya existe en WMS, omitiendo inserción.`);
     return;
   }
 
@@ -161,7 +216,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
     return;
   }
 
-  console.log(`Creado pedido cabecera ${order.name} con ID: ${newOrder.id}`);
+  console.log(`Creado pedido cabecera ${finalOrderNumber} con ID: ${newOrder.id}`);
 
   // Buscar la primera bodega asignada al comerciante para guardarla en los items
   const { data: whRelation } = await supabase
@@ -253,16 +308,19 @@ async function handleOrderCreate(merchantId, comercio, order) {
 }
 
 async function handleOrderUpdate(merchantId, comercio, order, topic) {
+  const finalOrderNumber = await resolveShopifyOrderNumber(comercio, order.name);
+  console.log(`[Shopify Webhook] Buscando pedido para actualizar con Ref: ${finalOrderNumber}`);
+
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
     .select("id, status, estado_wms")
     .eq("merchant_id", merchantId)
-    .eq("external_order_number", order.name)
+    .eq("external_order_number", finalOrderNumber)
     .maybeSingle();
 
   if (findErr || !existingOrder) {
-    console.log("Pedido no encontrado en WMS, ignorando actualización.");
+    console.log(`Pedido ${finalOrderNumber} no encontrado en WMS, ignorando actualización.`);
     return;
   }
 

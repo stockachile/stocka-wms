@@ -2,6 +2,7 @@ import supabase from './supabase.js';
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
+import { renderOptirouteSupport } from './optiroute_support.js';
 
 window.ALPHA_COBERTURA_36 = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
@@ -774,6 +775,9 @@ async function init() {
           } else if (view === 'consolidated_shipments') {
             viewTitle.textContent = 'Envíos Consolidados';
             renderConsolidatedShipments();
+          } else if (view === 'optiroute_support') {
+            viewTitle.textContent = 'Soporte Optiroute';
+            renderOptirouteSupport();
           } else if (view === 'reassign_admin') {
             viewTitle.textContent = 'Reubicar Stock';
             renderReassignStock();
@@ -846,7 +850,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -21182,6 +21186,7 @@ async function renderMerchantsAdmin() {
         razon_social: extra.razon_social || '',
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
+        enviame_id: extra.enviame_id || '',
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -21358,11 +21363,12 @@ async function renderMerchantsAdmin() {
           ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
           : `<span class="badge-status disabled">No</span>`;
 
-        const companyInfo = (c.razon_social || c.rut || c.email_colaborador)
+        const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id)
           ? `<div>
                <strong style="color: var(--color-text-main); font-size: 0.85rem;">${c.razon_social || 'N/A'}</strong>
                <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">${c.rut || 'Sin RUT'}</div>
                ${c.email_colaborador ? `<div style="font-size: 0.7rem; color: var(--color-primary); margin-top: 0.15rem; word-break: break-all;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.email_colaborador}</div>` : ''}
+               ${c.enviame_id ? `<div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-barcode-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>ID Enviame: ${c.enviame_id}</div>` : ''}
              </div>`
           : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
 
@@ -21501,6 +21507,7 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     razon_social TEXT,
     plat_siglas_config JSONB DEFAULT '{}'::jsonb,
     email_colaborador TEXT,
+    enviame_id TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -21510,6 +21517,7 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_siglas_config JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS enviame_id TEXT;
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -21710,6 +21718,12 @@ window.showMerchantCreateModal = function() {
           </div>
 
           <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">ID Enviame</label>
+            <input type="text" id="merchant-create-enviame-id" class="form-input" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador del comercio en Enviame (número o ID).</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
             <select id="merchant-create-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
               <option value="activo" selected>Activo (Servicio habilitado)</option>
@@ -21837,6 +21851,7 @@ window.showMerchantCreateModal = function() {
     const razonSocial = document.getElementById('merchant-create-razon-social').value.trim().toUpperCase();
     const rut = document.getElementById('merchant-create-rut').value.trim().toUpperCase();
     const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
+    const enviameId = document.getElementById('merchant-create-enviame-id').value.trim();
     const billing = document.getElementById('merchant-create-billing').value;
     const inventory = !isMigration && document.getElementById('merchant-create-inventory').checked;
 
@@ -21903,7 +21918,8 @@ window.showMerchantCreateModal = function() {
             rut: rut || null,
             razon_social: razonSocial || null,
             plat_siglas_config: platSiglasConfig,
-            email_colaborador: emailColaborador || null
+            email_colaborador: emailColaborador || null,
+            enviame_id: enviameId || null
           });
 
         if (configErr) throw configErr;
@@ -21978,6 +21994,12 @@ window.showMerchantEditModal = function(comercioName) {
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
             <input type="email" id="merchant-edit-email-colaborador" class="form-input" value="${commerce.email_colaborador || ''}" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Correo de la cuenta de colaborador utilizada en MercadoLibre, Falabella, Paris, Walmart, etc.</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">ID Enviame</label>
+            <input type="text" id="merchant-edit-enviame-id" class="form-input" value="${commerce.enviame_id || ''}" placeholder="Ej: 191053" style="width: 100%; box-sizing: border-box;">
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador del comercio en Enviame (número o ID).</p>
           </div>
 
           <div class="form-group" style="margin: 0;">
@@ -22359,7 +22381,8 @@ window.showMerchantEditModal = function(comercioName) {
             rut: newRut || null,
             razon_social: newRazonSocial || null,
             plat_siglas_config: newPlatSiglasConfig,
-            email_colaborador: newEmailColaborador || null
+            email_colaborador: newEmailColaborador || null,
+            enviame_id: newEnviameId || null
           });
 
         if (configErr) throw configErr;

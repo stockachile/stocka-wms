@@ -257,8 +257,8 @@ async function syncLightData() {
         telefono_destino: String(row[13] || '').trim() || null, // Tel. Destinatario
         email_cliente_destino: String(row[14] || '').trim() || null, // Email Destinatario
         direccion_destino: String(row[17] || '').trim() || null, // Dirección
-        complemento_destino: [row[29], row[30]].filter(x => x && String(x).trim()).map(x => String(x).trim()).join(', ') || null, // Observaciones
-        comuna_destino: String(row[18] || '').trim() || null, // Localidad
+        complemento_destino: [row[15], row[30]].filter(x => x && String(x).trim()).map(x => String(x).trim()).join(', ') || null, // Observaciones
+        comuna_destino: String(row[19] || '').trim() || null, // Localidad
         fecha_creacion_lightdata: isoCreatedDate,
         fecha_actualizacion_lightdata: isoUpdatedDate,
         fecha_venta: String(row[4] || '').trim() || null, // Fecha Venta
@@ -336,7 +336,17 @@ async function syncLightData() {
           .upsert(batch, { onConflict: 'id' });
 
         if (upsertError) {
-          console.error(`❌ Error al subir lote de envíos en lightdata_envios:`, upsertError.message);
+          console.warn(`⚠️ Advertencia: Error al subir lote en bloque, reintentando de a uno por uno:`, upsertError.message);
+          for (const item of batch) {
+            const { error: singleError } = await supabase
+              .from('lightdata_envios')
+              .upsert([item], { onConflict: 'id' });
+            if (singleError) {
+              console.error(`❌ Error al subir envío individual ID ${item.id} (${item.tracking}):`, singleError.message);
+            } else {
+              dbUpsertCount++;
+            }
+          }
         } else {
           dbUpsertCount += batch.length;
         }
