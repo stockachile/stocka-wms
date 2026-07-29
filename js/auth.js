@@ -303,4 +303,51 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }, 200);
   }
+
+  // WMS Client Feature Slide Control Logic
+  const slides = document.querySelectorAll('.auth-slide');
+  const dots = document.querySelectorAll('.auth-slider-dot');
+  let currentSlide = 0;
+  let slideInterval;
+
+  function showSlide(index) {
+    if (!slides.length || !dots.length) return;
+    slides.forEach(s => s.classList.remove('active'));
+    dots.forEach(d => d.classList.remove('active'));
+    
+    slides[index].classList.add('active');
+    dots[index].classList.add('active');
+    currentSlide = index;
+  }
+
+  function nextSlide() {
+    if (!slides.length) return;
+    let next = (currentSlide + 1) % slides.length;
+    showSlide(next);
+  }
+
+  function startSlideShow() {
+    if (!slides.length) return;
+    slideInterval = setInterval(nextSlide, 5000);
+  }
+
+  function stopSlideShow() {
+    clearInterval(slideInterval);
+  }
+
+  if (dots.length) {
+    dots.forEach((dot, index) => {
+      dot.addEventListener('click', () => {
+        stopSlideShow();
+        showSlide(index);
+        startSlideShow();
+      });
+    });
+  }
+
+  // Initialize Slideshow
+  if (slides.length) {
+    startSlideShow();
+  }
 });
+
