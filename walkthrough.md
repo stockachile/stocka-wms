@@ -1932,6 +1932,27 @@ Modificamos la interfaz de la página de inicio de sesión (`index.html`) para d
    - Eliminamos el enlace de texto plano simple del pie de página que decía *"¿No tienes una cuenta? Regístrate aquí"*. Esto evita que los clientes se confundan y realicen el flujo de onboarding comercial creyendo que es el registro regular del WMS.
    - El nuevo botón *"Crear tu Cuenta de Usuario"* reutiliza el disparador de alternancia original (`#toggle-to-register`), asegurando compatibilidad nativa con la lógica existente de `js/auth.js`.
 
+---
+
+## 90. Implementación de Slideshow (Carrusel) de Características WMS en la Página de Login
+
+Transformamos la columna derecha estática de la página de inicio de sesión (`index.html`) en un carrusel interactivo y premium que educa a los usuarios sobre las funcionalidades clave del WMS Stocka:
+
+1. **Diseño de Diapositivas e Iconografía Premium**:
+   - **Slide 1 (Inventario)**: *Control de Inventario en Tiempo Real* (icono `ri-archive-line`), ilustrando el control de stock, mapping de SKU y packs.
+   - **Slide 2 (Preparación)**: *Picking y Empaque Automatizado* (icono `ri-barcode-box-line`), destacando la sincronización multicanal y lectura de códigos de barras.
+   - **Slide 3 (Envíos)**: *Monitoreo y Despacho Multicourier* (icono `ri-truck-line`), mostrando Auto Track y emisión automática de etiquetas.
+   - **Slide 4 (Finanzas)**: *Finanzas y Reportes Transparentes* (icono `ri-file-chart-line`), describiendo el control de cobros y el flujo de apelaciones directas.
+
+2. **Detalles de Animación y Estilos (Style.css)**:
+   - Añadimos clases CSS (`.auth-slider-container`, `.auth-slide`, `.auth-slide-bg`, `.auth-slide-content`, `.auth-slider-dots` y `.auth-slider-dot`) al final de `css/style.css`.
+   - Implementamos efectos de transición de opacidad cruzada (`opacity`), zoom progresivo (`transform: scale`) en los fondos, y entrada flotante (`translateY`) en el contenido de texto.
+   - Cuenta con una capa de gradiente oscuro (`auth-slide-overlay`) que garantiza excelente legibilidad de los textos blancos sobre cualquier imagen de fondo.
+
+3. **Lógica de Control Asíncrona (Auth.js)**:
+   - Agregamos la lógica en `js/auth.js` que gestiona la rotación automática cada 5 segundos y responde de inmediato al clic en los puntos indicadores (dots) inferiores para la navegación manual.
+
+
 
 
 
