@@ -6321,6 +6321,195 @@ function setupCatalogListeners(commerce, mainPlatform) {
 // ==========================================
 // MÓDULO DE INVENTARIO PARA ADMINISTRACIÓN
 // ==========================================
+function initSearchableDropdown(containerId, options, defaultValue, onChange) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  container.innerHTML = '';
+  container.style.position = 'relative';
+  container.style.width = '100%';
+  container.style.maxWidth = '400px';
+
+  let selectedValue = defaultValue || '';
+  const selectedOption = options.find(o => o.value === selectedValue);
+  const initialLabel = selectedOption ? selectedOption.label : '-- Seleccione un Cliente --';
+
+  // 1. Trigger button
+  const trigger = document.createElement('div');
+  trigger.style.display = 'flex';
+  trigger.style.justifyContent = 'space-between';
+  trigger.style.alignItems = 'center';
+  trigger.style.cursor = 'pointer';
+  trigger.style.userSelect = 'none';
+  trigger.style.background = 'var(--color-bg)';
+  trigger.style.color = 'var(--color-text-main)';
+  trigger.style.border = '1px solid var(--color-border)';
+  trigger.style.borderRadius = 'var(--radius-md)';
+  trigger.style.padding = '0.6rem 1rem';
+  trigger.style.fontSize = '0.95rem';
+  trigger.style.transition = 'border-color 0.2s';
+  trigger.innerHTML = `
+    <span class="dropdown-selected-label" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px;">${initialLabel}</span>
+    <i class="ri-arrow-down-s-line" style="font-size: 1.2rem; color: var(--color-text-muted);"></i>
+  `;
+  container.appendChild(trigger);
+
+  // 2. Dropdown Menu
+  const menu = document.createElement('div');
+  menu.className = 'dropdown-menu-list';
+  menu.style.position = 'absolute';
+  menu.style.top = '100%';
+  menu.style.left = '0';
+  menu.style.right = '0';
+  menu.style.marginTop = '0.4rem';
+  menu.style.background = 'var(--color-surface)';
+  menu.style.border = '1px solid var(--color-border)';
+  menu.style.borderRadius = 'var(--radius-md)';
+  menu.style.boxShadow = 'var(--shadow-lg)';
+  menu.style.zIndex = '1600';
+  menu.style.display = 'none';
+  menu.style.flexDirection = 'column';
+  menu.style.overflow = 'hidden';
+  container.appendChild(menu);
+
+  // 3. Search box wrapper inside Menu
+  const searchWrapper = document.createElement('div');
+  searchWrapper.style.padding = '0.5rem';
+  searchWrapper.style.borderBottom = '1px solid var(--color-border)';
+  searchWrapper.style.background = 'rgba(0, 0, 0, 0.05)';
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = '🔍 Buscar comercio...';
+  searchInput.style.width = '100%';
+  searchInput.style.fontSize = '0.9rem';
+  searchInput.style.padding = '0.4rem 0.75rem';
+  searchInput.style.background = 'var(--color-bg)';
+  searchInput.style.color = 'var(--color-text-main)';
+  searchInput.style.border = '1px solid var(--color-border)';
+  searchInput.style.borderRadius = 'var(--radius-sm)';
+  searchInput.style.outline = 'none';
+  searchWrapper.appendChild(searchInput);
+  menu.appendChild(searchWrapper);
+
+  // 4. Options List container
+  const optionsList = document.createElement('div');
+  optionsList.style.maxHeight = '250px';
+  optionsList.style.overflowY = 'auto';
+  menu.appendChild(optionsList);
+
+  function renderOptions(filterText = '') {
+    optionsList.innerHTML = '';
+    const filtered = options.filter(o => 
+      o.label.toLowerCase().includes(filterText.toLowerCase())
+    );
+
+    // Option for resetting/unselecting
+    const placeholderItem = document.createElement('div');
+    placeholderItem.style.padding = '0.6rem 1rem';
+    placeholderItem.style.cursor = 'pointer';
+    placeholderItem.style.fontSize = '0.9rem';
+    placeholderItem.style.color = 'var(--color-text-muted)';
+    placeholderItem.style.transition = 'background 0.2s';
+    placeholderItem.textContent = '-- Seleccione un Cliente --';
+    placeholderItem.addEventListener('click', () => {
+      selectedValue = '';
+      trigger.querySelector('.dropdown-selected-label').textContent = '-- Seleccione un Cliente --';
+      menu.style.display = 'none';
+      onChange('');
+    });
+    placeholderItem.addEventListener('mouseenter', () => {
+      placeholderItem.style.background = 'var(--color-surface-hover)';
+    });
+    placeholderItem.addEventListener('mouseleave', () => {
+      placeholderItem.style.background = 'transparent';
+    });
+    optionsList.appendChild(placeholderItem);
+
+    if (filtered.length === 0) {
+      const noMatches = document.createElement('div');
+      noMatches.style.padding = '0.75rem 1rem';
+      noMatches.style.color = 'var(--color-text-muted)';
+      noMatches.style.fontStyle = 'italic';
+      noMatches.style.fontSize = '0.9rem';
+      noMatches.textContent = 'No se encontraron coincidencias';
+      optionsList.appendChild(noMatches);
+      return;
+    }
+
+    filtered.forEach(o => {
+      const item = document.createElement('div');
+      item.style.padding = '0.6rem 1rem';
+      item.style.cursor = 'pointer';
+      item.style.fontSize = '0.9rem';
+      item.style.color = 'var(--color-text-main)';
+      item.style.transition = 'background 0.2s';
+      if (o.value === selectedValue) {
+        item.style.background = 'var(--color-primary)';
+        item.style.color = '#ffffff'; // White text when selected
+        item.style.fontWeight = '600';
+      }
+
+      item.addEventListener('click', () => {
+        selectedValue = o.value;
+        trigger.querySelector('.dropdown-selected-label').textContent = o.label;
+        menu.style.display = 'none';
+        onChange(o.value);
+      });
+
+      item.addEventListener('mouseenter', () => {
+        if (o.value !== selectedValue) {
+          item.style.background = 'var(--color-surface-hover)';
+        }
+      });
+      item.addEventListener('mouseleave', () => {
+        if (o.value !== selectedValue) {
+          item.style.background = 'transparent';
+        }
+      });
+
+      item.textContent = o.label;
+      optionsList.appendChild(item);
+    });
+  }
+
+  // Toggle Dropdown
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = menu.style.display === 'flex';
+    document.querySelectorAll('.dropdown-menu-list').forEach(m => m.style.display = 'none');
+
+    if (!isVisible) {
+      menu.style.display = 'flex';
+      searchInput.value = '';
+      renderOptions();
+      setTimeout(() => searchInput.focus(), 50);
+    } else {
+      menu.style.display = 'none';
+    }
+  });
+
+  // Filter input
+  searchInput.addEventListener('input', (e) => {
+    renderOptions(e.target.value);
+  });
+
+  // Close when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!container.contains(e.target)) {
+      menu.style.display = 'none';
+    }
+  });
+
+  // Hover border effect
+  trigger.addEventListener('mouseenter', () => {
+    trigger.style.borderColor = 'var(--color-primary)';
+  });
+  trigger.addEventListener('mouseleave', () => {
+    trigger.style.borderColor = 'var(--color-border)';
+  });
+}
+
 async function renderAdminInventory() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
@@ -6328,12 +6517,7 @@ async function renderAdminInventory() {
       <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
         <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio) para Inventario
       </label>
-      <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 400px;">
-        <input type="text" id="inv-admin-client-search" class="form-input" placeholder="🔍 Buscar comercio..." style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-        <select id="inv-admin-client-select" class="form-input" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-          <option value="">-- Seleccione un Cliente --</option>
-        </select>
-      </div>
+      <div id="inv-admin-client-dropdown-container"></div>
     </div>
     <div id="inv-admin-workspace" style="display: none;">
     </div>
@@ -6358,47 +6542,29 @@ async function renderAdminInventory() {
       });
     }
 
-    const clientSelect = document.getElementById('inv-admin-client-select');
-    const searchInput = document.getElementById('inv-admin-client-search');
+    const options = uniqueClients.map(c => ({ value: c.nombre, label: `${c.nombre} (${c.sigla})` }));
 
-    function populateSelect(filterText = '') {
-      const filtered = uniqueClients.filter(c => 
-        c.nombre.toLowerCase().includes(filterText.toLowerCase()) || 
-        c.sigla.toLowerCase().includes(filterText.toLowerCase())
-      );
-      clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-        filtered.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
-
-      if (window.activeAdminInventoryCommerce && filtered.some(c => c.nombre === window.activeAdminInventoryCommerce)) {
-        clientSelect.value = window.activeAdminInventoryCommerce;
+    initSearchableDropdown(
+      'inv-admin-client-dropdown-container',
+      options,
+      window.activeAdminInventoryCommerce,
+      (selectedComercio) => {
+        const workspace = document.getElementById('inv-admin-workspace');
+        if (selectedComercio) {
+          workspace.style.display = 'block';
+          window.activeAdminInventoryCommerce = selectedComercio;
+          renderAdminInventoryWorkspace(selectedComercio);
+        } else {
+          workspace.style.display = 'none';
+          window.activeAdminInventoryCommerce = '';
+        }
       }
-    }
-
-    populateSelect();
-
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        populateSelect(e.target.value);
-      });
-    }
+    );
 
     if (window.activeAdminInventoryCommerce) {
       document.getElementById('inv-admin-workspace').style.display = 'block';
       renderAdminInventoryWorkspace(window.activeAdminInventoryCommerce);
     }
-
-    clientSelect.addEventListener('change', (e) => {
-      const selectedComercio = e.target.value;
-      const workspace = document.getElementById('inv-admin-workspace');
-      if (selectedComercio) {
-        workspace.style.display = 'block';
-        window.activeAdminInventoryCommerce = selectedComercio;
-        renderAdminInventoryWorkspace(selectedComercio);
-      } else {
-        workspace.style.display = 'none';
-        window.activeAdminInventoryCommerce = '';
-      }
-    });
 
   } catch (err) {
     console.error('Error loading admin inventory client select:', err);
@@ -7527,12 +7693,7 @@ async function renderAdminCatalog() {
       <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
         <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio)
       </label>
-      <div style="display: flex; flex-direction: column; gap: 0.5rem; max-width: 400px;">
-        <input type="text" id="eq-admin-client-search" class="form-input" placeholder="🔍 Buscar comercio..." style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-        <select id="eq-admin-client-select" class="form-input" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
-          <option value="">-- Seleccione un Cliente --</option>
-        </select>
-      </div>
+      <div id="eq-admin-client-dropdown-container"></div>
       <div id="catalog-admin-stats-container" style="margin-top: 1.5rem; display: none;"></div>
     </div>
     <div id="eq-admin-workspace" style="display: none;">
@@ -7558,52 +7719,34 @@ async function renderAdminCatalog() {
       });
     }
 
-    const clientSelect = document.getElementById('eq-admin-client-select');
-    const searchInput = document.getElementById('eq-admin-client-search');
+    const options = uniqueClients.map(c => ({ value: c.nombre, label: `${c.nombre} (${c.sigla})` }));
 
-    function populateSelect(filterText = '') {
-      const filtered = uniqueClients.filter(c => 
-        c.nombre.toLowerCase().includes(filterText.toLowerCase()) || 
-        c.sigla.toLowerCase().includes(filterText.toLowerCase())
-      );
-      clientSelect.innerHTML = '<option value="">-- Seleccione un Cliente --</option>' + 
-        filtered.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
-
-      if (window.activeAdminComercio && filtered.some(c => c.nombre === window.activeAdminComercio)) {
-        clientSelect.value = window.activeAdminComercio;
+    initSearchableDropdown(
+      'eq-admin-client-dropdown-container',
+      options,
+      window.activeAdminComercio,
+      (selectedComercio) => {
+        const workspace = document.getElementById('eq-admin-workspace');
+        const statsContainer = document.getElementById('catalog-admin-stats-container');
+        if (selectedComercio) {
+          workspace.style.display = 'block';
+          window.activeAdminComercio = selectedComercio;
+          renderAdminCatalogWorkspace(selectedComercio);
+        } else {
+          workspace.style.display = 'none';
+          window.activeAdminComercio = '';
+          if (statsContainer) {
+            statsContainer.style.display = 'none';
+            statsContainer.innerHTML = '';
+          }
+        }
       }
-    }
-
-    populateSelect();
-
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        populateSelect(e.target.value);
-      });
-    }
+    );
 
     if (window.activeAdminComercio) {
       document.getElementById('eq-admin-workspace').style.display = 'block';
       renderAdminCatalogWorkspace(window.activeAdminComercio);
     }
-
-    clientSelect.addEventListener('change', (e) => {
-      const selectedComercio = e.target.value;
-      const workspace = document.getElementById('eq-admin-workspace');
-      const statsContainer = document.getElementById('catalog-admin-stats-container');
-      if (selectedComercio) {
-        workspace.style.display = 'block';
-        window.activeAdminComercio = selectedComercio;
-        renderAdminCatalogWorkspace(selectedComercio);
-      } else {
-        workspace.style.display = 'none';
-        window.activeAdminComercio = '';
-        if (statsContainer) {
-          statsContainer.style.display = 'none';
-          statsContainer.innerHTML = '';
-        }
-      }
-    });
 
     initProductFormListeners();
 
