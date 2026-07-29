@@ -15124,11 +15124,20 @@ async function updatePendingReportsBadge() {
 
 async function updatePendingObservationsBadge() {
   try {
-    const { count, error } = await supabase
+    const { data, error } = await supabase
       .from('billing_records')
-      .select('*', { count: 'exact', head: true })
-      .eq('observation_status', 'pendiente');
+      .select('observation_status, observation_status_enviame')
+      .or('observation_status.eq.pendiente,observation_status_enviame.eq.pendiente');
     if (error) throw error;
+    
+    let count = 0;
+    if (data) {
+      data.forEach(r => {
+        if (r.observation_status === 'pendiente') count++;
+        if (r.observation_status_enviame === 'pendiente') count++;
+      });
+    }
+
     const badge = document.getElementById('pending-observations-badge');
     if (badge) {
       if (count > 0) {
@@ -15158,16 +15167,55 @@ window.loadBillingObservationsTab = async function() {
     const { data: records, error } = await supabase
       .from('billing_records')
       .select('*, billing_periods(name)')
-      .order('observation_updated_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // Filtrar solo los registros que tienen alguna observación o estado de observación activo
-    window.cachedBillingObservations = (records || []).filter(r => {
-      const hasObs = r.client_observation && r.client_observation.trim() !== '';
-      const hasStatus = r.observation_status && r.observation_status !== 'sin_observacion';
-      return hasObs || hasStatus;
+    const observationItems = [];
+    (records || []).forEach(r => {
+      // Check Fulfillment
+      const hasFulfillmentObs = r.client_observation && r.client_observation.trim() !== '';
+      const hasFulfillmentStatus = r.observation_status && r.observation_status !== 'sin_observacion';
+      if (hasFulfillmentObs || hasFulfillmentStatus) {
+        observationItems.push({
+          id: r.id,
+          comercio: r.comercio,
+          period_id: r.period_id,
+          billing_periods: r.billing_periods,
+          service_type: 'fulfillment',
+          client_observation: r.client_observation,
+          observation_status: r.observation_status,
+          admin_response: r.admin_response,
+          observation_updated_at: r.observation_updated_at
+        });
+      }
+
+      // Check Envíame
+      const hasEnviameObs = r.client_observation_enviame && r.client_observation_enviame.trim() !== '';
+      const hasEnviameStatus = r.observation_status_enviame && r.observation_status_enviame !== 'sin_observacion';
+      if (hasEnviameObs || hasEnviameStatus) {
+        observationItems.push({
+          id: r.id,
+          comercio: r.comercio,
+          period_id: r.period_id,
+          billing_periods: r.billing_periods,
+          service_type: 'enviame',
+          client_observation: r.client_observation_enviame,
+          observation_status: r.observation_status_enviame,
+          admin_response: r.admin_response_enviame,
+          observation_updated_at: r.observation_updated_at_enviame
+        });
+      }
     });
+
+    // Sort by observation_updated_at descending
+    observationItems.sort((a, b) => {
+      const dateA = a.observation_updated_at ? new Date(a.observation_updated_at) : new Date(0);
+      const dateB = b.observation_updated_at ? new Date(b.observation_updated_at) : new Date(0);
+      return dateB - dateA;
+    });
+
+    window.cachedBillingObservations = observationItems;
 
     window.filterObservationsGrid();
     
@@ -15222,11 +15270,12 @@ window.filterObservationsGrid = function() {
       <thead>
         <tr style="background-color: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; text-align: left;">
           <th style="padding: 0.75rem 1rem;">Comercio</th>
+          <th style="padding: 0.75rem 1rem;">Servicio</th>
           <th style="padding: 0.75rem 1rem;">Periodo</th>
-          <th style="padding: 0.75rem 1rem; width: 35%;">Observación Cliente</th>
+          <th style="padding: 0.75rem 1rem; width: 30%;">Observación Cliente</th>
           <th style="padding: 0.75rem 1rem;">Última Actualización</th>
           <th style="padding: 0.75rem 1rem;">Estado Apelación</th>
-          <th style="padding: 0.75rem 1rem; width: 25%;">Respuesta Administración</th>
+          <th style="padding: 0.75rem 1rem; width: 20%;">Respuesta Administración</th>
           <th style="padding: 0.75rem 1rem; text-align: center;">Acciones</th>
         </tr>
       </thead>
@@ -15250,6 +15299,11 @@ window.filterObservationsGrid = function() {
       });
     }
 
+    // Badge de servicio
+    const serviceBadge = r.service_type === 'enviame' 
+      ? `<span class="client-badge" style="background: rgba(139, 92, 246, 0.1); color: #7c3aed; border: 1px solid rgba(139, 92, 246, 0.2); font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">Envíame</span>`
+      : `<span class="client-badge" style="background: rgba(59, 130, 246, 0.1); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.2); font-weight: 600; font-size: 0.75rem; text-transform: uppercase;">Fulfillment</span>`;
+
     // Badge de estado
     let badgeHtml = '';
     const status = r.observation_status || 'sin_observacion';
@@ -15264,13 +15318,14 @@ window.filterObservationsGrid = function() {
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: top;">
         <td style="padding: 1.25rem 1rem; font-weight: 600; color: var(--color-text-main);">${r.comercio}</td>
+        <td style="padding: 1.25rem 1rem; vertical-align: middle;">${serviceBadge}</td>
         <td style="padding: 1.25rem 1rem; color: var(--color-text-muted); font-size: 0.85rem;">${periodName}</td>
         <td style="padding: 1.25rem 1rem; font-size: 0.85rem; line-height: 1.4; color: var(--color-text-main); white-space: pre-wrap;">${clientObs}</td>
         <td style="padding: 1.25rem 1rem; font-size: 0.8rem; color: var(--color-text-muted);">${dateStr}</td>
         <td style="padding: 1.25rem 1rem; vertical-align: middle;">${badgeHtml}</td>
         <td style="padding: 1.25rem 1rem; font-size: 0.85rem; line-height: 1.4; color: var(--color-text-main); white-space: pre-wrap;">${adminResp}</td>
         <td style="padding: 1.25rem 1rem; text-align: center; vertical-align: middle;">
-          <button class="btn btn-primary btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${r.period_id}')" title="Resolver / Responder" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem; height: 30px;">
+          <button class="btn btn-primary btn-sm" onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${r.period_id}', '${r.service_type}')" title="Resolver / Responder" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.25rem; height: 30px;">
             <i class="ri-question-answer-line"></i> Responder
           </button>
         </td>
@@ -15558,7 +15613,7 @@ async function loadBillingRecords(periodId, bodyElement) {
                 <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
               </button>
               <button class="btn btn-outline btn-sm" 
-                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
+                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'fulfillment')" 
                       style="padding: 0.15rem 0.35rem; ${ r.observation_status === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
                       title="${r.observation_status === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
                 <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
@@ -15645,9 +15700,9 @@ async function loadBillingRecords(periodId, bodyElement) {
                 <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
               </button>
               <button class="btn btn-outline btn-sm" 
-                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}')" 
-                      style="padding: 0.15rem 0.35rem; ${ r.observation_status === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
-                      title="${r.observation_status === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
+                      onclick="openAdminBillingObservationModal('${r.id}', '${r.comercio.replace(/'/g, "\\'")}', '${periodId}', 'enviame')" 
+                      style="padding: 0.15rem 0.35rem; ${ r.observation_status_enviame === 'pendiente' ? 'border-color: #d97706; color: #d97706; background: rgba(217, 119, 6, 0.05); font-weight: bold;' : (r.observation_status_enviame === 'respondida' ? 'border-color: var(--color-success); color: var(--color-success); background: rgba(16, 185, 129, 0.05);' : 'border-color: var(--color-border); color: var(--color-text-muted);') }" 
+                      title="${r.observation_status_enviame === 'pendiente' ? 'Apelación Pendiente de Respuesta' : (r.observation_status_enviame === 'respondida' ? 'Apelación Respondida' : 'Ver/Responder Apelaciones')}">
                 <i class="ri-question-answer-line" style="font-size: 0.9rem;"></i>
               </button>
               <button class="btn btn-outline btn-sm" onclick="deleteBillingRecord('${r.id}', '${r.comercio}', '${periodId}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.15rem 0.35rem;" title="Eliminar Fila">
@@ -22722,7 +22777,7 @@ window.showMerchantEditModal = function(comercioName) {
   });
 };
 
-window.openAdminBillingObservationModal = async function(recordId, commerceName, periodId) {
+window.openAdminBillingObservationModal = async function(recordId, commerceName, periodId, serviceType = 'fulfillment') {
   let modal = document.getElementById('modal-admin-observation');
   if (modal) modal.remove();
 
@@ -22736,10 +22791,15 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
     if (error) throw error;
     if (!record) throw new Error("Registro no encontrado");
 
+    const isEnviame = serviceType === 'enviame';
+    const status = isEnviame ? (record.observation_status_enviame || 'sin_observacion') : (record.observation_status || 'sin_observacion');
+    const clientObs = isEnviame ? (record.client_observation_enviame || '') : (record.client_observation || '');
+    const adminResp = isEnviame ? (record.admin_response_enviame || '') : (record.admin_response || '');
+
     const statusOptions = `
-      <option value="sin_observacion" ${record.observation_status === 'sin_observacion' ? 'selected' : ''}>Sin Observación</option>
-      <option value="pendiente" ${record.observation_status === 'pendiente' ? 'selected' : ''}>Pendiente de Respuesta</option>
-      <option value="respondida" ${record.observation_status === 'respondida' ? 'selected' : ''}>Respondida</option>
+      <option value="sin_observacion" ${status === 'sin_observacion' ? 'selected' : ''}>Sin Observación</option>
+      <option value="pendiente" ${status === 'pendiente' ? 'selected' : ''}>Pendiente de Respuesta</option>
+      <option value="respondida" ${status === 'respondida' ? 'selected' : ''}>Respondida</option>
     `;
 
     modal = document.createElement('div');
@@ -22750,7 +22810,7 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
         <div class="modal-header" style="background: var(--color-surface); padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-question-answer-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
-            Apelación de Cobro - ${commerceName}
+            Apelación de Cobro (${isEnviame ? 'Envíame' : 'Fulfillment'}) - ${commerceName}
           </h3>
           <button class="modal-close" onclick="document.getElementById('modal-admin-observation').remove()" style="background: transparent; border: none; font-size: 1.25rem; color: var(--color-text-muted); cursor: pointer;">&times;</button>
         </div>
@@ -22762,12 +22822,12 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
               <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
                 <i class="ri-chat-voice-line"></i> Observación del Cliente:
               </label>
-              <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${record.client_observation || '<em style="color: var(--color-text-muted);">Sin observación del cliente ingresada.</em>'}</div>
+              <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${clientObs || '<em style="color: var(--color-text-muted);">Sin observación del cliente ingresada.</em>'}</div>
             </div>
 
             <div class="form-group" style="margin-bottom: 1.25rem;">
               <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Su Respuesta / Resolución:</label>
-              <textarea id="obs-admin-response" class="form-input" rows="4" placeholder="Indique la resolución del caso. Escriba aquí las indicaciones de ajuste si corresponde..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;">${record.admin_response || ''}</textarea>
+              <textarea id="obs-admin-response" class="form-input" rows="4" placeholder="Indique la resolución del caso. Escriba aquí las indicaciones de ajuste si corresponde..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;">${adminResp}</textarea>
             </div>
 
             <div class="form-group" style="margin-bottom: 1rem;">
@@ -22804,13 +22864,19 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
         const nextStatus = document.getElementById('obs-admin-status').value;
 
         try {
+          const updateData = isEnviame ? {
+            admin_response_enviame: adminResponseText,
+            observation_status_enviame: nextStatus,
+            observation_updated_at_enviame: new Date().toISOString()
+          } : {
+            admin_response: adminResponseText,
+            observation_status: nextStatus,
+            observation_updated_at: new Date().toISOString()
+          };
+
           const { error: updateErr } = await supabase
             .from('billing_records')
-            .update({
-              admin_response: adminResponseText,
-              observation_status: nextStatus,
-              observation_updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('id', recordId);
 
           if (updateErr) throw updateErr;
@@ -22819,7 +22885,7 @@ window.openAdminBillingObservationModal = async function(recordId, commerceName,
           showSavingBadge(true);
           setTimeout(() => showSavingBadge(false), 800);
 
-           const body = document.getElementById(`records-body-${periodId}`);
+          const body = document.getElementById(`records-body-${periodId}`);
           if (body) {
             await loadBillingRecords(periodId, body);
           }

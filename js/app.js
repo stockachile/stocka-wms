@@ -15685,7 +15685,7 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle; text-align: center;">
             <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
               ${actionBtn}
-              ${window.getClientObservationBtnHtml(r)}
+              ${window.getClientObservationBtnHtml(r, 'fulfillment')}
             </div>
           </td>
         </tr>
@@ -15742,7 +15742,7 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle; text-align: center;">
             <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
               ${actionBtn}
-              ${window.getClientObservationBtnHtml(r)}
+              ${window.getClientObservationBtnHtml(r, 'enviame')}
             </div>
           </td>
         </tr>
@@ -20027,18 +20027,20 @@ window.loadClientExtraCharges = async function(periodId) {
   }
 };
 
-window.getClientObservationBtnHtml = function(r) {
+window.getClientObservationBtnHtml = function(r, serviceType = 'fulfillment') {
   let colorStyle = 'color: var(--color-text-muted); border-color: var(--color-border);';
   let title = 'Solicitar Revisión / Apelación';
   let text = 'Solicitar Revisión';
   let icon = 'ri-chat-new-line';
 
-  if (r.observation_status === 'pendiente') {
+  const status = serviceType === 'enviame' ? (r.observation_status_enviame || 'sin_observacion') : (r.observation_status || 'sin_observacion');
+
+  if (status === 'pendiente') {
     colorStyle = 'color: #d97706; border-color: #d97706; background: rgba(217, 119, 6, 0.05);';
     title = 'Revisión Pendiente por Administración';
     text = 'Revisión Pendiente';
     icon = 'ri-discuss-line';
-  } else if (r.observation_status === 'respondida') {
+  } else if (status === 'respondida') {
     colorStyle = 'color: var(--color-success); border-color: var(--color-success); background: rgba(16, 185, 129, 0.05);';
     title = 'Revisión Respondida por Administración';
     text = 'Revisión Respondida';
@@ -20046,13 +20048,13 @@ window.getClientObservationBtnHtml = function(r) {
   }
 
   return `
-    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); window.openClientBillingObservationModal('${r.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; width: 100%; border-radius: 4px; ${colorStyle} height: auto; justify-content: center;" title="${title}">
+    <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); window.openClientBillingObservationModal('${r.id}', '${serviceType}')" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; width: 100%; border-radius: 4px; ${colorStyle} height: auto; justify-content: center;" title="${title}">
       <i class="${icon}"></i> ${text}
     </button>
   `;
 };
 
-window.openClientBillingObservationModal = async function(recordId) {
+window.openClientBillingObservationModal = async function(recordId, serviceType = 'fulfillment') {
   let modal = document.getElementById('modal-client-observation');
   if (modal) modal.remove();
 
@@ -20066,8 +20068,14 @@ window.openClientBillingObservationModal = async function(recordId) {
     if (error) throw error;
     if (!record) throw new Error("Registro no encontrado");
 
-    const isPending = record.observation_status === 'pendiente';
-    const hasResponse = record.admin_response && record.admin_response.trim() !== '';
+    // Determinar variables según el tipo de servicio
+    const isEnviame = serviceType === 'enviame';
+    const status = isEnviame ? (record.observation_status_enviame || 'sin_observacion') : (record.observation_status || 'sin_observacion');
+    const clientObs = isEnviame ? (record.client_observation_enviame || '') : (record.client_observation || '');
+    const adminResp = isEnviame ? (record.admin_response_enviame || '') : (record.admin_response || '');
+
+    const isPending = status === 'pendiente';
+    const hasResponse = adminResp && adminResp.trim() !== '';
 
     modal = document.createElement('div');
     modal.id = 'modal-client-observation';
@@ -20077,7 +20085,7 @@ window.openClientBillingObservationModal = async function(recordId) {
         <div class="modal-header" style="background: var(--color-surface); padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
             <i class="ri-chat-voice-line" style="color: var(--color-primary); font-size: 1.25rem;"></i>
-            Revisión de Cobros - ${record.comercio}
+            Revisión de Cobros (${isEnviame ? 'Envíame' : 'Fulfillment'}) - ${record.comercio}
           </h3>
           <button class="modal-close" onclick="document.getElementById('modal-client-observation').remove()" style="background: transparent; border: none; font-size: 1.25rem; color: var(--color-text-muted); cursor: pointer;">&times;</button>
         </div>
@@ -20093,8 +20101,8 @@ window.openClientBillingObservationModal = async function(recordId) {
             </div>
 
             <div class="form-group" style="margin-bottom: 1.25rem;">
-              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Detalle de su apelación u observación:</label>
-              <textarea id="obs-client-text" class="form-input" rows="4" placeholder="Indique claramente el cobro a revisar (Fulfillment o Envíame), el motivo de su discrepancia y cualquier detalle de respaldo..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;" ${isPending ? 'disabled' : ''}>${record.client_observation || ''}</textarea>
+              <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-text-main); font-size: 0.85rem;">Detalle de su apelación u observación para ${isEnviame ? 'Envíame' : 'Fulfillment'}:</label>
+              <textarea id="obs-client-text" class="form-input" rows="4" placeholder="Indique claramente el cobro a revisar, el motivo de su discrepancia y cualquier detalle de respaldo..." required style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.5rem; line-height: 1.4; border-radius: 6px;" ${isPending ? 'disabled' : ''}>${clientObs}</textarea>
             </div>
 
             ${hasResponse ? `
@@ -20102,7 +20110,7 @@ window.openClientBillingObservationModal = async function(recordId) {
                 <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; color: var(--color-success); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
                   <i class="ri-feedback-line"></i> Respuesta de Administración:
                 </label>
-                <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap;">${record.admin_response}</div>
+                <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; white-space: pre-wrap;">${adminResp}</div>
               </div>
             ` : ''}
 
@@ -20140,13 +20148,19 @@ window.openClientBillingObservationModal = async function(recordId) {
         const clientText = document.getElementById('obs-client-text').value.trim();
 
         try {
+          const updateData = isEnviame ? {
+            client_observation_enviame: clientText,
+            observation_status_enviame: 'pendiente',
+            observation_updated_at_enviame: new Date().toISOString()
+          } : {
+            client_observation: clientText,
+            observation_status: 'pendiente',
+            observation_updated_at: new Date().toISOString()
+          };
+
           const { error: updateErr } = await supabase
             .from('billing_records')
-            .update({
-              client_observation: clientText,
-              observation_status: 'pendiente',
-              observation_updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('id', recordId);
 
           if (updateErr) throw updateErr;

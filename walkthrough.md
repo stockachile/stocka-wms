@@ -1993,3 +1993,23 @@ Extendimos la solución de prevención de duplicados de forma proactiva y realiz
      * **Sincronizadores**: [sync_falabella.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_falabella.js), [sync_paris.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_paris.js), [sync_jumpseller.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_jumpseller.js) y [sync_tiendanube.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js).
      * **Webhooks**: [supabase/functions/shopify-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-webhook/index.ts), [supabase/functions/jumpseller-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/jumpseller-webhook/index.ts) y [supabase/functions/tiendanube-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/tiendanube-webhook/index.ts).
 
+---
+
+## 93. Desacoplamiento y Separación Completa de Observaciones/Apelaciones para Envíame y Fulfillment
+
+Hemos implementado un desacoplamiento completo para las observaciones y apelaciones de cobro de facturación de los clientes, permitiendo manejar de forma independiente las disputas de Fulfillment y Envíame:
+
+1. **Estructura de Base de Datos e Integración de RLS**:
+   - Agregamos las nuevas columnas a la tabla `billing_records`: `client_observation_enviame`, `admin_response_enviame`, `observation_status_enviame`, y `observation_updated_at_enviame`.
+   - Modificamos la política RLS `Clientes pueden actualizar observaciones de sus comercios` en `public.billing_records` para permitir que los clientes actualicen los campos de observaciones y estados tanto de Fulfillment como de Envíame de manera segura.
+
+2. **Panel del Cliente e Ingreso de Comentarios (`js/app.js`)**:
+   - Modificamos el modal de observaciones (`openClientBillingObservationModal`) y su formulario para aceptar un parámetro de servicio (`serviceType` = `'fulfillment'` o `'enviame'`).
+   - El cliente ahora puede ingresar y visualizar comentarios por separado. Los iconos en la tabla de facturación cambian de color dinámicamente de acuerdo al estado específico de la apelación del servicio correspondiente (`pendiente` = naranjo, `respondida` = verde, `sin_observacion` = gris).
+
+3. **Pestaña Administrativa Centralizada y Contadores (`js/admin.js`)**:
+   - Modificamos la grilla general de apelaciones en el módulo de facturación para listar de forma independiente las apelaciones de Fulfillment y Envíame, añadiendo un badge visual distintivo (Fulfillment en azul, Envíame en morado).
+   - Actualizamos el contador dinámico del badge reactivo en el botón de la pestaña para sumar de forma combinada los registros con estado `pendiente` de ambos servicios.
+   - Adaptamos el modal de resolución administrativa (`openAdminBillingObservationModal`) para guardar las respuestas de manera independiente en los campos respectivos según el servicio que se esté respondiendo.
+
+

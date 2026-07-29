@@ -99,6 +99,11 @@ ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS admin_response TEXT;
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_status TEXT CHECK (observation_status IN ('sin_observacion', 'pendiente', 'respondida')) DEFAULT 'sin_observacion';
 ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_updated_at TIMESTAMPTZ DEFAULT now();
 
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS client_observation_enviame TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS admin_response_enviame TEXT;
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_status_enviame TEXT CHECK (observation_status_enviame IN ('sin_observacion', 'pendiente', 'respondida')) DEFAULT 'sin_observacion';
+ALTER TABLE public.billing_records ADD COLUMN IF NOT EXISTS observation_updated_at_enviame TIMESTAMPTZ;
+
 
 -- 5. Crear la Tabla de Reportes de Pagos (Enviados por Clientes)
 CREATE TABLE IF NOT EXISTS public.payment_reports (
