@@ -6215,7 +6215,7 @@ async function renderIntegrations() {
       : (!hasShopify 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>' +
-            '<button type="button" class="btn btn-primary" id="btn-sync-shopify" style="background-color: #10b981; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.4rem;"><i class="ri-refresh-line"></i> Sincronizar Pedidos y Productos</button>');
+            '<button type="button" class="btn btn-shopify-sync-cta" id="btn-sync-shopify"><i class="ri-refresh-line"></i><span>Sincronizar Pedidos y Productos</span><span style="background: rgba(255, 255, 255, 0.25); font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 99px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.5px;">Recomendado</span></button>');
 
     const parisButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'

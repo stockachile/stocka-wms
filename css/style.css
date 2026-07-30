@@ -2000,3 +2000,54 @@ html[data-theme="dark"] .stat-card-modern.teal .icon-wrapper { background: rgba(
   border-radius: 99px;
 }
 
+/* Premium CTA Button for Shopify Sync */
+.btn-shopify-sync-cta {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  padding: 0.85rem 1.75rem !important;
+  font-size: 0.95rem !important;
+  font-weight: 700 !important;
+  border-radius: 0.5rem !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.6rem !important;
+  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+  position: relative !important;
+  overflow: hidden !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  animation: ctaPulseGlow 2.5s infinite !important;
+}
+
+.btn-shopify-sync-cta:hover {
+  transform: translateY(-2px) scale(1.02) !important;
+  box-shadow: 0 8px 25px rgba(16, 185, 129, 0.55), 0 0 20px rgba(16, 185, 129, 0.3) !important;
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+}
+
+.btn-shopify-sync-cta:active {
+  transform: translateY(0) scale(0.98) !important;
+}
+
+.btn-shopify-sync-cta i {
+  font-size: 1.15rem;
+  transition: transform 0.4s ease;
+}
+
+.btn-shopify-sync-cta:hover i {
+  transform: rotate(180deg);
+}
+
+@keyframes ctaPulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6), 0 4px 15px rgba(16, 185, 129, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(16, 185, 129, 0), 0 6px 22px rgba(16, 185, 129, 0.6);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0), 0 4px 15px rgba(16, 185, 129, 0.4);
+  }
+}
+
