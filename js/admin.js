@@ -5532,228 +5532,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
   const btnTriggerImportStock = document.getElementById('btn-trigger-import-stock');
   if (btnTriggerImportStock) {
     btnTriggerImportStock.addEventListener('click', () => {
-      const activeFileInput = document.getElementById('catalog-import-stock-excel');
-      if (activeFileInput) activeFileInput.click();
-    });
-  }
-
-  // Descargar plantilla de ejemplo para importación de stock inicial
-  const btnDownloadStockTemplate = document.getElementById('btn-download-stock-template');
-  if (btnDownloadStockTemplate) {
-    btnDownloadStockTemplate.addEventListener('click', () => {
-      const headers = [['SKU', 'Stock Inicial']];
-      const sampleData = [
-        ['PROD-001', '100'],
-        ['PROD-002', '50'],
-        ['PROD-003', '0']
-      ];
-      const wsData = headers.concat(sampleData);
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-      XLSX.utils.book_append_sheet(wb, ws, 'Stock Inicial');
-      XLSX.writeFile(wb, 'plantilla_stock_inicial.xlsx');
-    });
-  }
-
-  const fileImportStock = document.getElementById('catalog-import-stock-excel');
-  if (fileImportStock) {
-    const newFileInput = fileImportStock.cloneNode(true);
-    fileImportStock.parentNode.replaceChild(newFileInput, fileImportStock);
-    
-    newFileInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-        try {
-          const data = new Uint8Array(evt.target.result);
-          const workbook = XLSX.read(data, { type: 'array' });
-          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-          const excelRows = XLSX.utils.sheet_to_json(worksheet);
-
-          if (excelRows.length === 0) {
-            alert('El archivo Excel está vacío.');
-            return;
-          }
-
-          // Identificar columnas
-          const sample = excelRows[0];
-          let colSku = '';
-          let colStock = '';
-          for (const key of Object.keys(sample)) {
-            const lower = key.toLowerCase().trim();
-            if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
-            else if (lower === 'stock' || lower === 'stock_inicial' || lower === 'stock inicial' || lower === 'cantidad' || lower === 'initial_stock' || lower === 'cant') colStock = key;
-          }
-
-          if (!colSku || !colStock) {
-            alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU" y "Stock Inicial" (o "Stock").');
-            return;
-          }
-
-          // Obtener la Bodega Central
-          const { data: bodegaCentral } = await supabase
-            .from('warehouses')
-            .select('id')
-            .ilike('name', '%Central%')
-            .limit(1)
-            .single();
-
-          if (!bodegaCentral) {
-            alert('Error: No se encontró la Bodega Central en el sistema.');
-            return;
-          }
-
-          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
-
-          const productMap = {};
-          if (dbProducts) {
-            dbProducts.forEach(p => {
-              productMap[p.sku.toLowerCase().trim()] = p;
-            });
-          }
-
-          // Obtener todos los stocks iniciales anteriores
-          const { data: dbMovements } = await supabase
-            .from('movements')
-            .select('product_id, quantity')
-            .eq('reference_doc', 'Stock Inicial');
-
-          const stockMap = {};
-          if (dbMovements) {
-            dbMovements.forEach(m => {
-              stockMap[m.product_id] = m.quantity;
-            });
-          }
-
-          // Construir filas para vista previa y validar
-          const previewRows = [];
-          for (const row of excelRows) {
-            const skuVal = String(row[colSku] || '').trim();
-            const stockValRaw = row[colStock];
-            const stockVal = parseInt(stockValRaw, 10);
-
-            const prod = productMap[skuVal.toLowerCase()];
-            const oldStock = prod ? (stockMap[prod.id] || 0) : 0;
-
-            let status = 'ok';
-            let message = '';
-
-            if (!skuVal) {
-              status = 'error';
-              message = 'Línea vacía o SKU ausente';
-            } else if (!prod) {
-              status = 'error';
-              message = 'El SKU no existe en este comercio';
-            } else if (isNaN(stockVal) || stockVal < 0 || stockVal !== Number(stockValRaw)) {
-              status = 'error';
-              message = 'Stock inválido (debe ser un número entero >= 0)';
-            }
-
-            previewRows.push({
-              sku: skuVal || 'N/A',
-              name: prod ? prod.name : null,
-              oldValue: oldStock,
-              newValue: isNaN(stockVal) ? (stockValRaw || '') : stockVal,
-              status,
-              message,
-              prodId: prod ? prod.id : null,
-              stockVal
-            });
-          }
-
-          // Lanzar modal de vista previa
-          window.showStockAndDimensionsPreviewModal({
-            title: 'Vista Previa: Carga Masiva de Stock Inicial',
-            headers: ['SKU', 'Nombre', 'S. Inicial Anterior', 'S. Inicial Nuevo', 'Estado', 'Detalle'],
-            rows: previewRows,
-            onConfirm: async (validRows) => {
-              let updatedCount = 0;
-              
-              // Ejecutar en paralelo
-              const updatePromises = validRows.map(async (r) => {
-                const diff = r.stockVal - r.oldValue;
-
-                // 1. inventory update/insert
-                const { data: invRecord } = await supabase
-                  .from('inventory')
-                  .select('id, quantity')
-                  .eq('product_id', r.prodId)
-                  .eq('warehouse_id', bodegaCentral.id)
-                  .maybeSingle();
-
-                if (invRecord) {
-                  const { error: invErr } = await supabase
-                    .from('inventory')
-                    .update({ quantity: Math.max(0, invRecord.quantity + diff) })
-                    .eq('id', invRecord.id);
-                  if (invErr) throw invErr;
-                } else {
-                  const { error: invErr } = await supabase
-                    .from('inventory')
-                    .insert([{
-                      product_id: r.prodId,
-                      warehouse_id: bodegaCentral.id,
-                      quantity: r.stockVal
-                    }]);
-                  if (invErr) throw invErr;
-                }
-
-                // 2. movements update/insert
-                const { data: movRecord } = await supabase
-                  .from('movements')
-                  .select('id')
-                  .eq('product_id', r.prodId)
-                  .eq('reference_doc', 'Stock Inicial')
-                  .limit(1)
-                  .maybeSingle();
-
-                if (r.stockVal > 0) {
-                  if (movRecord) {
-                    const { error: movErr } = await supabase
-                      .from('movements')
-                      .update({ quantity: r.stockVal })
-                      .eq('id', movRecord.id);
-                    if (movErr) throw movErr;
-                  } else {
-                    const { error: movErr } = await supabase
-                      .from('movements')
-                      .insert([{
-                        product_id: r.prodId,
-                        warehouse_id: bodegaCentral.id,
-                        type: 'in',
-                        quantity: r.stockVal,
-                        reference_doc: 'Stock Inicial'
-                      }]);
-                    if (movErr) throw movErr;
-                  }
-                } else {
-                  if (movRecord) {
-                    const { error: movErr } = await supabase
-                      .from('movements')
-                      .delete()
-                      .eq('id', movRecord.id);
-                    if (movErr) throw movErr;
-                  }
-                }
-
-                updatedCount++;
-              });
-
-              await Promise.all(updatePromises);
-              alert(`¡Éxito! Se actualizaron ${updatedCount} productos correctamente.`);
-              renderAdminCatalogWorkspace(commerce);
-            }
-          });
-
-        } catch (err) {
-          console.error(err);
-          alert('Error al importar la planilla: ' + err.message);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-      e.target.value = '';
+      openCatalogBulkStockImportModal(commerce);
     });
   }
 
@@ -11603,14 +11382,23 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
   try {
     // 1. Construir las consultas de Supabase
-    let invQuery = supabase.from('inventory').select('quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)');
+    let invPromise = window.fetchAllSupabaseRows(
+      'inventory',
+      'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+      q => {
+        if (selectedCommerce) {
+          return q.eq('products.comercio', selectedCommerce);
+        }
+        return q;
+      }
+    ).then(data => ({ data })).catch(error => ({ error }));
+
     let ordQuery = supabase.from('orders').select('id, status, comercio');
     let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
     let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
 
     // 2. Aplicar filtro por comercio si corresponde
     if (selectedCommerce) {
-      invQuery = invQuery.eq('products.comercio', selectedCommerce);
       ordQuery = ordQuery.eq('comercio', selectedCommerce);
       intQuery = intQuery.eq('comercio', selectedCommerce);
       decQuery = decQuery.eq('comercio', selectedCommerce);
@@ -11619,7 +11407,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
 
     // 3. Consultar datos
-    const results = await Promise.all([invQuery, ordQuery, intQuery, decQuery]);
+    const results = await Promise.all([invPromise, ordQuery, intQuery, decQuery]);
     const invRes = results[0];
     const ordRes = results[1];
     const intRes = results[2];
@@ -29653,6 +29441,288 @@ window.openWmsMultiselectModal = async function() {
     });
   }
 };
+
+function openCatalogBulkStockImportModal(commerce) {
+  const existing = document.getElementById('modal-catalog-bulk-stock');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-catalog-bulk-stock';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);"><i class="ri-file-upload-line" style="color: var(--color-success);"></i> Importar Stock Inicial Masivo</h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-catalog-bulk-stock').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">1. Seleccionar Bodega Destino *</label>
+          <select id="catalog-bulk-stock-warehouse-select" class="form-input" style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem;">
+            <option value="">-- Cargando bodegas --</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">2. Seleccionar Planilla Excel *</label>
+          <div style="border: 2px dashed var(--color-border); padding: 1.5rem; border-radius: var(--radius-md); text-align: center; cursor: pointer; transition: all 0.2s; background: var(--color-bg);" id="drop-zone-catalog-bulk-stock">
+            <i class="ri-upload-cloud-2-line" style="font-size: 2.5rem; color: var(--color-success); display: block; margin-bottom: 0.5rem;"></i>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);" id="catalog-bulk-stock-file-label">Selecciona o arrastra el archivo Excel aquí</span>
+            <input type="file" id="catalog-bulk-stock-excel-file" accept=".xlsx, .xls, .csv" style="display: none;">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-catalog-bulk-stock').remove()">Cancelar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Load warehouses
+  supabase
+    .from('warehouses')
+    .select('id, name, address, comuna')
+    .order('name')
+    .then(({ data: warehouses, error }) => {
+      const selectEl = document.getElementById('catalog-bulk-stock-warehouse-select');
+      if (selectEl) {
+        selectEl.innerHTML = '<option value="">-- Selecciona una Bodega --</option>';
+        if (warehouses) {
+          warehouses.forEach(w => {
+            selectEl.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+          });
+        }
+      }
+    });
+
+  const dropZone = document.getElementById('drop-zone-catalog-bulk-stock');
+  const fileInput = document.getElementById('catalog-bulk-stock-excel-file');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--color-success)';
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.style.borderColor = 'var(--color-border)';
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--color-border)';
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      fileInput.files = files;
+      handleCatalogStockFile(files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleCatalogStockFile(file);
+    }
+  });
+
+  async function handleCatalogStockFile(file) {
+    const warehouseSelect = document.getElementById('catalog-bulk-stock-warehouse-select');
+    const selectedWarehouseId = warehouseSelect.value;
+    if (!selectedWarehouseId) {
+      alert('Por favor, selecciona una bodega destino primero.');
+      fileInput.value = '';
+      return;
+    }
+    const selectedWarehouseName = warehouseSelect.options[warehouseSelect.selectedIndex].text;
+
+    document.getElementById('catalog-bulk-stock-file-label').textContent = file.name;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+        if (excelRows.length === 0) {
+          alert('El archivo Excel está vacío.');
+          return;
+        }
+
+        // Identify columns
+        const sample = excelRows[0];
+        let colSku = '';
+        let colStock = '';
+        for (const key of Object.keys(sample)) {
+          const lower = key.toLowerCase().trim();
+          if (lower === 'sku' || lower === 'codigo' || lower === 'código') colSku = key;
+          else if (lower === 'stock' || lower === 'stock_inicial' || lower === 'stock inicial' || lower === 'cantidad' || lower === 'initial_stock' || lower === 'cant') colStock = key;
+        }
+
+        if (!colSku || !colStock) {
+          alert('Error: Columnas no encontradas. El archivo debe contener las columnas "SKU" y "Stock Inicial" (o "Stock").');
+          return;
+        }
+
+        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
+
+        const productMap = {};
+        if (dbProducts) {
+          dbProducts.forEach(p => {
+            productMap[p.sku.toLowerCase().trim()] = p;
+          });
+        }
+
+        // Fetch past stock initial movements for this warehouse
+        const { data: dbMovements } = await supabase
+          .from('movements')
+          .select('product_id, quantity')
+          .eq('warehouse_id', selectedWarehouseId)
+          .eq('reference_doc', 'Stock Inicial');
+
+        const stockMap = {};
+        if (dbMovements) {
+          dbMovements.forEach(m => {
+            stockMap[m.product_id] = m.quantity;
+          });
+        }
+
+        const previewRows = [];
+        for (const row of excelRows) {
+          const skuVal = String(row[colSku] || '').trim();
+          const stockValRaw = row[colStock];
+          const stockVal = parseInt(stockValRaw, 10);
+
+          const prod = productMap[skuVal.toLowerCase()];
+          const oldStock = prod ? (stockMap[prod.id] || 0) : 0;
+
+          let status = 'ok';
+          let message = '';
+
+          if (!skuVal) {
+            status = 'error';
+            message = 'Línea vacía o SKU ausente';
+          } else if (!prod) {
+            status = 'error';
+            message = 'El SKU no existe en este comercio';
+          } else if (isNaN(stockVal) || stockVal < 0 || stockVal !== Number(stockValRaw)) {
+            status = 'error';
+            message = 'Stock inválido (debe ser un número entero >= 0)';
+          }
+
+          previewRows.push({
+            sku: skuVal || 'N/A',
+            name: prod ? prod.name : null,
+            oldValue: oldStock,
+            newValue: isNaN(stockVal) ? (stockValRaw || '') : stockVal,
+            status,
+            message,
+            prodId: prod ? prod.id : null,
+            stockVal
+          });
+        }
+
+        // Close upload modal
+        document.getElementById('modal-catalog-bulk-stock').remove();
+
+        // Launch preview modal
+        window.showStockAndDimensionsPreviewModal({
+          title: `Carga Masiva Stock Inicial - Bodega: ${selectedWarehouseName}`,
+          headers: ['SKU', 'Nombre', 'S. Inicial Anterior', 'S. Inicial Nuevo', 'Estado', 'Detalle'],
+          rows: previewRows,
+          onConfirm: async (validRows) => {
+            let updatedCount = 0;
+            const updatePromises = validRows.map(async (r) => {
+              const diff = r.stockVal - r.oldValue;
+
+              // 1. Update/Insert inventory for selected warehouse
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', r.prodId)
+                .eq('warehouse_id', selectedWarehouseId)
+                .maybeSingle();
+
+              if (invRecord) {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .update({ quantity: Math.max(0, invRecord.quantity + diff) })
+                  .eq('id', invRecord.id);
+                if (invErr) throw invErr;
+              } else {
+                const { error: invErr } = await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: r.prodId,
+                    warehouse_id: selectedWarehouseId,
+                    quantity: r.stockVal,
+                    committed_quantity: 0
+                  }]);
+                if (invErr) throw invErr;
+              }
+
+              // 2. movements update/insert
+              const { data: movRecord } = await supabase
+                .from('movements')
+                .select('id')
+                .eq('product_id', r.prodId)
+                .eq('warehouse_id', selectedWarehouseId)
+                .eq('reference_doc', 'Stock Inicial')
+                .limit(1)
+                .maybeSingle();
+
+              if (r.stockVal > 0) {
+                if (movRecord) {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .update({ quantity: r.stockVal })
+                    .eq('id', movRecord.id);
+                  if (movErr) throw movErr;
+                } else {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .insert([{
+                      product_id: r.prodId,
+                      warehouse_id: selectedWarehouseId,
+                      type: 'in',
+                      quantity: r.stockVal,
+                      reference_doc: 'Stock Inicial'
+                    }]);
+                  if (movErr) throw movErr;
+                }
+              } else {
+                if (movRecord) {
+                  const { error: movErr } = await supabase
+                    .from('movements')
+                    .delete()
+                    .eq('id', movRecord.id);
+                  if (movErr) throw movErr;
+                }
+              }
+
+              updatedCount++;
+            });
+
+            await Promise.all(updatePromises);
+            alert(`¡Éxito! Se actualizó el stock inicial de ${updatedCount} productos correctamente en la bodega ${selectedWarehouseName}.`);
+            if (window.activeAdminComercio) {
+              renderAdminCatalogWorkspace(window.activeAdminComercio);
+            }
+          }
+        });
+
+      } catch (err) {
+        console.error(err);
+        alert('Error al procesar el archivo Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+}
 
 
 
