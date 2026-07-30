@@ -381,80 +381,99 @@ async function syncOrders(integration) {
 async function syncProducts(integration) {
   console.log('--> Extrayendo productos...');
 
-  const url = `https://${integration.shop_url}/admin/api/2024-04/products.json`;
+  let url = `https://${integration.shop_url}/admin/api/2024-04/products.json?limit=250`;
+  const seenSkus = new Set();
+  const productsToUpsert = [];
+  let pageCount = 0;
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'X-Shopify-Access-Token': integration.access_token,
-        'Content-Type': 'application/json'
-      }
-    });
+    while (url) {
+      pageCount++;
+      console.log(`[Shopify Product Sync] Cargando página ${pageCount}...`);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-Shopify-Access-Token': integration.access_token,
+          'Content-Type': 'application/json'
+        }
+      });
 
-    if (!response.ok) {
-      throw new Error(`Error en Shopify API: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const products = data.products;
-    console.log(`Se encontraron ${products.length} productos base.`);
-
-    const seenSkus = new Set();
-    const productsToUpsert = [];
-    for (const product of products) {
-      // Intentar obtener la imagen principal del producto
-      let imageUrl = null;
-      if (product.image && product.image.src) {
-        imageUrl = product.image.src;
-      } else if (product.images && product.images.length > 0) {
-        imageUrl = product.images[0].src;
+      if (!response.ok) {
+        throw new Error(`Error en Shopify API: ${response.status} ${response.statusText}`);
       }
 
-      for (const variant of product.variants) {
-        let variantSku = variant.sku || variant.id.toString();
-        let cleanSku = variantSku.trim();
-        if (!cleanSku) continue;
+      const data = await response.json();
+      const products = data.products || [];
+      console.log(`Se encontraron ${products.length} productos base en la página ${pageCount}.`);
 
-        const upperSku = cleanSku.toUpperCase();
-        if (seenSkus.has(upperSku)) {
-          let suffixIndex = 1;
-          let newSku = `${cleanSku}-DUP-${suffixIndex}`;
-          while (seenSkus.has(newSku.toUpperCase())) {
-            suffixIndex++;
-            newSku = `${cleanSku}-DUP-${suffixIndex}`;
-          }
-          cleanSku = newSku;
-        }
-        seenSkus.add(cleanSku.toUpperCase());
-
-        // Si la variante tiene una imagen específica, la usamos, si no usamos la del producto principal
-        let varImageUrl = imageUrl;
-        if (product.images && variant.image_id) {
-          const matchedImg = product.images.find(img => img.id === variant.image_id);
-          if (matchedImg && matchedImg.src) {
-            varImageUrl = matchedImg.src;
-          }
+      for (const product of products) {
+        // Intentar obtener la imagen principal del producto
+        let imageUrl = null;
+        if (product.image && product.image.src) {
+          imageUrl = product.image.src;
+        } else if (product.images && product.images.length > 0) {
+          imageUrl = product.images[0].src;
         }
 
-        productsToUpsert.push({
-          comercio: integration.comercio,
-          platform: 'Shopify',
-          sku: cleanSku,
-          name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`,
-          image_url: varImageUrl,
-          status: product.status,
-          price: parseFloat(variant.price) || 0
-        });
+        for (const variant of product.variants) {
+          let variantSku = variant.sku || variant.id.toString();
+          let cleanSku = variantSku.trim();
+          if (!cleanSku) continue;
+
+          const upperSku = cleanSku.toUpperCase();
+          if (seenSkus.has(upperSku)) {
+            let suffixIndex = 1;
+            let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+            while (seenSkus.has(newSku.toUpperCase())) {
+              suffixIndex++;
+              newSku = `${cleanSku}-DUP-${suffixIndex}`;
+            }
+            cleanSku = newSku;
+          }
+          seenSkus.add(cleanSku.toUpperCase());
+
+          // Si la variante tiene una imagen específica, la usamos, si no usamos la del producto principal
+          let varImageUrl = imageUrl;
+          if (product.images && variant.image_id) {
+            const matchedImg = product.images.find(img => img.id === variant.image_id);
+            if (matchedImg && matchedImg.src) {
+              varImageUrl = matchedImg.src;
+            }
+          }
+
+          productsToUpsert.push({
+            comercio: integration.comercio,
+            platform: 'Shopify',
+            sku: cleanSku,
+            name: `${product.title}${variant.title !== 'Default Title' ? ' - ' + variant.title : ''}`,
+            image_url: varImageUrl,
+            status: product.status,
+            price: parseFloat(variant.price) || 0
+          });
+        }
+      }
+
+      // Revisar encabezado Link para la siguiente página
+      const linkHeader = response.headers.get('link');
+      url = null;
+      if (linkHeader) {
+        const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+        if (nextMatch) {
+          url = nextMatch[1];
+        }
       }
     }
 
     if (productsToUpsert.length > 0) {
-      const { error: upsertErr } = await supabase
-        .from('synced_products')
-        .upsert(productsToUpsert, { onConflict: 'comercio,platform,sku' });
+      const batchSize = 500;
+      for (let i = 0; i < productsToUpsert.length; i += batchSize) {
+        const batch = productsToUpsert.slice(i, i + batchSize);
+        const { error: upsertErr } = await supabase
+          .from('synced_products')
+          .upsert(batch, { onConflict: 'comercio,platform,sku' });
 
-      if (upsertErr) throw upsertErr;
+        if (upsertErr) throw upsertErr;
+      }
       console.log(`Se han sincronizado ${productsToUpsert.length} variantes en synced_products.`);
     }
 
