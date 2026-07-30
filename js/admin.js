@@ -22640,6 +22640,13 @@ window.showMerchantEditModal = function(comercioName) {
           });
 
         if (configErr) throw configErr;
+
+        // Recalcular dinámicamente el stock comprometido
+        try {
+          await supabase.rpc('recalculate_committed_stock');
+        } catch (rpcErr) {
+          console.error('Error al recalcular stock comprometido tras guardar configuración:', rpcErr);
+        }
       }
 
       // Cerrar modal y recargar tabla
