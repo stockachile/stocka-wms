@@ -1337,53 +1337,47 @@ async function renderAdminOrders() {
     }
     window.currentPackSkusList = packSkusList;
 
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select(`
-        id,
-        status,
-        estado_wms,
-        created_at,
-        external_order_number,
-        external_platform,
-        origen,
-        item,
-        cantidad,
-        sku,
-        label_base64,
-        total_value,
-        customer_name,
-        customer_email,
-        customer_phone,
-        shipping_address,
-        shipping_city,
-        shipping_complement,
-        shipping_method,
-        payment_status,
-        tracking_number,
-        tracking_url,
-        courier,
-        raw_woocommerce_data,
-        raw_jumpseller_data,
-        raw_falabella_data,
-        raw_meli_data,
-        raw_optiroute_data,
-        raw_lightdata_data,
-        raw_paris_data,
-        raw_shopify_data,
-        shopify_exported,
-        comercio,
-        agenda,
-        operador,
-        fecha_procesamiento,
-        sucursal_pickeo,
-        periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-      `)
-      .gte('created_at', startOfMonth)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
+    const orders = await window.fetchAllSupabaseRows('orders', `
+      id,
+      status,
+      estado_wms,
+      created_at,
+      external_order_number,
+      external_platform,
+      origen,
+      item,
+      cantidad,
+      sku,
+      label_base64,
+      total_value,
+      customer_name,
+      customer_email,
+      customer_phone,
+      shipping_address,
+      shipping_city,
+      shipping_complement,
+      shipping_method,
+      payment_status,
+      tracking_number,
+      tracking_url,
+      courier,
+      raw_woocommerce_data,
+      raw_jumpseller_data,
+      raw_falabella_data,
+      raw_meli_data,
+      raw_optiroute_data,
+      raw_lightdata_data,
+      raw_paris_data,
+      raw_shopify_data,
+      shopify_exported,
+      comercio,
+      agenda,
+      operador,
+      fecha_procesamiento,
+      sucursal_pickeo,
+      periodo_facturacion,
+      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+    `, q => q.gte('created_at', startOfMonth).order('created_at', { ascending: false }));
 
     window.loadedOrders = orders || [];
 
@@ -1429,7 +1423,7 @@ async function renderAdminOrders() {
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
 
-    const updateMerchantFilterOptions = () => {
+    window.updateMerchantFilterOptions = () => {
       const select = document.getElementById('filter-merchant');
       if (!select) return;
       const currentVal = select.value;
@@ -1513,7 +1507,7 @@ async function renderAdminOrders() {
             await window.fetchInventoryForOrders(histOrders);
           }
 
-          updateMerchantFilterOptions();
+          window.updateMerchantFilterOptions();
           applyWmsFiltersAndRender();
           console.log(`[WMS] Cargados ${histOrders.length} pedidos históricos en segundo plano.`);
         }
@@ -3012,53 +3006,47 @@ window.refreshWmsOrders = async function(btn) {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const { data: orders, error } = await supabase
-      .from('orders')
-      .select(`
-        id,
-        status,
-        estado_wms,
-        created_at,
-        external_order_number,
-        external_platform,
-        origen,
-        item,
-        cantidad,
-        sku,
-        label_base64,
-        total_value,
-        customer_name,
-        customer_email,
-        customer_phone,
-        shipping_address,
-        shipping_city,
-        shipping_complement,
-        shipping_method,
-        payment_status,
-        tracking_number,
-        tracking_url,
-        courier,
-        raw_woocommerce_data,
-        raw_jumpseller_data,
-        raw_falabella_data,
-        raw_meli_data,
-        raw_optiroute_data,
-        raw_lightdata_data,
-        raw_paris_data,
-        raw_shopify_data,
-        shopify_exported,
-        comercio,
-        agenda,
-        operador,
-        fecha_procesamiento,
-        sucursal_pickeo,
-        periodo_facturacion,
-        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-      `)
-      .gte('created_at', startOfMonth)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
+    const orders = await window.fetchAllSupabaseRows('orders', `
+      id,
+      status,
+      estado_wms,
+      created_at,
+      external_order_number,
+      external_platform,
+      origen,
+      item,
+      cantidad,
+      sku,
+      label_base64,
+      total_value,
+      customer_name,
+      customer_email,
+      customer_phone,
+      shipping_address,
+      shipping_city,
+      shipping_complement,
+      shipping_method,
+      payment_status,
+      tracking_number,
+      tracking_url,
+      courier,
+      raw_woocommerce_data,
+      raw_jumpseller_data,
+      raw_falabella_data,
+      raw_meli_data,
+      raw_optiroute_data,
+      raw_lightdata_data,
+      raw_paris_data,
+      raw_shopify_data,
+      shopify_exported,
+      comercio,
+      agenda,
+      operador,
+      fecha_procesamiento,
+      sucursal_pickeo,
+      periodo_facturacion,
+      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+    `, q => q.gte('created_at', startOfMonth).order('created_at', { ascending: false }));
 
     window.loadedOrders = orders || [];
 
@@ -3081,6 +3069,9 @@ window.refreshWmsOrders = async function(btn) {
       await window.fetchInventoryForOrders(window.loadedOrders);
     }
 
+    if (window.updateMerchantFilterOptions) {
+      window.updateMerchantFilterOptions();
+    }
     applyWmsFiltersAndRender();
 
     // Cargar historial en segundo plano
@@ -3155,6 +3146,9 @@ window.refreshWmsOrders = async function(btn) {
             await window.fetchInventoryForOrders(histOrders);
           }
 
+          if (window.updateMerchantFilterOptions) {
+            window.updateMerchantFilterOptions();
+          }
           applyWmsFiltersAndRender();
         }
       } catch (histErr) {

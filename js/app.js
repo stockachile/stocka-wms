@@ -4559,60 +4559,55 @@ async function renderOrders() {
     }
     window.currentPackSkusList = packSkusList;
 
-    let query = supabase
-      .from('orders')
-      .select(`
-        id,
-        status,
-        estado_wms,
-        created_at,
-        external_order_number,
-        external_platform,
-        origen,
-        item,
-        cantidad,
-        sku,
-        label_base64,
-        comercio,
-        total_value,
-        customer_name,
-        customer_email,
-        customer_phone,
-        shipping_address,
-        shipping_city,
-        shipping_complement,
-        shipping_method,
-        payment_status,
-        tracking_number,
-        tracking_url,
-        courier,
-        raw_woocommerce_data,
-        raw_falabella_data,
-        raw_meli_data,
-        raw_optiroute_data,
-        raw_lightdata_data,
-        raw_paris_data,
-        raw_shopify_data,
-        shopify_exported,
-        agenda,
-        operador,
-        fecha_procesamiento,
-        sucursal_pickeo,
-        order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
-      `)
-      .gte('created_at', startOfMonth);
+    const selectStr = `
+      id,
+      status,
+      estado_wms,
+      created_at,
+      external_order_number,
+      external_platform,
+      origen,
+      item,
+      cantidad,
+      sku,
+      label_base64,
+      comercio,
+      total_value,
+      customer_name,
+      customer_email,
+      customer_phone,
+      shipping_address,
+      shipping_city,
+      shipping_complement,
+      shipping_method,
+      payment_status,
+      tracking_number,
+      tracking_url,
+      courier,
+      raw_woocommerce_data,
+      raw_falabella_data,
+      raw_meli_data,
+      raw_optiroute_data,
+      raw_lightdata_data,
+      raw_paris_data,
+      raw_shopify_data,
+      shopify_exported,
+      agenda,
+      operador,
+      fecha_procesamiento,
+      sucursal_pickeo,
+      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+    `;
 
-    if (companyList.length > 0) {
-      query = query.in('comercio', companyList);
-    } else {
-      query = query.eq('comercio', 'no asignado');
-    }
-
-    query = query.order('created_at', { ascending: false });
-
-    const { data: orders, error } = await query;
-
-    if (error) throw error;
+    const orders = await window.fetchAllSupabaseRows('orders', selectStr, q => {
+      q = q.gte('created_at', startOfMonth);
+      if (companyList.length > 0) {
+        q = q.in('comercio', companyList);
+      } else {
+        q = q.eq('comercio', 'no asignado');
+      }
+      return q.order('created_at', { ascending: false });
+    });
 
     window.clientLoadedOrders = orders || [];
 

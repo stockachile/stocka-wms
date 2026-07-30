@@ -8,7 +8,7 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
   let allData = [];
   let from = 0;
-  const step = 1000;
+  const step = 200;
   while (true) {
     let q = supabase.from(tableName).select(selectStr);
     if (filterCallback) q = filterCallback(q);
