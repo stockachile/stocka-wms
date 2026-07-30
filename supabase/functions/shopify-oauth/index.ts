@@ -9,20 +9,18 @@ const shopifyClientId = Deno.env.get("SHOPIFY_CLIENT_ID") ?? "";
 const shopifyClientSecret = Deno.env.get("SHOPIFY_CLIENT_SECRET") ?? "";
 
 serve(async (req) => {
-  // Configuración de cabeceras CORS para permitir peticiones desde el frontend local/Netlify
   const corsHeaders = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   };
 
-  // Manejo de peticiones preflight OPTIONS
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   // =========================================================================
-  // METODO POST: Sincronizar Catálogo de Productos
+  // METODO POST: Sincronizar Pedidos y Productos bajo demanda
   // =========================================================================
   if (req.method === "POST") {
     try {
@@ -35,7 +33,6 @@ serve(async (req) => {
       }
       const token = authHeader.replace("Bearer ", "");
       
-      // 1. Validar el token del usuario (JWT) con el cliente administrador
       const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
 
       if (authErr || !user) {
@@ -46,7 +43,6 @@ serve(async (req) => {
         });
       }
 
-      // 2. Obtener el rol del usuario para permitir acciones de administrador
       const { data: profile } = await supabase
         .from("profiles")
         .select("role")
@@ -54,13 +50,10 @@ serve(async (req) => {
         .maybeSingle();
       const isAdmin = profile?.role === "admin";
 
-      // 3. Leer el cuerpo de la petición (opcional comercio / merchant_id)
       let body: any = {};
       try {
         body = await req.json();
-      } catch (e) {
-        // La petición podría no llevar cuerpo
-      }
+      } catch (e) {}
 
       let targetMerchantId = user.id;
       let targetComercio = body.comercio || "";
@@ -69,7 +62,6 @@ serve(async (req) => {
         targetMerchantId = body.merchant_id;
       }
 
-      // 4. Buscar la integración activa filtrando de forma segura
       let query = supabase
         .from("merchant_integrations")
         .select("*")
@@ -79,7 +71,7 @@ serve(async (req) => {
       if (targetComercio) {
         query = query.eq("comercio", targetComercio);
       }
-      if (!isAdmin) {
+      if (!isAdmin && !targetComercio) {
         query = query.eq("merchant_id", targetMerchantId);
       }
 
@@ -92,14 +84,18 @@ serve(async (req) => {
         });
       }
 
-      // 3. Asegurar registro de webhooks y ejecutar la sincronización
       const accessToken = await getValidShopifyToken(integration);
       integration.access_token = accessToken;
 
       await registerShopifyWebhooks(integration.shop_url, integration.access_token, integration.merchant_id);
-      const syncedCount = await syncShopifyProducts(integration);
+      const syncedProductsCount = await syncShopifyProducts(integration);
+      const syncedOrdersCount = await syncShopifyOrders(integration);
 
-      return new Response(JSON.stringify({ success: true, count: syncedCount }), {
+      return new Response(JSON.stringify({ 
+        success: true, 
+        products_count: syncedProductsCount,
+        orders_count: syncedOrdersCount
+      }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
@@ -130,14 +126,12 @@ serve(async (req) => {
         return new Response("Missing required OAuth parameters", { status: 400 });
       }
 
-      // 1. Verificar HMAC de Shopify para validar que la petición es auténtica
       const isVerified = await verifyShopifyHmac(url.searchParams, shopifyClientSecret);
       if (!isVerified) {
         console.error("Firma HMAC de OAuth inválida");
         return new Response("Unauthorized: Invalid HMAC", { status: 401 });
       }
 
-      // 2. Decodificar el state para obtener datos del merchant
       let merchantId = "";
       let comercio = "";
       let redirectBackUrl = "";
@@ -155,7 +149,6 @@ serve(async (req) => {
         return new Response("Missing merchant_id in state", { status: 400 });
       }
 
-      // 3. Intercambiar el código por un token permanente en Shopify con expiring: 1
       const tokenUrl = `https://${shop}/admin/oauth/access_token`;
       const tokenResponse = await fetch(tokenUrl, {
         method: "POST",
@@ -178,7 +171,6 @@ serve(async (req) => {
       const accessToken = tokenData.access_token;
       const refreshToken = tokenData.refresh_token || null;
 
-      // 4. Guardar credenciales de integración en la base de datos
       const { error: dbError } = await supabase
         .from("merchant_integrations")
         .upsert({
@@ -197,14 +189,27 @@ serve(async (req) => {
         return new Response("Database error saving integration", { status: 500 });
       }
 
-      // 5. Suscribir automáticamente a los Webhooks necesarios en Shopify
       await registerShopifyWebhooks(shop, accessToken, merchantId);
 
-      // 6. Redirigir de vuelta al WMS
+      // EJECUTAR SINCRONIZACION INICIAL INMEDIATA DE PRODUCTOS Y PEDIDOS
+      try {
+        const integrationObj = {
+          shop_url: shop,
+          access_token: accessToken,
+          merchant_id: merchantId,
+          comercio: comercio
+        };
+        await syncShopifyProducts(integrationObj);
+        await syncShopifyOrders(integrationObj);
+        console.log(`[OAuth Initial Sync] Sincronizados exitosamente productos y pedidos iniciales para ${shop}`);
+      } catch (syncErr) {
+        console.error("Error en sincronización inicial inmediata durante OAuth:", syncErr);
+      }
+
       const responseHeaders = new Headers();
       const finalRedirect = redirectBackUrl 
-        ? `${redirectBackUrl}?integration=success` 
-        : `http://localhost:3000/dashboard.html?integration=success`;
+        ? `${redirectBackUrl}?integration=success&shop=${encodeURIComponent(shop)}` 
+        : `https://stocka-wms.netlify.app/dashboard.html?integration=success&shop=${encodeURIComponent(shop)}`;
         
       responseHeaders.set("Location", finalRedirect);
       return new Response(null, {
@@ -225,9 +230,96 @@ serve(async (req) => {
 // FUNCIONES AUXILIARES
 // ==========================================
 
-// Sincroniza productos desde la API REST de Shopify hacia la base de datos de Supabase
 async function syncShopifyProducts(integration: any): Promise<number> {
-  const url = `https://${integration.shop_url}/admin/api/2024-04/products.json`;
+  let url = `https://${integration.shop_url}/admin/api/2024-04/products.json?limit=250`;
+  let count = 0;
+
+  while (url) {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-Shopify-Access-Token": integration.access_token,
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Shopify API error products: ${response.status} - ${errorText}`);
+      break;
+    }
+
+    const data = await response.json();
+    const products = data.products || [];
+
+    for (const product of products) {
+      const productStatus = product.status || "active";
+
+      for (const variant of product.variants) {
+        let imageUrl = "";
+        if (product.images && product.images.length > 0) {
+          const variantImage = product.images.find((img: any) => img.variant_ids && img.variant_ids.includes(variant.id));
+          imageUrl = variantImage ? variantImage.src : product.images[0].src;
+        }
+
+        const skuClean = (variant.sku || variant.id.toString()).trim();
+
+        const productDataToUpsert = {
+          comercio: integration.comercio,
+          platform: "Shopify",
+          sku: skuClean,
+          name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
+          image_url: imageUrl || null,
+          status: productStatus,
+          price: parseFloat(variant.price) || 0
+        };
+
+        const { error: upsertErr } = await supabase
+          .from("synced_products")
+          .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
+
+        if (!upsertErr) {
+          count++;
+        }
+
+        // Auto-crear en la tabla master 'products' si no existe
+        const { data: existingProd } = await supabase
+          .from("products")
+          .select("id")
+          .eq("sku", skuClean)
+          .eq("comercio", integration.comercio)
+          .maybeSingle();
+
+        if (!existingProd) {
+          await supabase.from("products").insert([{
+            merchant_id: integration.merchant_id,
+            comercio: integration.comercio,
+            sku: skuClean,
+            name: productDataToUpsert.name,
+            image_url: productDataToUpsert.image_url,
+            status: productDataToUpsert.status,
+            price: productDataToUpsert.price,
+            description: "Importado automáticamente de Shopify"
+          }]);
+        }
+      }
+    }
+
+    const linkHeader = response.headers.get("link");
+    url = "";
+    if (linkHeader) {
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      if (nextMatch) {
+        url = nextMatch[1];
+      }
+    }
+  }
+
+  return count;
+}
+
+async function syncShopifyOrders(integration: any): Promise<number> {
+  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=50`;
   
   const response = await fetch(url, {
     method: "GET",
@@ -239,51 +331,97 @@ async function syncShopifyProducts(integration: any): Promise<number> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Shopify API error: ${response.status} - ${errorText}`);
+    console.error(`Shopify API error orders: ${response.status} - ${errorText}`);
+    return 0;
   }
 
   const data = await response.json();
-  const products = data.products || [];
+  const orders = data.orders || [];
   let count = 0;
 
-  for (const product of products) {
-    const productStatus = product.status || "active";
+  for (const order of orders) {
+    const orderDataToSave = {
+      merchant_id: integration.merchant_id,
+      comercio: integration.comercio,
+      external_order_number: order.name,
+      external_platform: "Shopify",
+      payment_status: order.financial_status,
+      total_value: order.current_total_price,
+      customer_email: order.contact_email || order.email || null,
+      customer_phone: order.shipping_address?.phone || null,
+      customer_name: order.shipping_address ? `${order.shipping_address.first_name || ''} ${order.shipping_address.last_name || ''}`.trim() : "",
+      shipping_address: order.shipping_address?.address1 || null,
+      shipping_city: order.shipping_address?.city || null,
+      shipping_complement: order.shipping_address?.address2 || null,
+      shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
+      raw_shopify_data: order,
+      created_at: new Date(order.created_at).toISOString(),
+      status: order.cancelled_at ? "cancelado" : "para procesar",
+      estado_wms: order.cancelled_at ? "Cancelado" : "En procesamiento"
+    };
 
-    for (const variant of product.variants) {
-      // Intentar obtener la imagen asociada a la variante o la primera del producto como fallback
-      let imageUrl = "";
-      if (product.images && product.images.length > 0) {
-        const variantImage = product.images.find((img: any) => img.variant_ids && img.variant_ids.includes(variant.id));
-        imageUrl = variantImage ? variantImage.src : product.images[0].src;
+    const { data: existingOrder } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("comercio", integration.comercio)
+      .eq("external_order_number", order.name)
+      .eq("external_platform", "Shopify")
+      .maybeSingle();
+
+    let orderId: string;
+    if (existingOrder) {
+      await supabase.from("orders").update(orderDataToSave).eq("id", existingOrder.id);
+      orderId = existingOrder.id;
+    } else {
+      const { data: newOrder } = await supabase.from("orders").insert([orderDataToSave]).select("id").single();
+      if (newOrder) orderId = newOrder.id;
+      else continue;
+    }
+
+    await supabase.from("order_items").delete().eq("order_id", orderId);
+    const lineItems = order.line_items || [];
+    for (const item of lineItems) {
+      const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
+      if (!targetSku) continue;
+
+      let { data: product } = await supabase
+        .from("products")
+        .select("id")
+        .eq("sku", targetSku)
+        .eq("comercio", integration.comercio)
+        .maybeSingle();
+
+      if (!product) {
+        const { data: newProd } = await supabase
+          .from("products")
+          .insert([{
+            merchant_id: integration.merchant_id,
+            comercio: integration.comercio,
+            sku: targetSku,
+            name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
+            price: item.price ? parseFloat(item.price) : 0,
+            description: "Creado automáticamente desde sincronización inicial de Shopify",
+            status: "active"
+          }])
+          .select("id")
+          .single();
+        product = newProd;
       }
 
-      const productDataToUpsert = {
-        comercio: integration.comercio,
-        platform: "Shopify",
-        sku: variant.sku || variant.id.toString(),
-        name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
-        image_url: imageUrl || null,
-        status: productStatus,
-        price: parseFloat(variant.price) || 0
-      };
-
-      // Realizamos upsert con la clave de servicio (bypass RLS)
-      const { error: upsertErr } = await supabase
-        .from("synced_products")
-        .upsert(productDataToUpsert, { onConflict: "comercio,platform,sku" });
-
-      if (upsertErr) {
-        console.error(`Error insertando/actualizando SKU ${productDataToUpsert.sku}:`, upsertErr);
-      } else {
-        count++;
+      if (product) {
+        await supabase.from("order_items").insert([{
+          order_id: orderId,
+          product_id: product.id,
+          quantity: item.quantity
+        }]);
       }
     }
+    count++;
   }
 
   return count;
 }
 
-// Verifica el HMAC de Shopify en Deno de forma nativa sin librerías externas
 async function verifyShopifyHmac(searchParams: URLSearchParams, secret: string): Promise<boolean> {
   const hmacParam = searchParams.get("hmac");
   if (!hmacParam) return false;
@@ -317,7 +455,6 @@ async function verifyShopifyHmac(searchParams: URLSearchParams, secret: string):
   return hashHex === hmacParam;
 }
 
-// Registra los webhooks necesarios vía REST API en Shopify
 async function registerShopifyWebhooks(shop: string, accessToken: string, merchantId: string) {
   const webhookTopics = [
     "orders/create", 
@@ -358,7 +495,6 @@ async function registerShopifyWebhooks(shop: string, accessToken: string, mercha
   }
 }
 
-// Renueva de forma proactiva el token de acceso de Shopify usando el refresh token
 async function getValidShopifyToken(integration: any): Promise<string> {
   if (!integration.refresh_token) {
     return integration.access_token;

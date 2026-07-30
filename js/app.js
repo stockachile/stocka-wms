@@ -6314,8 +6314,9 @@ async function renderIntegrations() {
                          <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Pedidos e inventario automático.</p>
                       </div>
                    </div>
-                   <div>
+                   <div style="display: flex; align-items: center; gap: 0.5rem;">
                       ${shopifyStatusText}
+                      ${hasShopify ? `<button type="button" class="btn btn-secondary" id="btn-sync-shopify-now" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-refresh-line"></i> Sincronizar Ahora</button>` : ''}
                    </div>
                 </div>
                 <form id="form-shopify-integration">
@@ -7289,8 +7290,37 @@ async function renderIntegrations() {
 
         // Redirigir a la pantalla de instalación oficial de Shopify
         window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
-      });
     } else {
+      document.getElementById('btn-sync-shopify-now')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-sync-shopify-now');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Sincronizando...';
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No hay sesión activa");
+          
+          const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ comercio: window.activeIntegrationCommerce })
+          });
+
+          if (!res.ok) throw new Error(await res.text());
+          const resData = await res.json();
+          alert(`¡Sincronización completada exitosamente!\n\nProductos procesados: ${resData.products_count || 0}\nPedidos procesados: ${resData.orders_count || 0}`);
+          renderIntegrations();
+        } catch (err) {
+          console.error(err);
+          alert('Error al sincronizar Shopify: ' + err.message);
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri-refresh-line"></i> Sincronizar Ahora';
+        }
+      });
+
       document.getElementById('btn-disconnect-shopify').addEventListener('click', async () => {
         if (userRole === 'observer') {
           alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
