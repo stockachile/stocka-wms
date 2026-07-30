@@ -72,6 +72,23 @@ window.roundUpVolume = function(val) {
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
 };
 
+window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
+  let allData = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    let q = supabase.from(tableName).select(selectStr);
+    if (filterCallback) q = filterCallback(q);
+    const { data, error } = await q.range(from, from + step - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allData = allData.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return allData;
+};
+
 // Variable global para almacenar el valor de la UF del día con soporte de caché y respaldo offline
 const cachedBackupUf = localStorage.getItem('stocka-last-uf-backup');
 window.currentUfValue = cachedBackupUf ? parseFloat(cachedBackupUf) : 38200; // Fallback predeterminado actualizado a 2026
@@ -1724,13 +1741,7 @@ async function renderCatalog() {
     const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
 
     // 2. Fetch WMS products and incidents
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('*, inventory(quantity)')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (prodErr) throw prodErr;
+    const products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
 
     let incidents = [];
     try {
@@ -1762,13 +1773,7 @@ async function renderCatalog() {
     const masterProducts = products || [];
 
     // 3. Fetch synced products from external platforms
-    const { data: syncedProducts, error: syncErr } = await supabase
-      .from('synced_products')
-      .select('*')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (syncErr) throw syncErr;
+    const syncedProducts = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).order('name'));
 
     // 4. Fetch current mappings
     const { data: mappings, error: mapErr } = await supabase
@@ -18436,13 +18441,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
         btnImport.disabled = true;
         btnImport.textContent = 'Importando...';
         try {
-          const { data: syncedProds, error: syncErr } = await supabase
-            .from('synced_products')
-            .select('*')
-            .eq('comercio', commerce)
-            .eq('platform', mainPlatform);
+          const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
           
-          if (syncErr) throw syncErr;
           if (!syncedProds || syncedProds.length === 0) {
             alert(`No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`);
             return;

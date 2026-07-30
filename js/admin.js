@@ -5341,13 +5341,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
         btnImport.disabled = true;
         btnImport.textContent = 'Importando...';
         try {
-          const { data: syncedProds, error: syncErr } = await supabase
-            .from('synced_products')
-            .select('*')
-            .eq('comercio', commerce)
-            .eq('platform', mainPlatform);
+          const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
           
-          if (syncErr) throw syncErr;
           if (!syncedProds || syncedProds.length === 0) {
             alert(`No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`);
             return;
@@ -7886,13 +7881,7 @@ async function renderAdminCatalogWorkspace(commerce) {
     const mainPlatform = mainIntegration ? mainIntegration.platform : '';
     const secondaryPlatforms = activeIntegrations.filter(i => i.platform !== mainPlatform).map(i => i.platform);
 
-    const { data: products, error: prodErr } = await supabase
-      .from('products')
-      .select('*, inventory(quantity)')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (prodErr) throw prodErr;
+    const products = await window.fetchAllSupabaseRows('products', '*, inventory(quantity)', q => q.eq('comercio', commerce).order('name'));
 
     let incidents = [];
     try {
@@ -7922,13 +7911,7 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const masterProducts = products || [];
 
-    const { data: syncedProducts, error: syncErr } = await supabase
-      .from('synced_products')
-      .select('*')
-      .eq('comercio', commerce)
-      .order('name');
-
-    if (syncErr) throw syncErr;
+    const syncedProducts = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).order('name'));
 
     const { data: mappings, error: mapErr } = await supabase
       .from('sku_equivalences')
@@ -13823,7 +13806,7 @@ window.manageDeclaration = async function(id) {
                       ${hasWarehouse ? 'El ingreso está listo para ser enviado al Picker.' : 'Debe asignar bodega antes de enviar.'}
                     </span>
                   </div>
-                  <button type="button" class="btn btn-primary" onclick="window.sendIntakeToPicker('${dec.id}')" ${hasWarehouse ? '' : 'disabled'} style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0;">
+                  <button type="button" class="btn btn-primary" onclick="window.sendIntakeToPicker('${dec.id}')" style="height: 32px; font-size: 0.75rem; padding: 0 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; margin: 0;">
                     <i class="ri-send-plane-line"></i> Enviar al Picker
                   </button>
                 `;
@@ -24174,7 +24157,7 @@ window.sendIntakeToPicker = async function(id) {
 
   try {
     // 1. Obtener los detalles completos del ingreso de stock
-    const { data: dec, error: decErr } = await supabase
+    let { data: dec, error: decErr } = await supabase
       .from('stock_declarations')
       .select('*, warehouses (name)')
       .eq('id', id)
@@ -24183,8 +24166,75 @@ window.sendIntakeToPicker = async function(id) {
     if (decErr) throw decErr;
     if (!dec) throw new Error('No se encontró la declaración.');
 
+    // Verificar si la bodega está seleccionada en el formulario en la pantalla del administrador
+    const selectEl = document.getElementById('manage-dec-warehouse-select');
+    const selectedWarehouseId = selectEl ? selectEl.value : null;
+
+    if (!dec.warehouse_id && selectedWarehouseId) {
+      const confirmSave = await Swal.fire({
+        title: 'Bodega no guardada',
+        text: 'Has seleccionado una bodega en el formulario pero no has guardado los cambios en la declaración. ¿Deseas guardar la bodega e inmediatamente enviar el ingreso al Picker?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, guardar y enviar',
+        cancelButtonText: 'Cancelar'
+      });
+
+      if (confirmSave.isConfirmed) {
+        Swal.fire({
+          title: 'Guardando bodega...',
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+
+        // Guardar la bodega y cambiar el estado a "Bodega Asignada"
+        const targetStatus = 'Bodega Asignada';
+        const newHistory = [...(dec.history || [])];
+        newHistory.push({
+          status: targetStatus,
+          timestamp: new Date().toISOString(),
+          comment: 'Bodega asignada automáticamente al enviar al Picker.'
+        });
+
+        const { error: saveErr } = await supabase
+          .from('stock_declarations')
+          .update({
+            warehouse_id: selectedWarehouseId,
+            status: targetStatus,
+            history: newHistory
+          })
+          .eq('id', id);
+
+        if (saveErr) throw saveErr;
+
+        // Volver a cargar la declaración para tener la relación con warehouses
+        const { data: updatedDec, error: fetchErr } = await supabase
+          .from('stock_declarations')
+          .select('*, warehouses (name)')
+          .eq('id', id)
+          .single();
+
+        if (fetchErr) throw fetchErr;
+        dec = updatedDec;
+      } else {
+        return;
+      }
+    }
+
     if (!dec.warehouse_id || !dec.warehouses) {
-      Swal.fire('Atención', 'Debe asignar y guardar una bodega para este ingreso antes de poder enviarlo al Picker.', 'warning');
+      Swal.fire({
+        title: 'Bodega no asignada',
+        html: `Para poder enviar este ingreso al Picker, primero debes asignar la bodega:
+          <ol style="text-align: left; margin-top: 12px; font-size: 0.85rem; line-height: 1.45;">
+            <li>Cambia el estado del avance a <strong>"Bodega Asignada"</strong> (en el botón azul arriba).</li>
+            <li>Selecciona la bodega correspondiente en la lista desplegable que aparecerá.</li>
+            <li>Haz clic en el botón verde <strong>"Guardar Cambios"</strong> al final de la pantalla.</li>
+          </ol>`,
+        icon: 'warning',
+        confirmButtonText: 'Entendido'
+      });
       return;
     }
 
@@ -24216,6 +24266,18 @@ window.sendIntakeToPicker = async function(id) {
     const payloads = [];
     const totu = dec.quantity_declared || 0;
 
+    let pickerSucursal = 'Sucursal Virtual (Hub)';
+    if (dec.warehouses && dec.warehouses.name) {
+      const whName = dec.warehouses.name.toLowerCase().trim();
+      if (whName.includes('ñuñoa')) {
+        pickerSucursal = 'Sucursal Ñuñoa';
+      } else if (whName.includes('la reina')) {
+        pickerSucursal = 'Sucursal La Reina';
+      } else if (whName.includes('recoleta')) {
+        pickerSucursal = 'Sucursal Recoleta';
+      }
+    }
+
     for (const item of products) {
       // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
       const pickingSku = (item.barcode && item.barcode.trim() && item.barcode.trim() !== item.sku.trim())
@@ -24223,7 +24285,7 @@ window.sendIntakeToPicker = async function(id) {
         : item.sku.trim();
 
       payloads.push({
-        sucursal: dec.warehouses.name || 'Sucursal Virtual (Hub)',
+        sucursal: pickerSucursal,
         order_number: orderNumber,
         agenda: 'INGRESO',
         quantity: parseInt(item.qty, 10) || 1,
