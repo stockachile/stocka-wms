@@ -65,8 +65,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Detectar modo de recuperación de contraseña en la URL (hash o query params)
+  const isRecovery = window.location.hash.includes('type=recovery') || window.location.href.includes('type=recovery');
+
   // Check si ya hay sesión activa
   const checkSession = async () => {
+    if (isRecovery) {
+      console.log('Modo recuperación de contraseña detectado. Mostrando formulario de restablecimiento.');
+      showResetForm();
+      return;
+    }
+
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       // Fetch role and redirect
@@ -74,6 +83,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const role = profile ? profile.role : 'client';
       window.location.href = role === 'admin' ? 'admin.html' : 'dashboard.html';
     }
+  };
+
+  const showResetForm = () => {
+    alertContainer.innerHTML = '';
+    loginForm.style.display = 'none';
+    if (registerForm) registerForm.style.display = 'none';
+    forgotForm.style.display = 'none';
+    const resetForm = document.getElementById('reset-form');
+    if (resetForm) {
+      resetForm.style.display = 'block';
+      resetForm.classList.add('auth-fade-in');
+    }
+    authTitle.textContent = 'Restablecer Contraseña';
+    authSubtitle.textContent = 'Ingresa tu nueva contraseña para actualizar tu cuenta.';
   };
 
   checkSession();
@@ -280,6 +303,84 @@ document.addEventListener('DOMContentLoaded', () => {
       } finally {
         forgotBtn.disabled = false;
         forgotBtn.textContent = 'Enviar enlace de recuperación';
+      }
+    });
+  }
+
+  // ── Reset Password ──
+
+  const resetForm = document.getElementById('reset-form');
+  const resetPasswordInput = document.getElementById('reset-password');
+  const resetConfirmPasswordInput = document.getElementById('reset-confirm-password');
+  const resetBtn = document.getElementById('reset-btn');
+  const toggleToLoginFromReset = document.getElementById('toggle-to-login-from-reset');
+
+  // Alternar de Reset a Login
+  if (toggleToLoginFromReset) {
+    toggleToLoginFromReset.addEventListener('click', (e) => {
+      e.preventDefault();
+      alertContainer.innerHTML = '';
+      if (resetForm) resetForm.style.display = 'none';
+      loginForm.style.display = 'block';
+      loginForm.classList.add('auth-fade-in');
+      authTitle.textContent = 'Bienvenido';
+      authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+      // Limpiar hash de la URL
+      window.location.hash = '';
+    });
+  }
+
+  // Handle Reset Password Submit
+  if (resetForm) {
+    resetForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const newPassword = resetPasswordInput.value.trim();
+      const confirmPassword = resetConfirmPasswordInput.value.trim();
+
+      if (!newPassword || !confirmPassword) {
+        showAlert('Por favor, ingresa y confirma tu nueva contraseña.');
+        return;
+      }
+
+      if (newPassword.length < 6) {
+        showAlert('La contraseña debe tener al menos 6 caracteres.');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        showAlert('Las contraseñas no coinciden.');
+        return;
+      }
+
+      resetBtn.disabled = true;
+      resetBtn.innerHTML = '<i class="ri-loader-4-line" style="display: inline-block; animation: spin 1s linear infinite; margin-right: 0.35rem;"></i> Actualizando...';
+
+      try {
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword
+        });
+
+        if (error) throw error;
+
+        showAlert('¡Contraseña restablecida con éxito! Redirigiendo a tu bodega...', 'success');
+        
+        // Limpiar hash
+        window.location.hash = '';
+
+        // Esperar transición
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 1500);
+
+      } catch (error) {
+        let msg = error.message;
+        if (typeof msg === 'object') msg = JSON.stringify(msg);
+        if (msg === '{}' || msg === '[object Object]') msg = '';
+        showAlert(msg || 'Error al restablecer la contraseña. Vuelve a intentarlo.');
+      } finally {
+        resetBtn.disabled = false;
+        resetBtn.textContent = 'Actualizar Contraseña';
       }
     });
   }
