@@ -2027,6 +2027,201 @@ Hemos implementado un desacoplamiento completo para las observaciones y apelacio
 1. **Estructura de Base de Datos e Integración de RLS**:
    - Agregamos las nuevas columnas a la tabla `billing_records`: `client_observation_enviame`, `admin_response_enviame`, `observation_status_enviame`, y `observation_updated_at_enviame`.
    - Modificamos la política RLS `Clientes pueden actualizar observaciones de sus comercios` en `public.billing_records` para permitir que los clientes actualicen los campos de observaciones y estados tanto de Fulfillment como de Envíame de manera segura.
+## 82. Reubicación del Módulo "Reasignar Comercio / Tienda"
+
+Para evitar sobrecargar visualmente la columna de **Integración y Despacho** (Columna 3 en el detalle del pedido) y mantener un flujo de trabajo más limpio e intuitivo:
+
+1. **Reubicación de la Sección**:
+   - Movimos la sección **Reasignar Comercio / Tienda** (el selector de comercios) al final de la columna central de **Ítems del Pedido** (Columna 2), justo debajo del desglose de productos.
+2. **Estilo y Espaciado**:
+   - Se le aplicó un margen superior de `1.25rem` (`margin-top: 1.25rem;`) y se mantuvo el borde discontinuo estilo premium, logrando que el selector esté perfectamente integrado y no genere contaminación visual en el panel de transportes.
+
+---
+
+## 83. Consistencia de la Vista de Detalles del Pedido en el Portal del Cliente (Tags y Datos Premium sin Edición)
+
+Hemos mejorado drásticamente la consistencia de la interfaz del portal de clientes (`js/app.js`) para alinearla al diseño premium del administrador:
+
+1. **Alineación Estética de Integración y Despacho**:
+   - Reemplazamos la columna 3 simplificada del cliente por el diseño premium estructurado en tarjetas de la vista de administrador.
+   - El cliente ahora visualiza el bloque de **Origen de la Orden** (Plataforma, ID de Pedido, Estado de Plataforma), el bloque de **Courier y Tracking** (Courier Asignado, Enlace de Seguimiento con badges de estado global/crudo y botón de etiqueta si corresponde), y el bloque de **Auto Track / Monitoreo** (con su diseño dinámico de Radar).
+
+2. **Sin Capacidad de Edición para el Cliente**:
+   - Aislamos todos los controles y botones de edición de la columna 3 (tales como "Editar Envío", "Editar Picking", selectores de reasignación) para que el cliente únicamente visualice la información en formato de lectura premium, resguardando la integridad operacional del WMS.
+
+3. **Reubicación y Organización de Campos Logísticos**:
+   - Agrupamos de forma prolija los campos de logística interna (**Sucursal Pickeo**, **Agenda Picking**, **Fecha Procesamiento** y **Operador Courier**) en una sección de lectura con bordes punteados al final de la columna 1 (**Datos de Despacho**).
+   - Añadimos la columna `sucursal_pickeo` a la consulta de órdenes principal de la sección de clientes para garantizar su correcta visualización.
+
+4. **Soporte Completo de Etiqueta (Descarga y Enlace)**:
+   - Añadimos soporte para renderizar tanto etiquetas descargables en Base64 como enlaces directos a etiquetas externas (`order.label_url`) para que los clientes puedan consultar o descargar el archivo original directamente si está disponible.
+
+---
+
+## 84. Consistencia Total de Visibilidad de Despacho y Estados de Seguimiento para el Cliente
+
+Para cumplir a cabalidad con la solicitud de que el portal del cliente tenga la misma visibilidad y visualización exacta de envíos y estados que la del administrador:
+
+1. **Remoción de Filtro `visible_to_client`**:
+   - Eliminamos la restricción `.eq('visible_to_client', true)` de todas las consultas Supabase hacia la tabla `envios_unificados` en `js/app.js`.
+   - Esto permite que el cliente recupere los registros de despacho y tracking para sus pedidos de forma irrestricta (al igual que el administrador), solucionando el problema donde los envíos quedaban invisibles debido a dicho flag.
+   - La seguridad de los datos se mantiene garantizada a nivel de comercio/proveedor mediante el filtrado de pertenencia por `companyList` de la cuenta.
+
+2. **Visibilidad de Badges de Seguimiento en la Rejilla y Modal**:
+   - Al cargar correctamente la información de despacho unificado sin filtros restrictivos, ahora se renderizan en tiempo real los badges de estado global (`DESPACHADO`, `ALERTA`, etc.) y el estado particular descriptivo tanto en la columna de badges de la fila de la grilla principal de pedidos como en la tarjeta de Auto Track del detalle del pedido.
+
+---
+
+## 85. Optimización Chunked para Carga de Despachos Unificados en Cliente (Prevención de Error HTTP 414)
+
+Al cargar la lista de despachos unificados asociados a los pedidos del cliente en [js/app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js):
+
+1. **El Problema**:
+   - Las consultas a `envios_unificados` usaban `.in('pedido_referencia', allRefs)` con una lista que contenía los identificadores de todos los pedidos cargados del mes (más de 1,500 referencias en clientes de alto volumen).
+   - Esto resultaba en peticiones HTTP con URLs excesivamente largas que excedían los límites del servidor (HTTP 414 URI Too Large), causando que la consulta fallara silenciosamente y dejara la lista de envíos vacía, mostrando el seguimiento como `-`.
+
+2. **La Solución (Consulta Segmentada)**:
+   - Implementamos la función `fetchEnviosUnificadosByRefs(allRefs)` en el cliente con un tamaño de lote (`CHUNK_SIZE`) de 150 elementos, idéntica a la optimización del panel de administración.
+   - Reemplazamos las llamadas directas de consulta de despachos tanto para la carga inicial de la grilla como para la carga en segundo plano del historial histórico.
+   - Esto garantiza la correcta asociación de despachos (incluyendo los de OptiRoute/Stocka X como el del pedido `MAG5609`) bajo cualquier volumen de órdenes.
+
+---
+
+## 86. Corrección de RLS para el Registro de Observaciones de Facturación (Portal Cliente)
+
+Hemos detectado y corregido un problema de seguridad a nivel de base de datos (RLS) que impedía a los usuarios cliente enviar comentarios u observaciones sobre sus facturas:
+
+1. **Causa Raíz de la Falla Silenciosa**:
+   - En la tabla `public.billing_records`, existía una política de lectura (`FOR SELECT`) para clientes, pero no una política que permitiera la actualización (`FOR UPDATE`).
+   - Como resultado, cuando un cliente (por ejemplo, `mlg@magicmakeup.cl`) rellenaba la apelación en el portal y enviaba la solicitud, la API de Supabase rechazaba el `UPDATE` retornando `0` filas actualizadas. En la interfaz cliente esto no arrojaba un error de red y simulaba un éxito aparente, pero el comentario nunca llegaba a guardarse.
+
+2. **Aplicación de la Nueva Política de UPDATE**:
+   - Diseñamos la política `"Clientes pueden actualizar observaciones de sus comercios"` para la tabla `public.billing_records`.
+   - Esta política restringe la actualización para que el usuario autenticado solo pueda modificar registros que pertenezcan a su comercio (siguiendo el mismo esquema riguroso del filtrado de lectura).
+   - Generamos el archivo de migración [supabase_schema_billing_records_policy_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing_records_policy_fix.sql) con las sentencias correspondientes y actualizamos el archivo consolidado [supabase_schema_billing.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing.sql).
+
+---
+
+## 87. Sincronización de Prefijos en Webhooks y Limpieza de Pedidos Duplicados (SMILE FOR PETS)
+
+Detectamos y corregimos un problema de duplicación de pedidos que afectaba al comercio **SMILE FOR PETS** (y potencialmente a otros comercios con prefijos personalizados de Shopify):
+
+1. **Causa Raíz de la Duplicación**:
+   - En la base de datos existía el comercio `SMILE FOR PETS` con la sigla `SFP` configurada en `comercios_adicional_config` con `agregar_prefijo: true` para Shopify.
+   - El webhook en tiempo real (`shopify-webhook` Edge Function) insertaba las órdenes con su identificador original de Shopify (ej: `#3326`).
+   - El script programado `sync_shopify.js` procesaba las órdenes aplicando el prefijo (`SFP#3326`) y, al buscarlas en la base de datos para actualizar, no encontraba concordancia con `#3326`, por lo que insertaba un registro duplicado.
+
+2. **Resolución de la Duplicación en Webhooks**:
+   - Modificamos la Edge Function [index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-webhook/index.ts) para implementar la misma lógica de resolución de prefijos que `sync_shopify.js`, utilizando las consultas a `v_comercios_config` y `comercios_adicional_config`.
+   - Ahora, tanto el webhook como el script programado resuelven exactamente la misma referencia final (ej: `SFP#3326`), evitando la creación de duplicados a futuro.
+
+3. **Saneamiento de Datos Históricos**:
+   - Diseñamos y ejecutamos un script inteligente de purga ([execute_smile_cleanup.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/scratch/execute_smile_cleanup.js)) que analizó 50 grupos de duplicados de `SMILE FOR PETS`.
+   - El script priorizó conservar el registro con el estado más avanzado en el WMS (ej: `Pickeado` o `Despachado`) frente a `En procesamiento`.
+   - Eliminó las copias sobrantes respetando la integridad (eliminación en cascada de items) y formateó las órdenes conservadas con el prefijo correcto `SFP#` si no lo tenían, asegurando coherencia total de datos y eliminando los 50 grupos de duplicados.
+
+---
+
+## 88. Búsqueda por Lista de Pedidos (Multiselección) y Persistencia de Selección en WMS
+
+Hemos implementado dos importantes mejoras de usabilidad en el panel del WMS Administrador:
+
+1. **Botón de Multiselección y Ventana Modal**:
+   - Reemplazamos la caja de texto estática por un botón estilizado **"Multiselección"** en la barra de filtros del WMS.
+   - Al hacer clic, abre un modal emergente interactivo (SweetAlert) donde el operador puede pegar cómodamente los números de pedido o IDs de Supabase.
+   - El modal ofrece tres opciones claras: **Aplicar Filtro**, **Limpiar Filtro** y **Cancelar**.
+   - Al aplicar el filtro, el botón cambia dinámicamente de apariencia (borde y fondo en color primario de acento) y muestra el contador de pedidos filtrados (ej: `Multiselección (8)`).
+   - **Auto-selección Inteligente**: Al ingresar una lista de pedidos mediante el modal de multiselección, el sistema selecciona automáticamente y de forma inmediata todos los pedidos coincidentes en el WMS (marcándolos con el checkbox y sumándolos al conjunto de órdenes seleccionadas), de modo que el operador puede aplicar acciones masivas inmediatamente.
+
+2. **Persistencia de Selección tras Acciones Masivas**:
+   - Anteriormente, al ejecutar una acción masiva (como asignar operador, asignar datos de preparación o asignar periodo de facturación), la selección de pedidos se borraba (`wmsSelectedOrderIds.clear()`) de manera automática.
+   - Modificamos las funciones `bulkSetWmsOrderOperador`, `bulkSetWmsOrderPickingInfo` y `bulkSetWmsOrderBillingPeriod` para que **no limpien** el conjunto de pedidos seleccionados.
+   - Esto permite que los pedidos sigan seleccionados después de que la base de datos se actualice, facilitando al operador encadenar múltiples configuraciones masivas sucesivas sobre la misma selección de pedidos sin tener que volver a buscarlos y marcarlos.
+
+---
+
+## 89. Separación de Flujos de Registro e Incorporación en la Página de Acceso (Login)
+
+Modificamos la interfaz de la página de inicio de sesión (`index.html`) para diferenciar con total claridad el canal de nuevos clientes del canal de clientes existentes:
+
+1. **Doble Tarjeta Guiada (Dual-Path Layout)**:
+   - **¿Nuevo en Stocka? (Solicitar Alta)**: Mantenemos el recuadro con temática violeta (`--color-accent` / `@ri-rocket-2-line`) destinado a los comercios nuevos que desean iniciar su cotización e incorporación a Stocka, dirigiéndolos hacia `onboarding.html`.
+   - **¿Ya eres cliente de Stocka? (Crear Cuenta)**: Diseñamos una nueva tarjeta con bordes punteados de color esmeralda (`--color-success` / `@ri-user-add-line`) dedicada a los clientes con servicio contratado que únicamente necesitan su usuario para acceder al portal.
+
+2. **Remoción de Enlaces Confusos**:
+   - Eliminamos el enlace de texto plano simple del pie de página que decía *"¿No tienes una cuenta? Regístrate aquí"*. Esto evita que los clientes se confundan y realicen el flujo de onboarding comercial creyendo que es el registro regular del WMS.
+   - El nuevo botón *"Crear tu Cuenta de Usuario"* reutiliza el disparador de alternancia original (`#toggle-to-register`), asegurando compatibilidad nativa con la lógica existente de `js/auth.js`.
+
+---
+
+## 90. Implementación de Slideshow (Carrusel) de Características WMS en la Página de Login
+
+Transformamos la columna derecha estática de la página de inicio de sesión (`index.html`) en un carrusel interactivo y premium que educa a los usuarios sobre las funcionalidades clave del WMS Stocka:
+
+1. **Diseño de Diapositivas e Iconografía Premium**:
+   - **Slide 1 (Inventario)**: *Control de Inventario en Tiempo Real* (icono `ri-archive-line`), ilustrando el control de stock, mapping de SKU y packs.
+   - **Slide 2 (Preparación)**: *Picking y Empaque Automatizado* (icono `ri-barcode-box-line`), destacando la sincronización multicanal y lectura de códigos de barras.
+   - **Slide 3 (Envíos)**: *Monitoreo y Despacho Multicourier* (icono `ri-truck-line`), mostrando Auto Track y emisión automática de etiquetas.
+   - **Slide 4 (Finanzas)**: *Finanzas y Reportes Transparentes* (icono `ri-file-chart-line`), describiendo el control de cobros y el flujo de apelaciones directas.
+
+2. **Detalles de Animación y Estilos (Style.css)**:
+   - Añadimos clases CSS (`.auth-slider-container`, `.auth-slide`, `.auth-slide-bg`, `.auth-slide-content`, `.auth-slider-dots` y `.auth-slider-dot`) al final de `css/style.css`.
+   - Implementamos efectos de transición de opacidad cruzada (`opacity`), zoom progresivo (`transform: scale`) en los fondos, y entrada flotante (`translateY`) en el contenido de texto.
+   - Cuenta con una capa de gradiente oscuro (`auth-slide-overlay`) que garantiza excelente legibilidad de los textos blancos sobre cualquier imagen de fondo.
+
+3. **Lógica de Control Asíncrona (Auth.js)**:
+   - Agregamos la lógica en `js/auth.js` que gestiona la rotación automática cada 5 segundos y responde de inmediato al clic en los puntos indicadores (dots) inferiores para la navegación manual.
+
+---
+
+## 91. Corrección de Pedidos MercadoLibre Duplicados en Webhooks y Saneamiento de Datos
+
+Detectamos y corregimos un problema de duplicación de pedidos que afectaba a la integración de MercadoLibre:
+
+1. **Causa Raíz de la Duplicación**:
+   - La Edge Function `meli-webhook` insertaba las órdenes con su identificador original de MercadoLibre (ej: `2000014053625735`).
+   - El script programado `sync_meli.js` procesaba las órdenes aplicando el prefijo/sigla del comercio de forma automatizada (ej: `MAG2000014053625735` para MAGIC MAKEUP).
+   - Cuando el script programado buscaba si el pedido existía en la base de datos para no duplicarlo, buscaba por el formato con prefijo (`MAG2000014053625735`). Como el webhook lo había insertado sin prefijo (`2000014053625735`), no encontraba concordancia y volvía a insertar la orden, generando un duplicado.
+
+2. **Resolución en Webhooks (`supabase/functions/meli-webhook/index.ts`)**:
+   - Implementamos la función de resolución de prefijos `resolveMeliOrderNumber(comercio, originalGroupId)` que lee dinámicamente `v_comercios_config` y `comercios_adicional_config` para resolver el prefijo de MercadoLibre idénticamente al script `sync_meli.js`.
+   - Modificamos la comprobación de existencia previa en el webhook para buscar por ambos formatos usando `.in('external_order_number', [groupId, finalGroupId])`. Esto previene duplicaciones incluso si alguna orden fue creada inicialmente sin prefijo.
+   - Guardamos las nuevas órdenes en la base de datos usando el número unificado con prefijo (`finalGroupId`).
+
+3. **Saneamiento Histórico Total (`scratch/execute_meli_cleanup.js`)**:
+   - Desarrollamos un script de purga paginado inteligente que analizó toda la historia de pedidos de MercadoLibre (2,241 registros).
+   - Identificó 349 grupos duplicados y evaluó cuál de los registros conservar: priorizó el que tuviese un estado de WMS más avanzado en bodega (ej: `Despachado` o `Pickeado` sobre `En procesamiento`).
+   - Eliminó las 349 órdenes duplicadas sobrantes, renombró las conservadas al formato con prefijo unificado si era necesario, y actualizó concurrentemente la columna `pedido_referencia` en la tabla unificada de despachos (`envios_unificados`) para evitar que se perdiera el enlace de seguimiento en el portal de clientes.
+
+---
+
+## 92. Prevención Global de Duplicados por Cambios de Prefijo y Limpieza de Falabella y París
+
+Extendimos la solución de prevención de duplicados de forma proactiva y realizamos la limpieza en las demás plataformas integradas:
+
+1. **Detección e Identificación**:
+   - Analizamos toda la base de datos buscando duplicados en otras plataformas integradas. Detectamos un patrón de duplicados menor en **Falabella** (7 grupos) y **París** (26 grupos) afectando a comercios como `SERPA LTDA`, `MAGIC MAKEUP`, `RCT CHILE` y `THE SKIN STORE`.
+   - **Causa**: Estos duplicados ocurrieron cuando los comercios cambiaron su configuración de prefijos (`agregarPrefijo` habilitado/deshabilitado en base de datos) a mitad de camino. Los scripts de sincronización buscaban por el nuevo formato del número de orden, no encontraban el registro anterior y lo duplicaban.
+
+2. **Saneamiento Histórico Concurrente (`scratch/execute_all_platforms_cleanup.js`)**:
+   - Desarrollamos y ejecutamos un script de limpieza multicorreo enfocado en Falabella y París.
+   - Procesó 33 grupos duplicados históricos aplicando el mismo criterio operativo (conservando la orden con mayor estado operativo en WMS, renombrándola si correspondía, eliminando la duplicada inútil, y actualizando la columna unificada `pedido_referencia` en `envios_unificados`).
+
+3. **Protección Proactiva Transversal en Sincronizadores y Webhooks**:
+   - Para evitar duplicaciones futuras por cambios de configuración de siglas/prefijos en base de datos, modificamos todos los scripts y webhooks para que realicen búsquedas tolerantes a prefijos (`.in('external_order_number', [orderNumber, finalOrderNumber])`).
+   - Los archivos actualizados son:
+     * **Sincronizadores**: [sync_falabella.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_falabella.js), [sync_paris.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_paris.js), [sync_jumpseller.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_jumpseller.js) y [sync_tiendanube.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/sync_tiendanube.js).
+     * **Webhooks**: [supabase/functions/shopify-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/shopify-webhook/index.ts), [supabase/functions/jumpseller-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/jumpseller-webhook/index.ts) y [supabase/functions/tiendanube-webhook/index.ts](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase/functions/tiendanube-webhook/index.ts).
+
+---
+
+## 93. Desacoplamiento y Separación Completa de Observaciones/Apelaciones para Envíame y Fulfillment
+
+Hemos implementado un desacoplamiento completo para las observaciones y apelaciones de cobro de facturación de los clientes, permitiendo manejar de forma independiente las disputas de Fulfillment y Envíame:
+
+1. **Estructura de Base de Datos e Integración de RLS**:
+   - Agregamos las nuevas columnas a la tabla `billing_records`: `client_observation_enviame`, `admin_response_enviame`, `observation_status_enviame`, y `observation_updated_at_enviame`.
+   - Modificamos la política RLS `Clientes pueden actualizar observaciones de sus comercios` en `public.billing_records` para permitir que los clientes actualicen los campos de observaciones y estados tanto de Fulfillment como de Envíame de manera segura.
 
 2. **Panel del Cliente e Ingreso de Comentarios (`js/app.js`)**:
    - Modificamos el modal de observaciones (`openClientBillingObservationModal`) y su formulario para aceptar un parámetro de servicio (`serviceType` = `'fulfillment'` o `'enviame'`).
@@ -2036,9 +2231,6 @@ Hemos implementado un desacoplamiento completo para las observaciones y apelacio
    - Modificamos la grilla general de apelaciones en el módulo de facturación para listar de forma independiente las apelaciones de Fulfillment y Envíame, añadiendo un badge visual distintivo (Fulfillment en azul, Envíame en morado).
    - Actualizamos el contador dinámico del badge reactivo en el botón de la pestaña para sumar de forma combinada los registros con estado `pendiente` de ambos servicios.
    - Adaptamos el modal de resolución administrativa (`openAdminBillingObservationModal`) para guardar las respuestas de manera independiente en los campos respectivos según el servicio que se esté respondiendo.
-
-
-
 
 ---
 
