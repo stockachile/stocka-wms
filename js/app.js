@@ -18897,10 +18897,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           }
 
           // Obtener todos los productos del comercio para mapeo y validación
-          const { data: dbProducts } = await supabase
-            .from('products')
-            .select('id, sku, name')
-            .eq('comercio', commerce);
+          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
 
           const productMap = {};
           if (dbProducts) {
@@ -19122,10 +19119,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           }
 
           // Obtener todos los productos del comercio
-          const { data: dbProducts } = await supabase
-            .from('products')
-            .select('id, sku, name, length, width, height')
-            .eq('comercio', commerce);
+          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name, length, width, height', q => q.eq('comercio', commerce));
 
           const productMap = {};
           if (dbProducts) {
@@ -19288,17 +19282,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
             return;
           }
 
-          // Obtener todos los productos del comercio
-          const { data: dbProducts, error: dbErr } = await supabase
-            .from('products')
-            .select('id, sku, name, volumen')
-            .eq('comercio', commerce);
-
-          if (dbErr) {
-            console.error('Error al consultar productos:', dbErr);
-            alert(`Error de Base de Datos: ${dbErr.message}\n\nEs altamente probable que falte agregar la columna "volumen" a la tabla "products". Por favor ejecuta el script de migración SQL "supabase_schema_product_upload.sql" en el panel/SQL Editor de Supabase para agregar la columna y poder realizar esta carga.`);
-            return;
-          }
+          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name, volumen', q => q.eq('comercio', commerce));
 
           const productMap = {};
           if (dbProducts) {
@@ -22957,11 +22941,7 @@ function openBulkStockAssignModal(commerce, onComplete) {
           return;
         }
 
-        // Fetch products of commerce
-        const { data: dbProducts } = await supabase
-          .from('products')
-          .select('id, sku, name')
-          .eq('comercio', commerce);
+        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
 
         const productMap = {};
         if (dbProducts) {
