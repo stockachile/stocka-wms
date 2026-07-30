@@ -331,7 +331,8 @@ async function syncMerchantOrders(integration) {
       let limitDateStr = null;
       if (mainSubOrder) {
         baseMethod = mainSubOrder.carrier || (mainSubOrder.deliveryOption?.translate || mainSubOrder.deliveryOption?.name || 'Despacho París');
-        limitDateStr = mainSubOrder.arrivalDateEnd || mainSubOrder.arrivalDate;
+        // Priorizar la fecha límite de despacho (dispatchDate) que es el compromiso del vendedor
+        limitDateStr = mainSubOrder.dispatchDate || mainSubOrder.arrivalDateEnd || mainSubOrder.arrivalDate;
       }
       
       let shippingMethodVal = baseMethod;
