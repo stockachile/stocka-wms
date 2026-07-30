@@ -400,7 +400,7 @@ async function init() {
     const shopParam = urlParams.get('shop');
 
     if (!session) {
-      if (shopParam) {
+      if (shopParam && urlParams.get('integration') !== 'success') {
         console.log('DEBUG: Detectada instalación de Shopify (Sin sesión). Redirigiendo a OAuth inmediatamente...');
         const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
         const clientId = '4d04c58f432c53fb870d1fbcad92431c'; // Client ID público de STOCKA WMS
@@ -448,8 +448,8 @@ async function init() {
       return;
     }
 
-    // Si el usuario está logueado y viene con el parámetro shop (de la App Store)
-    if (session && shopParam) {
+    // Si el usuario está logueado y viene con el parámetro shop (de la App Store), PERO no es el retorno de success
+    if (session && shopParam && urlParams.get('integration') !== 'success') {
       console.log('DEBUG: Detectada instalación de Shopify con sesión activa. Redirigiendo a OAuth...');
       const cleanShopUrl = shopParam.trim().replace(/^https?:\/\//, '');
       const clientId = '4d04c58f432c53fb870d1fbcad92431c';
