@@ -6215,7 +6215,7 @@ async function renderIntegrations() {
       : (!hasShopify 
           ? '<button type="submit" class="btn btn-primary" id="btn-save-shopify" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Tienda Shopify</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-shopify" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Shopify</button>' +
-            '<button type="button" class="btn btn-primary" id="btn-sync-shopify" style="background-color: #10b981; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s;">Sincronizar Productos</button>');
+            '<button type="button" class="btn btn-primary" id="btn-sync-shopify" style="background-color: #10b981; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.4rem;"><i class="ri-refresh-line"></i> Sincronizar Pedidos y Productos</button>');
 
     const parisButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
@@ -6340,7 +6340,6 @@ async function renderIntegrations() {
                    </div>
                    <div style="display: flex; align-items: center; gap: 0.5rem;">
                       ${shopifyStatusText}
-                      ${hasShopify ? `<button type="button" class="btn btn-secondary" id="btn-sync-shopify-now" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-refresh-line"></i> Sincronizar Ahora</button>` : ''}
                    </div>
                 </div>
                 <form id="form-shopify-integration">
@@ -7367,20 +7366,20 @@ async function renderIntegrations() {
         }
       });
 
-      document.getElementById('btn-sync-shopify').addEventListener('click', async () => {
+      document.getElementById('btn-sync-shopify')?.addEventListener('click', async () => {
         if (userRole === 'observer') {
           alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
           return;
         }
         
-        const btnSync = document.getElementById('btn-sync-shopify');
-        btnSync.disabled = true;
-        btnSync.textContent = 'Sincronizando...';
+        const syncOverlay = window.showShopifySyncOverlay();
+        syncOverlay.updateProgress(25, '🔒 Autenticando credenciales con Shopify...');
 
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("No hay sesión activa");
 
+          syncOverlay.updateProgress(60, '📦 Importando productos, variantes e historial de pedidos...');
           const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
             method: 'POST',
             headers: {
@@ -7392,22 +7391,22 @@ async function renderIntegrations() {
             })
           });
 
-          const result = await response.json();
-          
           if (!response.ok) {
-            throw new Error(result.error || 'Error al sincronizar');
+            const errText = await response.text();
+            throw new Error(errText || 'Error al sincronizar');
           }
 
-          alert(`¡Catálogo sincronizado exitosamente! Se importaron/actualizaron ${result.count} variantes de productos.`);
-          if (typeof renderInventory === 'function') {
-            renderInventory(); // Recargar inventario si corresponde
-          }
+          const result = await response.json();
+          
+          syncOverlay.complete(result.products_count || 0, result.orders_count || 0, () => {
+            renderIntegrations();
+            if (typeof renderInventory === 'function') {
+              renderInventory();
+            }
+          });
         } catch (err) {
           console.error(err);
-          alert('Error en la sincronización: ' + err.message);
-        } finally {
-          btnSync.disabled = false;
-          btnSync.textContent = 'Sincronizar Productos';
+          syncOverlay.error(err.message);
         }
       });
     }
