@@ -22262,15 +22262,16 @@ function renderNoOnboardingState() {
   appContent.innerHTML = `
     <div style="max-width: 600px; margin: 3rem auto; padding: 2.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); text-align: center;">
       <div style="width: 72px; height: 72px; background: rgba(99, 102, 241, 0.1); color: var(--color-accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem auto; font-size: 2.2rem;">
-        <i class="ri-rocket-2-line"></i>
+        <i class="ri-user-settings-line"></i>
       </div>
-      <h3 style="font-weight: 700; font-size: 1.4rem; color: var(--color-text-main); margin-bottom: 0.75rem;">¡Bienvenido a WMS Stocka!</h3>
+      <h3 style="font-weight: 700; font-size: 1.4rem; color: var(--color-text-main); margin-bottom: 0.75rem;">¡Cuenta de Usuario Registrada!</h3>
       <p style="color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.6; margin-bottom: 2rem;">
-        Para comenzar a operar en nuestro centro de distribución y despachar tus productos, primero debes completar la solicitud de alta del servicio de Fulfillment 360.
+        Tu cuenta ha sido creada con éxito en el sistema WMS. <br><br>
+        Actualmente te encuentras en modo observador. Pronto nuestro equipo te dará los permisos necesarios y tus credenciales en el WMS para comenzar a operar.
       </p>
-      <a href="./onboarding.html" class="btn btn-primary" style="padding: 0.75rem 2rem; font-size: 0.95rem; border-radius: var(--radius-md); display: inline-flex; align-items: center; gap: 0.5rem; text-decoration: none;">
-        Comenzar Onboarding <i class="ri-arrow-right-line"></i>
-      </a>
+      <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1.2rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); color: var(--color-accent); font-weight: 600; font-size: 0.9rem;">
+        <i class="ri-time-line"></i> Esperando asignación de permisos
+      </div>
     </div>
   `;
 }
