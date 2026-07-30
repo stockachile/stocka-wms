@@ -7290,6 +7290,7 @@ async function renderIntegrations() {
 
         // Redirigir a la pantalla de instalación oficial de Shopify
         window.location.href = `https://${cleanShopUrl}/admin/oauth/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(stateBase64)}`;
+      });
     } else {
       document.getElementById('btn-sync-shopify-now')?.addEventListener('click', async () => {
         const btn = document.getElementById('btn-sync-shopify-now');
