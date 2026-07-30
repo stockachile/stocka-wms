@@ -480,10 +480,12 @@ async function init() {
     // Verificación de retorno exitoso de OAuth con Shopify
     if (urlParams.get('integration') === 'success') {
       const shop = urlParams.get('shop');
+      const cleanShopUrl = shop ? shop.trim().replace(/^https?:\/\//, '') : '';
+      
+      const syncOverlay = window.showShopifySyncOverlay();
+      syncOverlay.updateProgress(20, '🔒 Autenticando token y verificando tienda Shopify...');
+
       if (shop) {
-        // En caso de que se haya guardado con el id temporal (cuando el usuario no estaba logueado),
-        // vinculamos la integración al usuario actual y su comercio real.
-        const cleanShopUrl = shop.trim().replace(/^https?:\/\//, '');
         const { data: profile } = await supabase
           .from('profiles')
           .select('comercio')
@@ -502,16 +504,38 @@ async function init() {
           .eq('merchant_id', '331a14f5-f2a8-43d8-a1ee-0070e96ced31');
       }
 
-      alert('¡Tienda Shopify conectada exitosamente!');
-      const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
-      window.history.pushState({ path: newUrl }, '', newUrl);
-      setTimeout(() => {
-        const integrationsTab = Array.from(document.querySelectorAll('.nav-item'))
-          .find(n => n.getAttribute('data-view') === 'integrations');
-        if (integrationsTab) {
-          integrationsTab.click();
+      syncOverlay.updateProgress(50, '⚡ Suscribiendo webhooks de eventos en tiempo real...');
+
+      let prodsCount = 0;
+      let ordsCount = 0;
+      try {
+        syncOverlay.updateProgress(75, '📦 Importando productos, variantes e historial de pedidos...');
+        const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          },
+          body: JSON.stringify({ comercio: window.activeIntegrationCommerce })
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          prodsCount = resData.products_count || 0;
+          ordsCount = resData.orders_count || 0;
         }
-      }, 500);
+      } catch (err) {
+        console.error('Error en sincronización inicial post-oauth:', err);
+      }
+
+      syncOverlay.complete(prodsCount, ordsCount, () => {
+        const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+        window.history.pushState({ path: newUrl }, '', newUrl);
+        setTimeout(() => {
+          const integrationsTab = Array.from(document.querySelectorAll('.nav-item'))
+            .find(n => n.getAttribute('data-view') === 'integrations');
+          if (integrationsTab) integrationsTab.click();
+        }, 300);
+      });
     }
 
     // Verificar rol y datos de perfil
@@ -7293,13 +7317,14 @@ async function renderIntegrations() {
       });
     } else {
       document.getElementById('btn-sync-shopify-now')?.addEventListener('click', async () => {
-        const btn = document.getElementById('btn-sync-shopify-now');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Sincronizando...';
+        const syncOverlay = window.showShopifySyncOverlay();
+        syncOverlay.updateProgress(25, '🔒 Autenticando credenciales de Shopify...');
+
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (!session) throw new Error("No hay sesión activa");
           
+          syncOverlay.updateProgress(60, '📦 Descargando productos, variantes e historial de pedidos...');
           const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
             method: 'POST',
             headers: {
@@ -7311,14 +7336,13 @@ async function renderIntegrations() {
 
           if (!res.ok) throw new Error(await res.text());
           const resData = await res.json();
-          alert(`¡Sincronización completada exitosamente!\n\nProductos procesados: ${resData.products_count || 0}\nPedidos procesados: ${resData.orders_count || 0}`);
-          renderIntegrations();
+
+          syncOverlay.complete(resData.products_count || 0, resData.orders_count || 0, () => {
+            renderIntegrations();
+          });
         } catch (err) {
           console.error(err);
-          alert('Error al sincronizar Shopify: ' + err.message);
-        } finally {
-          btn.disabled = false;
-          btn.innerHTML = '<i class="ri-refresh-line"></i> Sincronizar Ahora';
+          syncOverlay.error(err.message);
         }
       });
 
@@ -18237,6 +18261,109 @@ function closeCatalogHelpDrawer() {
     drawer.style.right = '-450px';
   }
 }
+
+window.showShopifySyncOverlay = function() {
+  const existing = document.getElementById('shopify-sync-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'shopify-sync-overlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 999999;
+    background: rgba(15, 23, 42, 0.88);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 1.5rem; animation: fadeIn 0.3s ease;
+  `;
+
+  overlay.innerHTML = `
+    <div style="background: var(--color-surface, #1e293b); border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 40px rgba(16, 185, 129, 0.2); border-radius: 1rem; width: 100%; max-width: 540px; padding: 2.5rem 2rem; text-align: center; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif;">
+      
+      <div style="display: flex; align-items: center; justify-content: center; gap: 1.25rem; margin-bottom: 1.75rem;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); border: 2px solid rgba(16, 185, 129, 0.5); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #10b981; animation: pulse 2s infinite;">
+          <i class="ri-shopping-bag-3-line"></i>
+        </div>
+        <div style="font-size: 1.5rem; color: #64748b;"><i class="ri-arrow-right-line"></i></div>
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(59, 130, 246, 0.15); border: 2px solid rgba(59, 130, 246, 0.5); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #3b82f6;">
+          <i class="ri-box-3-line"></i>
+        </div>
+      </div>
+
+      <h3 id="sync-overlay-title" style="font-size: 1.4rem; font-weight: 700; color: #ffffff; margin: 0 0 0.5rem 0;">
+        Sincronizando Tienda Shopify...
+      </h3>
+      
+      <p id="sync-overlay-subtitle" style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 1.75rem 0; line-height: 1.5;">
+        Estamos integrando tu tienda e importando productos y pedidos a STOCKA WMS. Por favor no cierres esta pestaña.
+      </p>
+
+      <div style="background: rgba(255, 255, 255, 0.08); border-radius: 9999px; height: 10px; width: 100%; overflow: hidden; margin-bottom: 1.25rem; border: 1px solid rgba(255, 255, 255, 0.05);">
+        <div id="sync-progress-bar" style="background: linear-gradient(90deg, #10b981, #3b82f6); height: 100%; width: 15%; transition: width 0.4s ease, background 0.4s ease; border-radius: 9999px;"></div>
+      </div>
+
+      <div id="sync-step-container" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0.75rem; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.88rem;">
+        <div id="sync-step-text" style="color: #38bdf8; font-weight: 600; display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.2rem;"></i>
+          <span id="sync-step-label">Conectando con servidores de Shopify...</span>
+        </div>
+      </div>
+
+      <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #f59e0b; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.25); padding: 0.45rem 0.9rem; border-radius: 9999px;">
+        <i class="ri-time-line"></i>
+        <span>Tiempo estimado: <strong>15 a 45 segundos</strong> aprox.</span>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+  window.onbeforeunload = () => "La sincronización de Shopify está en proceso. Por favor no cierres la ventana.";
+
+  return {
+    updateProgress: (percentage, message) => {
+      const pBar = document.getElementById('sync-progress-bar');
+      const label = document.getElementById('sync-step-label');
+      if (pBar) pBar.style.width = `${percentage}%`;
+      if (label && message) label.textContent = message;
+    },
+    complete: (productsCount = 0, ordersCount = 0, onFinish) => {
+      window.onbeforeunload = null;
+      const pBar = document.getElementById('sync-progress-bar');
+      const title = document.getElementById('sync-overlay-title');
+      const subtitle = document.getElementById('sync-overlay-subtitle');
+      const stepText = document.getElementById('sync-step-text');
+      
+      if (pBar) {
+        pBar.style.width = '100%';
+        pBar.style.background = '#10b981';
+      }
+      if (title) title.innerHTML = '<span style="color: #10b981;">✨ ¡Sincronización Completada!</span>';
+      if (subtitle) subtitle.textContent = `Se han importado exitosamente ${productsCount} productos/variantes y ${ordersCount} pedidos.`;
+      if (stepText) {
+        stepText.style.color = '#10b981';
+        stepText.innerHTML = '<i class="ri-checkbox-circle-fill" style="font-size: 1.3rem;"></i> <span>¡Integración lista y conectada al WMS!</span>';
+      }
+
+      setTimeout(() => {
+        const ov = document.getElementById('shopify-sync-overlay');
+        if (ov) ov.remove();
+        if (typeof onFinish === 'function') onFinish();
+      }, 2000);
+    },
+    error: (errorMessage) => {
+      window.onbeforeunload = null;
+      const stepText = document.getElementById('sync-step-text');
+      if (stepText) {
+        stepText.style.color = '#ef4444';
+        stepText.innerHTML = `<i class="ri-error-warning-fill" style="font-size: 1.3rem;"></i> <span>Error: ${errorMessage}</span>`;
+      }
+      setTimeout(() => {
+        const ov = document.getElementById('shopify-sync-overlay');
+        if (ov) ov.remove();
+      }, 4000);
+    }
+  };
+};
 
 window.showStockAndDimensionsPreviewModal = function({ title, headers, rows, onConfirm }) {
   const oldModal = document.getElementById('modal-import-preview');
