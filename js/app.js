@@ -72,23 +72,6 @@ window.roundUpVolume = function(val) {
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
 };
 
-window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
-  let allData = [];
-  let from = 0;
-  const step = 1000;
-  while (true) {
-    let q = supabase.from(tableName).select(selectStr);
-    if (filterCallback) q = filterCallback(q);
-    const { data, error } = await q.range(from, from + step - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    allData = allData.concat(data);
-    if (data.length < step) break;
-    from += step;
-  }
-  return allData;
-};
-
 // Variable global para almacenar el valor de la UF del día con soporte de caché y respaldo offline
 const cachedBackupUf = localStorage.getItem('stocka-last-uf-backup');
 window.currentUfValue = cachedBackupUf ? parseFloat(cachedBackupUf) : 38200; // Fallback predeterminado actualizado a 2026
@@ -919,16 +902,25 @@ async function renderDashboard() {
   try {
     // Obtener estadísticas rápidas
     const companyList = getCompanyList();
-    let invQuery = supabase.from('inventory').select('quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)');
+    let invPromise = window.fetchAllSupabaseRows(
+      'inventory',
+      'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+      q => {
+        if (companyList.length > 0) {
+          return q.in('products.comercio', companyList);
+        } else {
+          return q.eq('products.comercio', 'no asignado');
+        }
+      }
+    ).then(data => ({ data })).catch(error => ({ error }));
+
     let ordQuery = supabase.from('orders').select('id, status');
     let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
     
     if (companyList.length > 0) {
-      invQuery = invQuery.in('products.comercio', companyList);
       ordQuery = ordQuery.in('comercio', companyList);
       intQuery = intQuery.in('comercio', companyList);
     } else {
-      invQuery = invQuery.eq('products.comercio', 'no asignado');
       ordQuery = ordQuery.eq('comercio', 'no asignado');
       intQuery = intQuery.eq('comercio', 'no asignado');
     }
@@ -942,7 +934,7 @@ async function renderDashboard() {
     }
     decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
 
-    const promises = [invQuery, ordQuery, intQuery, decQuery];
+    const promises = [invPromise, ordQuery, intQuery, decQuery];
     if (companyList.length > 0) {
       promises.push(supabase.from('billing_periods').select('*').order('name', { ascending: false }));
       promises.push(supabase.from('billing_mappings').select('comercio_nombre, billing_name'));
@@ -2540,6 +2532,18 @@ async function renderInventory() {
                 <option value="online" ${window.inventoryTypeFilter === 'online' ? 'selected' : ''}>Online</option>
               </select>
             </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem; background: var(--color-bg-alt); padding: 0.35rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); height: 38px; font-size: 0.85rem; color: var(--color-text-main);">
+              <span style="font-weight: 600; margin-right: 0.25rem;">Ver:</span>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="inv-filter-instock" ${window.inventoryFilterInStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #10b981;"> En Stock
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="inv-filter-lowstock" ${window.inventoryFilterLowStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #f59e0b;"> Bajo Stock
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="inv-filter-outofstock" ${window.inventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
+              </label>
+            </div>
             <button id="btn-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
             </button>
@@ -2633,6 +2637,19 @@ async function renderInventory() {
         renderInventoryTableBody();
       });
     }
+
+    // Inicializar listeners de filtros de status checkbox
+    ['instock', 'lowstock', 'outofstock'].forEach(key => {
+      const cb = document.getElementById(`inv-filter-${key}`);
+      if (cb) {
+        cb.addEventListener('change', (e) => {
+          if (key === 'instock') window.inventoryFilterInStock = e.target.checked;
+          if (key === 'lowstock') window.inventoryFilterLowStock = e.target.checked;
+          if (key === 'outofstock') window.inventoryFilterOutOfStock = e.target.checked;
+          renderInventoryTableBody();
+        });
+      }
+    });
 
     // Inicializar listener de exportación CSV
     const exportBtn = document.getElementById('btn-export-inventory');
@@ -2833,6 +2850,18 @@ function applyInventoryFiltersAndSort(flat = false) {
   if (window.inventoryTypeFilter) {
     rows = rows.filter(r => r.product_type === window.inventoryTypeFilter);
   }
+
+  // Filtrar por checkboxes de status
+  const showInStock = window.inventoryFilterInStock !== false;
+  const showLowStock = window.inventoryFilterLowStock !== false;
+  const showOutOfStock = window.inventoryFilterOutOfStock !== false;
+
+  rows = rows.filter(r => {
+    if (r.status === 'En Stock' && !showInStock) return false;
+    if (r.status === 'Bajo Stock' && !showLowStock) return false;
+    if (r.status === 'Agotado' && !showOutOfStock) return false;
+    return true;
+  });
 
   // Ordenamiento
   const col = window.inventorySortColumn || 'name';
@@ -23476,13 +23505,12 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
       const isTransferAll = allStockCheckbox && allStockCheckbox.checked;
 
       if (isTransferAll) {
-        // 1. Obtener todos los productos de este comercio
-        const { data: commerceProds, error: prodsErr } = await supabase
-          .from('products')
-          .select('id, sku, name')
-          .eq('comercio', commerce);
-
-        if (prodsErr) throw prodsErr;
+        // Obtener todos los productos de este comercio
+        const commerceProds = await window.fetchAllSupabaseRows(
+          'products',
+          'id, sku, name',
+          q => q.eq('comercio', commerce)
+        );
 
         if (!commerceProds || commerceProds.length === 0) {
           alert('No se encontraron productos para este comercio.');
@@ -23493,16 +23521,28 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
         const productIds = commerceProds.map(p => p.id);
 
-        // 2. Obtener inventario de estos productos en la bodega de origen
-        const { data: dbInvs, error: invsErr } = await supabase
-          .from('inventory')
-          .select('product_id, quantity')
-          .eq('warehouse_id', srcId)
-          .in('product_id', productIds);
+        // Obtener inventario de estos productos en la bodega de origen por lotes (batching)
+        const batchSize = 100;
+        const promises = [];
+        for (let i = 0; i < productIds.length; i += batchSize) {
+          const batchIds = productIds.slice(i, i + batchSize);
+          promises.push(
+            supabase
+              .from('inventory')
+              .select('product_id, quantity')
+              .eq('warehouse_id', srcId)
+              .in('product_id', batchIds)
+          );
+        }
 
-        if (invsErr) throw invsErr;
+        const results = await Promise.all(promises);
+        const dbInvs = [];
+        for (const res of results) {
+          if (res.error) throw res.error;
+          if (res.data) dbInvs.push(...res.data);
+        }
 
-        for (const inv of (dbInvs || [])) {
+        for (const inv of dbInvs) {
           if ((inv.quantity || 0) > 0) {
             const prod = commerceProds.find(p => p.id === inv.product_id);
             transfers.push({

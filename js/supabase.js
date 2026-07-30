@@ -5,4 +5,21 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Inicializar cliente Supabase usando UMD script cargado en el HTML
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
+  let allData = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    let q = supabase.from(tableName).select(selectStr);
+    if (filterCallback) q = filterCallback(q);
+    const { data, error } = await q.range(from, from + step - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allData = allData.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return allData;
+};
+
 export default supabase;

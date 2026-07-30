@@ -2038,3 +2038,26 @@ Hemos implementado un desacoplamiento completo para las observaciones y apelacio
    - Adaptamos el modal de resolución administrativa (`openAdminBillingObservationModal`) para guardar las respuestas de manera independiente en los campos respectivos según el servicio que se esté respondiendo.
 
 
+
+
+---
+
+## 96. Filtros de Estado de Stock con Checkboxes Acumulativos
+
+Hemos implementado la capacidad de filtrar productos en la tabla de inventario en tiempo real combinando tres estados mediante checkboxes: **En Stock**, **Bajo Stock** y **Agotado**.
+
+1. **Visualización y UI (`js/app.js` y `js/admin.js`)**:
+   - Diseñamos e incorporamos un contenedor horizontal con tres checkboxes estilizados e identificados individualmente (`inv-filter-instock`, `inv-filter-lowstock`, `inv-filter-outofstock` para el cliente y `admin-inv-filter-instock`, `admin-inv-filter-lowstock`, `admin-inv-filter-outofstock` para el administrador) junto a los filtros de tipo de producto.
+   - Cada checkbox está enlazado a variables globales (`window.inventoryFilterInStock`, etc. y sus equivalentes `admin`) y se inicializan en `true` por defecto para mostrar todos los productos.
+
+2. **Eventos y Reactividad**:
+   - Registramos listeners de eventos `'change'` en ambos portales para capturar cuando el usuario activa/desactiva algún estado de stock.
+   - Al cambiar el estado de cualquier checkbox, se gatilla la correspondiente función de renderizado (`renderInventoryTableBody()` / `renderAdminInventoryTableBody()`) de forma inmediata.
+
+3. **Lógica de Filtrado Local (`applyInventoryFiltersAndSort` / `applyAdminInventoryFiltersAndSort`)**:
+   - Modificamos las funciones encargadas de aplicar los filtros y el orden sobre el arreglo en memoria de filas procesadas.
+   - Ahora evalúan el campo `r.status` de cada fila contra el estado de las variables de checkbox:
+     * Si `status === 'En Stock'` y el checkbox correspondiente no está marcado, se descarta.
+     * Si `status === 'Bajo Stock'` y el checkbox correspondiente no está marcado, se descarta.
+     * Si `status === 'Agotado'` y el checkbox correspondiente no está marcado, se descarta.
+   - Esto permite la combinación acumulativa y en tiempo real de cualquiera de los tres estados del inventario.

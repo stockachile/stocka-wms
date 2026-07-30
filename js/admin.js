@@ -6411,6 +6411,18 @@ async function renderAdminInventoryWorkspace(commerce) {
                 <option value="online" ${window.adminInventoryTypeFilter === 'online' ? 'selected' : ''}>Online</option>
               </select>
             </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem; background: var(--color-bg-alt); padding: 0.35rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); height: 38px; font-size: 0.85rem; color: var(--color-text-main);">
+              <span style="font-weight: 600; margin-right: 0.25rem;">Ver:</span>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="admin-inv-filter-instock" ${window.adminInventoryFilterInStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #10b981;"> En Stock
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="admin-inv-filter-lowstock" ${window.adminInventoryFilterLowStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #f59e0b;"> Bajo Stock
+              </label>
+              <label style="display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; user-select: none; font-weight: 500;">
+                <input type="checkbox" id="admin-inv-filter-outofstock" ${window.adminInventoryFilterOutOfStock !== false ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #ef4444;"> Agotado
+              </label>
+            </div>
             <button id="btn-admin-export-inventory" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-download-2-line"></i> Exportar CSV
             </button>
@@ -6493,6 +6505,19 @@ async function renderAdminInventoryWorkspace(commerce) {
         renderAdminInventoryTableBody();
       });
     }
+
+    // Inicializar listeners de filtros de status checkbox en administrador
+    ['instock', 'lowstock', 'outofstock'].forEach(key => {
+      const cb = document.getElementById(`admin-inv-filter-${key}`);
+      if (cb) {
+        cb.addEventListener('change', (e) => {
+          if (key === 'instock') window.adminInventoryFilterInStock = e.target.checked;
+          if (key === 'lowstock') window.adminInventoryFilterLowStock = e.target.checked;
+          if (key === 'outofstock') window.adminInventoryFilterOutOfStock = e.target.checked;
+          renderAdminInventoryTableBody();
+        });
+      }
+    });
 
     const exportBtn = document.getElementById('btn-admin-export-inventory');
     if (exportBtn) {
@@ -6942,6 +6967,18 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
   if (window.adminInventoryTypeFilter) {
     rows = rows.filter(r => r.product_type === window.adminInventoryTypeFilter);
   }
+
+  // Filtrar por checkboxes de status
+  const showInStock = window.adminInventoryFilterInStock !== false;
+  const showLowStock = window.adminInventoryFilterLowStock !== false;
+  const showOutOfStock = window.adminInventoryFilterOutOfStock !== false;
+
+  rows = rows.filter(r => {
+    if (r.status === 'En Stock' && !showInStock) return false;
+    if (r.status === 'Bajo Stock' && !showLowStock) return false;
+    if (r.status === 'Agotado' && !showOutOfStock) return false;
+    return true;
+  });
 
   const col = window.adminInventorySortColumn || 'name';
   const asc = window.adminInventorySortAsc !== false;
@@ -29236,13 +29273,12 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
       const isTransferAll = allStockCheckbox && allStockCheckbox.checked;
 
       if (isTransferAll) {
-        // 1. Obtener todos los productos de este comercio
-        const { data: commerceProds, error: prodsErr } = await supabase
-          .from('products')
-          .select('id, sku, name')
-          .eq('comercio', commerce);
-
-        if (prodsErr) throw prodsErr;
+        // Obtener todos los productos de este comercio
+        const commerceProds = await window.fetchAllSupabaseRows(
+          'products',
+          'id, sku, name',
+          q => q.eq('comercio', commerce)
+        );
 
         if (!commerceProds || commerceProds.length === 0) {
           alert('No se encontraron productos para este comercio.');
@@ -29253,16 +29289,28 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
         const productIds = commerceProds.map(p => p.id);
 
-        // 2. Obtener inventario de estos productos en la bodega de origen
-        const { data: dbInvs, error: invsErr } = await supabase
-          .from('inventory')
-          .select('product_id, quantity')
-          .eq('warehouse_id', srcId)
-          .in('product_id', productIds);
+        // Obtener inventario de estos productos en la bodega de origen por lotes (batching)
+        const batchSize = 100;
+        const promises = [];
+        for (let i = 0; i < productIds.length; i += batchSize) {
+          const batchIds = productIds.slice(i, i + batchSize);
+          promises.push(
+            supabase
+              .from('inventory')
+              .select('product_id, quantity')
+              .eq('warehouse_id', srcId)
+              .in('product_id', batchIds)
+          );
+        }
 
-        if (invsErr) throw invsErr;
+        const results = await Promise.all(promises);
+        const dbInvs = [];
+        for (const res of results) {
+          if (res.error) throw res.error;
+          if (res.data) dbInvs.push(...res.data);
+        }
 
-        for (const inv of (dbInvs || [])) {
+        for (const inv of dbInvs) {
           if ((inv.quantity || 0) > 0) {
             const prod = commerceProds.find(p => p.id === inv.product_id);
             transfers.push({

@@ -325,6 +325,26 @@ async function syncMerchantOrders(integration) {
       // Calcular valor total de la orden sumando precios de los ítems
       const totalValue = allItems.reduce((sum, item) => sum + Number(item.priceAfterDiscounts || item.grossPrice || 0), 0);
 
+      // Calcular método de envío y SLA límite
+      const mainSubOrder = order.subOrders && order.subOrders[0];
+      let baseMethod = 'Despacho París';
+      let limitDateStr = null;
+      if (mainSubOrder) {
+        baseMethod = mainSubOrder.carrier || (mainSubOrder.deliveryOption?.translate || mainSubOrder.deliveryOption?.name || 'Despacho París');
+        limitDateStr = mainSubOrder.arrivalDateEnd || mainSubOrder.arrivalDate;
+      }
+      
+      let shippingMethodVal = baseMethod;
+      if (limitDateStr) {
+        const parts = limitDateStr.split('-');
+        if (parts.length === 3) {
+          const year = parts[0].slice(-2);
+          const month = parts[1];
+          const day = parts[2];
+          shippingMethodVal = `${baseMethod} (Límite: ${day}/${month}/${year})`;
+        }
+      }
+
       // Mapear datos comunes del pedido
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
@@ -340,6 +360,7 @@ async function syncMerchantOrders(integration) {
         shipping_city: shippingAddress?.city || 'No especificada',
         shipping_complement: [shippingAddress?.address2, shippingAddress?.address3].filter(Boolean).join(', ') || '',
         raw_paris_data: order,
+        shipping_method: shippingMethodVal,
         // Nuevas columnas planas solicitadas
         origen: 'Paris',
         item: flatItemName,
