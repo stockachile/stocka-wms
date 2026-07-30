@@ -3250,18 +3250,114 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       
       if (queryErr) throw queryErr;
       
+      // Obtener el comercio del producto
+      const { data: prodData } = await supabase
+        .from('products')
+        .select('comercio')
+        .eq('id', productId)
+        .single();
+      
+      const comercioName = prodData ? prodData.comercio : null;
+      let config = null;
+      if (comercioName) {
+        const { data: configData } = await supabase
+          .from('comercios_adicional_config')
+          .select('*')
+          .eq('comercio', comercioName)
+          .maybeSingle();
+        config = configData;
+      }
+      
       const excludedStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-      items = (rawItems || [])
-        .filter(item => item.orders && !excludedStatuses.includes(item.orders.status?.toLowerCase()))
-        .map(item => ({
-          quantity: item.quantity,
-          order_id: item.orders.id,
-          external_order_number: item.orders.external_order_number,
-          external_platform: item.orders.external_platform,
-          status: item.orders.status,
-          created_at: item.orders.created_at,
-          customer_name: item.orders.customer_name
-        }));
+      const filteredItems = [];
+      
+      for (const item of (rawItems || [])) {
+        if (!item.orders) continue;
+        
+        const orderStatus = (item.orders.status || '').toLowerCase().trim();
+        if (excludedStatuses.includes(orderStatus)) continue;
+        
+        // Simular lógica de should_process_order_stock
+        let shouldProcess = true;
+        if (config) {
+          if (!config.inventario_seguimiento) {
+            shouldProcess = false;
+          } else {
+            const startConfig = config.inventario_inicio_pedidos;
+            if (startConfig && typeof startConfig === 'object') {
+              const platform = item.orders.external_platform || 'Manual';
+              const platformStart = startConfig[platform];
+              if (platformStart) {
+                const startOrderNum = String(platformStart.external_order_number || '').trim();
+                const include = platformStart.incluir !== false;
+                
+                if (startOrderNum) {
+                  let query = supabase
+                    .from('orders')
+                    .select('id, created_at')
+                    .eq('comercio', comercioName)
+                    .eq('external_order_number', startOrderNum);
+                  
+                  if (platform === 'Manual') {
+                    query = query.or('external_platform.is.null,external_platform.eq.Manual');
+                  } else {
+                    query = query.eq('external_platform', platform);
+                  }
+                  
+                  const { data: startOrder } = await query.limit(1).maybeSingle();
+                  
+                  if (startOrder && startOrder.created_at) {
+                    const orderTime = new Date(item.orders.created_at).getTime();
+                    const startTime = new Date(startOrder.created_at).getTime();
+                    if (include) {
+                      shouldProcess = orderTime >= startTime;
+                    } else {
+                      if (item.orders.id === startOrder.id || item.orders.external_order_number === startOrderNum) {
+                        shouldProcess = false;
+                      } else {
+                        shouldProcess = orderTime > startTime;
+                      }
+                    }
+                  } else {
+                    const startVal = parseInt(startOrderNum.replace(/[^0-9]/g, ''), 10);
+                    const orderVal = parseInt(String(item.orders.external_order_number || '').replace(/[^0-9]/g, ''), 10);
+                    
+                    if (isNaN(startVal) || isNaN(orderVal)) {
+                      if (include) {
+                        shouldProcess = String(item.orders.external_order_number || '') >= startOrderNum;
+                      } else {
+                        shouldProcess = String(item.orders.external_order_number || '') > startOrderNum;
+                      }
+                    } else {
+                      if (include) {
+                        shouldProcess = orderVal >= startVal;
+                      } else {
+                        shouldProcess = orderVal > startVal;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          shouldProcess = false;
+        }
+        
+        if (shouldProcess) {
+          filteredItems.push({
+            quantity: item.quantity,
+            order_id: item.orders.id,
+            external_order_number: item.orders.external_order_number,
+            external_platform: item.orders.external_platform,
+            status: item.orders.status,
+            created_at: item.orders.created_at,
+            customer_name: item.orders.customer_name
+          });
+        }
+      }
+      
+      items = filteredItems;
     } else {
       const { data: rpcItems, error: rpcErr } = await supabase.rpc('get_committed_order_details', {
         p_product_id: productId,

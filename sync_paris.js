@@ -248,15 +248,29 @@ async function syncMerchantOrders(integration) {
           finalOrderId = `${siglaComercio}${orderNumber}`;
         }
       }
-      const statusName = order.status?.name || 'created';
-      
-      console.log(`\nProcesando pedido París ID: ${finalOrderId} (Estado actual: ${statusName})`);
+      // Resolver estados desde subOrders
+      let isCancelled = false;
+      let isDelivered = false;
+      let statusName = 'created';
 
-      // Clasificación de estados
-      const isDelivered = statusName === 'delivered' || order.status?.id === 4;
-      const isCancelled = statusName.toLowerCase().includes('cancel') || 
-                          order.status?.description?.toLowerCase().includes('cancel') ||
-                          order.status?.id === 2; // ID común de cancelación
+      if (order.subOrders && Array.isArray(order.subOrders) && order.subOrders.length > 0) {
+        // Cencosud maneja estados a nivel de subOrders
+        isCancelled = order.subOrders.every(so => {
+          const sName = (so.status?.name || '').toLowerCase();
+          const sDesc = (so.status?.description || '').toLowerCase();
+          return sName.includes('cancel') || sDesc.includes('cancel') || so.status?.id === 2;
+        });
+
+        isDelivered = order.subOrders.some(so => {
+          const sName = (so.status?.name || '').toLowerCase();
+          return sName === 'delivered' || so.status?.id === 4;
+        });
+
+        // Usar el estado del primer sub-pedido como descriptivo principal
+        statusName = order.subOrders[0].status?.name || 'created';
+      }
+
+      console.log(`\nProcesando pedido París ID: ${finalOrderId} (Estado actual resolved: ${statusName}, isCancelled: ${isCancelled}, isDelivered: ${isDelivered})`);
       
       const isActive = !isDelivered && !isCancelled;
 

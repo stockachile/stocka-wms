@@ -99,6 +99,31 @@ Hemos implementado un visualizador interactivo para ver en detalle qué pedidos 
 ---
 
 ## 8. Pantalla de Carga Premium en Módulo de Inventario (Cliente)
+---
+
+## 6. Sincronización de Filtros en Detalle de Stock Comprometido (Todas las Bodegas)
+
+Hemos corregido la discrepancia visual entre el stock comprometido mostrado en la tabla de catálogo/inventario y el listado de pedidos del modal "Detalle de Stock Comprometido" al consultar la vista global ("Todas las Bodegas"):
+
+1. **Filtrado en Frontend**:
+   - Anteriormente, al hacer clic en el número de stock comprometido global, el modal realizaba una consulta directa de todas las órdenes activas en Supabase sin aplicar el filtro de inicio de pedidos (`should_process_order_stock`). Esto causaba que se listaran pedidos antiguos (anteriores al inicio configurado del comercio) y se mostrara una suma inflada (ej: 5 en lugar de 3).
+   - Modificamos la consulta global en [admin.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js) y [app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) para obtener la configuración adicional de comercio (`comercios_adicional_config`) y simular exactamente las mismas reglas de exclusión por canal y número de pedido inicial que la base de datos ejecuta.
+2. **Sincronía Perfecta**:
+   - Tras aplicar este filtro en Javascript para la consulta consolidada, el total de unidades comprometidas y el listado de pedidos en el modal ahora coinciden al 100% con los valores de la base de datos en todas las pantallas.
+
+---
+
+## 7. Corrección de Sobreescritura en Sincronización (MercadoLibre/Walmart) y Saneamiento de Pedido (MAGIC MAKEUP)
+
+Hemos solucionado una discrepancia en el stock comprometido de **MAGIC MAKEUP** (donde figuraba 1 unidad comprometida fantasma de `MAGIC064` debido a un pedido ya despachado en WMS):
+
+1. **Bug en Sincronización**:
+   - Descubrimos que al correr la sincronización de MercadoLibre (`sync_meli.js`) y Walmart (`sync_walmart.js`), si el pedido aún no figuraba como despachado en la plataforma origen, el script de integración actualizaba la columna `status` del WMS de vuelta a `'en preparación'` (estado activo) sin alterar `estado_wms = 'Despachado'`.
+   - Modificamos ambos scripts para que **no** actualicen la columna `status` en Supabase si el pedido ya tiene un estado terminal (`despachado`, `cancelado`, `entregado`, `retirado`) en el WMS.
+2. **Saneamiento de la Orden `MAG2000017541792738`**:
+   - Movimos el ítem de la orden desde Bodega Central a **Matriz Ñuñoa** (donde está el stock real de MAGIC MAKEUP) y luego forzamos el estado de la orden a `'despachado'` mediante un script correctivo.
+   - Esto disparó correctamente los triggers de la base de datos, descontando la unidad física y liberando el stock comprometido fantasma de `MAGIC064` en el catálogo.
+
 
 Para mejorar el diseño visual y la experiencia de usuario (UX), hemos alineado el módulo de inventario con el de catálogo introduciendo una pantalla de carga dedicada:
 

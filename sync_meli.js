@@ -572,7 +572,8 @@ async function syncMerchantOrders(integration) {
             shipping_method: shippingMethod
           };
           
-          if (existingOrder.status !== 'cancelado') {
+          const terminalStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+          if (!terminalStatuses.includes(existingOrder.status)) {
             updatePayload.status = targetStatus;
           }
 
