@@ -789,10 +789,6 @@
           </div>
           <div class="step-item" data-step="4">
             <div class="step-circle">4</div>
-            <div class="step-label">Firma</div>
-          </div>
-          <div class="step-item" data-step="5">
-            <div class="step-circle">5</div>
             <div class="step-label">Listo</div>
           </div>
         </div>
@@ -1023,81 +1019,20 @@
             </div>
           </div>
 
-          <!-- PASO 4: FIRMA Y CONTRATO -->
-          <div class="step-panel" id="panel-4">
-            <h2 class="step-title"><i class="ri-ball-pen-line" style="color: var(--color-accent)"></i> Términos y Firma de Contrato</h2>
-            <p class="step-desc">Descarga el contrato, incorpórale tu firma y súbelo digitalizado para formalizar el servicio.</p>
-
-            <div class="alert alert-info" style="margin-bottom: 1.5rem;">
-              <i class="ri-information-line"></i>
-              <div>
-                <strong>Instrucciones:</strong> Descarga la plantilla de contrato en el formato de tu preferencia (PDF o Word), completa la información legal solicitada, fírmalo digitalmente y súbelo a continuación.
-              </div>
-            </div>
-
-            <!-- Plantillas de descarga -->
-            <div class="template-box">
-              <div class="template-desc">
-                <strong><i class="ri-file-text-line"></i> Plantillas de Contrato Stocka:</strong>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">Elige el formato adecuado para descargar y rellenar.</p>
-              </div>
-              <div class="template-links">
-                <!-- Enlaces públicos de Supabase Storage para descargar las plantillas de contrato -->
-                <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.pdf" target="_blank" class="btn-template btn-template-pdf">
-                  <i class="ri-file-pdf-line"></i> Descargar PDF
-                </a>
-                <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.docx" target="_blank" class="btn-template btn-template-word">
-                  <i class="ri-file-word-line"></i> Descargar Word
-                </a>
-              </div>
-            </div>
-
-            <!-- Carga de archivo -->
-            <div class="form-group">
-              <label class="form-label">Cargar aquí tu contrato firmado (PDF) <span style="color: var(--color-danger)">*</span></label>
-              <div class="file-upload-zone" id="drop-zone">
-                <i class="ri-upload-cloud-line file-upload-icon"></i>
-                <div class="file-upload-text">Haz clic o arrastra el archivo aquí para subir</div>
-                <div class="file-upload-hint">Solo se permiten archivos en formato PDF (Max. 10MB)</div>
-                <input type="file" id="contrato_file" class="file-upload-input" accept=".pdf" required>
-              </div>
-
-              <!-- Preview del archivo subido -->
-              <div class="file-preview" id="file-preview-el">
-                <div class="file-preview-info">
-                  <i class="ri-file-pdf-fill file-preview-icon"></i>
-                  <div>
-                    <span class="file-preview-name" id="file-name-span">archivo.pdf</span>
-                    <span class="file-preview-size" id="file-size-span">(0 KB)</span>
-                  </div>
-                </div>
-                <button type="button" class="file-remove-btn" id="file-remove-btn" title="Quitar archivo">
-                  <i class="ri-close-line"></i>
-                </button>
-              </div>
-            </div>
-
-            <!-- Aceptar Checkbox -->
-            <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 1.5rem; padding: 0.5rem 0;">
-              <input type="checkbox" id="accept_terms" style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; accent-color: var(--color-accent);" required>
-              <label for="accept_terms" style="cursor: pointer; font-size: 0.95rem; line-height: 1.4; color: var(--color-text-main); font-weight: 500;">
-                Declaro aceptar los términos y condiciones de contratación del servicio de Fulfillment 360 de Stocka.cl
-              </label>
-            </div>
-          </div>
-
-          <!-- PASO 5: FINALIZACIÓN -->
-          <div class="step-panel" id="panel-5" style="text-align: center; padding: 1.5rem 0;">
+          <!-- PASO 4: FINALIZACIÓN -->
+          <div class="step-panel" id="panel-4" style="text-align: center; padding: 1.5rem 0;">
             <div style="width: 72px; height: 72px; background: rgba(16, 185, 129, 0.1); color: var(--color-success); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 3rem; margin: 0 auto 1.5rem auto; box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);">
               <i class="ri-checkbox-circle-fill"></i>
             </div>
             
-            <h2 class="step-title" style="justify-content: center; font-size: 1.8rem; margin-bottom: 0.75rem;">¡Solicitud Recibida con éxito!</h2>
+            <h2 class="step-title" style="justify-content: center; font-size: 1.8rem; margin-bottom: 0.75rem;">¡Registro Recibido con éxito!</h2>
             <p class="step-desc" style="max-width: 550px; margin: 0 auto 2.5rem auto; font-size: 1.05rem; line-height: 1.5;">
-              Qué emoción tenerte a bordo. Tu solicitud de alta en <strong>Fulfillment 360</strong> ya está en revisión por nuestro equipo comercial. 
+              ¡Excelente! Tus datos comerciales han sido registrados en nuestro sistema.
               <br><br>
               <span style="color: var(--color-text-muted); font-size: 0.95rem;">
-                Muy pronto habilitaremos las credenciales definitivas del portal. Desde este momento puedes ingresar a tu cuenta para verificar el estado en tiempo real.
+                Te hemos enviado un correo de confirmación. Por favor, <strong>verifica tu cuenta de correo electrónico</strong> utilizando el enlace que te enviamos, e inicia sesión en el portal WMS.
+                <br><br>
+                El siguiente paso obligatorio será la <strong>firma de tu contrato de servicio</strong>, la cual podrás realizar de forma rápida y segura directamente desde tu nuevo panel WMS.
               </span>
             </p>
 

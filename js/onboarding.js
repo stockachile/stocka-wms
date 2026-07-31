@@ -3,7 +3,7 @@ import supabase from './supabase.js';
 document.addEventListener('DOMContentLoaded', () => {
   let currentStep = 1;
   let maxReachedStep = 1;
-  const totalSteps = 5;
+  const totalSteps = 4;
 
   // Variables para las sub-etapas del paso 3 (Comercial)
   let currentSubStep = 1;
@@ -27,7 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     item.style.cursor = 'pointer';
     item.addEventListener('click', () => {
       const targetStep = idx + 1;
-      if (targetStep === 5 && maxReachedStep < 5) return;
+      if (targetStep === 4 && maxReachedStep < 4) return;
       currentStep = targetStep;
       if (currentStep === 3) {
         currentSubStep = 1; // Al dar click al círculo principal del paso 3, iniciar en sub-paso 1
@@ -400,8 +400,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const activePanel = document.getElementById(`panel-${currentStep}`);
     activePanel.classList.add('active');
     
-    // Bloquear/Desbloquear inputs del paso de forma dinámica
-    for (let stepNum = 1; stepNum <= 4; stepNum++) {
+    // Bloquear/Desbloquear inputs del paso de forma dinámica (solo pasos 1, 2 y 3)
+    for (let stepNum = 1; stepNum <= 3; stepNum++) {
       const panel = document.getElementById(`panel-${stepNum}`);
       if (!panel) continue;
       
@@ -415,13 +415,6 @@ document.addEventListener('DOMContentLoaded', () => {
             input.disabled = true;
           }
         });
-        
-        // Bloquear la zona de arrastre del archivo (drop-zone)
-        const dZone = panel.querySelector('.file-upload-zone');
-        if (dZone) {
-          dZone.style.pointerEvents = 'none';
-          dZone.style.opacity = '0.6';
-        }
         
         // Mostrar aviso de bloqueo
         if (!blockedNotice) {
@@ -442,13 +435,6 @@ document.addEventListener('DOMContentLoaded', () => {
         inputs.forEach(input => {
           input.disabled = false;
         });
-        
-        // Desbloquear zona de arrastre del archivo
-        const dZone = panel.querySelector('.file-upload-zone');
-        if (dZone) {
-          dZone.style.pointerEvents = 'auto';
-          dZone.style.opacity = '1';
-        }
         
         // Remover aviso de bloqueo si existe
         if (blockedNotice) {
@@ -524,10 +510,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (currentStep === 1) {
       btnBack.style.visibility = 'hidden';
       btnNext.innerHTML = `Siguiente <i class="ri-arrow-right-line"></i>`;
-    } else if (currentStep === 4) {
+    } else if (currentStep === 3) {
       btnBack.style.visibility = 'visible';
-      btnNext.innerHTML = `Firmar y Enviar <i class="ri-rocket-2-line"></i>`;
-    } else if (currentStep === 5) {
+      if (currentSubStep === 4) {
+        btnNext.innerHTML = `Registrar y Continuar <i class="ri-rocket-2-line"></i>`;
+      } else {
+        btnNext.innerHTML = `Siguiente <i class="ri-arrow-right-line"></i>`;
+      }
+    } else if (currentStep === 4) {
       document.getElementById('wizard-navigation').style.display = 'none';
     } else {
       btnBack.style.visibility = 'visible';
@@ -583,16 +573,9 @@ document.addEventListener('DOMContentLoaded', () => {
         maxReachedSubStep = Math.max(maxReachedSubStep, currentSubStep);
         updateStepper();
       } else {
-        currentStep = 4;
-        maxReachedStep = Math.max(maxReachedStep, 4);
-        updateStepper();
+        await submitOnboarding();
       }
       return;
-    }
-    
-    if (currentStep === 4) {
-      if (!validateStep(4)) return;
-      await submitOnboarding();
     }
   });
  
@@ -606,7 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
         currentStep = 2;
         updateStepper();
       }
-    } else if (currentStep > 1 && currentStep < 5) {
+    } else if (currentStep > 1 && currentStep < 4) {
       currentStep--;
       if (currentStep === 3) {
         currentSubStep = 4; // Mostrar el último sub-paso al volver al paso 3
@@ -667,27 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error('No se pudo generar el identificador único de usuario.');
       }
       
-      // 2. Subir contrato PDF firmado a Supabase Storage
-      showLoader('Subiendo contrato firmado...', 'Almacenando tu documento PDF de forma segura.');
-      
-      const sanitizedName = selectedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
-      const storagePath = `onboarding/${userId}_${Date.now()}_${sanitizedName}`;
-      
-      // Intentar subir el archivo
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('service_docs')
-        .upload(storagePath, selectedFile);
-        
-      if (uploadError) throw uploadError;
-      
-      // Obtener URL pública del archivo cargado
-      const { data: urlData } = supabase.storage
-        .from('service_docs')
-        .getPublicUrl(storagePath);
-        
-      const contratoUrl = urlData.publicUrl;
-
-      // 3. Crear solicitud de onboarding llamando a la RPC de Base de Datos
+      // 2. Crear solicitud de onboarding llamando a la RPC de Base de Datos
       showLoader('Registrando datos comerciales...', 'Enviando solicitud al equipo comercial de Stocka.');
       
       const { data: rpcData, error: rpcError } = await supabase.rpc('create_onboarding_request', {
@@ -712,15 +675,16 @@ document.addEventListener('DOMContentLoaded', () => {
         p_ml_opciones: mlOpciones,
         p_retiro_sucursal: offersRetiro,
         p_descripcion_packaging: packagingDesc,
-        p_contrato_url: contratoUrl,
-        p_contrato_storage_path: storagePath
+        p_contrato_url: null,
+        p_contrato_storage_path: null
       });
       
       if (rpcError) throw rpcError;
       
-      // 4. Éxito: Avanzar al paso 5
+      // 3. Éxito: Avanzar al paso 4
       hideLoader();
-      currentStep = 5;
+      currentStep = 4;
+      maxReachedStep = 4;
       updateStepper();
       
     } catch (err) {

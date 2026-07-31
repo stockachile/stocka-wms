@@ -114,3 +114,29 @@ document.addEventListener('DOMContentLoaded', () => {
     dateRestEl.textContent = `${cap(weekday)} ${cap(monthName)} ${year}`;
   }
 });
+
+window.getUfValueForDate = async function(dateStr) {
+  // dateStr format: DD-MM-YYYY
+  const cacheKey = `stocka-uf-${dateStr}`;
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    return parseFloat(cached);
+  }
+
+  try {
+    const res = await fetch(`https://mindicador.cl/api/uf/${dateStr}`);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    const data = await res.json();
+    if (data && data.serie && data.serie[0]) {
+      const val = parseFloat(data.serie[0].valor);
+      localStorage.setItem(cacheKey, val.toString());
+      return val;
+    }
+  } catch (err) {
+    console.error(`Error fetching UF for date ${dateStr}:`, err);
+  }
+
+  const todayCached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
+  const backupVal = localStorage.getItem('stocka-last-uf-backup');
+  return (todayCached && todayCached.numericValue) || (backupVal ? parseFloat(backupVal) : 37500);
+};

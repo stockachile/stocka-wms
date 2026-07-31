@@ -169,7 +169,7 @@ serve(async (req) => {
       .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created'].includes(emailType);
+    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'onboarding_contract_received'].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
     let recipientEmails: string[] = []
@@ -595,23 +595,50 @@ serve(async (req) => {
       `;
     }
     else if (emailType === 'onboarding_received') {
-      emailSubject = `Hemos recibido tu solicitud de alta - ${commerceName}`;
+      emailSubject = `Registro de cuenta comercial recibido - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
-      emailTitle = 'Solicitud de Alta Recibida';
+      emailTitle = 'Registro de Cuenta Recibido';
       
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Estimado equipo de <strong>${commerceName}</strong>,<br><br>
-          ¡Gracias por completar tu proceso de onboarding! Hemos recibido con éxito tus datos comerciales y el contrato firmado.
+          ¡Gracias por iniciar tu proceso de alta en Stocka! Tus datos comerciales han sido registrados con éxito.
+        </div>
+        
+        <div style="background-color: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #b45309; line-height: 1.5;">
+          <strong>Siguiente Paso Obligatorio:</strong> Firma de Contrato WMS<br>
+          Para finalizar tu alta comercial, debes confirmar tu dirección de correo electrónico e iniciar sesión en el portal WMS. Al ingresar, se te guiará para subir tu contrato firmado.
+        </div>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
+          Si ya has confirmado tu correo, puedes iniciar sesión utilizando el botón de abajo:
+        </div>
+
+        <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
+          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+            Ingresar al Portal WMS
+          </a>
+        </div>
+      `;
+    }
+    else if (emailType === 'onboarding_contract_received') {
+      emailSubject = `Hemos recibido tu contrato firmado - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
+      emailTitle = 'Contrato Firmado Recibido';
+      
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          ¡Gracias por completar tu proceso de onboarding! Hemos recibido con éxito tu contrato firmado.
         </div>
         
         <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #1e40af; line-height: 1.5;">
           <strong>Estado:</strong> En Revisión Comercial<br>
-          Nuestro equipo revisará los documentos adjuntos y configurará los parámetros de tu comercio. Te notificaremos por correo electrónico en un plazo estimado de 24 a 48 horas hábiles.
+          Nuestro equipo revisará los documentos y configurará los parámetros operativos de tu comercio. Te notificaremos por correo electrónico en un plazo estimado de 24 a 48 horas hábiles.
         </div>
         
         <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
-          Durante este periodo, si necesitas realizar alguna modificación o tienes dudas, puedes responder directamente a este correo.
+          Durante este periodo, si necesitas realizar alguna modificación o tienes dudas, puedes escribirnos a <a href="mailto:contacto@stocka.cl" style="color:#5e17eb; font-weight:600;">contacto@stocka.cl</a>.
         </div>
       `;
     }
@@ -1042,6 +1069,7 @@ serve(async (req) => {
 
     const infoSenderTypes = [
       'onboarding_received', 
+      'onboarding_contract_received', 
       'onboarding_approved', 
       'onboarding_observed', 
       'onboarding_admin_notification', 

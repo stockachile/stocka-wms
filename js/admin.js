@@ -13167,10 +13167,12 @@ window.renderDeclarationsAdmin = async function() {
             </td>
             <td style="font-size: 0.85rem;">
               <div style="font-size: 0.85rem;">
-                <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(2)} UF</strong></span><br>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted);">
-                  Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(2) + ' UF' : '—'}</strong>
+                <span>Est: <strong>${(dec.estimated_cost || 0).toFixed(4)} UF</strong></span>
+                <span id="clp-est-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;">Cargando CLP...</span>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 4px;">
+                  Real: <strong>${dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0 ? dec.real_cost.toFixed(4) + ' UF' : '—'}</strong>
                 </span>
+                <span id="clp-real-${dec.id}" style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 1px;"></span>
               </div>
             </td>
             <td style="font-size: 0.85rem;"><span style="font-size: 0.8rem; background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); font-family: var(--font-family);">${dec.delivery_method}</span></td>
@@ -13277,6 +13279,29 @@ window.renderDeclarationsAdmin = async function() {
         renderDeclarationsAdmin();
       });
     }
+
+    // Asynchronously resolve historical UF and update CLP values
+    filteredDeclarations.forEach(dec => {
+      (async () => {
+        const dateObj = new Date(dec.created_at || new Date());
+        const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
+        const ufRate = await window.getUfValueForDate(formattedDate);
+        
+        const estClp = (dec.estimated_cost || 0) * ufRate;
+        const estEl = document.getElementById(`clp-est-${dec.id}`);
+        if (estEl) {
+          estEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(estClp).toLocaleString('es-CL')} CLP)</span>`;
+        }
+
+        if (dec.real_cost !== null && dec.real_cost !== undefined && dec.real_cost > 0) {
+          const realClp = dec.real_cost * ufRate;
+          const realEl = document.getElementById(`clp-real-${dec.id}`);
+          if (realEl) {
+            realEl.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted);">($${Math.round(realClp).toLocaleString('es-CL')} CLP)</span>`;
+          }
+        }
+      })();
+    });
 
     // Refresh Handler
     const refreshBtn = document.getElementById('btn-refresh-admin-declarations');
@@ -13575,7 +13600,18 @@ window.manageDeclaration = async function(id) {
       labelingInfoEl.innerHTML = `<strong>${labelingTextMap[dec.labeling_type || 'completely']}</strong>`;
     }
 
-    document.getElementById('manage-dec-estimated-cost').textContent = (dec.estimated_cost || 0).toFixed(2) + ' UF';
+    // Obtener UF para la fecha de creación
+    const dateObj = new Date(dec.created_at || new Date());
+    const formattedDate = `${String(dateObj.getDate()).padStart(2, '0')}-${String(dateObj.getMonth() + 1).padStart(2, '0')}-${dateObj.getFullYear()}`;
+    const ufRate = await window.getUfValueForDate(formattedDate);
+    window.modalUfRate = ufRate;
+
+    document.getElementById('manage-dec-estimated-cost').textContent = (dec.estimated_cost || 0).toFixed(4) + ' UF';
+    const estClp = (dec.estimated_cost || 0) * ufRate;
+    const estClpEl = document.getElementById('manage-dec-estimated-cost-clp');
+    if (estClpEl) {
+      estClpEl.textContent = `≈ $${Math.round(estClp).toLocaleString('es-CL')} CLP`;
+    }
     document.getElementById('manage-dec-method').textContent = dec.delivery_method;
 
     // Bodega asignada
@@ -13633,6 +13669,24 @@ window.manageDeclaration = async function(id) {
       ? dec.real_cost 
       : dec.estimated_cost;
     document.getElementById('manage-dec-real-cost').value = realCostVal || 0;
+
+    // Calcular y mostrar CLP del Costo Real en el modal
+    const realClp = (realCostVal || 0) * ufRate;
+    const realClpEl = document.getElementById('manage-dec-real-cost-clp');
+    if (realClpEl) {
+      realClpEl.textContent = `≈ $${Math.round(realClp).toLocaleString('es-CL')} CLP`;
+    }
+
+    // Listener para actualizar el CLP del Costo Real reactivamente al escribir
+    document.getElementById('manage-dec-real-cost').oninput = function(e) {
+      const ufVal = window.modalUfRate || 37500;
+      const realCostUf = parseFloat(e.target.value) || 0;
+      const clp = realCostUf * ufVal;
+      const el = document.getElementById('manage-dec-real-cost-clp');
+      if (el) {
+        el.textContent = `≈ $${Math.round(clp).toLocaleString('es-CL')} CLP`;
+      }
+    };
 
     // Renderizar botones de acción según el estado actual de la declaración
     renderStatusActionButtons(dec.status);

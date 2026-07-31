@@ -892,6 +892,7 @@ async function renderDashboard() {
   const loaderInterval = window.startPremiumLoader('app-content', 'Inicializando Dashboard Logístico');
 
   if (userRole === 'observer') {
+    if (loaderInterval) clearInterval(loaderInterval);
     appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando estado del onboarding...</p>';
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -907,7 +908,11 @@ async function renderDashboard() {
       if (error) throw error;
 
       if (request) {
-        renderOnboardingStatus(request);
+        if (request.status === 'pending_contract') {
+          renderUploadContractView(request);
+        } else {
+          renderOnboardingStatus(request);
+        }
       } else {
         renderNoOnboardingState();
       }
@@ -22361,6 +22366,238 @@ function renderNoOnboardingState() {
       </div>
     </div>
   `;
+}
+
+function renderUploadContractView(request) {
+  const appContent = document.getElementById('app-content');
+  const viewTitle = document.getElementById('view-title');
+  if (viewTitle) viewTitle.textContent = 'Firma de Contrato';
+
+  appContent.innerHTML = `
+    <div style="max-width: 700px; margin: 2rem auto; padding: 2.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
+      <h2 style="font-weight: 700; font-size: 1.6rem; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.75rem;">
+        <i class="ri-ball-pen-line" style="color: var(--color-accent)"></i> Términos y Firma de Contrato
+      </h2>
+      <p style="color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 2rem;">
+        Para formalizar el servicio de Fulfillment 360 y comenzar a operar, por favor descarga el contrato de adhesión, fírmalo y súbelo digitalizado en formato PDF a continuación.
+      </p>
+
+      <div class="alert alert-info" style="margin-bottom: 2rem; background-color: rgba(59, 130, 246, 0.1); color: var(--color-info); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+        <i class="ri-information-line" style="font-size: 1.3rem; margin-top: 0.1rem;"></i>
+        <div>
+          <strong>Instrucciones:</strong> Descarga la plantilla de contrato (PDF o Word), completa la información legal requerida, fírmalo digital o físicamente y súbelo escaneado.
+        </div>
+      </div>
+
+      <!-- Plantillas de descarga -->
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+        <div>
+          <strong style="display: block; font-size: 0.9rem; color: var(--color-text-main);"><i class="ri-file-text-line"></i> Plantillas de Contrato Stocka:</strong>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Selecciona tu formato preferido.</span>
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.pdf" target="_blank" style="padding: 0.5rem 1rem; background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-file-pdf-line"></i> PDF
+          </a>
+          <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.docx" target="_blank" style="padding: 0.5rem 1rem; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-file-word-line"></i> Word
+          </a>
+        </div>
+      </div>
+
+      <!-- Formulario de Subida -->
+      <form id="form-upload-contract" novalidate>
+        <div class="form-group" style="margin-bottom: 2rem;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Cargar aquí tu contrato firmado (PDF) <span style="color: var(--color-danger)">*</span></label>
+          
+          <!-- File drop zone -->
+          <div id="contract-drop-zone" style="border: 2px dashed var(--color-border); border-radius: var(--radius-md); padding: 2rem; text-align: center; cursor: pointer; background: var(--color-bg); transition: all 0.2s;">
+            <i class="ri-upload-cloud-line" style="font-size: 2.5rem; color: var(--color-text-muted); display: block; margin-bottom: 0.75rem;"></i>
+            <div style="font-size: 0.95rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.25rem;">Haz clic o arrastra el archivo aquí para subir</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted);">Solo se permiten archivos en formato PDF (Max. 10MB)</div>
+            <input type="file" id="contract-file-input" accept=".pdf" style="display: none;" required>
+          </div>
+
+          <!-- File Preview -->
+          <div id="contract-file-preview" style="display: none; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; background: rgba(94, 23, 235, 0.05); border: 1px solid rgba(94, 23, 235, 0.15); border-radius: var(--radius-md); margin-top: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <i class="ri-file-pdf-fill" style="font-size: 2rem; color: #ef4444;"></i>
+              <div>
+                <div id="contract-file-name" style="font-size: 0.9rem; font-weight: 600; color: var(--color-text-main); max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">contrato.pdf</div>
+                <div id="contract-file-size" style="font-size: 0.75rem; color: var(--color-text-muted);">0 KB</div>
+              </div>
+            </div>
+            <button type="button" id="btn-remove-contract-file" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.25rem; padding: 0.25rem;" title="Quitar archivo">
+              <i class="ri-close-line"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Aceptar Términos Checkbox -->
+        <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 2.5rem; padding: 0.5rem 0;">
+          <input type="checkbox" id="accept-contract-terms" style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; accent-color: var(--color-accent);" required>
+          <label for="accept-contract-terms" style="cursor: pointer; font-size: 0.95rem; line-height: 1.4; color: var(--color-text-main); font-weight: 500;">
+            Declaro aceptar los términos y condiciones de contratación del servicio de Fulfillment 360 de Stocka.cl
+          </label>
+        </div>
+
+        <!-- Botones de Acción -->
+        <div style="display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: 1.5rem;">
+          <button type="submit" class="btn btn-primary" id="btn-submit-contract" style="background: var(--color-accent); border-color: var(--color-accent); color: white; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 2rem;">
+            Subir y Finalizar Registro <i class="ri-send-plane-line"></i>
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  initUploadContractListeners(request);
+}
+
+function initUploadContractListeners(request) {
+  const dropZone = document.getElementById('contract-drop-zone');
+  const fileInput = document.getElementById('contract-file-input');
+  const filePreview = document.getElementById('contract-file-preview');
+  const fileNameSpan = document.getElementById('contract-file-name');
+  const fileSizeSpan = document.getElementById('contract-file-size');
+  const fileRemoveBtn = document.getElementById('btn-remove-contract-file');
+  const form = document.getElementById('form-upload-contract');
+  const termsCheckbox = document.getElementById('accept-contract-terms');
+  
+  let selectedFile = null;
+
+  const handleFiles = (files) => {
+    if (files.length === 0) return;
+    const file = files[0];
+    
+    if (file.type !== 'application/pdf') {
+      Swal.fire('Formato Inválido', 'Solo se permiten archivos en formato PDF.', 'error');
+      return;
+    }
+    
+    if (file.size > 10 * 1024 * 1024) { // 10MB
+      Swal.fire('Archivo muy Grande', 'El tamaño máximo permitido es 10MB.', 'error');
+      return;
+    }
+    
+    selectedFile = file;
+    fileNameSpan.textContent = file.name;
+    
+    const sizeKb = file.size / 1024;
+    fileSizeSpan.textContent = sizeKb > 1024 
+      ? \`\${(sizeKb / 1024).toFixed(2)} MB\` 
+      : \`\${sizeKb.toFixed(1)} KB\`;
+      
+    filePreview.style.display = 'flex';
+    dropZone.style.borderColor = 'var(--color-accent)';
+    dropZone.style.background = 'rgba(94, 23, 235, 0.02)';
+  };
+
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.style.borderColor = 'var(--color-accent)';
+      dropZone.style.background = 'rgba(94, 23, 235, 0.05)';
+    }, false);
+  });
+
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.style.borderColor = 'var(--color-border)';
+      dropZone.style.background = 'var(--color-bg)';
+    }, false);
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    handleFiles(e.dataTransfer.files);
+  });
+
+  dropZone.addEventListener('click', () => {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+  });
+
+  fileRemoveBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectedFile = null;
+    fileInput.value = '';
+    filePreview.style.display = 'none';
+    dropZone.style.borderColor = 'var(--color-border)';
+    dropZone.style.background = 'var(--color-bg)';
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!selectedFile) {
+      Swal.fire('Falta Archivo', 'Debes cargar tu contrato firmado en formato PDF.', 'warning');
+      return;
+    }
+    
+    if (!termsCheckbox.checked) {
+      Swal.fire('Términos requeridos', 'Debes declarar que aceptas los términos y condiciones del servicio.', 'warning');
+      return;
+    }
+
+    try {
+      Swal.fire({
+        title: 'Subiendo contrato firmado...',
+        text: 'Almacenando tu documento PDF de forma segura.',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user ? user.id : null;
+      if (!userId) throw new Error('No se pudo identificar el usuario autenticado.');
+
+      const sanitizedName = selectedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = \`onboarding/\${userId}_\${Date.now()}_\${sanitizedName}\`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('service_docs')
+        .upload(storagePath, selectedFile);
+        
+      if (uploadError) throw uploadError;
+      
+      const { data: urlData } = supabase.storage
+        .from('service_docs')
+        .getPublicUrl(storagePath);
+        
+      const contratoUrl = urlData.publicUrl;
+
+      const { error: dbError } = await supabase
+        .from('onboarding_requests')
+        .update({
+          contrato_url: contratoUrl,
+          contrato_storage_path: storagePath,
+          status: 'pending',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', request.id);
+
+      if (dbError) throw dbError;
+
+      Swal.close();
+      await Swal.fire('¡Proceso Completado!', 'Tu contrato firmado ha sido cargado con éxito y tu solicitud de alta ha entrado en revisión.', 'success');
+      
+      renderDashboard();
+
+    } catch (err) {
+      Swal.close();
+      console.error('Error al subir contrato:', err);
+      Swal.fire('Error al procesar', err.message || 'Ocurrió un error al subir tu contrato. Por favor inténtalo de nuevo.', 'error');
+    }
+  });
 }
 
 function renderOnboardingStatus(request) {
