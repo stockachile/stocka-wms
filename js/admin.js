@@ -3365,8 +3365,8 @@ window.applyBulkWmsStatus = async function() {
     const allItemsToCheck = [];
     selectedOrders.forEach(order => {
       const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-      const isStockTrackingActive = !!(config && config.inventario_seguimiento);
-      if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento
+      const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
+      if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
       (order.order_items || []).forEach(item => {
         if (!item.products?.is_virtual) {
@@ -3594,8 +3594,8 @@ async function validateOrderStockForDispatch(ordersList) {
 
   for (const order of ordersList) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
-    if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
+    if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
     const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
     const isVirtual = !order.sucursal_pickeo || order.sucursal_pickeo === 'Sucursal Virtual (Hub)';
@@ -3798,7 +3798,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
     // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = !!(config && config.inventario_seguimiento);
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
     const itemsToCheck = isStockTrackingActive 
       ? (order.order_items || []).filter(item => !item.products?.is_virtual)
       : [];
@@ -11455,7 +11455,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       // 1. Construir las consultas de Supabase
       let invPromise = window.fetchAllSupabaseRows(
         'inventory',
-        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name, is_virtual)',
         q => {
           if (selectedCommerce) {
             return q.eq('products.comercio', selectedCommerce);
@@ -11524,6 +11524,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
             name: prod.name || 'Sin Nombre',
             stock_critico: prod.stock_critico || 0,
             volumen: parseFloat(prod.volumen || 0),
+            is_virtual: !!prod.is_virtual,
             quantity: 0,
             committed_quantity: 0
           };
@@ -11540,14 +11541,18 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         availableStock += available;
         totalVolume += p.quantity * p.volumen;
 
-        if (p.stock_critico > 0 && available <= p.stock_critico) {
-          lowStockCount++;
-          lowStockItems.push({
-            sku: p.sku,
-            name: p.name,
-            available: available,
-            critico: p.stock_critico
-          });
+        if (p.is_virtual !== true) {
+          const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
+          const isInsufficient = p.committed_quantity > 0 && available <= 0;
+          if (isCritical || isInsufficient) {
+            lowStockCount++;
+            lowStockItems.push({
+              sku: p.sku,
+              name: p.name,
+              available: available,
+              critico: p.stock_critico
+            });
+          }
         }
 
         const totalVol = p.quantity * p.volumen;
@@ -11600,7 +11605,10 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
               const pct = item.critico > 0 ? (item.available / item.critico) * 100 : 0;
               let badgeColor = 'var(--color-danger)';
               let badgeText = 'Crítico';
-              if (item.available === 0) {
+              if (item.available < 0) {
+                badgeColor = '#e11d48';
+                badgeText = 'Insuficiente';
+              } else if (item.available === 0) {
                 badgeColor = '#ef4444';
                 badgeText = 'Sin Stock';
               } else if (pct > 50) {
@@ -11611,7 +11619,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
                 <tr style="border-bottom: 1px solid var(--color-border);">
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">${item.name}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available === 0 ? 'red' : 'inherit'}">${item.available} <span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span></td>
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available <= 0 ? 'red' : 'inherit'}">${item.available} ${item.critico > 0 ? `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span>` : `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(sin crít.)</span>`}</td>
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center;">
                     <span style="background: ${badgeColor}22; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${badgeText}</span>
                   </td>

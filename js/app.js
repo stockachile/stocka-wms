@@ -942,7 +942,7 @@ async function renderDashboard() {
     } else {
       let invPromise = window.fetchAllSupabaseRows(
         'inventory',
-        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name, is_virtual)',
         q => {
           if (companyList.length > 0) {
             return q.in('products.comercio', companyList);
@@ -1017,6 +1017,7 @@ async function renderDashboard() {
             name: prod.name || 'Sin Nombre',
             stock_critico: prod.stock_critico || 0,
             volumen: parseFloat(prod.volumen || 0),
+            is_virtual: !!prod.is_virtual,
             quantity: 0,
             committed_quantity: 0
           };
@@ -1033,14 +1034,18 @@ async function renderDashboard() {
         availableStock += available;
         totalVolume += p.quantity * p.volumen;
 
-        if (p.stock_critico > 0 && available <= p.stock_critico) {
-          lowStockCount++;
-          lowStockItems.push({
-            sku: p.sku,
-            name: p.name,
-            available: available,
-            critico: p.stock_critico
-          });
+        if (p.is_virtual !== true) {
+          const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
+          const isInsufficient = p.committed_quantity > 0 && available <= 0;
+          if (isCritical || isInsufficient) {
+            lowStockCount++;
+            lowStockItems.push({
+              sku: p.sku,
+              name: p.name,
+              available: available,
+              critico: p.stock_critico
+            });
+          }
         }
 
         const totalVol = p.quantity * p.volumen;
@@ -1261,7 +1266,10 @@ async function renderDashboard() {
               const pct = item.critico > 0 ? (item.available / item.critico) * 100 : 0;
               let badgeColor = 'var(--color-danger)';
               let badgeText = 'Crítico';
-              if (item.available === 0) {
+              if (item.available < 0) {
+                badgeColor = '#e11d48';
+                badgeText = 'Insuficiente';
+              } else if (item.available === 0) {
                 badgeColor = '#ef4444';
                 badgeText = 'Sin Stock';
               } else if (pct > 50) {
@@ -1272,7 +1280,7 @@ async function renderDashboard() {
                 <tr style="border-bottom: 1px solid var(--color-border);">
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">${item.name}</td>
-                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available === 0 ? 'red' : 'inherit'}">${item.available} <span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span></td>
+                  <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${item.available <= 0 ? 'red' : 'inherit'}">${item.available} ${item.critico > 0 ? `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">/ crít. ${item.critico}</span>` : `<span style="font-weight: normal; color: var(--color-text-muted); font-size: 0.75rem;">(sin crít.)</span>`}</td>
                   <td style="padding: 0.75rem 1rem; font-size: 0.85rem; text-align: center;">
                     <span style="background: ${badgeColor}22; color: ${badgeColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${badgeText}</span>
                   </td>

@@ -2287,3 +2287,23 @@ Hemos implementado la visualización de etiquetas o "badges" para identificar lo
 2. **Catálogo de Cliente/Merchant (`js/app.js`)**:
    - Replicamos la misma lógica en la función `renderMasterCatalogRows` de la vista de cliente para asegurar consistencia visual en todo el sistema.
    - Se aplicó cache-busting en los archivos HTML (`admin.html` y `dashboard.html`) para forzar la recarga de los scripts actualizados en el navegador de los usuarios.
+
+---
+
+## 99. Soporte para Alertas de Stock Físico Insuficiente en Dashboards
+
+Hemos mejorado las tablas de **Alertas de Stock Crítico** tanto en el panel del Cliente (`js/app.js`) como en el del Administrador (`js/admin.js`) para capturar, validar e identificar adecuadamente aquellos productos físicos que están en estado "Insuficiente" (unidades comprometidas superan el stock disponible, dejando un inventario disponible menor o igual a cero).
+
+1. **Inclusión de is_virtual en la Consulta de Métricas**:
+   - Modificamos las peticiones `inventory` en Supabase para obtener el flag `is_virtual` de los productos. Esto permite asegurar que solo se evalúen productos físicos.
+
+2. **Criterios de Alerta Expandidos**:
+   - En el procesamiento de métricas, los productos son empujados a `lowStockItems` bajo dos condiciones complementarias:
+     - **Bajo Stock Crítico**: Si el producto posee un umbral de stock crítico configurado (`stock_critico > 0`) y el stock disponible actual es menor o igual a dicho umbral (`available <= stock_critico`).
+     - **Insuficiente**: Si el producto posee unidades comprometidas (`committed_quantity > 0`) y el stock disponible actual es menor o igual a cero (`available <= 0`), aun cuando no tenga configurado un umbral crítico.
+
+3. **Etiquetado WMS Coherente en las Filas**:
+   - Modificamos el renderizador de filas en la tabla del dashboard:
+     - Si el stock disponible es menor a cero (`available < 0`), se asigna el badge de estado **`Insuficiente`** en color carmesí (`#e11d48`) y el número de stock disponible se pinta de color rojo.
+     - Si el stock disponible es igual a cero (`available === 0`), se mantiene el badge **`Sin Stock`** (`#ef4444`).
+     - Si el producto se muestra por falta de stock disponible pero no cuenta con un umbral crítico de control personalizado (`critico === 0`), se dibuja la etiqueta descriptiva `(sin crít.)` en lugar del valor de umbral vacío `/ crít. 0`.
