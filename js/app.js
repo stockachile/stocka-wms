@@ -889,7 +889,7 @@ async function initNotifications(userId) {
 
 async function renderDashboard() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando dashboard...</p>';
+  const loaderInterval = window.startPremiumLoader('app-content', 'Inicializando Dashboard Logístico');
 
   if (userRole === 'observer') {
     appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando estado del onboarding...</p>';
@@ -924,47 +924,71 @@ async function renderDashboard() {
   }
 
   try {
-    // Obtener estadísticas rápidas
     const companyList = getCompanyList();
-    let invPromise = window.fetchAllSupabaseRows(
-      'inventory',
-      'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
-      q => {
-        if (companyList.length > 0) {
-          return q.in('products.comercio', companyList);
-        } else {
-          return q.eq('products.comercio', 'no asignado');
+    const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company');
+    const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
+
+    let results, news;
+    let isCached = false;
+    let cacheTimeStr = '';
+
+    if (cached) {
+      isCached = true;
+      const ageSeconds = Math.round((Date.now() - cached.timestamp) / 1000);
+      cacheTimeStr = ageSeconds < 60 ? 'hace segundos' : `hace ${Math.round(ageSeconds/60)} min`;
+      results = cached.data.results;
+      news = cached.data.news;
+      if (loaderInterval) clearInterval(loaderInterval);
+    } else {
+      let invPromise = window.fetchAllSupabaseRows(
+        'inventory',
+        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+        q => {
+          if (companyList.length > 0) {
+            return q.in('products.comercio', companyList);
+          } else {
+            return q.eq('products.comercio', 'no asignado');
+          }
         }
+      ).then(data => ({ data })).catch(error => ({ error }));
+
+      let ordQuery = supabase.from('orders').select('id, status');
+      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
+      
+      if (companyList.length > 0) {
+        ordQuery = ordQuery.in('comercio', companyList);
+        intQuery = intQuery.in('comercio', companyList);
+      } else {
+        ordQuery = ordQuery.eq('comercio', 'no asignado');
+        intQuery = intQuery.eq('comercio', 'no asignado');
       }
-    ).then(data => ({ data })).catch(error => ({ error }));
 
-    let ordQuery = supabase.from('orders').select('id, status');
-    let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
-    
-    if (companyList.length > 0) {
-      ordQuery = ordQuery.in('comercio', companyList);
-      intQuery = intQuery.in('comercio', companyList);
-    } else {
-      ordQuery = ordQuery.eq('comercio', 'no asignado');
-      intQuery = intQuery.eq('comercio', 'no asignado');
+      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at');
+      if (companyList.length > 0) {
+        const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
+        decQuery = decQuery.or(`merchant_id.eq.${currentMerchantId},${commerceFilters}`);
+      } else {
+        decQuery = decQuery.eq('merchant_id', currentMerchantId);
+      }
+      decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
+
+      const promises = [invPromise, ordQuery, intQuery, decQuery];
+      if (companyList.length > 0) {
+        promises.push(supabase.from('billing_periods').select('*').order('name', { ascending: false }));
+        promises.push(supabase.from('billing_mappings').select('comercio_nombre, billing_name'));
+      }
+
+      results = await Promise.all(promises);
+      const newsRes = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+      news = newsRes.data || [];
+
+      window.setDashboardCache(cacheKey, {
+        results: results,
+        news: news
+      });
+      if (loaderInterval) clearInterval(loaderInterval);
     }
 
-    let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at');
-    if (companyList.length > 0) {
-      const commerceFilters = companyList.map(c => `comercio.eq."${c}"`).join(',');
-      decQuery = decQuery.or(`merchant_id.eq.${currentMerchantId},${commerceFilters}`);
-    } else {
-      decQuery = decQuery.eq('merchant_id', currentMerchantId);
-    }
-    decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
-
-    const promises = [invPromise, ordQuery, intQuery, decQuery];
-    if (companyList.length > 0) {
-      promises.push(supabase.from('billing_periods').select('*').order('name', { ascending: false }));
-      promises.push(supabase.from('billing_mappings').select('comercio_nombre, billing_name'));
-    }
-
-    const results = await Promise.all(promises);
     const invRes = results[0];
     const ordRes = results[1];
     const intRes = results[2];
@@ -1048,7 +1072,7 @@ async function renderDashboard() {
     }
 
     // Obtener Noticias (El calendario se carga asíncronamente)
-    const { data: news, error: newsErr } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    // (Ya cargadas desde caché o base de datos arriba)
 
     let newsHtml = '';
     if (!news || news.length === 0) {
@@ -1455,6 +1479,7 @@ async function renderDashboard() {
       `;
     }
 
+    if (loaderInterval) clearInterval(loaderInterval);
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
@@ -1462,8 +1487,16 @@ async function renderDashboard() {
           
           <!-- Hero Banner -->
           <div class="dashboard-hero" style="margin-bottom: 0;">
-            <div class="dashboard-hero-content">
-              <h2>Te damos la bienvenida al WMS 3.0 de Stocka</h2>
+            <div class="dashboard-hero-content" style="width: 100%;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; width: 100%; margin-bottom: 0.5rem;">
+                <h2 style="margin: 0;">Te damos la bienvenida al WMS 3.0 de Stocka</h2>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  ${isCached ? `<span style="font-size: 0.72rem; color: rgba(255, 255, 255, 0.85); background: rgba(0, 0, 0, 0.25); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid rgba(255, 255, 255, 0.1);"><i class="ri-history-line" style="font-size: 0.85rem;"></i> Caché (${cacheTimeStr})</span>` : ''}
+                  <button id="refresh-dashboard-btn" style="padding: 0.45rem 0.9rem; font-size: 0.75rem; font-weight: 600; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(255, 255, 255, 0.15); border: 1px solid rgba(255, 255, 255, 0.25); color: white; cursor: pointer; transition: all 0.2s; backdrop-filter: blur(4px);" onmouseover="this.style.background='rgba(255, 255, 255, 0.25)'" onmouseout="this.style.background='rgba(255, 255, 255, 0.15)'">
+                    <i class="ri-refresh-line"></i> Actualizar
+                  </button>
+                </div>
+              </div>
               <p>Un nuevo centro de operaciones para la gestión de tu comercio, con la información centralizada, integraciones y más! Nos encontramos en pleno desarrollo y pronto lanzaremos nuevas novedades.</p>
             </div>
             <div class="dashboard-hero-image"></div>
@@ -1635,7 +1668,16 @@ async function renderDashboard() {
       });
     });
 
+    const refreshBtn = document.getElementById('refresh-dashboard-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        window.clearDashboardCache(cacheKey);
+        renderDashboard();
+      });
+    }
+
   } catch (error) {
+    if (loaderInterval) clearInterval(loaderInterval);
     console.error('Error rendering dashboard:', error);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar el dashboard: ${error.message}</p>`;
   }
@@ -18264,47 +18306,47 @@ window.showShopifySyncOverlay = function() {
   overlay.id = 'shopify-sync-overlay';
   overlay.style.cssText = `
     position: fixed; inset: 0; z-index: 999999;
-    background: rgba(15, 23, 42, 0.88);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     display: flex; align-items: center; justify-content: center;
     padding: 1.5rem; animation: fadeIn 0.3s ease;
   `;
 
   overlay.innerHTML = `
-    <div style="background: var(--color-surface, #1e293b); border: 1px solid rgba(16, 185, 129, 0.35); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 40px rgba(16, 185, 129, 0.2); border-radius: 1rem; width: 100%; max-width: 540px; padding: 2.5rem 2rem; text-align: center; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif;">
+    <div style="background: #0f172a; border: 1px solid rgba(16, 185, 129, 0.4); box-shadow: 0 25px 60px -10px rgba(0, 0, 0, 0.8), 0 0 35px rgba(16, 185, 129, 0.25); border-radius: 1.25rem; width: 100%; max-width: 520px; padding: 2.5rem 2rem; text-align: center; color: #ffffff; font-family: system-ui, -apple-system, sans-serif;">
       
       <div style="display: flex; align-items: center; justify-content: center; gap: 1.25rem; margin-bottom: 1.75rem;">
-        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); border: 2px solid rgba(16, 185, 129, 0.5); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #10b981; animation: pulse 2s infinite;">
+        <div style="width: 68px; height: 68px; border-radius: 50%; background: rgba(16, 185, 129, 0.18); border: 2px solid #10b981; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; color: #10b981; animation: pulse 2s infinite; box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);">
           <i class="ri-shopping-bag-3-line"></i>
         </div>
         <div style="font-size: 1.5rem; color: #64748b;"><i class="ri-arrow-right-line"></i></div>
-        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(59, 130, 246, 0.15); border: 2px solid rgba(59, 130, 246, 0.5); display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #3b82f6;">
+        <div style="width: 68px; height: 68px; border-radius: 50%; background: rgba(59, 130, 246, 0.18); border: 2px solid #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 2.2rem; color: #3b82f6; box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);">
           <i class="ri-box-3-line"></i>
         </div>
       </div>
 
-      <h3 id="sync-overlay-title" style="font-size: 1.4rem; font-weight: 700; color: #ffffff; margin: 0 0 0.5rem 0;">
+      <h3 id="sync-overlay-title" style="font-size: 1.5rem; font-weight: 800; color: #ffffff; margin: 0 0 0.6rem 0; letter-spacing: -0.02em;">
         Sincronizando Tienda Shopify...
       </h3>
       
-      <p id="sync-overlay-subtitle" style="font-size: 0.9rem; color: #94a3b8; margin: 0 0 1.75rem 0; line-height: 1.5;">
+      <p id="sync-overlay-subtitle" style="font-size: 0.95rem; color: #cbd5e1; margin: 0 0 1.75rem 0; line-height: 1.5; font-weight: 500;">
         Estamos integrando tu tienda e importando productos y pedidos a STOCKA WMS. Por favor no cierres esta pestaña.
       </p>
 
-      <div style="background: rgba(255, 255, 255, 0.08); border-radius: 9999px; height: 10px; width: 100%; overflow: hidden; margin-bottom: 1.25rem; border: 1px solid rgba(255, 255, 255, 0.05);">
-        <div id="sync-progress-bar" style="background: linear-gradient(90deg, #10b981, #3b82f6); height: 100%; width: 15%; transition: width 0.4s ease, background 0.4s ease; border-radius: 9999px;"></div>
+      <div style="background: #1e293b; border-radius: 9999px; height: 12px; width: 100%; overflow: hidden; margin-bottom: 1.25rem; border: 1px solid #334155; padding: 2px;">
+        <div id="sync-progress-bar" style="background: linear-gradient(90deg, #10b981, #3b82f6); height: 100%; width: 15%; transition: width 0.4s ease, background 0.4s ease; border-radius: 9999px; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);"></div>
       </div>
 
-      <div id="sync-step-container" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0.75rem; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.88rem;">
-        <div id="sync-step-text" style="color: #38bdf8; font-weight: 600; display: flex; align-items: center; gap: 0.6rem;">
-          <i class="ri-loader-4-line ri-spin" style="font-size: 1.2rem;"></i>
+      <div id="sync-step-container" style="background: #1e293b; border: 1px solid #334155; border-radius: 0.75rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.92rem; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);">
+        <div id="sync-step-text" style="color: #38bdf8; font-weight: 700; display: flex; align-items: center; gap: 0.75rem;">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.3rem;"></i>
           <span id="sync-step-label">Conectando con servidores de Shopify...</span>
         </div>
       </div>
 
-      <div style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #f59e0b; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.25); padding: 0.45rem 0.9rem; border-radius: 9999px;">
-        <i class="ri-time-line"></i>
-        <span>Tiempo estimado: <strong>15 a 45 segundos</strong> aprox.</span>
+      <div style="display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); padding: 0.5rem 1.1rem; border-radius: 9999px; font-weight: 600;">
+        <i class="ri-time-line" style="font-size: 1rem;"></i>
+        <span>Tiempo estimado: <strong style="color: #fef08a;">15 a 45 segundos</strong> aprox.</span>
       </div>
 
     </div>
