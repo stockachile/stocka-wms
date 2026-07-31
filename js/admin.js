@@ -4750,6 +4750,11 @@ function renderMasterCatalogRows(products) {
       packBadge = ` <span class="badge" style="background-color: #8b5cf6; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-stack-line"></i> Pack</span>`;
     }
 
+    let virtualBadge = '';
+    if (item.is_virtual) {
+      virtualBadge = ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-computer-line"></i> Virtual</span>`;
+    }
+
     const expAndLot = (item.expiration_date || item.lot_number)
       ? `<div style="font-size: 0.8rem; line-height: 1.2;">
            ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
@@ -4832,7 +4837,7 @@ function renderMasterCatalogRows(products) {
         ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
-        <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}</td>
+        <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}${virtualBadge}</td>
         ${dimensionsCell}
         ${volumenCell}
         <td style="padding: 0.75rem 1.5rem;">${weight}</td>
@@ -11375,7 +11380,11 @@ async function renderAdminDashboard() {
           <h2 style="font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--color-text-main);">Dashboard Admin</h2>
           <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.25rem 0 0 0;">Métricas y operaciones logísticas consolidadas en tiempo real.</p>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div id="admin-cache-indicator" style="display: flex; align-items: center; gap: 0.5rem;"></div>
+          <button id="admin-refresh-dashboard-btn" style="padding: 0; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.1rem; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'" title="Refrescar datos desde el servidor">
+            <i class="ri-refresh-line"></i>
+          </button>
           <label style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-muted); white-space: nowrap; margin: 0;">Comercio:</label>
           <select id="admin-dashboard-commerce-select" class="form-input" style="width: 250px; margin: 0; height: 38px; padding: 0.375rem 0.75rem;">
             <option value="">-- Todos los Comercios --</option>
@@ -11396,6 +11405,16 @@ async function renderAdminDashboard() {
       });
     }
 
+    const refreshBtn = document.getElementById('admin-refresh-dashboard-btn');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => {
+        const val = commerceSelect ? commerceSelect.value : '';
+        const key = 'admin_dashboard_' + (val || 'all');
+        window.clearDashboardCache(key);
+        fetchAndRenderAdminMetrics(val);
+      });
+    }
+
     // Inicializar el dashboard con todos los comercios
     await fetchAndRenderAdminMetrics('');
 
@@ -11409,36 +11428,68 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
   const contentDiv = document.getElementById('admin-metrics-dashboard-content');
   if (!contentDiv) return;
 
-  contentDiv.innerHTML = '<p class="text-center" style="padding: 3rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite; margin-right: 0.5rem;"></i> Cargando métricas y estadísticas...</p>';
+  const cacheKey = 'admin_dashboard_' + (selectedCommerce || 'all');
+  const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
+
+  let results, news;
+  let isCached = false;
+  let cacheTimeStr = '';
+  let loaderInterval = null;
+
+  const cacheIndicator = document.getElementById('admin-cache-indicator');
 
   try {
-    // 1. Construir las consultas de Supabase
-    let invPromise = window.fetchAllSupabaseRows(
-      'inventory',
-      'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
-      q => {
-        if (selectedCommerce) {
-          return q.eq('products.comercio', selectedCommerce);
-        }
-        return q;
+    if (cached) {
+      isCached = true;
+      const ageSeconds = Math.round((Date.now() - cached.timestamp) / 1000);
+      cacheTimeStr = ageSeconds < 60 ? 'hace segundos' : `hace ${Math.round(ageSeconds/60)} min`;
+      results = cached.data.results;
+      news = cached.data.news;
+      if (cacheIndicator) {
+        cacheIndicator.innerHTML = `<span style="font-size: 0.72rem; color: var(--color-text-muted); background: var(--color-surface-hover); padding: 0.25rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border);"><i class="ri-history-line"></i> Caché (${cacheTimeStr})</span>`;
       }
-    ).then(data => ({ data })).catch(error => ({ error }));
+    } else {
+      if (cacheIndicator) cacheIndicator.innerHTML = '';
+      loaderInterval = window.startPremiumLoader('admin-metrics-dashboard-content', 'Consolidando Métricas del WMS');
 
-    let ordQuery = supabase.from('orders').select('id, status, comercio');
-    let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
-    let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
+      // 1. Construir las consultas de Supabase
+      let invPromise = window.fetchAllSupabaseRows(
+        'inventory',
+        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name)',
+        q => {
+          if (selectedCommerce) {
+            return q.eq('products.comercio', selectedCommerce);
+          }
+          return q;
+        }
+      ).then(data => ({ data })).catch(error => ({ error }));
 
-    // 2. Aplicar filtro por comercio si corresponde
-    if (selectedCommerce) {
-      ordQuery = ordQuery.eq('comercio', selectedCommerce);
-      intQuery = intQuery.eq('comercio', selectedCommerce);
-      decQuery = decQuery.eq('comercio', selectedCommerce);
+      let ordQuery = supabase.from('orders').select('id, status, comercio');
+      let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
+      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
+
+      // 2. Aplicar filtro por comercio si corresponde
+      if (selectedCommerce) {
+        ordQuery = ordQuery.eq('comercio', selectedCommerce);
+        intQuery = intQuery.eq('comercio', selectedCommerce);
+        decQuery = decQuery.eq('comercio', selectedCommerce);
+      }
+
+      decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
+
+      // 3. Consultar datos
+      results = await Promise.all([invPromise, ordQuery, intQuery, decQuery]);
+      const newsRes = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+      news = newsRes.data || [];
+
+      window.setDashboardCache(cacheKey, {
+        results: results,
+        news: news
+      });
+
+      if (loaderInterval) clearInterval(loaderInterval);
     }
 
-    decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
-
-    // 3. Consultar datos
-    const results = await Promise.all([invPromise, ordQuery, intQuery, decQuery]);
     const invRes = results[0];
     const ordRes = results[1];
     const intRes = results[2];
@@ -11741,8 +11792,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    // 7. Cargar Noticias Recientes para el Sidebar
-    const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    // 7. Cargar Noticias Recientes para el Sidebar (Ya cargadas desde caché o base de datos arriba)
     let newsHtml = '';
     if (!news || news.length === 0) {
       newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
@@ -11763,6 +11813,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     }
 
     // 8. Renderizar el HTML completo del dashboard
+    if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
@@ -11913,6 +11964,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     });
 
   } catch (e) {
+    if (loaderInterval) clearInterval(loaderInterval);
     console.error('Error fetching admin dashboard metrics:', e);
     contentDiv.innerHTML = `<p style="color: red; padding: 2rem;">Error al cargar las métricas operativas: ${e.message}</p>`;
   }
@@ -21669,31 +21721,50 @@ async function renderMerchantsAdmin() {
             <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #000; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
               <i class="ri-add-line"></i> Crear Comercio
             </button>
-            <div style="position: relative; width: 220px;">
+            <div style="position: relative; width: 220px;" id="merchant-search-wrapper">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
               <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio o sigla..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
             </div>
           </div>
         </div>
-        <div class="card-body table-responsive" style="padding: 0; overflow-x: auto;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Comercio</th>
-                <th>Razón Social / RUT</th>
-                <th>Sigla</th>
-                <th>Estado Facturación</th>
-                <th>Seguimiento Inventario</th>
-                <th>Pedido trae Sigla</th>
-                <th>Usuarios Asociados</th>
-                <th>Integraciones</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody id="merchant-table-body">
-              ${renderTableRows(comercios)}
-            </tbody>
-          </table>
+        
+        <!-- Navigation Tabs -->
+        <div style="display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.5rem 1.5rem 0 1.5rem; gap: 1rem;">
+          <button id="tab-btn-merchants" class="btn-tab-merchant" onclick="window.switchMerchantTab('merchants')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-primary); border-bottom: 2px solid var(--color-primary); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+            <i class="ri-store-3-line"></i> Tiendas / Comercios
+          </button>
+          <button id="tab-btn-holdings" class="btn-tab-merchant" onclick="window.switchMerchantTab('holdings')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+            <i class="ri-building-line"></i> Holdings / Conglomerados
+          </button>
+        </div>
+
+        <div class="card-body" style="padding: 0;">
+          <!-- Tab 1: Comercios List -->
+          <div id="tab-content-merchants" class="table-responsive" style="overflow-x: auto; display: block;">
+            <table class="data-table" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th>Comercio</th>
+                  <th>Razón Social / RUT</th>
+                  <th>Sigla</th>
+                  <th>Estado Facturación</th>
+                  <th>Seguimiento Inventario</th>
+                  <th>Pedido trae Sigla</th>
+                  <th>Usuarios Asociados</th>
+                  <th>Integraciones</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="merchant-table-body">
+                ${renderTableRows(comercios)}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Tab 2: Holdings List -->
+          <div id="tab-content-holdings" style="display: none; padding: 1.5rem;">
+            <p style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando holdings...</p>
+          </div>
         </div>
       </div>
     `;
@@ -21724,6 +21795,157 @@ async function renderMerchantsAdmin() {
     `;
   }
 }
+
+window.switchMerchantTab = function(tabName) {
+  const tabMerchants = document.getElementById('tab-btn-merchants');
+  const tabHoldings = document.getElementById('tab-btn-holdings');
+  const contentMerchants = document.getElementById('tab-content-merchants');
+  const contentHoldings = document.getElementById('tab-content-holdings');
+  const searchWrapper = document.getElementById('merchant-search-wrapper');
+  
+  if (!tabMerchants || !tabHoldings || !contentMerchants || !contentHoldings) return;
+
+  if (tabName === 'merchants') {
+    tabMerchants.style.color = 'var(--color-primary)';
+    tabMerchants.style.borderBottom = '2px solid var(--color-primary)';
+    
+    tabHoldings.style.color = 'var(--color-text-muted)';
+    tabHoldings.style.borderBottom = 'none';
+    
+    contentMerchants.style.display = 'block';
+    contentHoldings.style.display = 'none';
+    if (searchWrapper) searchWrapper.style.display = 'block';
+  } else {
+    tabHoldings.style.color = 'var(--color-primary)';
+    tabHoldings.style.borderBottom = '2px solid var(--color-primary)';
+    
+    tabMerchants.style.color = 'var(--color-text-muted)';
+    tabMerchants.style.borderBottom = 'none';
+    
+    contentMerchants.style.display = 'none';
+    contentHoldings.style.display = 'block';
+    if (searchWrapper) searchWrapper.style.display = 'none';
+    
+    window.renderHoldingsTab();
+  }
+};
+
+window.renderHoldingsTab = function() {
+  const container = document.getElementById('tab-content-holdings');
+  if (!container) return;
+
+  const list = window.cachedAdminMerchants || [];
+  
+  // Group by RUT
+  const groups = {};
+  list.forEach(c => {
+    const rut = (c.rut || '').trim().toUpperCase();
+    if (!rut) return;
+    if (!groups[rut]) {
+      groups[rut] = {
+        rut: c.rut.trim(),
+        razon_social: c.razon_social || 'Holding sin Razón Social',
+        stores: []
+      };
+    }
+    if (c.razon_social && (!groups[rut].razon_social || groups[rut].razon_social === 'Holding sin Razón Social')) {
+      groups[rut].razon_social = c.razon_social.trim();
+    }
+    groups[rut].stores.push(c);
+  });
+
+  // Filter holdings with > 1 store
+  const holdings = Object.values(groups).filter(g => g.stores.length > 1);
+
+  if (holdings.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 3rem 1.5rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-md);">
+        <i class="ri-building-line" style="font-size: 3rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;"></i>
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main);">No se encontraron Holdings</h4>
+        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">No hay empresas registradas con más de una tienda (mismo RUT y Razón Social) en el WMS.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Render list of holdings
+  container.innerHTML = holdings.map(h => {
+    // Determine overall billing status
+    const allActive = h.stores.every(s => s.al_dia);
+    const allSuspended = h.stores.every(s => !s.al_dia);
+    
+    let billingBadge = '';
+    if (allActive) {
+      billingBadge = `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Al Día</span>`;
+    } else if (allSuspended) {
+      billingBadge = `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido Completo</span>`;
+    } else {
+      billingBadge = `<span class="badge-status warning" style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);"><i class="ri-alert-line"></i> Suspensión Parcial</span>`;
+    }
+
+    const storesRows = h.stores.map(s => {
+      const storeBilling = s.al_dia 
+        ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Activo</span>`
+        : `<span class="badge-status suspended"><i class="ri-close-circle-line"></i> Suspendido</span>`;
+
+      const storeStock = s.inventario_seguimiento
+        ? `<span class="badge-status enabled"><i class="ri-check-line"></i> Activo</span>`
+        : `<span class="badge-status disabled">Inactivo</span>`;
+
+      const activeIntList = s.integrations.filter(i => i.is_active).map(i => i.platform);
+      const intDisplay = activeIntList.length > 0 
+        ? activeIntList.join(', ')
+        : '<span style="color: var(--color-text-muted); font-style: italic;">Ninguna activa</span>';
+
+      return `
+        <tr>
+          <td style="padding: 0.75rem 1.25rem;"><strong>${s.nombre}</strong></td>
+          <td style="padding: 0.75rem 1.25rem;"><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${s.sigla}</code></td>
+          <td style="padding: 0.75rem 1.25rem;">${storeBilling}</td>
+          <td style="padding: 0.75rem 1.25rem;">${storeStock}</td>
+          <td style="padding: 0.75rem 1.25rem; font-size: 0.8rem; color: var(--color-text-main);">${intDisplay}</td>
+          <td style="padding: 0.75rem 1.25rem; font-size: 0.8rem; color: var(--color-text-muted);">${s.associatedUsers.length} Usuarios</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="card" style="margin-bottom: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); background: var(--color-surface);">
+        <div style="background: var(--color-surface-hover); padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); border-top-left-radius: var(--radius-md); border-top-right-radius: var(--radius-md); flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+              <i class="ri-building-line" style="color: var(--color-primary); font-size: 1.2rem;"></i> ${h.razon_social}
+            </h4>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.15rem; font-weight: 500;">RUT: <span style="font-family: monospace;">${h.rut}</span></div>
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent); font-weight: 600; font-size: 0.75rem;">
+              <i class="ri-store-2-line"></i> ${h.stores.length} Tiendas
+            </span>
+            ${billingBadge}
+          </div>
+        </div>
+        <div style="padding: 0; overflow-x: auto;">
+          <table class="data-table" style="margin: 0; border: none; border-radius: 0; width: 100%;">
+            <thead>
+              <tr style="background: var(--color-bg);">
+                <th style="padding: 0.75rem 1.25rem;">Tienda</th>
+                <th style="padding: 0.75rem 1.25rem;">Sigla</th>
+                <th style="padding: 0.75rem 1.25rem;">Facturación</th>
+                <th style="padding: 0.75rem 1.25rem;">Seguimiento Stock</th>
+                <th style="padding: 0.75rem 1.25rem;">Integraciones Activas</th>
+                <th style="padding: 0.75rem 1.25rem;">Usuarios</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${storesRows}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }).join('');
+};
 
 // Modal de Migración SQL
 window.showMerchantMigrationModal = function() {

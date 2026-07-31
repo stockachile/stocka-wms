@@ -2253,3 +2253,37 @@ Hemos implementado la capacidad de filtrar productos en la tabla de inventario e
      * Si `status === 'Bajo Stock'` y el checkbox correspondiente no está marcado, se descarta.
      * Si `status === 'Agotado'` y el checkbox correspondiente no está marcado, se descarta.
    - Esto permite la combinación acumulativa y en tiempo real de cualquiera de los tres estados del inventario.
+
+---
+
+## 97. Sistema de Caché de Datos y Recarga Dinámica en Dashboards
+
+Hemos implementado un sistema robusto de almacenamiento en caché en memoria y recarga dinámica bajo demanda para optimizar las peticiones de los dashboards de Cliente (`js/app.js`) y Administrador (`js/admin.js`). Esto evita golpear innecesariamente la base de datos Supabase al navegar entre pestañas, manteniendo una excelente velocidad de carga y experiencia de usuario.
+
+1. **Gestor de Caché Global (`js/app.js` y `js/admin.js`)**:
+   - Definimos métodos globales (`window.getDashboardCache`, `window.setDashboardCache`, `window.clearDashboardCache`) en el objeto window para interactuar con un storage persistente en memoria que mantiene los payloads de datos con una marca de tiempo.
+   - Cuenta con un tiempo de expiración (TTL) configurable de 5 minutos por defecto.
+
+2. **Integración en Portal Cliente (`js/app.js`)**:
+   - Al inicializar y cargar la vista del dashboard (`renderDashboard`), el sistema evalúa si existe un caché válido para el comercio del usuario.
+   - Si existe, se recupera de inmediato la data pre-cargada. En el Hero Banner superior se despliega un indicador visual discreto con un icono de historial detallando la edad del caché (ej: *"Caché (hace 2 min)"*).
+   - Se añadió un botón **"Actualizar"** al Hero Banner. Al ser presionado, se invalida el caché del comercio y se recargan las consultas en tiempo real directamente desde el servidor Supabase.
+
+3. **Integración en Portal Administrador (`js/admin.js`)**:
+   - Se adaptó la función `fetchAndRenderAdminMetrics()` de forma equivalente. Utiliza llaves de caché diferenciadas por comercio seleccionado (o `'all'` para la consolidación total).
+   - El contenedor base del Dashboard Admin ahora incluye un elemento `#admin-cache-indicator` y el botón `#admin-refresh-dashboard-btn` (icono de refresco) integrados elegantemente junto al selector superior de comercios.
+   - Al cambiar de comercio o presionar el botón de refresco, el sistema invalida la llave correspondiente y solicita los datos actualizados a la base de datos de manera fluida y con loaders premium en tiempo real.
+
+---
+
+## 98. Visualización de Etiquetas de Producto Virtual en Catálogos
+
+Hemos implementado la visualización de etiquetas o "badges" para identificar los productos de tipo virtual/digital (`is_virtual === true`) en las tablas de catálogos tanto del Administrador como del Cliente.
+
+1. **Catálogo de Administrador (`js/admin.js`)**:
+   - Modificamos la función `renderMasterCatalogRows` para comprobar si el producto tiene el flag `is_virtual` activo.
+   - Si es verdadero, se agrega dinámicamente un badge con color de fondo verde, un ícono de computadora (`ri-computer-line`) y el texto "Virtual" al lado del origen del producto y/o de su badge de "Pack".
+
+2. **Catálogo de Cliente/Merchant (`js/app.js`)**:
+   - Replicamos la misma lógica en la función `renderMasterCatalogRows` de la vista de cliente para asegurar consistencia visual en todo el sistema.
+   - Se aplicó cache-busting en los archivos HTML (`admin.html` y `dashboard.html`) para forzar la recarga de los scripts actualizados en el navegador de los usuarios.

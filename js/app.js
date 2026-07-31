@@ -18000,6 +18000,11 @@ function renderMasterCatalogRows(products) {
       packBadge = ` <span class="badge" style="background-color: #8b5cf6; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-stack-line"></i> Pack</span>`;
     }
 
+    let virtualBadge = '';
+    if (item.is_virtual) {
+      virtualBadge = ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600; margin-left: 0.25rem;"><i class="ri-computer-line"></i> Virtual</span>`;
+    }
+
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
 
     const initialStockCell = window.catalogQuickEditMode
@@ -18052,7 +18057,7 @@ function renderMasterCatalogRows(products) {
         <td style="padding: 0.45rem 0.75rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
         ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
-        <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}</td>
+        <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}${virtualBadge}</td>
         ${dimensionsCell}
         ${volumenCell}
         <td style="padding: 0.45rem 0.75rem;">${weight}</td>
