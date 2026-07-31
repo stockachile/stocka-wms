@@ -319,104 +319,115 @@ async function syncShopifyProducts(integration: any): Promise<number> {
 }
 
 async function syncShopifyOrders(integration: any): Promise<number> {
-  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=50`;
-  
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      "X-Shopify-Access-Token": integration.access_token,
-      "Content-Type": "application/json"
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`Shopify API error orders: ${response.status} - ${errorText}`);
-    return 0;
-  }
-
-  const data = await response.json();
-  const orders = data.orders || [];
+  let url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250`;
   let count = 0;
 
-  for (const order of orders) {
-    const orderDataToSave = {
-      merchant_id: integration.merchant_id,
-      comercio: integration.comercio,
-      external_order_number: order.name,
-      external_platform: "Shopify",
-      payment_status: order.financial_status,
-      total_value: order.current_total_price,
-      customer_email: order.contact_email || order.email || null,
-      customer_phone: order.shipping_address?.phone || null,
-      customer_name: order.shipping_address ? `${order.shipping_address.first_name || ''} ${order.shipping_address.last_name || ''}`.trim() : "",
-      shipping_address: order.shipping_address?.address1 || null,
-      shipping_city: order.shipping_address?.city || null,
-      shipping_complement: order.shipping_address?.address2 || null,
-      shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
-      raw_shopify_data: order,
-      created_at: new Date(order.created_at).toISOString(),
-      status: order.cancelled_at ? "cancelado" : "para procesar",
-      estado_wms: order.cancelled_at ? "Cancelado" : "En procesamiento"
-    };
+  while (url) {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "X-Shopify-Access-Token": integration.access_token,
+        "Content-Type": "application/json"
+      }
+    });
 
-    const { data: existingOrder } = await supabase
-      .from("orders")
-      .select("id")
-      .eq("comercio", integration.comercio)
-      .eq("external_order_number", order.name)
-      .eq("external_platform", "Shopify")
-      .maybeSingle();
-
-    let orderId: string;
-    if (existingOrder) {
-      await supabase.from("orders").update(orderDataToSave).eq("id", existingOrder.id);
-      orderId = existingOrder.id;
-    } else {
-      const { data: newOrder } = await supabase.from("orders").insert([orderDataToSave]).select("id").single();
-      if (newOrder) orderId = newOrder.id;
-      else continue;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Shopify API error orders: ${response.status} - ${errorText}`);
+      break;
     }
 
-    await supabase.from("order_items").delete().eq("order_id", orderId);
-    const lineItems = order.line_items || [];
-    for (const item of lineItems) {
-      const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
-      if (!targetSku) continue;
+    const data = await response.json();
+    const orders = data.orders || [];
 
-      let { data: product } = await supabase
-        .from("products")
+    for (const order of orders) {
+      const orderDataToSave = {
+        merchant_id: integration.merchant_id,
+        comercio: integration.comercio,
+        external_order_number: order.name,
+        external_platform: "Shopify",
+        payment_status: order.financial_status,
+        total_value: order.current_total_price,
+        customer_email: order.contact_email || order.email || null,
+        customer_phone: order.shipping_address?.phone || null,
+        customer_name: order.shipping_address ? `${order.shipping_address.first_name || ''} ${order.shipping_address.last_name || ''}`.trim() : "",
+        shipping_address: order.shipping_address?.address1 || null,
+        shipping_city: order.shipping_address?.city || null,
+        shipping_complement: order.shipping_address?.address2 || null,
+        shipping_method: order.shipping_lines && order.shipping_lines.length > 0 ? order.shipping_lines[0].title : null,
+        raw_shopify_data: order,
+        created_at: new Date(order.created_at).toISOString(),
+        status: order.cancelled_at ? "cancelado" : "para procesar",
+        estado_wms: order.cancelled_at ? "Cancelado" : "En procesamiento"
+      };
+
+      const { data: existingOrder } = await supabase
+        .from("orders")
         .select("id")
-        .eq("sku", targetSku)
         .eq("comercio", integration.comercio)
+        .eq("external_order_number", order.name)
+        .eq("external_platform", "Shopify")
         .maybeSingle();
 
-      if (!product) {
-        const { data: newProd } = await supabase
-          .from("products")
-          .insert([{
-            merchant_id: integration.merchant_id,
-            comercio: integration.comercio,
-            sku: targetSku,
-            name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
-            price: item.price ? parseFloat(item.price) : 0,
-            description: "Creado automáticamente desde sincronización inicial de Shopify",
-            status: "active"
-          }])
-          .select("id")
-          .single();
-        product = newProd;
+      let orderId: string;
+      if (existingOrder) {
+        await supabase.from("orders").update(orderDataToSave).eq("id", existingOrder.id);
+        orderId = existingOrder.id;
+      } else {
+        const { data: newOrder } = await supabase.from("orders").insert([orderDataToSave]).select("id").single();
+        if (newOrder) orderId = newOrder.id;
+        else continue;
       }
 
-      if (product) {
-        await supabase.from("order_items").insert([{
-          order_id: orderId,
-          product_id: product.id,
-          quantity: item.quantity
-        }]);
+      await supabase.from("order_items").delete().eq("order_id", orderId);
+      const lineItems = order.line_items || [];
+      for (const item of lineItems) {
+        const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
+        if (!targetSku) continue;
+
+        let { data: product } = await supabase
+          .from("products")
+          .select("id")
+          .eq("sku", targetSku)
+          .eq("comercio", integration.comercio)
+          .maybeSingle();
+
+        if (!product) {
+          const { data: newProd } = await supabase
+            .from("products")
+            .insert([{
+              merchant_id: integration.merchant_id,
+              comercio: integration.comercio,
+              sku: targetSku,
+              name: `${item.title}${item.variant_title && item.variant_title !== 'Default Title' ? ' - ' + item.variant_title : ''}`,
+              price: item.price ? parseFloat(item.price) : 0,
+              description: "Creado automáticamente desde sincronización inicial de Shopify",
+              status: "active"
+            }])
+            .select("id")
+            .single();
+          product = newProd;
+        }
+
+        if (product) {
+          await supabase.from("order_items").insert([{
+            order_id: orderId,
+            product_id: product.id,
+            quantity: item.quantity
+          }]);
+        }
+      }
+      count++;
+    }
+
+    const linkHeader = response.headers.get("link");
+    url = "";
+    if (linkHeader) {
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      if (nextMatch) {
+        url = nextMatch[1];
       }
     }
-    count++;
   }
 
   return count;

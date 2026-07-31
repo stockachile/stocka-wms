@@ -142,7 +142,7 @@ async function syncShopifyData() {
 
 async function syncOrders(integration) {
   console.log('--> Extrayendo pedidos...');
-  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any`;
+  const url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250`;
 
   // Obtener sigla del comercio y configuración de prefijos por plataforma
   let siglaComercio = '';
