@@ -65,14 +65,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Detectar modo de recuperación de contraseña en la URL (hash o query params)
-  const isRecovery = window.location.hash.includes('type=recovery') || window.location.href.includes('type=recovery');
+  // Detectar si venimos de un redireccionamiento de autenticación (PKCE o Hash)
+  const isAuthRedirect = new URLSearchParams(window.location.search).has('code') || 
+                         window.location.hash.includes('type=recovery') || 
+                         window.location.href.includes('type=recovery');
 
   // Check si ya hay sesión activa
   const checkSession = async () => {
-    if (isRecovery) {
-      console.log('Modo recuperación de contraseña detectado. Mostrando formulario de restablecimiento.');
-      showResetForm();
+    // Si venimos de un flujo de autenticación (como confirmación o recovery), no redireccionar inmediatamente.
+    // Dejamos que onAuthStateChange maneje el flujo correspondiente de forma asíncrona.
+    if (isAuthRedirect) {
+      console.log('Flujo de redireccionamiento de autenticación detectado. Esperando eventos de Supabase...');
       return;
     }
 
@@ -98,6 +101,15 @@ document.addEventListener('DOMContentLoaded', () => {
     authTitle.textContent = 'Restablecer Contraseña';
     authSubtitle.textContent = 'Ingresa tu nueva contraseña para actualizar tu cuenta.';
   };
+
+  // Escuchar cambios en el estado de autenticación (esencial para flujos asíncronos como PKCE)
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    console.log('Evento de autenticación detectado:', event);
+    if (event === 'PASSWORD_RECOVERY') {
+      window.isRecoveryMode = true;
+      showResetForm();
+    }
+  });
 
   checkSession();
 
