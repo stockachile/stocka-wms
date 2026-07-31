@@ -361,12 +361,13 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         estado_wms: order.cancelled_at ? "Cancelado" : "En procesamiento"
       };
 
+      const shopifyOrderIdStr = (order.id || "").toString();
       const { data: existingOrder } = await supabase
         .from("orders")
         .select("id")
         .eq("comercio", integration.comercio)
-        .eq("external_order_number", order.name)
         .eq("external_platform", "Shopify")
+        .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name}`)
         .maybeSingle();
 
       let orderId: string;
