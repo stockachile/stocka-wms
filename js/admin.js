@@ -30500,33 +30500,36 @@ function showAddAnnexModal() {
 
   const modal = document.createElement('div');
   modal.id = 'modal-add-contract-annex';
-  modal.className = 'modal active';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '1500';
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 500px; padding: 1.5rem; background: var(--color-surface); border-radius: var(--radius-md); position: relative; margin: 10% auto;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; margin-bottom: 1.25rem;">
-        <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700;">Agregar Anexo Contractual</h3>
-        <button type="button" class="btn-close-modal" id="btn-close-annex-modal" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+    <div class="modal-content" style="max-width: 500px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">Agregar Anexo Contractual</h3>
+        <button type="button" class="modal-close" id="btn-close-annex-modal" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
       </div>
       
       <form id="form-add-annex">
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Nombre del Documento *</label>
-          <input type="text" id="annex-name" class="form-input" placeholder="Ej: Anexo de Tarifas Fulfillment 2026" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Nombre del Documento *</label>
+            <input type="text" id="annex-name" class="form-input" placeholder="Ej: Anexo de Tarifas Fulfillment 2026" required style="width: 100%;">
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Fecha del Documento *</label>
+            <input type="date" id="annex-date" class="form-input" required style="width: 100%;">
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Archivo PDF *</label>
+            <input type="file" id="annex-file" accept=".pdf" class="form-input" required style="width: 100%;">
+          </div>
         </div>
         
-        <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Fecha del Documento *</label>
-          <input type="date" id="annex-date" class="form-input" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
-        </div>
-        
-        <div class="form-group" style="margin-bottom: 1.5rem;">
-          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Archivo PDF *</label>
-          <input type="file" id="annex-file" accept=".pdf" class="form-input" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
-        </div>
-        
-        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
-          <button type="button" class="btn btn-outline" id="btn-cancel-annex" style="padding: 0.5rem 1rem;">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.25rem;">Guardar Anexo</button>
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
+          <button type="button" class="btn btn-outline" id="btn-cancel-annex">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar Anexo</button>
         </div>
       </form>
     </div>
