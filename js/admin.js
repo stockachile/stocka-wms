@@ -19321,6 +19321,12 @@ function renderFoldersSidebar() {
       <span><i class="ri-folder-open-line folder-icon"></i> Todas</span>
       <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${adminDocsList.length}</span>
     </li>
+    
+    <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
+    <li class="folder-item ${adminSelectedFolder === 'contractual_docs' ? 'active' : ''}" data-folder="contractual_docs" style="font-weight: 600;">
+      <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
+    </li>
+    <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
   `;
 
   Object.keys(folders).sort().forEach(folder => {
@@ -19345,6 +19351,38 @@ function renderFoldersSidebar() {
 }
 
 function filterAndRenderDocsTable() {
+  const fileListCard = document.querySelector('.file-list-card');
+  if (fileListCard) {
+    if (adminSelectedFolder === 'contractual_docs') {
+      renderContractualDocsManager(fileListCard);
+      return;
+    } else {
+      const isCustomRendered = !document.getElementById('admin-docs-table-body');
+      if (isCustomRendered) {
+        fileListCard.innerHTML = `
+          <div style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 0; font-size: 1.1rem;" id="admin-current-folder-title">Todos los Archivos</h3>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);" id="admin-files-count">0 archivos encontrados</span>
+          </div>
+          <div style="overflow-x: auto;">
+            <table class="data-table" style="font-size: 0.875rem;">
+              <thead>
+                <tr>
+                  <th style="width: 50px; text-align: center;">Fijar</th>
+                  <th>Nombre del Archivo</th>
+                  <th>Carpeta</th>
+                  <th>Última Actualización</th>
+                  <th style="text-align: right; width: 150px;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-docs-table-body"></tbody>
+            </table>
+          </div>
+        `;
+      }
+    }
+  }
+
   const tbody = document.getElementById('admin-docs-table-body');
   const countSpan = document.getElementById('admin-files-count');
   const folderTitle = document.getElementById('admin-current-folder-title');
@@ -30127,6 +30165,450 @@ function openCatalogBulkStockImportModal(commerce) {
     };
     reader.readAsArrayBuffer(file);
   }
+}
+
+async function renderContractualDocsManager(container) {
+  container.innerHTML = `
+    <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+      <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">Documentos Contractuales de Onboarding</h3>
+      <span style="font-size: 0.85rem; color: var(--color-text-muted);">Configuración de plantillas y anexos</span>
+    </div>
+    
+    <div style="padding: 1.5rem;">
+      <!-- SECCIÓN 1: PLANTILLAS PRINCIPALES -->
+      <div class="card" style="padding: 1.5rem; margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+        <h4 style="margin-top: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-file-text-line" style="color: var(--color-accent);"></i> Plantillas del Contrato Principal
+        </h4>
+        <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: 0 0 1.25rem 0;">
+          Actualiza los archivos PDF y Word de contrato que se le muestran para descargar al cliente observador.
+        </p>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+          <!-- Plantilla PDF -->
+          <div style="padding: 1rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem;"></i> Contrato PDF
+            </h5>
+            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
+              <a id="contract-pdf-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.75rem;">Reemplazar Archivo PDF</label>
+              <input type="file" id="upload-contract-pdf-input" accept=".pdf" class="form-input" style="font-size: 0.75rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
+          
+          <!-- Plantilla Word -->
+          <div style="padding: 1rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+            <h5 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-file-word-fill" style="color: #2563eb; font-size: 1.1rem;"></i> Contrato Word (DOCX)
+            </h5>
+            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
+              <a id="contract-word-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.75rem;">Reemplazar Archivo Word</label>
+              <input type="file" id="upload-contract-word-input" accept=".docx" class="form-input" style="font-size: 0.75rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SECCIÓN 2: ANEXOS CONTRACTUALES -->
+      <div class="card" style="padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h4 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-file-list-3-line" style="color: var(--color-accent);"></i> Anexos Contractuales Requeridos
+            </h4>
+            <p style="color: var(--color-text-muted); font-size: 0.8rem; margin: 0.15rem 0 0 0;">
+              Documentación adicional que el usuario observador debe aceptar explícitamente en el portal.
+            </p>
+          </div>
+          <button id="btn-add-contract-annex" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.4rem 0.8rem; font-size: 0.8rem;">
+            <i class="ri-add-line"></i> Agregar Anexo
+          </button>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="data-table" style="font-size: 0.8rem; width: 100%;">
+            <thead>
+              <tr>
+                <th>Nombre del Documento</th>
+                <th>Fecha Documento</th>
+                <th>Enlace</th>
+                <th style="width: 110px; text-align: center;">Estado</th>
+                <th style="width: 90px; text-align: right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="contract-annexes-table-body">
+              <tr>
+                <td colspan="5" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+                  <i class="ri-loader-4-line spin" style="font-size: 1.25rem; display: block; margin-bottom: 0.5rem;"></i>
+                  Cargando anexos...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  await loadAndRenderContractualDocs();
+}
+
+async function loadAndRenderContractualDocs() {
+  const pdfLink = document.getElementById('contract-pdf-current-link');
+  const wordLink = document.getElementById('contract-word-current-link');
+  const annexesTbody = document.getElementById('contract-annexes-table-body');
+  
+  if (!pdfLink || !wordLink || !annexesTbody) return;
+
+  let templates = null;
+  let annexes = [];
+
+  try {
+    const { data: templateData } = await supabase
+      .from('contract_templates')
+      .select('*')
+      .eq('id', 'main_contract')
+      .maybeSingle();
+      
+    templates = templateData;
+
+    const { data: annexesData } = await supabase
+      .from('contractual_annexes')
+      .select('*')
+      .order('created_at', { ascending: false });
+      
+    annexes = annexesData || [];
+  } catch (err) {
+    console.error('Error loading contractual docs:', err);
+    Swal.fire('Error', 'No se pudieron cargar los documentos contractuales.', 'error');
+  }
+
+  if (templates) {
+    if (templates.pdf_url) {
+      pdfLink.href = templates.pdf_url;
+      pdfLink.textContent = templates.pdf_url.substring(templates.pdf_url.lastIndexOf('/') + 1) || 'Ver PDF';
+    } else {
+      pdfLink.textContent = 'No configurado';
+      pdfLink.removeAttribute('href');
+    }
+
+    if (templates.word_url) {
+      wordLink.href = templates.word_url;
+      wordLink.textContent = templates.word_url.substring(templates.word_url.lastIndexOf('/') + 1) || 'Ver Word';
+    } else {
+      wordLink.textContent = 'No configurado';
+      wordLink.removeAttribute('href');
+    }
+  } else {
+    pdfLink.textContent = 'Error al cargar';
+    wordLink.textContent = 'Error al cargar';
+  }
+
+  if (annexes.length === 0) {
+    annexesTbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">
+          No hay anexos contractuales registrados.
+        </td>
+      </tr>
+    `;
+  } else {
+    annexesTbody.innerHTML = annexes.map(annex => {
+      const formattedDate = new Date(annex.document_date).toLocaleDateString('es-CL', {
+        day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+      });
+      return `
+        <tr>
+          <td><strong>${annex.name}</strong></td>
+          <td>${formattedDate}</td>
+          <td>
+            <a href="${annex.file_url}" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">
+              <i class="ri-file-pdf-line"></i> Descargar
+            </a>
+          </td>
+          <td style="text-align: center;">
+            <button class="btn btn-toggle-annex-active" data-id="${annex.id}" data-active="${annex.is_active}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: var(--radius-sm); font-weight: 600; background: ${annex.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; color: ${annex.is_active ? 'var(--color-success)' : 'var(--color-danger)'}; border: 1px solid ${annex.is_active ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}; cursor: pointer;">
+              ${annex.is_active ? 'Activo' : 'Inactivo'}
+            </button>
+          </td>
+          <td style="text-align: right;">
+            <button class="btn btn-delete-annex" data-id="${annex.id}" style="padding: 0.25rem; font-size: 1.1rem; color: var(--color-danger); background: transparent; border: none; cursor: pointer;" title="Eliminar anexo">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    annexesTbody.querySelectorAll('.btn-toggle-annex-active').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        const currentActive = btn.getAttribute('data-active') === 'true';
+        await toggleAnnexActive(id, !currentActive);
+      });
+    });
+
+    annexesTbody.querySelectorAll('.btn-delete-annex').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        await deleteAnnex(id);
+      });
+    });
+  }
+
+  const pdfInput = document.getElementById('upload-contract-pdf-input');
+  const wordInput = document.getElementById('upload-contract-word-input');
+
+  pdfInput.addEventListener('change', async (e) => {
+    if (e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    await uploadMainContractTemplate('pdf', file);
+  });
+
+  wordInput.addEventListener('change', async (e) => {
+    if (e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    await uploadMainContractTemplate('word', file);
+  });
+
+  const btnAddAnnex = document.getElementById('btn-add-contract-annex');
+  btnAddAnnex.addEventListener('click', () => {
+    showAddAnnexModal();
+  });
+}
+
+async function uploadMainContractTemplate(type, file) {
+  if (type === 'pdf' && file.type !== 'application/pdf') {
+    Swal.fire('Formato Inválido', 'La plantilla PDF debe ser un archivo .pdf.', 'error');
+    return;
+  }
+  if (type === 'word' && !file.name.endsWith('.docx')) {
+    Swal.fire('Formato Inválido', 'La plantilla Word debe ser un archivo .docx.', 'error');
+    return;
+  }
+
+  try {
+    Swal.fire({
+      title: 'Subiendo plantilla...',
+      text: 'Actualizando archivo en Supabase Storage.',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    const timestamp = Date.now();
+    const extension = type === 'pdf' ? 'pdf' : 'docx';
+    const storagePath = `templates/Contrato_Fulfillment_${timestamp}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('service_docs')
+      .upload(storagePath, file);
+
+    if (uploadError) throw uploadError;
+
+    const { data: urlData } = supabase.storage
+      .from('service_docs')
+      .getPublicUrl(storagePath);
+
+    const publicUrl = urlData.publicUrl;
+
+    const updates = {
+      updated_at: new Date().toISOString()
+    };
+    if (type === 'pdf') {
+      updates.pdf_url = publicUrl;
+      updates.pdf_storage_path = storagePath;
+    } else {
+      updates.word_url = publicUrl;
+      updates.word_storage_path = storagePath;
+    }
+
+    const { error: dbError } = await supabase
+      .from('contract_templates')
+      .update(updates)
+      .eq('id', 'main_contract');
+
+    if (dbError) throw dbError;
+
+    Swal.close();
+    await Swal.fire('¡Plantilla Actualizada!', `La plantilla ${type.toUpperCase()} ha sido reemplazada con éxito.`, 'success');
+    await loadAndRenderContractualDocs();
+
+  } catch (err) {
+    Swal.close();
+    console.error('Error uploading template:', err);
+    Swal.fire('Error', `Ocurrió un error al actualizar la plantilla: ${err.message}`, 'error');
+  }
+}
+
+async function toggleAnnexActive(id, newActive) {
+  try {
+    const { error } = await supabase
+      .from('contractual_annexes')
+      .update({ is_active: newActive, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error) throw error;
+    
+    await loadAndRenderContractualDocs();
+  } catch (err) {
+    console.error('Error toggling annex active:', err);
+    Swal.fire('Error', 'No se pudo actualizar el estado del anexo.', 'error');
+  }
+}
+
+async function deleteAnnex(id) {
+  const result = await Swal.fire({
+    title: '¿Eliminar Anexo?',
+    text: 'Esta acción eliminará este documento en el flujo de firmas. ¿Estás seguro?',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, eliminar',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('contractual_annexes')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    await Swal.fire('Eliminado', 'El documento anexo ha sido eliminado.', 'success');
+    await loadAndRenderContractualDocs();
+  } catch (err) {
+    console.error('Error deleting annex:', err);
+    Swal.fire('Error', 'No se pudo eliminar el anexo contractual.', 'error');
+  }
+}
+
+function showAddAnnexModal() {
+  const existing = document.getElementById('modal-add-contract-annex');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-add-contract-annex';
+  modal.className = 'modal active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; padding: 1.5rem; background: var(--color-surface); border-radius: var(--radius-md); position: relative; margin: 10% auto;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; margin-bottom: 1.25rem;">
+        <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700;">Agregar Anexo Contractual</h3>
+        <button type="button" class="btn-close-modal" id="btn-close-annex-modal" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      
+      <form id="form-add-annex">
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Nombre del Documento *</label>
+          <input type="text" id="annex-name" class="form-input" placeholder="Ej: Anexo de Tarifas Fulfillment 2026" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Fecha del Documento *</label>
+          <input type="date" id="annex-date" class="form-input" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 1.5rem;">
+          <label class="form-label" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem;">Archivo PDF *</label>
+          <input type="file" id="annex-file" accept=".pdf" class="form-input" required style="width: 100%; box-sizing: border-box; padding: 0.5rem;">
+        </div>
+        
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+          <button type="button" class="btn btn-outline" id="btn-cancel-annex" style="padding: 0.5rem 1rem;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.25rem;">Guardar Anexo</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.remove();
+  };
+
+  document.getElementById('btn-close-annex-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-annex').addEventListener('click', closeModal);
+
+  document.getElementById('form-add-annex').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const name = document.getElementById('annex-name').value.trim();
+    const documentDate = document.getElementById('annex-date').value;
+    const fileInput = document.getElementById('annex-file');
+    
+    if (fileInput.files.length === 0) {
+      Swal.fire('Archivo requerido', 'Debes seleccionar un archivo PDF.', 'warning');
+      return;
+    }
+    
+    const file = fileInput.files[0];
+    if (file.type !== 'application/pdf') {
+      Swal.fire('Formato Inválido', 'El archivo debe ser en formato PDF.', 'error');
+      return;
+    }
+
+    try {
+      Swal.fire({
+        title: 'Subiendo anexo...',
+        text: 'Almacenando el documento en Supabase Storage.',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      const timestamp = Date.now();
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = `annexes/${timestamp}_${sanitizedName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('service_docs')
+        .upload(storagePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('service_docs')
+        .getPublicUrl(storagePath);
+
+      const fileUrl = urlData.publicUrl;
+
+      const { error: dbError } = await supabase
+        .from('contractual_annexes')
+        .insert({
+          name: name,
+          document_date: documentDate,
+          file_url: fileUrl,
+          storage_path: storagePath,
+          is_active: true
+        });
+
+      if (dbError) throw dbError;
+
+      Swal.close();
+      closeModal();
+      await Swal.fire('¡Éxito!', 'El documento anexo ha sido agregado correctamente.', 'success');
+      
+      await loadAndRenderContractualDocs();
+
+    } catch (err) {
+      Swal.close();
+      console.error('Error adding annex:', err);
+      Swal.fire('Error', `No se pudo guardar el anexo: ${err.message}`, 'error');
+    }
+  });
 }
 
 

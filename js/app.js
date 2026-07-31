@@ -22368,10 +22368,73 @@ function renderNoOnboardingState() {
   `;
 }
 
-function renderUploadContractView(request) {
+async function renderUploadContractView(request) {
   const appContent = document.getElementById('app-content');
   const viewTitle = document.getElementById('view-title');
   if (viewTitle) viewTitle.textContent = 'Firma de Contrato';
+
+  appContent.innerHTML = `
+    <div style="text-align: center; padding: 3rem; color: var(--color-text-muted);">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+      Cargando documentación y plantillas contractuales...
+    </div>
+  `;
+
+  let templates = {
+    pdf_url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.pdf',
+    word_url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.docx'
+  };
+  let annexes = [];
+
+  try {
+    const { data: templateData } = await supabase
+      .from('contract_templates')
+      .select('*')
+      .eq('id', 'main_contract')
+      .maybeSingle();
+
+    if (templateData) {
+      if (templateData.pdf_url) templates.pdf_url = templateData.pdf_url;
+      if (templateData.word_url) templates.word_url = templateData.word_url;
+    }
+
+    const { data: annexesData } = await supabase
+      .from('contractual_annexes')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
+
+    if (annexesData) annexes = annexesData;
+  } catch (err) {
+    console.warn('Error fetching contract docs, using defaults:', err);
+  }
+
+  let annexesHtml = '';
+  if (annexes.length > 0) {
+    annexesHtml = `
+      <div style="margin-bottom: 2rem; padding: 1.25rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+        <strong style="font-size: 0.95rem; color: var(--color-text-main); display: block; margin-bottom: 1rem;">Documentación Anexa Requerida:</strong>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          ${annexes.map(annex => {
+            const formattedDate = new Date(annex.document_date).toLocaleDateString('es-CL', {
+              day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+            });
+            return `
+              <div style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.25rem 0;">
+                <input type="checkbox" class="accept-annex-checkbox" data-annex-id="${annex.id}" style="width: 18px; height: 18px; margin-top: 2px; cursor: pointer; accent-color: var(--color-accent);" required>
+                <div style="font-size: 0.95rem; line-height: 1.4; color: var(--color-text-main);">
+                  <span>Acepto y declaro conocer el documento <strong>"${annex.name}"</strong> (Fecha: ${formattedDate})</span>
+                  <a href="${annex.file_url}" target="_blank" style="margin-left: 0.5rem; color: var(--color-accent); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;">
+                    <i class="ri-external-link-line"></i> Ver documento
+                  </a>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
 
   appContent.innerHTML = `
     <div style="max-width: 700px; margin: 2rem auto; padding: 2.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
@@ -22396,10 +22459,10 @@ function renderUploadContractView(request) {
           <span style="font-size: 0.8rem; color: var(--color-text-muted);">Selecciona tu formato preferido.</span>
         </div>
         <div style="display: flex; gap: 0.75rem;">
-          <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.pdf" target="_blank" style="padding: 0.5rem 1rem; background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+          <a href="${templates.pdf_url}" target="_blank" style="padding: 0.5rem 1rem; background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
             <i class="ri-file-pdf-line"></i> PDF
           </a>
-          <a href="https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/Contrato_Fulfillment.docx" target="_blank" style="padding: 0.5rem 1rem; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+          <a href="${templates.word_url}" target="_blank" style="padding: 0.5rem 1rem; background: #dbeafe; color: #2563eb; border: 1px solid #93c5fd; border-radius: var(--radius-md); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
             <i class="ri-file-word-line"></i> Word
           </a>
         </div>
@@ -22434,12 +22497,15 @@ function renderUploadContractView(request) {
         </div>
 
         <!-- Aceptar Términos Checkbox -->
-        <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 2.5rem; padding: 0.5rem 0;">
+        <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 1.5rem; padding: 0.5rem 0;">
           <input type="checkbox" id="accept-contract-terms" style="width: 20px; height: 20px; margin-top: 2px; cursor: pointer; accent-color: var(--color-accent);" required>
           <label for="accept-contract-terms" style="cursor: pointer; font-size: 0.95rem; line-height: 1.4; color: var(--color-text-main); font-weight: 500;">
             Declaro aceptar los términos y condiciones de contratación del servicio de Fulfillment 360 de Stocka.cl
           </label>
         </div>
+
+        <!-- Checkboxes de anexos dinámicos -->
+        ${annexesHtml}
 
         <!-- Botones de Acción -->
         <div style="display: flex; justify-content: flex-end; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: 1.5rem;">
@@ -22543,6 +22609,20 @@ function initUploadContractListeners(request) {
     
     if (!termsCheckbox.checked) {
       Swal.fire('Términos requeridos', 'Debes declarar que aceptas los términos y condiciones del servicio.', 'warning');
+      return;
+    }
+
+    // Validar anexos contractuales
+    const annexesCheckboxes = document.querySelectorAll('.accept-annex-checkbox');
+    let allAnnexesAccepted = true;
+    annexesCheckboxes.forEach(cb => {
+      if (!cb.checked) {
+        allAnnexesAccepted = false;
+      }
+    });
+
+    if (!allAnnexesAccepted) {
+      Swal.fire('Documentación Anexa Requerida', 'Debes declarar que aceptas y conoces toda la documentación anexa requerida.', 'warning');
       return;
     }
 
