@@ -22485,8 +22485,8 @@ function initUploadContractListeners(request) {
     
     const sizeKb = file.size / 1024;
     fileSizeSpan.textContent = sizeKb > 1024 
-      ? \`\${(sizeKb / 1024).toFixed(2)} MB\` 
-      : \`\${sizeKb.toFixed(1)} KB\`;
+      ? `${(sizeKb / 1024).toFixed(2)} MB` 
+      : `${sizeKb.toFixed(1)} KB`;
       
     filePreview.style.display = 'flex';
     dropZone.style.borderColor = 'var(--color-accent)';
@@ -22561,7 +22561,7 @@ function initUploadContractListeners(request) {
       if (!userId) throw new Error('No se pudo identificar el usuario autenticado.');
 
       const sanitizedName = selectedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
-      const storagePath = \`onboarding/\${userId}_\${Date.now()}_\${sanitizedName}\`;
+      const storagePath = `onboarding/${userId}_${Date.now()}_${sanitizedName}`;
       
       const { error: uploadError } = await supabase.storage
         .from('service_docs')
