@@ -164,9 +164,9 @@ async function syncLightData() {
       console.log('🔓 Sesión activa cargada con éxito.');
     }
 
-    // Esperar a que cargue la lista de envíos inicial
-    console.log('⏳ Esperando la tabla de envíos...');
-    await page.waitForSelector('table tbody tr', { timeout: 15000 });
+    // Esperar a que cargue la página y el selector de estados esté disponible
+    console.log('⏳ Esperando a que el selector de filtros esté disponible...');
+    await page.waitForSelector('select#envios_f_estado', { timeout: 15000 });
 
     // 1. Cambiar el filtro "Estados del envio" a "Todos" (valor '-1')
     console.log('🔍 Cambiando filtro "Estados del envio" a "Todos"...');
@@ -286,16 +286,10 @@ async function syncLightData() {
         if (!findError && dbOrders && dbOrders.length > 0) {
           matchingOrdersCount++;
           const dbOrder = dbOrders[0];
-          const mappedWmsStatus = mapLightDataStatusToWms(shipmentPayload.status);
-
           const updatePayload = {
             lightdata_status: shipmentPayload.status,
             raw_lightdata_data: shipmentPayload
           };
-
-          if (mappedWmsStatus && mappedWmsStatus !== dbOrder.status) {
-            updatePayload.status = mappedWmsStatus;
-          }
 
           if (tracking && !dbOrder.tracking_number) {
             updatePayload.tracking_number = tracking;
@@ -309,10 +303,9 @@ async function syncLightData() {
             updatePayload.courier = 'CARRIER EXTERNO';
           }
 
-          const hasStatusChange = mappedWmsStatus && mappedWmsStatus !== dbOrder.status;
           const hasLightDataStatusChange = dbOrder.lightdata_status !== shipmentPayload.status;
           const hasCourierChange = dbOrder.courier !== 'CARRIER EXTERNO';
-          const needsUpdate = hasStatusChange || hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
+          const needsUpdate = hasLightDataStatusChange || hasCourierChange || !dbOrder.tracking_number;
 
           if (needsUpdate) {
             await supabase
@@ -367,6 +360,14 @@ async function syncLightData() {
 
   } catch (error) {
     console.error('❌ Error durante la ejecución del script:', error);
+    try {
+      if (page) {
+        await page.screenshot({ path: path.join(DOWNLOADS_DIR, 'error_screenshot.png') });
+        console.log('📸 Captura de pantalla de error guardada en downloads/error_screenshot.png');
+      }
+    } catch (e) {
+      console.error('No se pudo guardar la captura de pantalla:', e);
+    }
   } finally {
     console.log('Cerrando navegador...');
     await browser.close();

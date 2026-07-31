@@ -111,6 +111,15 @@ Hemos corregido la discrepancia visual entre el stock comprometido mostrado en l
 2. **Sincronía Perfecta**:
    - Tras aplicar este filtro en Javascript para la consulta consolidada, el total de unidades comprometidas y el listado de pedidos en el modal ahora coinciden al 100% con los valores de la base de datos en todas las pantallas.
 
+### Client Commerce & Orders Filter Updates (Added on July 31, 2026)
+
+#### [MODIFY] [app.js](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js)
+- **Client Despachos (Shipments)**: Added a "Comercio" filter dropdown in `renderShipments()`. It is rendered conditionally **only** if the client user is associated with more than one commerce (i.e. `currentCompany` is comma-separated, e.g. `'RELAJARTE, SMILE FOR PETS'`).
+- **Client Pedidos (Orders)**:
+  - Removed the "Exportación Shopify" filter dropdown since it is not useful for client users.
+  - Added a conditional "Comercio" filter dropdown in its place (using the same multi-commerce check).
+  - Updated the filtering logic `window.applyClientWmsFiltersAndRender` to filter orders based on the selected commerce (`order.comercio`) and bound the change event listener.
+
 ---
 
 ## 7. Corrección de Sobreescritura en Sincronización (MercadoLibre/Walmart) y Saneamiento de Pedido (MAGIC MAKEUP)
@@ -2307,3 +2316,54 @@ Hemos mejorado las tablas de **Alertas de Stock Crítico** tanto en el panel del
      - Si el stock disponible es menor a cero (`available < 0`), se asigna el badge de estado **`Insuficiente`** en color carmesí (`#e11d48`) y el número de stock disponible se pinta de color rojo.
      - Si el stock disponible es igual a cero (`available === 0`), se mantiene el badge **`Sin Stock`** (`#ef4444`).
      - Si el producto se muestra por falta de stock disponible pero no cuenta con un umbral crítico de control personalizado (`critico === 0`), se dibuja la etiqueta descriptiva `(sin crít.)` en lugar del valor de umbral vacío `/ crít. 0`.
+
+---
+
+## 100. Desacoplamiento de Estado de Despachos e Inventario (Sincronizaciones de LightData y Envíame)
+
+Hemos solucionado el error en el que las actualizaciones automáticas de tracking y estado de entrega de los despachos causaban deducciones de stock e incidencias de stock crítico debido a la falta de stock virtual en la base de datos (bloqueando la sincronización de envíos válidos con un error de restricción de check `inventory_quantity_check`).
+
+1. **Sincronización de LightData (`sync_lightdata.js`)**:
+   - Eliminamos la actualización automática de la columna `status` en la tabla `orders` cuando el envío cambia de estado en LightData. Esto previene que se dispare el trigger `handle_order_status_change()` al sincronizar.
+   - El script sigue sincronizando toda la información de tracking, urls, couriers y metadatos de LightData tanto en la orden como en la tabla dedicada de despachos.
+
+2. **Trigger de Envíame (`sync_enviame_shipment_to_orders_func`)**:
+   - Redefinimos la función del trigger para excluir la columna `status` del bloque de actualización. Los tránsitos y entregas registrados en Envíame ya no cambian de forma automática la columna `status` del pedido en WMS.
+
+3. **Trigger de Envíos Unificados (`sync_unified_status_to_orders_func`)**:
+   - Redefinimos la función del trigger encargado de asociar la información de tracking a las órdenes de WMS. Ya no modifica la columna `status` a `'despachado'` cuando el estado consolidado de la entrega es `'DESPACHADO'`.
+
+4. **Script de Migración SQL (`supabase_schema_unification_phase18.sql`)**:
+   - Creamos este script conteniendo las definiciones reestructuradas de ambas funciones trigger para que el administrador pueda ejecutarlas directamente en el editor SQL de Supabase.
+
+---
+
+## 101. Habilitación del Estado 'Cancelado' en el WMS (Modificación de Restricción CHECK de Base de Datos)
+
+Hemos identificado y solucionado el error que impedía cambiar el estado de un pedido a **"Cancelado"** en el WMS (`Error al actualizar estado WMS: new row for relation "orders" violates check constraint "check_estado_wms"`).
+
+### Causa Raíz:
+Aunque las vistas administrativas en el frontend (`js/admin.js`) y las llamadas de integración ya estaban completamente adaptadas para soportar la opción `"Cancelado"` para el estado del WMS (`estado_wms`), la base de datos PostgreSQL en Supabase tenía activa una restricción `CHECK` (`check_estado_wms`) que limitaba los valores válidos para esta columna exclusivamente a: `'En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'`. Cualquier intento de establecer `'Cancelado'` violaba esta restricción y causaba que la transacción fuera revertida con un error 23514.
+
+### Solución / Pasos de Aplicación:
+Hemos generado un script de migración SQL dedicado para actualizar la restricción de validación en la base de datos:
+
+1. **Script de Corrección SQL**:
+   - Se encuentra guardado en el archivo [supabase_schema_cancelado_constraint_fix.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_cancelado_constraint_fix.sql).
+   - Su contenido es el siguiente:
+     ```sql
+     -- WMS STOCKA - Fix check_estado_wms constraint
+     -- Ejecuta este script en el SQL Editor de tu proyecto de Supabase (https://supabase.com/dashboard)
+
+     -- 1. Eliminar la restricción CHECK anterior si existe
+     ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS check_estado_wms;
+
+     -- 2. Volver a crear la restricción CHECK incluyendo el estado 'Cancelado'
+     ALTER TABLE public.orders ADD CONSTRAINT check_estado_wms 
+       CHECK (estado_wms IN ('En procesamiento', 'En preparación', 'Pickeado', 'Despachado', 'Incidencia', 'Cancelado'));
+     ```
+
+2. **Instrucciones para Aplicar**:
+   - Copia el código SQL anterior.
+   - Ve a tu panel de control de Supabase (https://supabase.com/dashboard), abre la sección **SQL Editor**, crea una pestaña en blanco, pega el código y haz clic en **Run**.
+   - Con esto, la base de datos aceptará `"Cancelado"` como un estado WMS válido, y al realizar este cambio se liberará automáticamente el stock comprometido de los ítems de ese pedido.

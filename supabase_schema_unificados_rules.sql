@@ -49,31 +49,17 @@ BEGIN
       v_target_operador := v_courier_upper;
     END IF;
 
-    -- Actualizamos los datos en orders en dos escenarios:
-    -- A) El nuevo envío tiene movimiento (global_status = 'DESPACHADO')
-    -- B) O la orden aún no tiene asignado ningún tracking_number
+    -- Actualizamos los datos en orders sin modificar el estado operacional (status)
     IF NEW.global_status = 'DESPACHADO' OR 
        EXISTS (SELECT 1 FROM public.orders WHERE id = v_order_uuid AND (tracking_number IS NULL OR tracking_number = '')) 
     THEN
-      -- Si tiene movimiento y el pedido no está en un estado final, cambiar también su estado a 'despachado'
-      IF NEW.global_status = 'DESPACHADO' AND v_current_wms_status NOT IN ('despachado', 'cancelado') THEN
-        UPDATE public.orders
-        SET
-          tracking_number = NEW.tracking,
-          tracking_url = NEW.tracking_url,
-          courier = NEW.courier,
-          operador = v_target_operador,
-          status = 'despachado'
-        WHERE id = v_order_uuid;
-      ELSE
-        UPDATE public.orders
-        SET
-          tracking_number = NEW.tracking,
-          tracking_url = NEW.tracking_url,
-          courier = NEW.courier,
-          operador = v_target_operador
-        WHERE id = v_order_uuid;
-      END IF;
+      UPDATE public.orders
+      SET
+        tracking_number = NEW.tracking,
+        tracking_url = NEW.tracking_url,
+        courier = NEW.courier,
+        operador = v_target_operador
+      WHERE id = v_order_uuid;
     END IF;
   END IF;
 

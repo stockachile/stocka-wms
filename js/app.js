@@ -4589,6 +4589,10 @@ async function renderOrders() {
 
   try {
     const companyList = getCompanyList();
+    const userCommerces = currentCompany
+      ? currentCompany.split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    const showCommerceFilter = userCommerces.length > 1;
 
     // Cargar todos los packs del comercio para trazabilidad de pedidos
     let packSkusList = [];
@@ -4847,14 +4851,15 @@ async function renderOrders() {
               ${statusOptions}
             </select>
           </div>
+          ${showCommerceFilter ? `
           <div class="form-group" style="margin-bottom: 0;">
-            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-download-2-line"></i> Exportación Shopify</label>
-            <select id="filter-client-export-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
-              <option value="">Todos</option>
-              <option value="pending">Pendientes de exportar</option>
-              <option value="exported">Exportados</option>
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-store-2-line"></i> Comercio</label>
+            <select id="filter-client-commerce" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todos los comercios</option>
+              ${userCommerces.map(c => `<option value="${c}">${c}</option>`).join('')}
             </select>
           </div>
+          ` : ''}
           <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-calendar-line"></i> Desde</label>
             <input type="date" id="filter-client-date-from" class="form-input" value="${startOfMonthStr}" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
@@ -4930,7 +4935,7 @@ async function renderOrders() {
     const searchInput = document.getElementById('search-client-orders');
     const origenSelect = document.getElementById('filter-client-origen');
     const statusSelect = document.getElementById('filter-client-status');
-    const exportStatusSelect = document.getElementById('filter-client-export-status');
+    const commerceSelect = document.getElementById('filter-client-commerce');
     const dateFromInput = document.getElementById('filter-client-date-from');
     const dateToInput = document.getElementById('filter-client-date-to');
 
@@ -4942,7 +4947,7 @@ async function renderOrders() {
     if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
-    if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
+    if (commerceSelect) commerceSelect.addEventListener('change', triggerFilterUpdate);
     if (dateFromInput) dateFromInput.addEventListener('change', triggerFilterUpdate);
     if (dateToInput) dateToInput.addEventListener('change', triggerFilterUpdate);
 
@@ -5007,16 +5012,21 @@ window.applyClientWmsFiltersAndRender = function() {
   const searchInput = document.getElementById('search-client-orders');
   const origenSelect = document.getElementById('filter-client-origen');
   const statusSelect = document.getElementById('filter-client-status');
-  const exportStatusSelect = document.getElementById('filter-client-export-status');
+  const commerceSelect = document.getElementById('filter-client-commerce');
   const dateFromInput = document.getElementById('filter-client-date-from');
   const dateToInput = document.getElementById('filter-client-date-to');
 
   const searchText = (searchInput?.value || '').toLowerCase();
   const selectedOrigen = origenSelect?.value || '';
   const selectedStatus = statusSelect?.value || '';
-  const selectedExportStatus = exportStatusSelect?.value || '';
+  const selectedCommerce = commerceSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
+
+  const userCommerces = currentCompany
+    ? currentCompany.split(',').map(c => c.trim()).filter(Boolean)
+    : [];
+  const showCommerceFilter = userCommerces.length > 1;
 
   const matchesBaseFilters = (order) => {
     const platform = order.origen || order.external_platform || 'Manual';
@@ -5038,12 +5048,7 @@ window.applyClientWmsFiltersAndRender = function() {
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
     const matchesStatus = !selectedStatus || order.status === selectedStatus;
     
-    let matchesExport = true;
-    if (selectedExportStatus === 'pending') {
-      matchesExport = !order.shopify_exported;
-    } else if (selectedExportStatus === 'exported') {
-      matchesExport = !!order.shopify_exported;
-    }
+    const matchesCommerce = !showCommerceFilter || !selectedCommerce || (order.comercio && order.comercio.toLowerCase() === selectedCommerce.toLowerCase());
 
     let matchesDate = true;
     if (order.created_at) {
@@ -5059,7 +5064,7 @@ window.applyClientWmsFiltersAndRender = function() {
       if (dateFrom || dateTo) matchesDate = false;
     }
 
-    return matchesSearch && matchesOrigen && matchesStatus && matchesExport && matchesDate;
+    return matchesSearch && matchesOrigen && matchesStatus && matchesCommerce && matchesDate;
   };
 
   // 1. Obtener conteo de pestañas
@@ -8925,6 +8930,10 @@ async function renderShipments() {
 
   try {
     const companyList = getCompanyList();
+    const userCommerces = currentCompany
+      ? currentCompany.split(',').map(c => c.trim()).filter(Boolean)
+      : [];
+    const showCommerceFilter = userCommerces.length > 1;
     
     // Obtener la lista de couriers únicos para este comercio primero
     let courierQuery = supabase
@@ -8971,6 +8980,7 @@ async function renderShipments() {
       search: '',
       statuses: tabMappings[window.shipActiveTab] ? [...tabMappings[window.shipActiveTab]] : [], // Initialize based on active tab
       courier: '',
+      commerce: '',
       dateFrom: defaultDateFrom,
       dateTo: defaultDateTo
     };
@@ -9023,6 +9033,15 @@ async function renderShipments() {
             <option value="">Todos los couriers</option>
           </select>
         </div>
+        ${showCommerceFilter ? `
+        <div class="filter-item">
+          <label class="filter-label">Comercio</label>
+          <select id="ship-commerce-select" class="filter-input">
+            <option value="">Todos los comercios</option>
+            ${userCommerces.map(c => `<option value="${c}">${c}</option>`).join('')}
+          </select>
+        </div>
+        ` : ''}
         <div class="filter-item">
           <label class="filter-label">Desde</label>
           <input type="date" id="ship-date-from" class="filter-input" value="${filters.dateFrom}">
@@ -9231,7 +9250,12 @@ async function renderShipments() {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 3rem;">Cargando despachos...</td></tr>`;
 
       try {
-        const companyList = getCompanyList();
+        let targetCompanyList = [];
+        if (showCommerceFilter && filters.commerce) {
+          targetCompanyList = [filters.commerce, filters.commerce.toLowerCase(), filters.commerce.toUpperCase()];
+        } else {
+          targetCompanyList = getCompanyList();
+        }
 
         // Obtener reglas de visibilidad aplicables al usuario actual
         const { data: rules } = await supabase
@@ -9245,8 +9269,8 @@ async function renderShipments() {
 
         countQuery = applyVisibilityRulesToQuery(countQuery, rules);
 
-        if (companyList.length > 0) {
-          countQuery = countQuery.in('empresa_comercio_proveedor', companyList);
+        if (targetCompanyList.length > 0) {
+          countQuery = countQuery.in('empresa_comercio_proveedor', targetCompanyList);
         }
         if (filters.courier) {
           countQuery = countQuery.eq('courier', filters.courier);
@@ -9269,8 +9293,8 @@ async function renderShipments() {
 
         query = applyVisibilityRulesToQuery(query, rules);
 
-        if (companyList.length > 0) {
-          query = query.in('empresa_comercio_proveedor', companyList);
+        if (targetCompanyList.length > 0) {
+          query = query.in('empresa_comercio_proveedor', targetCompanyList);
         }
 
         // Aplicar filtros
@@ -9529,6 +9553,14 @@ async function renderShipments() {
       await fetchAndRenderTable();
     });
 
+    if (showCommerceFilter) {
+      document.getElementById('ship-commerce-select').addEventListener('change', async (e) => {
+        filters.commerce = e.target.value;
+        currentPage = 1; // Resetear a página 1
+        await fetchAndRenderTable();
+      });
+    }
+
     document.getElementById('ship-date-from').addEventListener('change', async (e) => {
       filters.dateFrom = e.target.value;
       currentPage = 1; // Resetear a página 1
@@ -9548,7 +9580,12 @@ async function renderShipments() {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding: 2rem;">Generando reporte de exportación...</td></tr>`;
 
       try {
-        const companyList = getCompanyList();
+        let targetCompanyList = [];
+        if (showCommerceFilter && filters.commerce) {
+          targetCompanyList = [filters.commerce, filters.commerce.toLowerCase(), filters.commerce.toUpperCase()];
+        } else {
+          targetCompanyList = getCompanyList();
+        }
 
         // Obtener reglas de visibilidad
         const { data: rules } = await supabase
@@ -9561,8 +9598,8 @@ async function renderShipments() {
 
         query = applyVisibilityRulesToQuery(query, rules);
 
-        if (companyList.length > 0) {
-          query = query.in('empresa_comercio_proveedor', companyList);
+        if (targetCompanyList.length > 0) {
+          query = query.in('empresa_comercio_proveedor', targetCompanyList);
         }
 
         if (filters.courier) {

@@ -1225,12 +1225,50 @@ window.toggleOrderRow = function(orderId) {
     }
   }
 };
-window.toggleRawOrderJson = function(orderId) {
+window.toggleRawOrderJson = async function(orderId) {
   const container = document.getElementById(`raw-json-${orderId}`);
   if (!container) return;
   const isHidden = container.style.display === 'none';
-  container.style.display = isHidden ? 'block' : 'none';
+  
+  if (isHidden) {
+    container.style.display = 'block';
+    
+    // Si aún no se ha cargado el JSON (contiene el spinner de carga inicial)
+    if (container.querySelector('.spin') || container.innerHTML.trim().includes('ri-loader-4-line')) {
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_optiroute_data, raw_lightdata_data, raw_paris_data, raw_walmart_data, raw_tiendanube_data')
+          .eq('id', orderId)
+          .single();
+        
+        if (error) throw error;
+        
+        let rawData = null;
+        if (data) {
+          if (data.raw_shopify_data) rawData = data.raw_shopify_data;
+          else if (data.raw_woocommerce_data) rawData = data.raw_woocommerce_data;
+          else if (data.raw_meli_data) rawData = data.raw_meli_data;
+          else if (data.raw_falabella_data) rawData = data.raw_falabella_data;
+          else if (data.raw_jumpseller_data) rawData = data.raw_jumpseller_data;
+          else if (data.raw_optiroute_data) rawData = data.raw_optiroute_data;
+          else if (data.raw_lightdata_data) rawData = data.raw_lightdata_data;
+          else if (data.raw_paris_data) rawData = data.raw_paris_data;
+          else if (data.raw_walmart_data) rawData = data.raw_walmart_data;
+          else if (data.raw_tiendanube_data) rawData = data.raw_tiendanube_data;
+        }
+        
+        container.innerHTML = rawData ? JSON.stringify(rawData, null, 2) : 'Sin JSON de integración disponible';
+      } catch (err) {
+        console.error('Error cargando JSON de integración:', err);
+        container.innerHTML = `<span style="color: var(--color-danger);">Error al cargar los datos: ${err.message}</span>`;
+      }
+    }
+  } else {
+    container.style.display = 'none';
+  }
 };
+
 
 window.reassignOrderCommerce = async function(orderId, newCommerce) {
   if (confirm(`¿Estás seguro de que deseas reasignar este pedido al comercio '${newCommerce}'?`)) {
@@ -1361,14 +1399,6 @@ async function renderAdminOrders() {
       tracking_number,
       tracking_url,
       courier,
-      raw_woocommerce_data,
-      raw_jumpseller_data,
-      raw_falabella_data,
-      raw_meli_data,
-      raw_optiroute_data,
-      raw_lightdata_data,
-      raw_paris_data,
-      raw_shopify_data,
       shopify_exported,
       comercio,
       agenda,
@@ -1376,8 +1406,44 @@ async function renderAdminOrders() {
       fecha_procesamiento,
       sucursal_pickeo,
       periodo_facturacion,
+      shopify_financial:raw_shopify_data->financial_status,
+      shopify_fulfillment:raw_shopify_data->fulfillment_status,
+      shopify_cancelled:raw_shopify_data->cancelled_at,
+      woocommerce_status:raw_woocommerce_data->status,
+      jumpseller_status:raw_jumpseller_data->status,
+      falabella_status:raw_falabella_data->status,
+      falabella_state:raw_falabella_data->state,
+      meli_status:raw_meli_data->status,
       order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
     `, q => q.gte('created_at', startOfMonth).order('created_at', { ascending: false }));
+
+    if (orders) {
+      orders.forEach(order => {
+        if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined) {
+          order.raw_shopify_data = {
+            fulfillment_status: order.shopify_fulfillment,
+            cancelled_at: order.shopify_cancelled,
+            financial_status: order.shopify_financial
+          };
+        }
+        if (order.woocommerce_status !== undefined) {
+          order.raw_woocommerce_data = { status: order.woocommerce_status };
+        }
+        if (order.jumpseller_status !== undefined) {
+          order.raw_jumpseller_data = { status: order.jumpseller_status };
+        }
+        if (order.falabella_status !== undefined || order.falabella_state !== undefined) {
+          order.raw_falabella_data = {
+            status: order.falabella_status,
+            state: order.falabella_state
+          };
+        }
+        if (order.meli_status !== undefined) {
+          order.raw_meli_data = { status: order.meli_status };
+        }
+      });
+    }
+
 
     window.loadedOrders = orders || [];
 
@@ -3555,6 +3621,8 @@ window.applyBulkWmsStatus = async function() {
       const updateData = { estado_wms: newStatus };
       if (newStatus === 'Despachado') {
         updateData.status = 'despachado';
+      } else if (newStatus === 'Cancelado') {
+        updateData.status = 'cancelado';
       }
       const { error } = await supabase
         .from('orders')
@@ -3569,7 +3637,11 @@ window.applyBulkWmsStatus = async function() {
           const order = window.loadedOrders.find(o => o.id === id);
           if (order) {
             order.estado_wms = newStatus;
-            if (newStatus === 'Despachado') order.status = 'despachado';
+            if (newStatus === 'Despachado') {
+              order.status = 'despachado';
+            } else if (newStatus === 'Cancelado') {
+              order.status = 'cancelado';
+            }
           }
         });
       }

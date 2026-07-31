@@ -1,104 +1,225 @@
--- WMS STOCKA - Supabase Schema Phase 18: Validación de stock al iniciar preparación (estado_wms = 'En preparación')
--- Ejecuta este script en el SQL Editor de tu proyecto de Supabase.
+-- WMS STOCKA - Supabase Schema Phase 18: Desacoplar estado de despachos de stock operacional
+-- Ejecuta este script en el SQL Editor de tu proyecto de Supabase (https://supabase.com/dashboard/project/ejtjfaucnxbikrwjwwdu/sql)
 
-CREATE OR REPLACE FUNCTION public.validate_order_stock_before_dispatch()
-RETURNS trigger AS $$
+-- 1. Redefinir la función trigger de sincronización de Envíame para NO actualizar orders.status
+CREATE OR REPLACE FUNCTION public.sync_enviame_shipment_to_orders_func()
+RETURNS TRIGGER AS $$
 DECLARE
-  item RECORD;
-  v_available_qty INTEGER;
-  v_insufficient BOOLEAN := FALSE;
-  v_user_id UUID;
-  v_missing_sku TEXT;
-  v_missing_qty INTEGER;
-  v_wh_name TEXT;
+  v_order_uuid UUID;
+  v_current_wms_status TEXT;
+  v_target_operador TEXT;
+  v_courier_upper TEXT;
 BEGIN
-  -- 1. Validar cuando pasa a 'despachado', 'en preparación' o WMS 'En preparación'
-  IF (NEW.status IN ('despachado', 'en preparación') AND COALESCE(OLD.status, '') NOT IN ('despachado', 'en preparación'))
-     OR (NEW.estado_wms = 'En preparación' AND COALESCE(OLD.estado_wms, '') != 'En preparación') THEN
-     
-     -- 2. Si no califica para procesar stock, no hacemos nada
-     IF NOT public.should_process_order_stock(NEW.id) THEN
-       RETURN NEW;
-     END IF;
+  -- Si el envío no tiene un order_id (referencia al pedido), no hacemos nada
+  IF NEW.order_id IS NULL THEN
+    RETURN NEW;
+  END IF;
 
-     -- 3. Verificar stock disponible para cada ítem del pedido
-     FOR item IN 
-       SELECT oi.*, p.sku, p.name AS prod_name, p.is_virtual, w.name AS wh_name
-       FROM order_items oi
-       JOIN products p ON p.id = oi.product_id
-       JOIN warehouses w ON w.id = oi.warehouse_id
-       WHERE oi.order_id = NEW.id
-     LOOP
-       -- Si es virtual, no descontamos ni controlamos stock
-       IF COALESCE(item.is_virtual, FALSE) THEN
-         CONTINUE;
-       END IF;
+  -- Resolver el UUID del pedido buscando por id (si es UUID) o por external_order_number
+  IF NEW.order_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    SELECT id, status INTO v_order_uuid, v_current_wms_status FROM public.orders WHERE id = NEW.order_id::uuid;
+  ELSE
+    SELECT id, status INTO v_order_uuid, v_current_wms_status FROM public.orders WHERE external_order_number = NEW.order_id;
+  END IF;
 
-       -- Si es Bodega Central (Default/Virtual), omitir control de stock en esta etapa
-       IF item.warehouse_id = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' THEN
-         CONTINUE;
-       END IF;
+  -- Si se encuentra el pedido correspondiente, actualizar sus metadatos
+  IF v_order_uuid IS NOT NULL THEN
+    
+    -- Mapear courier a operador WMS compatible
+    v_courier_upper := UPPER(TRIM(NEW.courier));
+    IF v_courier_upper LIKE '%STARKEN%' THEN
+      v_target_operador := 'STARKEN';
+    ELSIF v_courier_upper LIKE '%BLUE%' THEN
+      v_target_operador := 'BLUEXPRESS';
+    ELSIF v_courier_upper LIKE '%CHILEXPRESS%' THEN
+      v_target_operador := 'CHILEXPRESS';
+    ELSIF v_courier_upper LIKE '%ENVIAME%' THEN
+      v_target_operador := 'ENVIAME';
+    ELSIF v_courier_upper LIKE '%ALPHA%' OR v_courier_upper LIKE '%LIGHTDATA%' THEN
+      v_target_operador := 'ALPHA';
+    ELSIF v_courier_upper LIKE '%FALABELLA%' THEN
+      v_target_operador := 'FALABELLA';
+    ELSIF v_courier_upper LIKE '%MERCADO%' THEN
+      v_target_operador := 'MERCADOLIBRE';
+    ELSIF v_courier_upper LIKE '%RECIBELO%' OR v_courier_upper LIKE '%RECÍBELO%' OR v_courier_upper LIKE '%WELIVERY%' OR v_courier_upper LIKE '%WOODELIVERY%' OR v_courier_upper LIKE '%WODELY%' THEN
+      v_target_operador := 'STOCKA X';
+    ELSE
+      v_target_operador := v_courier_upper;
+    END IF;
 
-       -- Obtener cantidad física disponible en la bodega asignada
-       SELECT COALESCE(quantity, 0) INTO v_available_qty
-       FROM inventory
-       WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
-
-       -- Si no hay suficiente stock físico
-       IF v_available_qty < item.quantity THEN
-         v_insufficient := TRUE;
-         v_missing_sku := item.sku;
-         v_missing_qty := item.quantity - v_available_qty;
-         v_wh_name := item.wh_name;
-         EXIT; -- Salimos del loop al detectar la primera insuficiencia
-       END IF;
-     END LOOP;
-
-     -- 4. Si hay insuficiencia de stock, prevenimos el cambio y revertimos a "para procesar" / "En procesamiento"
-     IF v_insufficient THEN
-       NEW.status := 'para procesar';
-       NEW.estado_wms := 'En procesamiento';
-
-       -- Buscar user_id del perfil para asociar la incidencia
-       SELECT id INTO v_user_id FROM public.profiles WHERE comercio ILIKE '%' || NEW.comercio || '%' LIMIT 1;
-       
-       -- Insertar la incidencia crítica si no existe ya una activa para este pedido
-       IF NOT EXISTS (
-         SELECT 1 FROM public.incidencias 
-         WHERE comercio = NEW.comercio 
-           AND status = 'pendiente' 
-           AND title = 'Falta de stock crítico - Pedido ' || NEW.external_order_number
-       ) THEN
-         INSERT INTO public.incidencias (
-           user_id,
-           comercio,
-           title,
-           description,
-           type,
-           severity,
-           status,
-           solution
-         ) VALUES (
-           COALESCE(v_user_id, NEW.merchant_id),
-           NEW.comercio,
-           'Falta de stock crítico - Pedido ' || NEW.external_order_number,
-           'El pedido ' || NEW.external_order_number || ' no se pudo despachar/procesar por falta de stock del SKU ' || v_missing_sku || ' en la bodega ' || v_wh_name || ' (Faltan ' || v_missing_qty || ' un.).',
-           'stock',
-           'critico',
-           'pendiente',
-           ''
-         );
-       END IF;
-     END IF;
+    -- Actualizar los datos en la tabla orders (excluyendo la columna status)
+    UPDATE public.orders
+    SET
+      tracking_number = NEW.tracking_number,
+      tracking_url = NEW.tracking_url,
+      label_url = NEW.label_url,
+      courier = NEW.courier,
+      operador = v_target_operador,
+      enviame_delivery_id = NEW.id,
+      enviame_status = NEW.status
+    WHERE id = v_order_uuid;
   END IF;
 
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Re-vincular el trigger para cualquier cambio en la tabla orders (no solo status)
-DROP TRIGGER IF EXISTS on_order_before_dispatch ON public.orders;
-CREATE TRIGGER on_order_before_dispatch
-  BEFORE UPDATE ON public.orders
-  FOR EACH ROW
-  EXECUTE FUNCTION public.validate_order_stock_before_dispatch();
+
+-- 2. Redefinir la función trigger de envios_unificados para NO actualizar orders.status
+CREATE OR REPLACE FUNCTION public.sync_unified_status_to_orders_func()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_order_uuid UUID;
+  v_current_wms_status TEXT;
+  v_target_operador TEXT;
+  v_courier_upper TEXT;
+BEGIN
+  -- Si el pedido_referencia está vacío, no hacemos nada
+  IF NEW.pedido_referencia IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- 1. Buscar la orden por UUID o por external_order_number
+  IF NEW.pedido_referencia ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    SELECT id, status INTO v_order_uuid, v_current_wms_status FROM public.orders WHERE id = NEW.pedido_referencia::uuid;
+  ELSE
+    SELECT id, status INTO v_order_uuid, v_current_wms_status FROM public.orders WHERE external_order_number = NEW.pedido_referencia;
+  END IF;
+
+  -- 2. Si encontramos la orden, evaluar si debemos actualizar los datos de tracking
+  IF v_order_uuid IS NOT NULL THEN
+    v_courier_upper := UPPER(TRIM(NEW.courier));
+    IF v_courier_upper LIKE '%STARKEN%' THEN
+      v_target_operador := 'STARKEN';
+    ELSIF v_courier_upper LIKE '%BLUE%' THEN
+      v_target_operador := 'BLUEXPRESS';
+    ELSIF v_courier_upper LIKE '%CHILEXPRESS%' THEN
+      v_target_operador := 'CHILEXPRESS';
+    ELSIF v_courier_upper LIKE '%ENVIAME%' THEN
+      v_target_operador := 'ENVIAME';
+    ELSIF v_courier_upper LIKE '%ALPHA%' OR v_courier_upper LIKE '%LIGHTDATA%' THEN
+      v_target_operador := 'ALPHA';
+    ELSIF v_courier_upper LIKE '%FALABELLA%' THEN
+      v_target_operador := 'FALABELLA';
+    ELSIF v_courier_upper LIKE '%MERCADO%' THEN
+      v_target_operador := 'MERCADOLIBRE';
+    ELSIF v_courier_upper LIKE '%RECIBELO%' OR v_courier_upper LIKE '%RECÍBELO%' OR v_courier_upper LIKE '%WELIVERY%' OR v_courier_upper LIKE '%WOODELIVERY%' OR v_courier_upper LIKE '%WODELY%' THEN
+      v_target_operador := 'STOCKA X';
+    ELSE
+      v_target_operador := v_courier_upper;
+    END IF;
+
+    -- Actualizamos los datos en orders sin modificar el estado operacional (status)
+    IF NEW.global_status = 'DESPACHADO' OR 
+       EXISTS (SELECT 1 FROM public.orders WHERE id = v_order_uuid AND (tracking_number IS NULL OR tracking_number = '')) 
+    THEN
+      UPDATE public.orders
+      SET
+        tracking_number = NEW.tracking,
+        tracking_url = NEW.tracking_url,
+        courier = NEW.courier,
+        operador = v_target_operador
+      WHERE id = v_order_uuid;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- 3. Redefinir la función trigger que maneja cambios de estado del envío unificado
+CREATE OR REPLACE FUNCTION public.handle_unified_shipment_status_change()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_order RECORD;
+  v_new_estado_wms TEXT := NULL;
+  v_new_status TEXT := NULL;
+  v_changes_array JSONB;
+BEGIN
+  -- A) Se deshabilita la actualización automática a 'DESPACHADO' para no alterar stock ni estado lógico del WMS
+  -- IF NEW.global_status = 'DESPACHADO' AND (OLD.global_status IS NULL OR OLD.global_status != 'DESPACHADO') THEN
+  --   v_new_estado_wms := 'Despachado';
+  --   v_new_status := 'despachado';
+  -- END IF;
+
+  -- B) Si pasa a 'ALERTA' (Incidencia) y antes no lo estaba, mantenemos la creación de alertas
+  IF NEW.global_status = 'ALERTA' AND (OLD.global_status IS NULL OR OLD.global_status != 'ALERTA') THEN
+    v_new_estado_wms := 'Incidencia';
+    v_new_status := 'incidencia';
+  END IF;
+
+  IF v_new_estado_wms IS NOT NULL THEN
+    
+    FOR v_order IN 
+      SELECT id, estado_wms, status, comercio 
+      FROM public.orders 
+      WHERE external_order_number = NEW.pedido_referencia
+    LOOP
+      IF v_order.estado_wms != v_new_estado_wms THEN
+        
+        UPDATE public.orders
+        SET estado_wms = v_new_estado_wms,
+            status = v_new_status
+        WHERE id = v_order.id;
+
+        v_changes_array := jsonb_build_array(
+          'Estado WMS cambiado a "' || v_new_estado_wms || '" automáticamente por Courier (' || COALESCE(NEW.courier, 'Desconocido') || ')',
+          'Estado lógico cambiado a "' || v_new_status || '" (Cambio automático)'
+        );
+
+        INSERT INTO public.order_audit_logs (
+          order_id,
+          user_id,
+          user_email,
+          action,
+          details
+        ) VALUES (
+          v_order.id,
+          NULL,
+          'WMS System (Auto-Transit)',
+          'Actualización de Estado vía Courier',
+          jsonb_build_object('changes', v_changes_array, 'courier', NEW.courier, 'tracking', NEW.tracking, 'shipment_id', NEW.id)
+        );
+      END IF;
+    END LOOP;
+
+    IF NEW.pedido_referencia ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      FOR v_order IN 
+        SELECT id, estado_wms, status, comercio 
+        FROM public.orders 
+        WHERE id = NEW.pedido_referencia::uuid
+      LOOP
+        IF v_order.estado_wms != v_new_estado_wms THEN
+          
+          UPDATE public.orders
+          SET estado_wms = v_new_estado_wms,
+              status = v_new_status
+          WHERE id = v_order.id;
+
+          v_changes_array := jsonb_build_array(
+            'Estado WMS cambiado a "' || v_new_estado_wms || '" automáticamente por Courier (' || COALESCE(NEW.courier, 'Desconocido') || ')',
+            'Estado lógico cambiado a "' || v_new_status || '" (Cambio automático)'
+          );
+
+          INSERT INTO public.order_audit_logs (
+            order_id,
+            user_id,
+            user_email,
+            action,
+            details
+          ) VALUES (
+            v_order.id,
+            NULL,
+            'WMS System (Auto-Transit)',
+            'Actualización de Estado vía Courier',
+            jsonb_build_object('changes', v_changes_array, 'courier', NEW.courier, 'tracking', NEW.tracking, 'shipment_id', NEW.id)
+          );
+        END IF;
+      END LOOP;
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
