@@ -84,7 +84,15 @@ CREATE OR REPLACE FUNCTION public.create_onboarding_request(
 RETURNS UUID AS $$
 DECLARE
     v_request_id UUID;
+    v_status TEXT;
 BEGIN
+    -- Si no se envía url del contrato, queda en 'pending_contract' (esperando firma privada)
+    IF (p_contrato_url IS NULL OR p_contrato_url = '') THEN
+        v_status := 'pending_contract';
+    ELSE
+        v_status := 'pending';
+    END IF;
+
     INSERT INTO public.onboarding_requests (
         user_id, full_name, rut_personal, email, phone, cargo,
         razon_social, rut_empresa, giro_comercio, direccion_facturacion, comuna, email_facturacion,
@@ -97,7 +105,7 @@ BEGIN
         p_razon_social, p_rut_empresa, p_giro_comercio, p_direccion_facturacion, p_comuna, p_email_facturacion,
         p_nombre_fantasia, p_sitio_web, p_plataformas_venta, p_marketplaces,
         p_courier_santiago, p_courier_regiones, p_ml_opciones, p_retiro_sucursal, p_descripcion_packaging,
-        p_contrato_url, p_contrato_storage_path, 'pending'
+        p_contrato_url, p_contrato_storage_path, v_status
     )
     RETURNING id INTO v_request_id;
     
