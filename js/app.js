@@ -22800,6 +22800,32 @@ function renderOnboardingStatus(request) {
               <i class="ri-eye-line"></i> Ver Archivo
             </a>
           </div>
+          ${Array.isArray(request.accepted_annexes) && request.accepted_annexes.length > 0 ? `
+            <div style="grid-column: 1 / span 2; margin-top: 0.5rem; border-top: 1px dashed var(--color-border); padding-top: 1rem;">
+              <strong style="display: block; font-size: 0.8rem; color: var(--color-text-main); margin-bottom: 0.5rem;">
+                <i class="ri-checkbox-circle-line" style="color: var(--color-success);"></i> Documentación Anexa Aceptada:
+              </strong>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                ${request.accepted_annexes.map(annex => {
+                  const formattedDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
+                    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+                  }) : 'S/F';
+                  return `
+                    <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                      <i class="ri-checkbox-circle-fill" style="color: var(--color-success); font-size: 1.1rem; flex-shrink: 0;"></i>
+                      <div style="flex-grow: 1; font-size: 0.75rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${annex.name} (Fecha: ${formattedDate})">
+                        <strong>${annex.name}</strong>
+                        <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem;">Fecha: ${formattedDate}</span>
+                      </div>
+                      <a href="${annex.file_url}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.4rem; font-size: 0.7rem; border-color: var(--color-border); display: inline-flex; align-items: center; text-decoration: none; flex-shrink: 0;">
+                        <i class="ri-download-2-line"></i>
+                      </a>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
         </div>
       </div>
     </div>
