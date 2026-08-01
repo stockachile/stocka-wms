@@ -172,6 +172,7 @@ BEGIN
 
     -- Si el estado cambió a 'pending', notificar al administrador con los detalles completos y el contrato firmado
     IF (NEW.status = 'pending') THEN
+      -- 1. Notificación al administrador (stockachile@gmail.com)
       PERFORM net.http_post(
         url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email',
         headers := jsonb_build_object(
@@ -182,6 +183,32 @@ BEGIN
           'commerceName', NEW.nombre_fantasia,
           'emailType', 'onboarding_admin_notification',
           'emails', ARRAY['stockachile@gmail.com'],
+          'onboardingDetails', jsonb_build_object(
+            'razonSocial', NEW.razon_social,
+            'rutEmpresa', NEW.rut_empresa,
+            'contactName', NEW.full_name,
+            'contactEmail', NEW.email,
+            'phone', NEW.phone,
+            'giroComercio', NEW.giro_comercio,
+            'direccion', NEW.direccion_facturacion,
+            'comuna', NEW.comuna,
+            'contratoUrl', NEW.contrato_url,
+            'acceptedAnnexes', NEW.accepted_annexes
+          )
+        )
+      );
+
+      -- 2. Copia de confirmación al cliente (NEW.email)
+      PERFORM net.http_post(
+        url := 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email',
+        headers := jsonb_build_object(
+          'Content-Type', 'application/json',
+          'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTgzMTE4NSwiZXhwIjoyMDk1NDA3MTg1fQ.YX4okf4XNkkVQaU0XbbRtm4SNRTqvwEVNd7ubc4PGe8'
+        ),
+        body := jsonb_build_object(
+          'commerceName', NEW.nombre_fantasia,
+          'emailType', 'onboarding_contract_received',
+          'emails', ARRAY[NEW.email],
           'onboardingDetails', jsonb_build_object(
             'razonSocial', NEW.razon_social,
             'rutEmpresa', NEW.rut_empresa,

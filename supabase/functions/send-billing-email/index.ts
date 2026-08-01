@@ -626,6 +626,25 @@ serve(async (req) => {
       headerGradient = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
       emailTitle = 'Contrato Firmado Recibido';
       
+      const details = onboardingDetails || {};
+      const annexes = details.acceptedAnnexes || [];
+      let annexesHtml = '';
+      if (Array.isArray(annexes) && annexes.length > 0) {
+        annexesHtml = `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 10px; font-weight: 600; color: #475569; vertical-align: top;">Anexos Aceptados:</td>
+            <td style="padding: 10px; color: #1e293b;">
+              <ul style="margin: 0; padding-left: 20px; line-height: 1.5; font-size: 13px;">
+                ${annexes.map((annex: any) => {
+                  const formattedDate = annex.document_date ? annex.document_date.split('-').reverse().join('/') : 'S/F';
+                  return `<li><strong>${annex.name}</strong> (Fecha: ${formattedDate}) - <a href="${annex.file_url}" target="_blank" style="color: #2563eb; text-decoration: underline;">Descargar</a></li>`;
+                }).join('')}
+              </ul>
+            </td>
+          </tr>
+        `;
+      }
+
       emailBodyHtml = `
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Estimado equipo de <strong>${commerceName}</strong>,<br><br>
@@ -636,6 +655,22 @@ serve(async (req) => {
           <strong>Estado:</strong> En Revisión Comercial<br>
           Nuestro equipo revisará los documentos y configurará los parámetros operativos de tu comercio. Te notificaremos por correo electrónico en un plazo estimado de 24 a 48 horas hábiles.
         </div>
+
+        <div style="font-size: 14px; color: #1e293b; margin-bottom: 10px; font-weight: 600;">
+          Resumen del acuerdo firmado (ambas partes reciben una copia idéntica del acuerdo):
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13.5px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+          <tbody>
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+              <td style="padding: 10px; font-weight: 600; color: #475569; width: 180px;">Contrato Firmado:</td>
+              <td style="padding: 10px; color: #1e293b;">
+                ${details.contratoUrl ? `<a href="${details.contratoUrl}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Descargar PDF Contrato</a>` : 'No adjuntado'}
+              </td>
+            </tr>
+            ${annexesHtml}
+          </tbody>
+        </table>
         
         <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
           Durante este periodo, si necesitas realizar alguna modificación o tienes dudas, puedes escribirnos a <a href="mailto:contacto@stocka.cl" style="color:#5e17eb; font-weight:600;">contacto@stocka.cl</a>.
