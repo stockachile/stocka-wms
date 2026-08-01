@@ -10079,13 +10079,25 @@ async function renderProfile() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("No se pudo obtener el usuario autenticado.");
 
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
+    // Cargar perfil y solicitud de onboarding en paralelo
+    const [profileRes, onboardingRes] = await Promise.all([
+      supabase.from('profiles').select('*').eq('id', user.id).single(),
+      supabase.from('onboarding_requests')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('status', ['pending', 'approved'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    ]);
 
-    if (error) throw error;
+    if (profileRes.error) throw profileRes.error;
+    const profile = profileRes.data;
+
+    let onboardingRequest = null;
+    if (!onboardingRes.error && onboardingRes.data && onboardingRes.data.contrato_url) {
+      onboardingRequest = onboardingRes.data;
+    }
 
     const commerceList = (profile.comercio || '')
       .split(',')
@@ -10131,7 +10143,7 @@ async function renderProfile() {
             </div>
           </div>
           
-          ${(hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
+          ${(hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado') || onboardingRequest) ? `
           <!-- Tabs Navigation -->
           <div class="profile-tabs" style="display: flex; gap: 0.5rem; border-bottom: 1px solid var(--color-border); background-color: var(--color-bg); padding: 0.75rem 1.5rem 0 1.5rem;">
             <button type="button" class="profile-tab-btn active" data-tab="details" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-primary); font-weight: 600; cursor: pointer; border-bottom: 3px solid var(--color-primary); font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
@@ -10145,6 +10157,11 @@ async function renderProfile() {
             ${hasStockTracking ? `
             <button type="button" class="profile-tab-btn" data-tab="notifications" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
               <i class="ri-notification-3-line"></i> Preferencias de Notificación
+            </button>
+            ` : ''}
+            ${onboardingRequest ? `
+            <button type="button" class="profile-tab-btn" data-tab="contract" style="background: none; border: none; padding: 0.75rem 1.25rem; color: var(--color-text-muted); font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
+              <i class="ri-file-shield-line"></i> Contrato y Documentos
             </button>
             ` : ''}
           </div>
@@ -10220,6 +10237,13 @@ async function renderProfile() {
           </div>
           ` : ''}
 
+          ${onboardingRequest ? `
+          <!-- Tab 4: Copia de Contrato y Anexos -->
+          <div id="profile-tab-content-contract" class="profile-tab-content" style="display: none; padding: 1.5rem; background: var(--color-surface);">
+            <!-- Se inyecta dinámicamente -->
+          </div>
+          ` : ''}
+
         </div>
       </div>
     `;
@@ -10277,7 +10301,7 @@ async function renderProfile() {
       }
     });
 
-    if (hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) {
+    if (hasStockTracking || profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado') || onboardingRequest) {
       // Manejar el cambio de pestañas (Tabs)
       const tabButtons = document.querySelectorAll('.profile-tab-btn');
       const tabContents = document.querySelectorAll('.profile-tab-content');
@@ -10313,6 +10337,9 @@ async function renderProfile() {
           } else if (targetTab === 'packaging') {
             const packagingContainer = document.getElementById('profile-tab-content-packaging');
             renderPackagingConfig(packagingContainer, commerceList, profile.role === 'admin');
+          } else if (targetTab === 'contract') {
+            const contractContainer = document.getElementById('profile-tab-content-contract');
+            renderProfileContractTab(contractContainer, onboardingRequest);
           }
         });
       });
@@ -10322,6 +10349,78 @@ async function renderProfile() {
     console.error("Error rendering profile view:", err);
     appContent.innerHTML = getObserverBanner() + `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar perfil: ${err.message}</p>`;
   }
+}
+
+function renderProfileContractTab(container, req) {
+  if (!container || !req) return;
+
+  const formattedDate = req.updated_at ? new Date(req.updated_at).toLocaleDateString('es-CL', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }) : 'S/F';
+
+  let annexesHtml = '';
+  if (Array.isArray(req.accepted_annexes) && req.accepted_annexes.length > 0) {
+    annexesHtml = `
+      <div style="margin-top: 1.5rem;">
+        <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-checkbox-circle-line" style="color: var(--color-success);"></i> Anexos Aceptados en el Registro:
+        </h4>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+          ${req.accepted_annexes.map(annex => {
+            const docDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
+              day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+            }) : 'S/F';
+            return `
+              <div style="background-color: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.75rem;">
+                <i class="ri-checkbox-circle-fill" style="color: var(--color-success); font-size: 1.5rem; flex-shrink: 0;"></i>
+                <div style="flex-grow: 1; overflow: hidden;">
+                  <strong style="display: block; font-size: 0.85rem; color: var(--color-text-main); text-overflow: ellipsis; white-space: nowrap;" title="${annex.name}">${annex.name}</strong>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
+                    Fecha Documento: ${docDate}
+                  </span>
+                </div>
+                <a href="${annex.file_url}" target="_blank" class="btn btn-outline" style="padding: 0.3rem 0.5rem; font-size: 0.75rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.2rem; text-decoration: none;" title="Descargar anexo">
+                  <i class="ri-download-line"></i>
+                </a>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  } else {
+    annexesHtml = `
+      <div style="margin-top: 1.5rem; padding: 1.25rem; background-color: var(--color-bg); border: 1px dashed var(--color-border); border-radius: var(--radius-md); text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
+        No se registraron anexos adicionales firmados al momento del alta.
+      </div>
+    `;
+  }
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 1rem;">
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+        <i class="ri-file-shield-2-line" style="color: var(--color-primary);"></i> Copia de Documentos Firmados
+      </h3>
+      <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0 0 0.5rem 0;">
+        Aquí puedes ver y descargar el contrato principal y los anexos firmados y aceptados digitalmente durante tu proceso de Onboarding.
+      </p>
+
+      <div style="background-color: var(--color-bg); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; align-items: center; gap: 1rem;">
+        <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 2.2rem; flex-shrink: 0;"></i>
+        <div style="flex-grow: 1;">
+          <strong style="display: block; font-size: 0.9rem; color: var(--color-text-main);">Contrato Principal de Servicios</strong>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+            Firmado el: <strong>${formattedDate}</strong>
+          </span>
+        </div>
+        <a href="${req.contrato_url}" target="_blank" class="btn btn-primary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none;">
+          <i class="ri-eye-line"></i> Ver Contrato Firmado
+        </a>
+      </div>
+
+      ${annexesHtml}
+    </div>
+  `;
 }
 
 async function renderPackagingConfig(container, userCommerceList, isUserAdmin) {
