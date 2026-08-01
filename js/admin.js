@@ -28168,14 +28168,43 @@ function showOnboardingDetailModal(req) {
         </div>
 
         <!-- Seccion 4: Contrato Firmado -->
-        <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: space-between; gap: 1rem;">
-          <div>
-            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.9rem;"><i class="ri-file-pdf-fill" style="color: var(--color-danger);"></i> Contrato Firmado por el Cliente</h4>
-            <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">PDF cargado digitalmente en el proceso de Onboarding.</p>
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); display: flex; flex-direction: column; gap: 1rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%;">
+            <div>
+              <h4 style="margin: 0; color: var(--color-primary); font-size: 0.9rem;"><i class="ri-file-pdf-fill" style="color: var(--color-danger);"></i> Contrato Firmado por el Cliente</h4>
+              <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">PDF cargado digitalmente en el proceso de Onboarding.</p>
+            </div>
+            <a href="${req.contrato_url}" target="_blank" class="btn btn-outline" style="padding: 0.45rem 1.25rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none;">
+              <i class="ri-download-2-line"></i> Descargar Contrato PDF
+            </a>
           </div>
-          <a href="${req.contrato_url}" target="_blank" class="btn btn-outline" style="padding: 0.45rem 1.25rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; text-decoration: none;">
-            <i class="ri-download-2-line"></i> Descargar Contrato PDF
-          </a>
+          
+          ${Array.isArray(req.accepted_annexes) && req.accepted_annexes.length > 0 ? `
+            <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem; margin-top: 0.5rem; width: 100%;">
+              <strong style="display: block; font-size: 0.85rem; color: var(--color-text-main); margin-bottom: 0.75rem;">
+                <i class="ri-checkbox-circle-line" style="color: var(--color-success);"></i> Documentación Anexa Aceptada por el Cliente:
+              </strong>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                ${req.accepted_annexes.map(annex => {
+                  const formattedDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
+                    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+                  }) : 'S/F';
+                  return `
+                    <div style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+                      <i class="ri-checkbox-circle-fill" style="color: var(--color-success); font-size: 1.1rem; flex-shrink: 0;"></i>
+                      <div style="flex-grow: 1; font-size: 0.75rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${annex.name} (Fecha: ${formattedDate})">
+                        <strong>${annex.name}</strong>
+                        <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem;">Fecha: ${formattedDate}</span>
+                      </div>
+                      <a href="${annex.file_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.7rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.15rem; text-decoration: none; flex-shrink: 0;">
+                        <i class="ri-download-2-line"></i> Descargar
+                      </a>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
         </div>
 
       </div>

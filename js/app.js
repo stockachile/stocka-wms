@@ -22517,10 +22517,10 @@ async function renderUploadContractView(request) {
     </div>
   `;
 
-  initUploadContractListeners(request);
+  initUploadContractListeners(request, annexes);
 }
 
-function initUploadContractListeners(request) {
+function initUploadContractListeners(request, annexes) {
   const dropZone = document.getElementById('contract-drop-zone');
   const fileInput = document.getElementById('contract-file-input');
   const filePreview = document.getElementById('contract-file-preview');
@@ -22655,11 +22655,19 @@ function initUploadContractListeners(request) {
         
       const contratoUrl = urlData.publicUrl;
 
+      const acceptedAnnexesData = Array.isArray(annexes) ? annexes.map(annex => ({
+        id: annex.id,
+        name: annex.name,
+        document_date: annex.document_date,
+        file_url: annex.file_url
+      })) : [];
+
       const { error: dbError } = await supabase
         .from('onboarding_requests')
         .update({
           contrato_url: contratoUrl,
           contrato_storage_path: storagePath,
+          accepted_annexes: acceptedAnnexesData,
           status: 'pending',
           updated_at: new Date().toISOString()
         })
