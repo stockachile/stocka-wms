@@ -8,11 +8,13 @@ CREATE TABLE IF NOT EXISTS public.billing_mappings (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
 
--- Insertar mapeos iniciales para el cliente BIG BANG
+-- Insertar mapeos iniciales para el cliente BIG BANG y SILVER FOX
 INSERT INTO public.billing_mappings (comercio_nombre, billing_name) VALUES
 ('BACK IN TIME', 'BIG BANG'),
 ('DORMILONES', 'BIG BANG'),
-('RELAJARTE', 'BIG BANG')
+('RELAJARTE', 'BIG BANG'),
+('FORTE MAX', 'SILVER FOX'),
+('MENPRIME', 'SILVER FOX')
 ON CONFLICT (comercio_nombre) DO UPDATE SET billing_name = EXCLUDED.billing_name;
 
 -- 2. Crear Tabla de Estado del Servicio (Al día / Pausado)

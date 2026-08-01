@@ -2405,5 +2405,16 @@ Hemos mejorado la carga inicial de pedidos en el panel de WMS Administrador:
    - Ahora el WMS Administrador se carga utilizando la función unificada y optimizada de consulta por rango de fechas `window.fetchWmsOrdersData()`. Esto permite que el listado inicial sólo descargue los pedidos correspondientes al rango de fechas visible en el panel.
    - La tabla se refresca de forma síncrona y fluida al cambiar el filtro temporal, eliminando consultas en bucle innecesarias.
 
+---
 
+## 105. Configuración de Holding SILVER FOX para Facturación de FORTE MAX y MENPRIME
 
+Hemos integrado el nuevo comercio holding **SILVER FOX** en el módulo de facturación para agrupar de forma transparente y automática a las marcas individuales **FORTE MAX** y **MENPRIME**:
+
+1. **Definición de Mapeos de Facturación**:
+   - Agregamos los registros correspondientes en la tabla `billing_mappings` mapeando `FORTE MAX` y `MENPRIME` al holding `SILVER FOX`. Esto se incluyó en las sentencias de inserción iniciales de [supabase_schema_billing.sql](file:///c:/Users/felip/Desktop/WMS%20STOCKA/supabase_schema_billing.sql).
+   
+2. **Estado del Servicio y Facturación Dinámica**:
+   - Agregamos un registro para `SILVER FOX` en la tabla `commerce_billing_status` estableciéndolo como `al_dia = true`.
+   - Debido al diseño dinámico del módulo de facturación del sistema, las vistas administrativa y de cliente ahora agruparán automáticamente todos los cobros de Fulfillment y Envíame de `FORTE MAX` y `MENPRIME` bajo el registro consolidado de `SILVER FOX` de manera idéntica a como se procesa con `BIG BANG`.
+   - La información de RUT (`77.265.758-7`) y Razón Social (`SILVER FOX SPA`) se heredará de manera inteligente desde la configuración de los comercios individuales si el holding no cuenta con una configuración directa.
