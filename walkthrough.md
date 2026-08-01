@@ -2367,3 +2367,18 @@ Hemos generado un script de migración SQL dedicado para actualizar la restricci
    - Copia el código SQL anterior.
    - Ve a tu panel de control de Supabase (https://supabase.com/dashboard), abre la sección **SQL Editor**, crea una pestaña en blanco, pega el código y haz clic en **Run**.
    - Con esto, la base de datos aceptará `"Cancelado"` como un estado WMS válido, y al realizar este cambio se liberará automáticamente el stock comprometido de los ítems de ese pedido.
+
+---
+
+## 102. Habilitación de la Cancelación Masiva en el Frontend (Bulk WMS Actions)
+
+Hemos completado la integración del estado `'Cancelado'` en las acciones masivas del WMS:
+
+1. **Adición de Opción en Dropdown de Acciones Masivas (`js/admin.js`)**:
+   - Añadimos la opción `<option value="Cancelado">Cancelado</option>` a la barra de acciones masivas (`#bulk-wms-status`).
+   - Con esto, el administrador ahora puede seleccionar múltiples pedidos en la tabla principal y cambiar su estado WMS a `"Cancelado"` de forma simultánea.
+   
+2. **Propagación y Liberación de Inventario**:
+   - Al realizar el cambio masivo a `"Cancelado"`, se actualiza la columna `estado_wms` a `'Cancelado'` y el estado de origen (`status`) a `'cancelado'`.
+   - La base de datos, a través del trigger `on_order_status_update`, disminuye el inventario comprometido (`committed_quantity`) liberando automáticamente las unidades reservadas para todos los ítems de dichos pedidos.
+

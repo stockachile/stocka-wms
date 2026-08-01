@@ -1497,15 +1497,7 @@ async function renderAdminOrders() {
       let optionsHtml = '<option value="">Todos los comercios</option>';
       optionsHtml += uniqueMerchantsList.map(m => `<option value="${m}">${m}</option>`).join('');
       select.innerHTML = optionsHtml;
-      select.value = currentVal;
-    };
-
-    // Cargar historial en segundo plano
-    (async () => {
-      try {
-        const { data: histOrders, error: histError } = await supabase
-          .from('orders')
-          .select(`
+      select.value = currentVa        const histOrders = await window.fetchAllSupabaseRows('orders', `
             id,
             status,
             estado_wms,
@@ -1545,9 +1537,7 @@ async function renderAdminOrders() {
             sucursal_pickeo,
             periodo_facturacion,
             order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-          `)
-          .lt('created_at', startOfMonth)
-          .order('created_at', { ascending: false });
+          `, q => q.lt('created_at', startOfMonth).order('created_at', { ascending: false }));   .order('created_at', { ascending: false });
 
         if (histError) throw histError;
 
@@ -3304,6 +3294,7 @@ function renderWmsBulkActionsBar() {
           <option value="Pickeado">Pickeado</option>
           <option value="Despachado">Despachado</option>
           <option value="Incidencia">Incidencia</option>
+          <option value="Cancelado">Cancelado</option>
         </select>
         <button onclick="window.applyBulkWmsStatus()" class="btn btn-accent" style="background: var(--color-primary); color: white; font-weight: 600; padding: 0.25rem 0.75rem; font-size: 0.85rem; box-shadow: none; border: none; cursor: pointer; border-radius: var(--radius-sm);">Aplicar</button>
         
@@ -21908,6 +21899,9 @@ async function renderMerchantsAdmin() {
           <button id="tab-btn-holdings" class="btn-tab-merchant" onclick="window.switchMerchantTab('holdings')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-building-line"></i> Holdings / Conglomerados
           </button>
+          <button id="tab-btn-contracts" class="btn-tab-merchant" onclick="window.switchMerchantTab('contracts')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+            <i class="ri-file-shield-2-line"></i> Contratos y Documentos Firmados
+          </button>
         </div>
 
         <div class="card-body" style="padding: 0;">
@@ -21936,6 +21930,11 @@ async function renderMerchantsAdmin() {
           <!-- Tab 2: Holdings List -->
           <div id="tab-content-holdings" style="display: none; padding: 1.5rem;">
             <p style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando holdings...</p>
+          </div>
+
+          <!-- Tab 3: Contratos List -->
+          <div id="tab-content-contracts" style="display: none; padding: 0;">
+            <p style="text-align: center; color: var(--color-text-muted); padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando registro de contratos...</p>
           </div>
         </div>
       </div>
@@ -21971,34 +21970,42 @@ async function renderMerchantsAdmin() {
 window.switchMerchantTab = function(tabName) {
   const tabMerchants = document.getElementById('tab-btn-merchants');
   const tabHoldings = document.getElementById('tab-btn-holdings');
+  const tabContracts = document.getElementById('tab-btn-contracts');
   const contentMerchants = document.getElementById('tab-content-merchants');
   const contentHoldings = document.getElementById('tab-content-holdings');
+  const contentContracts = document.getElementById('tab-content-contracts');
   const searchWrapper = document.getElementById('merchant-search-wrapper');
   
-  if (!tabMerchants || !tabHoldings || !contentMerchants || !contentHoldings) return;
+  if (!tabMerchants || !tabHoldings || !tabContracts || !contentMerchants || !contentHoldings || !contentContracts) return;
+
+  // Reset tab active states styles
+  [tabMerchants, tabHoldings, tabContracts].forEach(tab => {
+    tab.style.color = 'var(--color-text-muted)';
+    tab.style.borderBottom = 'none';
+  });
+
+  // Hide all contents
+  contentMerchants.style.display = 'none';
+  contentHoldings.style.display = 'none';
+  contentContracts.style.display = 'none';
 
   if (tabName === 'merchants') {
     tabMerchants.style.color = 'var(--color-primary)';
     tabMerchants.style.borderBottom = '2px solid var(--color-primary)';
-    
-    tabHoldings.style.color = 'var(--color-text-muted)';
-    tabHoldings.style.borderBottom = 'none';
-    
     contentMerchants.style.display = 'block';
-    contentHoldings.style.display = 'none';
     if (searchWrapper) searchWrapper.style.display = 'block';
-  } else {
+  } else if (tabName === 'holdings') {
     tabHoldings.style.color = 'var(--color-primary)';
     tabHoldings.style.borderBottom = '2px solid var(--color-primary)';
-    
-    tabMerchants.style.color = 'var(--color-text-muted)';
-    tabMerchants.style.borderBottom = 'none';
-    
-    contentMerchants.style.display = 'none';
     contentHoldings.style.display = 'block';
     if (searchWrapper) searchWrapper.style.display = 'none';
-    
     window.renderHoldingsTab();
+  } else if (tabName === 'contracts') {
+    tabContracts.style.color = 'var(--color-primary)';
+    tabContracts.style.borderBottom = '2px solid var(--color-primary)';
+    contentContracts.style.display = 'block';
+    if (searchWrapper) searchWrapper.style.display = 'none';
+    window.renderMerchantContractsTab();
   }
 };
 
@@ -22117,6 +22124,113 @@ window.renderHoldingsTab = function() {
       </div>
     `;
   }).join('');
+};
+
+window.renderMerchantContractsTab = async function() {
+  const container = document.getElementById('tab-content-contracts');
+  if (!container) return;
+
+  container.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando registro de contratos y versiones...</p>`;
+
+  try {
+    const { data: requests, error } = await supabase
+      .from('onboarding_requests')
+      .select('*')
+      .in('status', ['pending', 'approved'])
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    if (!requests || requests.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-file-shield-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
+          <strong>No hay contratos firmados</strong>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem;">Ningún comercio ha cargado contratos o aceptado anexos todavía.</p>
+        </div>
+      `;
+      return;
+    }
+
+    let rowsHtml = requests.map(req => {
+      const signedDate = req.updated_at ? new Date(req.updated_at).toLocaleDateString('es-CL', {
+        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+      }) : 'S/F';
+
+      let annexesBadgeList = '';
+      if (Array.isArray(req.accepted_annexes) && req.accepted_annexes.length > 0) {
+        annexesBadgeList = req.accepted_annexes.map(annex => {
+          const docDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
+            day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+          }) : 'S/F';
+          return `<div style="margin-bottom: 0.25rem; font-size: 0.75rem; background: var(--color-surface); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 0.25rem;">
+            <i class="ri-checkbox-circle-fill" style="color: var(--color-success);"></i>
+            <strong>${annex.name}</strong> 
+            <span style="color: var(--color-text-muted);">(F: ${docDate})</span>
+            <a href="${annex.file_url}" target="_blank" style="color: var(--color-accent); text-decoration: none;" title="Descargar anexo"><i class="ri-download-2-line"></i></a>
+          </div>`;
+        }).join(' ');
+      } else {
+        annexesBadgeList = `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.75rem;">Sin anexos aceptados</span>`;
+      }
+
+      const statusBadge = req.status === 'approved'
+        ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Aprobado</span>`
+        : `<span class="badge-status" style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);"><i class="ri-time-line"></i> Pendiente de Aprobación</span>`;
+
+      return `
+        <tr>
+          <td style="padding: 0.75rem 1rem;">
+            <strong>${req.nombre_fantasia}</strong>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Razón Social: ${req.razon_social}</div>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted);">RUT: ${req.rut_empresa}</div>
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            <div style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.25rem;"></i>
+              <a href="${req.contrato_url}" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none; font-size: 0.8rem;">Ver Contrato</a>
+            </div>
+            <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.25rem;">Firmado: ${signedDate}</div>
+          </td>
+          <td style="padding: 0.75rem 1rem; max-width: 400px; white-space: normal;">
+            ${annexesBadgeList}
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            ${statusBadge}
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            <div style="font-size: 0.8rem;">
+              <strong>${req.full_name}</strong>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.email}</div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.phone}</div>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    container.innerHTML = `
+      <div style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%; margin: 0; border: none; border-radius: 0;">
+          <thead>
+            <tr style="background: var(--color-bg);">
+              <th style="padding: 0.75rem 1rem; width: 25%;">Comercio / Empresa</th>
+              <th style="padding: 0.75rem 1rem; width: 20%;">Contrato Principal</th>
+              <th style="padding: 0.75rem 1rem; width: 30%;">Anexos Aceptados</th>
+              <th style="padding: 0.75rem 1rem; width: 12%;">Estado Solicitud</th>
+              <th style="padding: 0.75rem 1rem; width: 13%;">Representante / Firma</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error("Error loading merchant contracts:", err);
+    container.innerHTML = `<div class="alert alert-error" style="display: block; margin: 1.5rem;">Error al cargar el registro de contratos: ${err.message}</div>`;
+  }
 };
 
 // Modal de Migración SQL
