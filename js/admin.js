@@ -1749,13 +1749,63 @@ async function renderAdminOrders() {
       applyWmsFiltersAndRender();
     };
 
+    let isFetchingDates = false;
+    const handleDateChange = async () => {
+      if (isFetchingDates) return;
+      isFetchingDates = true;
+      window.wmsCurrentPage = 1;
+      const dateFrom = dateFromInput ? dateFromInput.value : '';
+      const dateTo = dateToInput ? dateToInput.value : '';
+      
+      const tbody = document.getElementById('orders-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="13" style="text-align: center; padding: 3rem;">
+              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                <style>
+                  @keyframes wms-spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                  }
+                </style>
+                <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+                <span style="font-size: 0.9rem; color: var(--color-text-muted);">Buscando pedidos en el rango de fechas...</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }
+
+      try {
+        await window.fetchWmsOrdersData(dateFrom, dateTo);
+        if (window.updateMerchantFilterOptions) {
+          window.updateMerchantFilterOptions();
+        }
+        applyWmsFiltersAndRender();
+      } catch (err) {
+        console.error('Error fetching orders on date change:', err);
+        if (tbody) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">
+                Error al buscar pedidos: ${err.message}
+              </td>
+            </tr>
+          `;
+        }
+      } finally {
+        isFetchingDates = false;
+      }
+    };
+
     if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
     if (merchantSelect) merchantSelect.addEventListener('change', triggerFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
-    if (dateFromInput) dateFromInput.addEventListener('change', triggerFilterUpdate);
-    if (dateToInput) dateToInput.addEventListener('change', triggerFilterUpdate);
+    if (dateFromInput) dateFromInput.addEventListener('change', handleDateChange);
+    if (dateToInput) dateToInput.addEventListener('change', handleDateChange);
 
     // Primera renderización de datos
     applyWmsFiltersAndRender();
@@ -3011,159 +3061,39 @@ window.refreshWmsOrders = async function(btn) {
     if (icon) icon.className = 'ri-refresh-line spin';
   }
 
+  const dateFromInput = document.getElementById('filter-date-from');
+  const dateToInput = document.getElementById('filter-date-to');
+  const dateFrom = dateFromInput ? dateFromInput.value : '';
+  const dateTo = dateToInput ? dateToInput.value : '';
+
+  // Mostrar spinner en la tabla
+  const tbody = document.getElementById('orders-tbody');
+  if (tbody) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="13" style="text-align: center; padding: 3rem;">
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+            <style>
+              @keyframes wms-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+              }
+            </style>
+            <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+            <span style="font-size: 0.9rem; color: var(--color-text-muted);">Sincronizando y actualizando pedidos...</span>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
   try {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-
-    const orders = await window.fetchAllSupabaseRows('orders', `
-      id,
-      status,
-      estado_wms,
-      created_at,
-      external_order_number,
-      external_platform,
-      origen,
-      item,
-      cantidad,
-      sku,
-      label_base64,
-      total_value,
-      customer_name,
-      customer_email,
-      customer_phone,
-      shipping_address,
-      shipping_city,
-      shipping_complement,
-      shipping_method,
-      payment_status,
-      tracking_number,
-      tracking_url,
-      courier,
-      raw_woocommerce_data,
-      raw_jumpseller_data,
-      raw_falabella_data,
-      raw_meli_data,
-      raw_optiroute_data,
-      raw_lightdata_data,
-      raw_paris_data,
-      raw_shopify_data,
-      shopify_exported,
-      comercio,
-      agenda,
-      operador,
-      fecha_procesamiento,
-      sucursal_pickeo,
-      periodo_facturacion,
-      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-    `, q => q.gte('created_at', startOfMonth).order('created_at', { ascending: false }));
-
-    window.loadedOrders = orders || [];
-
-    let shipments = [];
-    if (orders && orders.length > 0) {
-      const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
-      const orderIds = orders.map(o => o.id);
-      const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
-      const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
-
-      shipments = await fetchEnviosUnificadosByRefs(allRefs);
-    }
-    window.loadedShipments = shipments;
-
-    if (window.fetchPickerOperators) {
-      await window.fetchPickerOperators(window.loadedOrders);
-    }
-
-    if (window.fetchInventoryForOrders) {
-      await window.fetchInventoryForOrders(window.loadedOrders);
-    }
+    await window.fetchWmsOrdersData(dateFrom, dateTo);
 
     if (window.updateMerchantFilterOptions) {
       window.updateMerchantFilterOptions();
     }
     applyWmsFiltersAndRender();
-
-    // Cargar historial en segundo plano
-    (async () => {
-      try {
-        const { data: histOrders, error: histError } = await supabase
-          .from('orders')
-          .select(`
-            id,
-            status,
-            estado_wms,
-            created_at,
-            external_order_number,
-            external_platform,
-            origen,
-            item,
-            cantidad,
-            sku,
-            label_base64,
-            total_value,
-            customer_name,
-            customer_email,
-            customer_phone,
-            shipping_address,
-            shipping_city,
-            shipping_complement,
-            shipping_method,
-            payment_status,
-            tracking_number,
-            tracking_url,
-            courier,
-            raw_woocommerce_data,
-            raw_jumpseller_data,
-            raw_falabella_data,
-            raw_meli_data,
-            raw_optiroute_data,
-            raw_lightdata_data,
-            raw_paris_data,
-            raw_shopify_data,
-            shopify_exported,
-            comercio,
-            agenda,
-            operador,
-            fecha_procesamiento,
-            sucursal_pickeo,
-            periodo_facturacion,
-            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-          `)
-          .lt('created_at', startOfMonth)
-          .order('created_at', { ascending: false });
-
-        if (histError) throw histError;
-
-        if (histOrders && histOrders.length > 0) {
-          window.loadedOrders = [...(window.loadedOrders || []), ...histOrders];
-
-          const hRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
-          const hIds = histOrders.map(o => o.id);
-          const hTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
-          const allHRefs = [...hRefs, ...hIds, ...hTrackings];
-
-          const shipData = await fetchEnviosUnificadosByRefs(allHRefs);
-          if (shipData && shipData.length > 0) {
-            window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
-          }
-
-          if (window.fetchPickerOperators) {
-            await window.fetchPickerOperators(histOrders);
-          }
-
-          if (window.fetchInventoryForOrders) {
-            await window.fetchInventoryForOrders(histOrders);
-          }
-
-          if (window.updateMerchantFilterOptions) {
-            window.updateMerchantFilterOptions();
-          }
-          applyWmsFiltersAndRender();
-        }
-      } catch (histErr) {
-        console.warn('[WMS] Error al cargar pedidos históricos en segundo plano durante refresh:', histErr);
-      }
-    })();
 
   } catch (err) {
     console.error('Error refreshing orders:', err);
