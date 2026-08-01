@@ -191,7 +191,8 @@ BEGIN
             'giroComercio', NEW.giro_comercio,
             'direccion', NEW.direccion_facturacion,
             'comuna', NEW.comuna,
-            'contratoUrl', NEW.contrato_url
+            'contratoUrl', NEW.contrato_url,
+            'acceptedAnnexes', NEW.accepted_annexes
           )
         )
       );

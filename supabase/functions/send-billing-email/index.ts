@@ -727,6 +727,24 @@ serve(async (req) => {
       
       const details = onboardingDetails || {};
       
+      const annexes = details.acceptedAnnexes || [];
+      let annexesHtml = '';
+      if (Array.isArray(annexes) && annexes.length > 0) {
+        annexesHtml = `
+          <tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 10px; font-weight: 600; color: #475569; vertical-align: top;">Anexos Aceptados:</td>
+            <td style="padding: 10px; color: #1e293b;">
+              <ul style="margin: 0; padding-left: 20px; line-height: 1.5; font-size: 13px;">
+                ${annexes.map((annex: any) => {
+                  const formattedDate = annex.document_date ? annex.document_date.split('-').reverse().join('/') : 'S/F';
+                  return `<li><strong>${annex.name}</strong> (Fecha: ${formattedDate}) - <a href="${annex.file_url}" target="_blank" style="color: #2563eb; text-decoration: underline;">Descargar</a></li>`;
+                }).join('')}
+              </ul>
+            </td>
+          </tr>
+        `;
+      }
+
       emailBodyHtml = `
         <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Se ha recibido una nueva solicitud de alta comercial en el portal de Onboarding. A continuación se detallan los datos registrados por el cliente:
@@ -778,6 +796,7 @@ serve(async (req) => {
                 ${details.contratoUrl ? `<a href="${details.contratoUrl}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">Descargar PDF Contrato</a>` : 'No adjuntado'}
               </td>
             </tr>
+            ${annexesHtml}
           </tbody>
         </table>
         
