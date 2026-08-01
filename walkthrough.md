@@ -2382,3 +2382,15 @@ Hemos completado la integración del estado `'Cancelado'` en las acciones masiva
    - Al realizar el cambio masivo a `"Cancelado"`, se actualiza la columna `estado_wms` a `'Cancelado'` y el estado de origen (`status`) a `'cancelado'`.
    - La base de datos, a través del trigger `on_order_status_update`, disminuye el inventario comprometido (`committed_quantity`) liberando automáticamente las unidades reservadas para todos los ítems de dichos pedidos.
 
+---
+
+## 103. Corrección de Error de Sintaxis (SyntaxError: Unexpected token 'const')
+
+Corregimos un error de sintaxis en `js/admin.js` introducido accidentalmente en reemplazos previos durante el desarrollo:
+
+1. **Restauración de `updateMerchantFilterOptions`**:
+   - Corregimos el corte del método en `select.value = currentVal;` que había quedado truncado como `select.value = currentVa`.
+2. **Corrección de la Carga de Historial**:
+   - Limpiamos y re-estructuramos la llamada asíncrona a `window.fetchAllSupabaseRows('orders', ...)` para eliminar código duplicado y llamadas rotas que generaban fallos en la consola del desarrollador.
+
+

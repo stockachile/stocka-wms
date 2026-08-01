@@ -1497,49 +1497,53 @@ async function renderAdminOrders() {
       let optionsHtml = '<option value="">Todos los comercios</option>';
       optionsHtml += uniqueMerchantsList.map(m => `<option value="${m}">${m}</option>`).join('');
       select.innerHTML = optionsHtml;
-      select.value = currentVa        const histOrders = await window.fetchAllSupabaseRows('orders', `
-            id,
-            status,
-            estado_wms,
-            created_at,
-            external_order_number,
-            external_platform,
-            origen,
-            item,
-            cantidad,
-            sku,
-            label_base64,
-            total_value,
-            customer_name,
-            customer_email,
-            customer_phone,
-            shipping_address,
-            shipping_city,
-            shipping_complement,
-            shipping_method,
-            payment_status,
-            tracking_number,
-            tracking_url,
-            courier,
-            raw_woocommerce_data,
-            raw_jumpseller_data,
-            raw_falabella_data,
-            raw_meli_data,
-            raw_optiroute_data,
-            raw_lightdata_data,
-            raw_paris_data,
-            raw_shopify_data,
-            shopify_exported,
-            comercio,
-            agenda,
-            operador,
-            fecha_procesamiento,
-            sucursal_pickeo,
-            periodo_facturacion,
-            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-          `, q => q.lt('created_at', startOfMonth).order('created_at', { ascending: false }));   .order('created_at', { ascending: false });
+      select.value = currentVal;
+    };
 
-        if (histError) throw histError;
+    // Cargar historial en segundo plano
+    (async () => {
+      try {
+        const histOrders = await window.fetchAllSupabaseRows('orders', `
+             id,
+             status,
+             estado_wms,
+             created_at,
+             external_order_number,
+             external_platform,
+             origen,
+             item,
+             cantidad,
+             sku,
+             label_base64,
+             total_value,
+             customer_name,
+             customer_email,
+             customer_phone,
+             shipping_address,
+             shipping_city,
+             shipping_complement,
+             shipping_method,
+             payment_status,
+             tracking_number,
+             tracking_url,
+             courier,
+             raw_woocommerce_data,
+             raw_jumpseller_data,
+             raw_falabella_data,
+             raw_meli_data,
+             raw_optiroute_data,
+             raw_lightdata_data,
+             raw_paris_data,
+             raw_shopify_data,
+             shopify_exported,
+             comercio,
+             agenda,
+             operador,
+             fecha_procesamiento,
+             sucursal_pickeo,
+             periodo_facturacion,
+             order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+           `, q => q.lt('created_at', startOfMonth).order('created_at', { ascending: false }));
 
         if (histOrders && histOrders.length > 0) {
           window.loadedOrders = [...(window.loadedOrders || []), ...histOrders];
