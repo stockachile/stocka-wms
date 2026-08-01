@@ -2393,4 +2393,17 @@ Corregimos un error de sintaxis en `js/admin.js` introducido accidentalmente en 
 2. **Corrección de la Carga de Historial**:
    - Limpiamos y re-estructuramos la llamada asíncrona a `window.fetchAllSupabaseRows('orders', ...)` para eliminar código duplicado y llamadas rotas que generaban fallos en la consola del desarrollador.
 
+---
+
+## 104. Optimización de la Carga de Pedidos en el Panel de Administrador (Carga Bajo Demanda por Rango de Fechas)
+
+Hemos mejorado la carga inicial de pedidos en el panel de WMS Administrador:
+
+1. **Reemplazo de la Descarga en Segundo Plano**:
+   - Anteriormente, el panel de administración cargaba el mes actual y luego ejecutaba una función asíncrona en segundo plano que descargaba e integraba recursivamente **todo el historial completo de pedidos** del sistema. Esto ocasionaba un alto volumen de datos transferidos y demoras/congelamientos visuales.
+2. **Uso de `window.fetchWmsOrdersData`**:
+   - Ahora el WMS Administrador se carga utilizando la función unificada y optimizada de consulta por rango de fechas `window.fetchWmsOrdersData()`. Esto permite que el listado inicial sólo descargue los pedidos correspondientes al rango de fechas visible en el panel.
+   - La tabla se refresca de forma síncrona y fluida al cambiar el filtro temporal, eliminando consultas en bucle innecesarias.
+
+
 

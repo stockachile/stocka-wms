@@ -1322,6 +1322,119 @@ async function fetchEnviosUnificadosByRefs(allRefs) {
   return chunksResults.flat();
 }
 
+window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
+  const now = new Date();
+  let fromISO = null;
+  let toISO = null;
+  
+  if (dateFrom) {
+    fromISO = new Date(dateFrom + 'T00:00:00').toISOString();
+  } else {
+    fromISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  }
+  
+  if (dateTo) {
+    toISO = new Date(dateTo + 'T23:59:59').toISOString();
+  }
+  
+  const orders = await window.fetchAllSupabaseRows('orders', `
+    id,
+    status,
+    estado_wms,
+    created_at,
+    external_order_number,
+    external_platform,
+    origen,
+    item,
+    cantidad,
+    sku,
+    label_base64,
+    total_value,
+    customer_name,
+    customer_email,
+    customer_phone,
+    shipping_address,
+    shipping_city,
+    shipping_complement,
+    shipping_method,
+    payment_status,
+    tracking_number,
+    tracking_url,
+    courier,
+    shopify_exported,
+    comercio,
+    agenda,
+    operador,
+    fecha_procesamiento,
+    sucursal_pickeo,
+    periodo_facturacion,
+    shopify_financial:raw_shopify_data->financial_status,
+    shopify_fulfillment:raw_shopify_data->fulfillment_status,
+    shopify_cancelled:raw_shopify_data->cancelled_at,
+    woocommerce_status:raw_woocommerce_data->status,
+    jumpseller_status:raw_jumpseller_data->status,
+    falabella_status:raw_falabella_data->status,
+    falabella_state:raw_falabella_data->state,
+    meli_status:raw_meli_data->status,
+    order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+  `, q => {
+    let query = q;
+    if (fromISO) query = query.gte('created_at', fromISO);
+    if (toISO) query = query.lte('created_at', toISO);
+    return query.order('created_at', { ascending: false });
+  });
+
+  if (orders) {
+    orders.forEach(order => {
+      if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined) {
+        order.raw_shopify_data = {
+          fulfillment_status: order.shopify_fulfillment,
+          cancelled_at: order.shopify_cancelled,
+          financial_status: order.shopify_financial
+        };
+      }
+      if (order.woocommerce_status !== undefined) {
+        order.raw_woocommerce_data = { status: order.woocommerce_status };
+      }
+      if (order.jumpseller_status !== undefined) {
+        order.raw_jumpseller_data = { status: order.jumpseller_status };
+      }
+      if (order.falabella_status !== undefined || order.falabella_state !== undefined) {
+        order.raw_falabella_data = {
+          status: order.falabella_status,
+          state: order.falabella_state
+        };
+      }
+      if (order.meli_status !== undefined) {
+        order.raw_meli_data = { status: order.meli_status };
+      }
+    });
+  }
+
+  window.loadedOrders = orders || [];
+  window.loadedOrdersInventoryMap = {};
+
+  if (orders && orders.length > 0) {
+    const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
+    const orderIds = orders.map(o => o.id);
+    const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
+    const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
+
+    const shipData = await fetchEnviosUnificadosByRefs(allRefs);
+    window.loadedShipments = shipData || [];
+
+    if (window.fetchPickerOperators) {
+      await window.fetchPickerOperators(orders);
+    }
+
+    if (window.fetchInventoryForOrders) {
+      await window.fetchInventoryForOrders(orders);
+    }
+  } else {
+    window.loadedShipments = [];
+  }
+};
+
 async function renderAdminOrders() {
   window.loadedOrdersInventoryMap = {}; // Limpiar caché al cargar/renderizar pedidos
   const appContent = document.getElementById('app-content');
@@ -1375,98 +1488,10 @@ async function renderAdminOrders() {
     }
     window.currentPackSkusList = packSkusList;
 
-    const orders = await window.fetchAllSupabaseRows('orders', `
-      id,
-      status,
-      estado_wms,
-      created_at,
-      external_order_number,
-      external_platform,
-      origen,
-      item,
-      cantidad,
-      sku,
-      label_base64,
-      total_value,
-      customer_name,
-      customer_email,
-      customer_phone,
-      shipping_address,
-      shipping_city,
-      shipping_complement,
-      shipping_method,
-      payment_status,
-      tracking_number,
-      tracking_url,
-      courier,
-      shopify_exported,
-      comercio,
-      agenda,
-      operador,
-      fecha_procesamiento,
-      sucursal_pickeo,
-      periodo_facturacion,
-      shopify_financial:raw_shopify_data->financial_status,
-      shopify_fulfillment:raw_shopify_data->fulfillment_status,
-      shopify_cancelled:raw_shopify_data->cancelled_at,
-      woocommerce_status:raw_woocommerce_data->status,
-      jumpseller_status:raw_jumpseller_data->status,
-      falabella_status:raw_falabella_data->status,
-      falabella_state:raw_falabella_data->state,
-      meli_status:raw_meli_data->status,
-      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-    `, q => q.gte('created_at', startOfMonth).order('created_at', { ascending: false }));
+    window.lastFetchedDateFrom = startOfMonthStr;
+    window.lastFetchedDateTo = todayStr;
 
-    if (orders) {
-      orders.forEach(order => {
-        if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined) {
-          order.raw_shopify_data = {
-            fulfillment_status: order.shopify_fulfillment,
-            cancelled_at: order.shopify_cancelled,
-            financial_status: order.shopify_financial
-          };
-        }
-        if (order.woocommerce_status !== undefined) {
-          order.raw_woocommerce_data = { status: order.woocommerce_status };
-        }
-        if (order.jumpseller_status !== undefined) {
-          order.raw_jumpseller_data = { status: order.jumpseller_status };
-        }
-        if (order.falabella_status !== undefined || order.falabella_state !== undefined) {
-          order.raw_falabella_data = {
-            status: order.falabella_status,
-            state: order.falabella_state
-          };
-        }
-        if (order.meli_status !== undefined) {
-          order.raw_meli_data = { status: order.meli_status };
-        }
-      });
-    }
-
-
-    window.loadedOrders = orders || [];
-
-    // Obtener los despachos correspondientes de la tabla envios_unificados (sin filtrar visible_to_client para el admin)
-    let shipments = [];
-    if (orders && orders.length > 0) {
-      const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
-      const orderIds = orders.map(o => o.id);
-      const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
-      const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
-
-      shipments = await fetchEnviosUnificadosByRefs(allRefs);
-    }
-    window.loadedShipments = shipments;
-
-    window.pickerOperatorsMap = {};
-    if (window.fetchPickerOperators) {
-      await window.fetchPickerOperators(window.loadedOrders);
-    }
-
-    if (window.fetchInventoryForOrders) {
-      await window.fetchInventoryForOrders(window.loadedOrders);
-    }
+    await window.fetchWmsOrdersData(null, null);
 
     // Cargar configuraciones adicionales de los comercios
     let commerceConfigMap = {};
@@ -1485,7 +1510,7 @@ async function renderAdminOrders() {
     window.loadedCommerceConfigsMap = commerceConfigMap;
 
     // Obtener las opciones únicas de Comercios/Clientes para el filtro
-    const uniqueMerchants = [...new Set(orders.map(o => o.comercio).filter(Boolean))].sort();
+    const uniqueMerchants = [...new Set((window.loadedOrders || []).map(o => o.comercio).filter(Boolean))].sort();
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
 
@@ -1499,82 +1524,6 @@ async function renderAdminOrders() {
       select.innerHTML = optionsHtml;
       select.value = currentVal;
     };
-
-    // Cargar historial en segundo plano
-    (async () => {
-      try {
-        const histOrders = await window.fetchAllSupabaseRows('orders', `
-             id,
-             status,
-             estado_wms,
-             created_at,
-             external_order_number,
-             external_platform,
-             origen,
-             item,
-             cantidad,
-             sku,
-             label_base64,
-             total_value,
-             customer_name,
-             customer_email,
-             customer_phone,
-             shipping_address,
-             shipping_city,
-             shipping_complement,
-             shipping_method,
-             payment_status,
-             tracking_number,
-             tracking_url,
-             courier,
-             raw_woocommerce_data,
-             raw_jumpseller_data,
-             raw_falabella_data,
-             raw_meli_data,
-             raw_optiroute_data,
-             raw_lightdata_data,
-             raw_paris_data,
-             raw_shopify_data,
-             shopify_exported,
-             comercio,
-             agenda,
-             operador,
-             fecha_procesamiento,
-             sucursal_pickeo,
-             periodo_facturacion,
-             order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
-           `, q => q.lt('created_at', startOfMonth).order('created_at', { ascending: false }));
-
-        if (histOrders && histOrders.length > 0) {
-          window.loadedOrders = [...(window.loadedOrders || []), ...histOrders];
-
-          // Cargar despachos correspondientes para historial
-          const orderRefs = histOrders.map(o => o.external_order_number).filter(Boolean);
-          const orderIds = histOrders.map(o => o.id);
-          const orderTrackings = histOrders.map(o => o.tracking_number).filter(Boolean);
-          const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
-
-          const shipData = await fetchEnviosUnificadosByRefs(allRefs);
-          if (shipData && shipData.length > 0) {
-            window.loadedShipments = [...(window.loadedShipments || []), ...shipData];
-          }
-
-          if (window.fetchPickerOperators) {
-            await window.fetchPickerOperators(histOrders);
-          }
-
-          if (window.fetchInventoryForOrders) {
-            await window.fetchInventoryForOrders(histOrders);
-          }
-
-          window.updateMerchantFilterOptions();
-          applyWmsFiltersAndRender();
-          console.log(`[WMS] Cargados ${histOrders.length} pedidos históricos en segundo plano.`);
-        }
-      } catch (histErr) {
-        console.warn('[WMS] Error al cargar pedidos históricos en segundo plano:', histErr);
-      }
-    })();
 
     // Cargar comercios de v_comercios_config para la reasignación manual
     if (!window.wmsAllComercios || window.wmsAllComercios.length === 0) {
