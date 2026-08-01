@@ -30200,7 +30200,7 @@ async function renderContractualDocsManager(container) {
   container.innerHTML = `
     <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
       <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700;">Documentos Contractuales de Onboarding</h3>
-      <span style="font-size: 0.85rem; color: var(--color-text-muted);">Configuración de plantillas y anexos</span>
+      <span style="font-size: 0.85rem; color: var(--color-text-muted);">Configuración de plantillas y anexos con historial de versiones</span>
     </div>
     
     <div style="padding: 1.5rem;">
@@ -30219,9 +30219,14 @@ async function renderContractualDocsManager(container) {
             <h5 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem;"></i> Contrato PDF
             </h5>
-            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all;">
-              <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
-              <a id="contract-pdf-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all; display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
+              <div>
+                <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
+                <a id="contract-pdf-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+              </div>
+              <button id="btn-history-pdf" class="btn btn-outline" style="padding: 0.2rem 0.4rem; font-size: 0.7rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.15rem; margin-top: 0.8rem;" title="Ver Historial de Versiones">
+                <i class="ri-history-line"></i> Historial
+              </button>
             </div>
             <div class="form-group" style="margin-bottom: 0;">
               <label class="form-label" style="font-size: 0.75rem;">Reemplazar Archivo PDF</label>
@@ -30234,9 +30239,14 @@ async function renderContractualDocsManager(container) {
             <h5 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-file-word-fill" style="color: #2563eb; font-size: 1.1rem;"></i> Contrato Word (DOCX)
             </h5>
-            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all;">
-              <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
-              <a id="contract-word-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+            <div style="margin-bottom: 0.75rem; font-size: 0.8rem; word-break: break-all; display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
+              <div>
+                <span style="color: var(--color-text-muted); display: block; margin-bottom: 0.15rem;">URL Actual:</span>
+                <a id="contract-word-current-link" href="#" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">Cargando...</a>
+              </div>
+              <button id="btn-history-word" class="btn btn-outline" style="padding: 0.2rem 0.4rem; font-size: 0.7rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.15rem; margin-top: 0.8rem;" title="Ver Historial de Versiones">
+                <i class="ri-history-line"></i> Historial
+              </button>
             </div>
             <div class="form-group" style="margin-bottom: 0;">
               <label class="form-label" style="font-size: 0.75rem;">Reemplazar Archivo Word</label>
@@ -30267,15 +30277,16 @@ async function renderContractualDocsManager(container) {
             <thead>
               <tr>
                 <th>Nombre del Documento</th>
+                <th style="width: 80px; text-align: center;">Versión</th>
                 <th>Fecha Documento</th>
                 <th>Enlace</th>
                 <th style="width: 110px; text-align: center;">Estado</th>
-                <th style="width: 90px; text-align: right;">Acciones</th>
+                <th style="width: 240px; text-align: right;">Acciones</th>
               </tr>
             </thead>
             <tbody id="contract-annexes-table-body">
               <tr>
-                <td colspan="5" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+                <td colspan="6" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
                   <i class="ri-loader-4-line spin" style="font-size: 1.25rem; display: block; margin-bottom: 0.5rem;"></i>
                   Cargando anexos...
                 </td>
@@ -30344,19 +30355,20 @@ async function loadAndRenderContractualDocs() {
   if (annexes.length === 0) {
     annexesTbody.innerHTML = `
       <tr>
-        <td colspan="5" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">
+        <td colspan="6" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">
           No hay anexos contractuales registrados.
         </td>
       </tr>
     `;
   } else {
-    annexesTbody.innerHTML = annexes.map(annex => {
+    annexesTbody.innerHTML = annexes.map((annex, index) => {
       const formattedDate = new Date(annex.document_date).toLocaleDateString('es-CL', {
         day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
       });
       return `
         <tr>
           <td><strong>${annex.name}</strong></td>
+          <td style="text-align: center;"><span style="background: var(--color-border); padding: 0.1rem 0.35rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700;">V${annex.version || 1}</span></td>
           <td>${formattedDate}</td>
           <td>
             <a href="${annex.file_url}" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none;">
@@ -30368,8 +30380,14 @@ async function loadAndRenderContractualDocs() {
               ${annex.is_active ? 'Activo' : 'Inactivo'}
             </button>
           </td>
-          <td style="text-align: right;">
-            <button class="btn btn-delete-annex" data-id="${annex.id}" style="padding: 0.25rem; font-size: 1.1rem; color: var(--color-danger); background: transparent; border: none; cursor: pointer;" title="Eliminar anexo">
+          <td style="text-align: right; border: none;">
+            <button class="btn btn-outline btn-new-version-annex" data-index="${index}" style="padding: 0.25rem 0.4rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.15rem; cursor: pointer;" title="Subir nueva versión del anexo">
+              <i class="ri-upload-2-line"></i> Nueva Versión
+            </button>
+            <button class="btn btn-outline btn-history-annex" data-id="${annex.id}" data-name="${annex.name}" style="padding: 0.25rem 0.4rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.15rem; cursor: pointer; margin-left: 0.25rem;" title="Ver Historial de Versiones">
+              <i class="ri-history-line"></i> Historial
+            </button>
+            <button class="btn btn-delete-annex" data-id="${annex.id}" style="padding: 0.25rem; font-size: 1.1rem; color: var(--color-danger); background: transparent; border: none; cursor: pointer; margin-left: 0.25rem;" title="Eliminar anexo">
               <i class="ri-delete-bin-line"></i>
             </button>
           </td>
@@ -30385,6 +30403,22 @@ async function loadAndRenderContractualDocs() {
       });
     });
 
+    annexesTbody.querySelectorAll('.btn-new-version-annex').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.getAttribute('data-index'), 10);
+        const annex = annexes[index];
+        if (annex) showNewVersionAnnexModal(annex);
+      });
+    });
+
+    annexesTbody.querySelectorAll('.btn-history-annex').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-id');
+        const name = btn.getAttribute('data-name');
+        showDocumentHistoryModal('annex', id, name);
+      });
+    });
+
     annexesTbody.querySelectorAll('.btn-delete-annex').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-id');
@@ -30395,6 +30429,14 @@ async function loadAndRenderContractualDocs() {
 
   const pdfInput = document.getElementById('upload-contract-pdf-input');
   const wordInput = document.getElementById('upload-contract-word-input');
+
+  document.getElementById('btn-history-pdf').addEventListener('click', () => {
+    showDocumentHistoryModal('main_contract_pdf', 'main_contract', 'Contrato de Servicios (PDF)');
+  });
+
+  document.getElementById('btn-history-word').addEventListener('click', () => {
+    showDocumentHistoryModal('main_contract_word', 'main_contract', 'Contrato de Servicios (Word)');
+  });
 
   pdfInput.addEventListener('change', async (e) => {
     if (e.target.files.length === 0) return;
@@ -30450,6 +30492,38 @@ async function uploadMainContractTemplate(type, file) {
 
     const publicUrl = urlData.publicUrl;
 
+    // Obtener la última versión histórica
+    const docType = type === 'pdf' ? 'main_contract_pdf' : 'main_contract_word';
+    const { data: versions, error: versionErr } = await supabase
+      .from('contractual_document_versions')
+      .select('version')
+      .eq('document_type', docType)
+      .eq('document_id', 'main_contract')
+      .order('version', { ascending: false })
+      .limit(1);
+
+    if (versionErr) throw versionErr;
+
+    let nextVersion = 1;
+    if (versions && versions.length > 0) {
+      nextVersion = versions[0].version + 1;
+    }
+
+    // Insertar versión en el historial
+    const { error: insertVersionError } = await supabase
+      .from('contractual_document_versions')
+      .insert({
+        document_type: docType,
+        document_id: 'main_contract',
+        name: type === 'pdf' ? 'Contrato de Servicios (PDF)' : 'Contrato de Servicios (Word)',
+        version: nextVersion,
+        document_date: new Date().toISOString().split('T')[0],
+        file_url: publicUrl,
+        storage_path: storagePath
+      });
+
+    if (insertVersionError) throw insertVersionError;
+
     const updates = {
       updated_at: new Date().toISOString()
     };
@@ -30469,7 +30543,7 @@ async function uploadMainContractTemplate(type, file) {
     if (dbError) throw dbError;
 
     Swal.close();
-    await Swal.fire('¡Plantilla Actualizada!', `La plantilla ${type.toUpperCase()} ha sido reemplazada con éxito.`, 'success');
+    await Swal.fire('¡Plantilla Actualizada!', `La plantilla ${type.toUpperCase()} ha sido reemplazada con éxito a la versión V${nextVersion}.`, 'success');
     await loadAndRenderContractualDocs();
 
   } catch (err) {
@@ -30617,21 +30691,42 @@ function showAddAnnexModal() {
 
       const fileUrl = urlData.publicUrl;
 
-      const { error: dbError } = await supabase
+      // Crear el registro de anexo en la base de datos con versión 1
+      const { data: newAnnexData, error: dbError } = await supabase
         .from('contractual_annexes')
         .insert({
           name: name,
           document_date: documentDate,
           file_url: fileUrl,
           storage_path: storagePath,
-          is_active: true
-        });
+          is_active: true,
+          version: 1
+        })
+        .select();
 
       if (dbError) throw dbError;
 
+      const newAnnex = newAnnexData && newAnnexData[0];
+      if (!newAnnex) throw new Error('No se pudo crear el registro del anexo.');
+
+      // Registrar la primera versión en la tabla de versiones históricas
+      const { error: versionInsertError } = await supabase
+        .from('contractual_document_versions')
+        .insert({
+          document_type: 'annex',
+          document_id: newAnnex.id,
+          name: name,
+          version: 1,
+          document_date: documentDate,
+          file_url: fileUrl,
+          storage_path: storagePath
+        });
+
+      if (versionInsertError) throw versionInsertError;
+
       Swal.close();
       closeModal();
-      await Swal.fire('¡Éxito!', 'El documento anexo ha sido agregado correctamente.', 'success');
+      await Swal.fire('¡Éxito!', 'El documento anexo ha sido agregado correctamente como versión V1.', 'success');
       
       await loadAndRenderContractualDocs();
 
@@ -30639,6 +30734,253 @@ function showAddAnnexModal() {
       Swal.close();
       console.error('Error adding annex:', err);
       Swal.fire('Error', `No se pudo guardar el anexo: ${err.message}`, 'error');
+    }
+  });
+}
+
+function showDocumentHistoryModal(docType, docId, titleName) {
+  const existing = document.getElementById('modal-document-history');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-document-history';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '1600';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-history-line" style="color: var(--color-accent);"></i> Historial de Versiones
+        </h3>
+        <button type="button" class="modal-close" id="btn-close-history-modal" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; max-height: 60vh; overflow-y: auto;">
+        <div style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">
+          Historial de cambios para: <strong>${titleName}</strong>
+        </div>
+        <table class="data-table" style="font-size: 0.8rem; width: 100%;">
+          <thead>
+            <tr>
+              <th style="width: 80px; text-align: center;">Versión</th>
+              <th>Fecha de Versión</th>
+              <th>Nombre de Archivo</th>
+              <th style="width: 100px; text-align: right;">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="document-history-table-body">
+            <tr>
+              <td colspan="4" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+                <i class="ri-loader-4-line spin" style="font-size: 1.25rem; display: block; margin-bottom: 0.5rem;"></i>
+                Cargando historial...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: var(--color-bg);">
+        <button type="button" class="btn btn-outline" id="btn-close-history-btn">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => modal.remove();
+  document.getElementById('btn-close-history-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-close-history-btn').addEventListener('click', closeModal);
+
+  // Cargar datos
+  (async () => {
+    try {
+      const { data: versions, error } = await supabase
+        .from('contractual_document_versions')
+        .select('*')
+        .eq('document_type', docType)
+        .eq('document_id', docId)
+        .order('version', { ascending: false });
+
+      if (error) throw error;
+
+      const tbody = document.getElementById('document-history-table-body');
+      if (!tbody) return;
+
+      if (!versions || versions.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="4" class="text-center" style="padding: 1.5rem; color: var(--color-text-muted);">
+              No hay historial registrado para este documento.
+            </td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = versions.map(v => {
+          const formattedDate = new Date(v.document_date).toLocaleDateString('es-CL', {
+            day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+          });
+          const fileName = v.storage_path.substring(v.storage_path.lastIndexOf('/') + 1);
+          return `
+            <tr>
+              <td style="text-align: center;"><strong>V${v.version}</strong></td>
+              <td>${formattedDate}</td>
+              <td style="word-break: break-all; font-family: monospace; font-size: 0.75rem;">${fileName}</td>
+              <td style="text-align: right;">
+                <a href="${v.file_url}" target="_blank" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;">
+                  <i class="ri-download-line"></i> Descargar
+                </a>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    } catch (err) {
+      console.error('Error loading document history:', err);
+      const tbody = document.getElementById('document-history-table-body');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="4" class="text-center" style="padding: 1.5rem; color: var(--color-danger);">
+              Error al cargar el historial.
+            </td>
+          </tr>
+        `;
+      }
+    }
+  })();
+}
+
+function showNewVersionAnnexModal(annex) {
+  const existing = document.getElementById('modal-new-version-annex');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-new-version-annex';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '1500';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; width: 95%; background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-lg); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main);">Subir Nueva Versión</h3>
+        <button type="button" class="modal-close" id="btn-close-new-ver-modal" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      
+      <form id="form-new-ver-annex">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-height: 70vh; overflow-y: auto;">
+          <div style="font-size: 0.85rem; background: rgba(79, 70, 229, 0.05); border-left: 3px solid var(--color-accent); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
+            Documento: <strong>${annex.name}</strong><br>
+            Versión actual: <strong>V${annex.version || 1}</strong>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Nueva Fecha del Documento *</label>
+            <input type="date" id="new-ver-date" class="form-input" required style="width: 100%;">
+          </div>
+          
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.4rem;">Nuevo Archivo PDF *</label>
+            <input type="file" id="new-ver-file" accept=".pdf" class="form-input" required style="width: 100%;">
+          </div>
+        </div>
+        
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
+          <button type="button" class="btn btn-outline" id="btn-cancel-new-ver">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Subir Nueva Versión (V${(annex.version || 1) + 1})</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Establecer fecha por defecto a la fecha de hoy
+  document.getElementById('new-ver-date').value = new Date().toISOString().split('T')[0];
+
+  const closeModal = () => modal.remove();
+  document.getElementById('btn-close-new-ver-modal').addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-new-ver').addEventListener('click', closeModal);
+
+  document.getElementById('form-new-ver-annex').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const documentDate = document.getElementById('new-ver-date').value;
+    const fileInput = document.getElementById('new-ver-file');
+    
+    if (fileInput.files.length === 0) {
+      Swal.fire('Archivo requerido', 'Debes seleccionar un archivo PDF.', 'warning');
+      return;
+    }
+    
+    const file = fileInput.files[0];
+    if (file.type !== 'application/pdf') {
+      Swal.fire('Formato Inválido', 'El archivo debe ser en formato PDF.', 'error');
+      return;
+    }
+
+    try {
+      Swal.fire({
+        title: 'Subiendo nueva versión...',
+        text: 'Guardando el archivo e incrementando la versión.',
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        }
+      });
+
+      const nextVersion = (annex.version || 1) + 1;
+      const timestamp = Date.now();
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = `annexes/${timestamp}_${sanitizedName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('service_docs')
+        .upload(storagePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('service_docs')
+        .getPublicUrl(storagePath);
+
+      const fileUrl = urlData.publicUrl;
+
+      // 1. Guardar versión en historial
+      const { error: versionInsertError } = await supabase
+        .from('contractual_document_versions')
+        .insert({
+          document_type: 'annex',
+          document_id: annex.id,
+          name: annex.name,
+          version: nextVersion,
+          document_date: documentDate,
+          file_url: fileUrl,
+          storage_path: storagePath
+        });
+
+      if (versionInsertError) throw versionInsertError;
+
+      // 2. Actualizar el anexo principal (el que está activo para el onboarding)
+      const { error: dbError } = await supabase
+        .from('contractual_annexes')
+        .update({
+          document_date: documentDate,
+          file_url: fileUrl,
+          storage_path: storagePath,
+          version: nextVersion,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', annex.id);
+
+      if (dbError) throw dbError;
+
+      Swal.close();
+      closeModal();
+      await Swal.fire('¡Versión Actualizada!', `La nueva versión V${nextVersion} del anexo se ha guardado correctamente.`, 'success');
+      
+      await loadAndRenderContractualDocs();
+
+    } catch (err) {
+      Swal.close();
+      console.error('Error uploading new version:', err);
+      Swal.fire('Error', `No se pudo subir la nueva versión: ${err.message}`, 'error');
     }
   });
 }
