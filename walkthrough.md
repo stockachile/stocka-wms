@@ -2418,3 +2418,20 @@ Hemos integrado el nuevo comercio holding **SILVER FOX** en el módulo de factur
    - Agregamos un registro para `SILVER FOX` en la tabla `commerce_billing_status` estableciéndolo como `al_dia = true`.
    - Debido al diseño dinámico del módulo de facturación del sistema, las vistas administrativa y de cliente ahora agruparán automáticamente todos los cobros de Fulfillment y Envíame de `FORTE MAX` y `MENPRIME` bajo el registro consolidado de `SILVER FOX` de manera idéntica a como se procesa con `BIG BANG`.
    - La información de RUT (`77.265.758-7`) y Razón Social (`SILVER FOX SPA`) se heredará de manera inteligente desde la configuración de los comercios individuales si el holding no cuenta con una configuración directa.
+
+---
+
+## 106. Resolución Dinámica de Holdings en los Desplegables de Facturación
+
+Corregimos y mejoramos la experiencia de usuario al agregar comercios y registrar saldos adicionales en el panel administrativo:
+
+1. **Función de Resolución Unificada (`window.getBillingCommerceOptions`)**:
+   - Implementamos un resolvedor dinámico en `js/admin.js` que consulta `v_comercios_config` y `billing_mappings` en conjunto.
+   - Si un comercio pertenece a un holding (ej: `FORTE MAX` o `MENPRIME` mapeados a `SILVER FOX`), agrupa y muestra directamente la opción del holding con el formato `SILVER FOX (Holding)` en el desplegable, previniendo duplicados y permitiendo agregar directamente registros al holding correspondiente.
+   
+2. **Aplicación en Formularios Administrativos**:
+   - Reemplazamos la renderización estática por este resolvedor en los modales:
+     * **Añadir Comercio a un Periodo** (`window.openAddCommerceModal`).
+     * **Crear Saldo Adicional / Cobro Extraordinario** (`window.openCreateExtraChargeModal`).
+     * **Editar Saldo Adicional** (`window.openEditExtraChargeModal`).
+

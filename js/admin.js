@@ -16299,22 +16299,70 @@ window.openCreatePeriodModal = function() {
   });
 };
 
+window.getBillingCommerceOptions = async function(selectedValue = null) {
+  try {
+    const { data: comercios, error: comerciosErr } = await supabase
+      .from('v_comercios_config')
+      .select('nombre, sigla');
+    if (comerciosErr) throw comerciosErr;
+    
+    let mappings = [];
+    try {
+      const { data: mappingsData } = await supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name');
+      if (mappingsData) mappings = mappingsData;
+    } catch (err) {
+      console.warn('Advertencia al cargar mappings:', err);
+    }
+    
+    const uniqueOptions = [];
+    const resolvedNamesSet = new Set();
+    
+    (comercios || []).forEach(c => {
+      const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.nombre.toLowerCase());
+      if (matchedMapping) {
+        const holdingName = matchedMapping.billing_name;
+        if (!resolvedNamesSet.has(holdingName.toUpperCase())) {
+          resolvedNamesSet.add(holdingName.toUpperCase());
+          uniqueOptions.push({
+            value: holdingName,
+            label: `${holdingName} (Holding)`
+          });
+        }
+      } else {
+        if (!resolvedNamesSet.has(c.nombre.toUpperCase())) {
+          resolvedNamesSet.add(c.nombre.toUpperCase());
+          uniqueOptions.push({
+            value: c.nombre,
+            label: `${c.nombre} (${c.sigla || 'COM'})`
+          });
+        }
+      }
+    });
+    
+    uniqueOptions.sort((a, b) => a.label.localeCompare(b.label));
+    
+    return uniqueOptions.map(opt => `
+      <option value="${opt.value}" ${selectedValue && opt.value === selectedValue ? 'selected' : ''}>
+        ${opt.label}
+      </option>
+    `).join('');
+  } catch (err) {
+    console.error('Error building billing commerce options:', err);
+    return '';
+  }
+};
+
 window.openAddCommerceModal = async function(periodId) {
   let modal = document.getElementById('modal-add-commerce-billing');
   if (modal) modal.remove();
   
-  let comercios = [];
-  try {
-    const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
-    if (error) throw error;
-    comercios = data || [];
-  } catch (err) {
-    console.error('Error fetching comercios:', err);
-    alert('Error al cargar comercios disponibles: ' + err.message);
+  const optionsHtml = await window.getBillingCommerceOptions();
+  if (!optionsHtml) {
+    alert('Error al cargar comercios disponibles.');
     return;
   }
-  
-  const optionsHtml = comercios.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
   
   modal = document.createElement('div');
   modal.id = 'modal-add-commerce-billing';
@@ -20450,18 +20498,11 @@ window.openCreateExtraChargeModal = async function() {
   let modal = document.getElementById('modal-create-extra-charge');
   if (modal) modal.remove();
 
-  let comercios = [];
-  try {
-    const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
-    if (error) throw error;
-    comercios = data || [];
-  } catch (err) {
-    console.error('Error fetching comercios:', err);
-    alert('Error al cargar comercios: ' + err.message);
+  const optionsHtml = await window.getBillingCommerceOptions();
+  if (!optionsHtml) {
+    alert('Error al cargar comercios disponibles.');
     return;
   }
-
-  const optionsHtml = comercios.map(c => `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`).join('');
   const todayStr = new Date().toISOString().slice(0, 10);
 
   modal = document.createElement('div');
@@ -20586,22 +20627,11 @@ window.openEditExtraChargeModal = async function(chargeId) {
   }
 
   // 2. Obtener la lista de comercios
-  let comercios = [];
-  try {
-    const { data, error } = await supabase.from('v_comercios_config').select('nombre, sigla');
-    if (error) throw error;
-    comercios = data || [];
-  } catch (err) {
-    console.error('Error fetching comercios:', err);
-    alert('Error al cargar comercios: ' + err.message);
+  const optionsHtml = await window.getBillingCommerceOptions(charge.comercio);
+  if (!optionsHtml) {
+    alert('Error al cargar comercios disponibles.');
     return;
   }
-
-  const optionsHtml = comercios.map(c => `
-    <option value="${c.nombre}" ${c.nombre === charge.comercio ? 'selected' : ''}>
-      ${c.nombre} (${c.sigla})
-    </option>
-  `).join('');
 
   modal = document.createElement('div');
   modal.id = 'modal-edit-extra-charge';
