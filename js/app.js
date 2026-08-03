@@ -6797,13 +6797,13 @@ async function renderIntegrations() {
                     </div>
                     <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
                       <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
-                        <i class="ri-qr-code-line" style="color: var(--color-primary);"></i> Código de Autorización (Authorization Code)
+                        <i class="ri-qr-code-line" style="color: var(--color-primary);"></i> Código de Autorización o URL de Retorno
                       </label>
                       <div style="position: relative; display: flex; align-items: center;">
                         <i class="ri-ticket-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
-                        <input type="password" id="meli-auth-code" class="form-input" placeholder="TG-xxxxxxxxx-xxxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                        <input type="text" id="meli-auth-code" class="form-input" placeholder="Pega el enlace https://www.google.com/?code=TG-... o el código TG-" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
                       </div>
-                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Requerido para nuevas integraciones. Debe incluir el guión y los números del final.</p>
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega el código completo (que inicia con <code>TG-</code>) o la dirección web completa que te arrojó el navegador tras autorizar la app. El código expira en 10 minutos.</p>
                     </div>
                     <div class="form-group" style="margin-bottom: 1.25rem; ${hasMeli ? 'display:none;' : ''}">
                       <label class="form-label" style="font-weight: 600; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
@@ -6811,7 +6811,7 @@ async function renderIntegrations() {
                       </label>
                       <div style="position: relative; display: flex; align-items: center;">
                         <i class="ri-loop-left-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 1rem; pointer-events: none;"></i>
-                        <input type="password" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
+                        <input type="text" id="meli-refresh-token" class="form-input" placeholder="TG-xxxxxxxxxxxxx-xxxxxxxx" ${hasMeli ? '' : ''} ${disabledAttr} style="padding-left: 2.25rem; background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); width: 100%; height: 38px; border-radius: 6px;">
                       </div>
                       <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.5rem;">Pega aquí el refreshToken obtenido de Google Sheets para migrar tu sesión activa sin re-autorizar.</p>
                     </div>
@@ -7656,6 +7656,51 @@ async function renderIntegrations() {
     if(!hasMeli) {
       const formMeli = document.getElementById('form-meli-integration');
       if (formMeli) {
+        // Real-time parsing/cleaning logic for input fields
+        const authCodeInput = document.getElementById('meli-auth-code');
+        if (authCodeInput) {
+          const cleanAuthCode = () => {
+            const rawVal = authCodeInput.value.trim();
+            if (!rawVal) return;
+            let code = rawVal;
+            
+            // Extract code from URL if pasted fully
+            if (rawVal.includes('code=')) {
+              try {
+                const url = new URL(rawVal);
+                const codeParam = url.searchParams.get('code');
+                if (codeParam) code = codeParam;
+              } catch (e) {
+                const match = rawVal.match(/[?&]code=([^&]+)/);
+                if (match) code = match[1];
+              }
+            }
+            
+            // Strip any other trailing query parameter like &zx=...
+            code = code.split('&')[0].trim();
+            
+            if (authCodeInput.value !== code) {
+              authCodeInput.value = code;
+            }
+          };
+          authCodeInput.addEventListener('input', cleanAuthCode);
+          authCodeInput.addEventListener('blur', cleanAuthCode);
+        }
+
+        const refreshTokenInput = document.getElementById('meli-refresh-token');
+        if (refreshTokenInput) {
+          const cleanRefreshToken = () => {
+            const rawVal = refreshTokenInput.value.trim();
+            if (!rawVal) return;
+            let token = rawVal.split('&')[0].trim(); // Strip &zx=...
+            if (refreshTokenInput.value !== token) {
+              refreshTokenInput.value = token;
+            }
+          };
+          refreshTokenInput.addEventListener('input', cleanRefreshToken);
+          refreshTokenInput.addEventListener('blur', cleanRefreshToken);
+        }
+
         formMeli.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (userRole === 'observer') {
