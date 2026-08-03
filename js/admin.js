@@ -16380,6 +16380,7 @@ function showSavingBadge(show) {
       }, 1500);
     }
   }
+}
 window.openEasyBillingRecordModal = async function(currentPeriodId) {
   let modal = document.getElementById('modal-easy-billing-record');
   if (modal) modal.remove();
