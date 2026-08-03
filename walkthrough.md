@@ -2459,3 +2459,18 @@ Hemos incorporado "Tiendanube" como opción de plataforma principal y filtro de 
 4. **Incremento de Versiones para Cache-Busting**:
    - Incrementamos la versión de los scripts en `admin.html` (de `1.0.10` a `1.0.11`) y `dashboard.html` (de `1.0.11` a `1.0.12`) para garantizar que los navegadores carguen las opciones actualizadas inmediatamente.
 
+---
+
+## 108. Integración del Logo Oficial de Tiendanube en Badges y Vistas de Integraciones
+
+Hemos incorporado el logotipo oficial de **Tiendanube** en todas las vistas, grillas y resúmenes del WMS, alineándolo con el resto de las plataformas:
+
+1. **Uso del Archivo de Imagen**:
+   - Agregamos la ruta `img/tiendanube.png` en el resolvedor del badge de plataforma `getPlatformBadge(platform)`.
+   - Con esto, todas las tablas y listas que usan esta función (como las listas de integraciones activas en `js/app.js` y `js/admin.js`) muestran automáticamente el logo de Tiendanube en lugar del tag de texto estilizado anterior.
+
+2. **Carga Dinámica en Detalle de Pedidos**:
+   - Las vistas de detalles de órdenes en el portal del administrador (`js/admin.js`) y del cliente (`js/app.js`) cargan dinámicamente el logotipo usando la ruta `./img/${platformLower}.png`.
+   - Con el nuevo archivo `tiendanube.png` cargado en el directorio de imágenes del WMS, ambos portales ahora despliegan correctamente el logo en el bloque de **Origen de la Orden** al recibir pedidos de este canal.
+
+
