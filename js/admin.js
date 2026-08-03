@@ -1371,11 +1371,17 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     shopify_financial:raw_shopify_data->financial_status,
     shopify_fulfillment:raw_shopify_data->fulfillment_status,
     shopify_cancelled:raw_shopify_data->cancelled_at,
+    shopify_line_items:raw_shopify_data->line_items,
     woocommerce_status:raw_woocommerce_data->status,
+    woocommerce_line_items:raw_woocommerce_data->line_items,
     jumpseller_status:raw_jumpseller_data->status,
+    jumpseller_products:raw_jumpseller_data->products,
     falabella_status:raw_falabella_data->status,
     falabella_state:raw_falabella_data->state,
+    falabella_items:raw_falabella_data->items,
     meli_status:raw_meli_data->status,
+    meli_order_items:raw_meli_data->order_items,
+    paris_items:raw_paris_data->items,
     order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
   `, q => {
     let query = q;
@@ -1386,27 +1392,43 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
 
   if (orders) {
     orders.forEach(order => {
-      if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined) {
+      if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined || order.shopify_line_items !== undefined) {
         order.raw_shopify_data = {
           fulfillment_status: order.shopify_fulfillment,
           cancelled_at: order.shopify_cancelled,
-          financial_status: order.shopify_financial
+          financial_status: order.shopify_financial,
+          line_items: order.shopify_line_items
         };
       }
-      if (order.woocommerce_status !== undefined) {
-        order.raw_woocommerce_data = { status: order.woocommerce_status };
+      if (order.woocommerce_status !== undefined || order.woocommerce_line_items !== undefined) {
+        order.raw_woocommerce_data = { 
+          status: order.woocommerce_status,
+          line_items: order.woocommerce_line_items
+        };
       }
-      if (order.jumpseller_status !== undefined) {
-        order.raw_jumpseller_data = { status: order.jumpseller_status };
+      if (order.jumpseller_status !== undefined || order.jumpseller_products !== undefined) {
+        order.raw_jumpseller_data = { 
+          status: order.jumpseller_status,
+          products: order.jumpseller_products
+        };
       }
-      if (order.falabella_status !== undefined || order.falabella_state !== undefined) {
+      if (order.falabella_status !== undefined || order.falabella_state !== undefined || order.falabella_items !== undefined) {
         order.raw_falabella_data = {
           status: order.falabella_status,
-          state: order.falabella_state
+          state: order.falabella_state,
+          items: order.falabella_items
         };
       }
-      if (order.meli_status !== undefined) {
-        order.raw_meli_data = { status: order.meli_status };
+      if (order.meli_status !== undefined || order.meli_order_items !== undefined) {
+        order.raw_meli_data = { 
+          status: order.meli_status,
+          order_items: order.meli_order_items
+        };
+      }
+      if (order.paris_items !== undefined) {
+        order.raw_paris_data = {
+          items: order.paris_items
+        };
       }
     });
   }
