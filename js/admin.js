@@ -16410,9 +16410,22 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
               <select id="easy-billing-period" class="form-input" style="width: 100%;" required></select>
             </div>
             
-            <div class="form-group" style="margin-bottom: 1rem;">
+            <div class="form-group" style="margin-bottom: 1rem; position: relative;">
               <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Comercio</label>
-              <select id="easy-billing-comercio" class="form-input" style="width: 100%;" required></select>
+              <div class="custom-searchable-select" style="position: relative; width: 100%;">
+                <div class="select-trigger" id="comercio-select-trigger" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-text-muted); cursor: pointer; font-size: 0.85rem; height: 38px; box-sizing: border-box; transition: all 0.2s; font-family: Outfit, sans-serif;">
+                  <span id="comercio-selected-text">Seleccione un comercio...</span>
+                  <i class="ri-arrow-down-s-line" style="color: var(--color-text-muted); font-size: 1.1rem; transition: transform 0.2s;"></i>
+                </div>
+                <div class="select-dropdown-panel" id="comercio-dropdown-panel" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-top: 4px; box-shadow: var(--shadow-lg); z-index: 10000; box-sizing: border-box; padding: 0.5rem; flex-direction: column; gap: 0.5rem;">
+                  <div style="position: relative; display: flex; align-items: center;">
+                    <i class="ri-search-line" style="position: absolute; left: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem;"></i>
+                    <input type="text" id="comercio-search-input" placeholder="Buscar comercio..." style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 1.75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); font-family: Outfit, sans-serif; box-sizing: border-box; outline: none;">
+                  </div>
+                  <div id="comercio-options-list" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding-right: 2px;"></div>
+                </div>
+              </div>
+              <input type="hidden" id="easy-billing-comercio" required>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -16495,10 +16508,113 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
       <option value="${p.id}" ${p.id === currentPeriodId ? 'selected' : ''}>${p.name}</option>
     `).join('');
 
-    // 2. Cargar comercios usando getBillingCommerceOptions
-    const commerceSelect = document.getElementById('easy-billing-comercio');
+    // 2. Cargar comercios usando getBillingCommerceOptions y parsear a custom searchable select
     const commerceOptions = await window.getBillingCommerceOptions();
-    commerceSelect.innerHTML = commerceOptions;
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = commerceOptions;
+    const optionElements = tempDiv.querySelectorAll('option');
+    const commerceList = Array.from(optionElements).map(opt => ({
+      value: opt.value,
+      text: opt.textContent.trim()
+    })).filter(c => c.value !== ''); // Filtrar opción vacía si existiera
+
+    const trigger = document.getElementById('comercio-select-trigger');
+    const panel = document.getElementById('comercio-dropdown-panel');
+    const searchInput = document.getElementById('comercio-search-input');
+    const optionsList = document.getElementById('comercio-options-list');
+    const selectedText = document.getElementById('comercio-selected-text');
+    const commerceSelect = document.getElementById('easy-billing-comercio');
+    const hiddenInput = commerceSelect;
+
+    function renderCommerceOptions(filterText = '') {
+      const query = filterText.toLowerCase();
+      const filtered = commerceList.filter(item => 
+        item.text.toLowerCase().includes(query) || item.value.toLowerCase().includes(query)
+      );
+
+      if (filtered.length === 0) {
+        optionsList.innerHTML = `<div style="padding: 0.5rem; text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">No se encontraron comercios</div>`;
+        return;
+      }
+
+      optionsList.innerHTML = filtered.map(item => `
+        <div class="custom-select-option" data-value="${item.value}" style="padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); cursor: pointer; font-size: 0.8rem; color: var(--color-text-main); transition: all 0.15s; display: flex; align-items: center; justify-content: space-between; font-family: Outfit, sans-serif;">
+          <span>${item.text}</span>
+          ${hiddenInput.value === item.value ? '<i class="ri-check-line" style="color: var(--color-primary); font-weight: bold;"></i>' : ''}
+        </div>
+      `).join('');
+
+      optionsList.querySelectorAll('.custom-select-option').forEach(opt => {
+        opt.addEventListener('mouseenter', () => {
+          opt.style.background = 'rgba(37, 99, 235, 0.08)';
+          opt.style.color = 'var(--color-primary)';
+        });
+        opt.addEventListener('mouseleave', () => {
+          opt.style.background = '';
+          opt.style.color = 'var(--color-text-main)';
+        });
+        opt.addEventListener('click', () => {
+          const val = opt.getAttribute('data-value');
+          const txt = opt.querySelector('span').textContent;
+          
+          hiddenInput.value = val;
+          selectedText.textContent = txt;
+          selectedText.style.color = 'var(--color-text-main)';
+          
+          // Lanzar evento change para que otras validaciones escuchen si es necesario
+          hiddenInput.dispatchEvent(new Event('change'));
+          closeDropdown();
+        });
+      });
+    }
+
+    function openDropdown() {
+      panel.style.display = 'flex';
+      trigger.style.borderColor = 'var(--color-primary)';
+      trigger.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.15)';
+      trigger.querySelector('i').style.transform = 'rotate(180deg)';
+      searchInput.value = '';
+      renderCommerceOptions();
+      setTimeout(() => searchInput.focus(), 50);
+    }
+
+    function closeDropdown() {
+      panel.style.display = 'none';
+      trigger.style.borderColor = 'var(--color-border)';
+      trigger.style.boxShadow = 'none';
+      trigger.querySelector('i').style.transform = 'rotate(0deg)';
+    }
+
+    trigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = panel.style.display === 'flex';
+      if (isOpen) {
+        closeDropdown();
+      } else {
+        openDropdown();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!panel.contains(e.target) && !trigger.contains(e.target)) {
+        closeDropdown();
+      }
+    });
+
+    searchInput.addEventListener('input', (e) => {
+      renderCommerceOptions(e.target.value);
+    });
+
+    trigger.addEventListener('mouseenter', () => {
+      if (panel.style.display !== 'flex') {
+        trigger.style.borderColor = 'var(--color-primary-light)';
+      }
+    });
+    trigger.addEventListener('mouseleave', () => {
+      if (panel.style.display !== 'flex') {
+        trigger.style.borderColor = 'var(--color-border)';
+      }
+    });
 
     // Ocultar loader y mostrar campos
     document.getElementById('easy-billing-loader').style.display = 'none';
