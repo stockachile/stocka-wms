@@ -13440,6 +13440,220 @@ window.manageDeclaration = async function(id) {
 
     if (error) throw error;
 
+    // Pre-cargar productos de catálogo para la búsqueda de productos adicionales
+    try {
+      const { data: prods } = await supabase
+        .from('products')
+        .select('sku, name, volumen, price, barcode')
+        .eq('comercio', dec.comercio)
+        .order('name');
+      window.adminCatalogProductsCache = prods || [];
+    } catch (e) {
+      console.error('Error preloading products for admin:', e);
+      window.adminCatalogProductsCache = [];
+    }
+
+    // Configurar autocompletar en la modal del administrador
+    const searchInput = document.getElementById('manage-dec-product-search');
+    const searchResults = document.getElementById('manage-dec-search-results');
+    if (searchInput && searchResults) {
+      searchInput.value = '';
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+
+      searchInput.oninput = function(e) {
+        const term = e.target.value.toLowerCase().trim();
+        if (!term) {
+          searchResults.innerHTML = '';
+          searchResults.style.display = 'none';
+          return;
+        }
+
+        const prods = window.adminCatalogProductsCache || [];
+        const matches = prods.filter(p =>
+          (p.name && p.name.toLowerCase().includes(term)) ||
+          (p.sku && p.sku.toLowerCase().includes(term))
+        );
+
+        let html = '';
+        if (matches.length === 0) {
+          html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias</div>';
+        } else {
+          matches.forEach(p => {
+            html += `
+              <div class="admin-search-result-item" 
+                   data-sku="${p.sku}" 
+                   data-name="${p.name.replace(/"/g, '&quot;')}" 
+                   data-vol="${p.volumen || 0}" 
+                   data-price="${p.price || 0}" 
+                   data-barcode="${p.barcode || ''}"
+                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                   onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+                   onmouseout="this.style.backgroundColor='transparent'">
+                <strong style="color: var(--color-text-main);">${p.name}</strong>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+              </div>
+            `;
+          });
+        }
+
+        // Add Option to insert custom product at the bottom
+        html += `
+          <div class="admin-search-result-item" 
+               data-custom="true"
+               style="padding: 0.6rem 1rem; cursor: pointer; font-size: 0.85rem; color: var(--color-primary); font-weight: bold; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
+               onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+               onmouseout="this.style.backgroundColor='transparent'">
+            <i class="ri-add-line"></i> Agregar producto personalizado / nuevo...
+          </div>
+        `;
+
+        searchResults.innerHTML = html;
+        searchResults.style.display = 'block';
+      };
+
+      searchResults.onclick = async function(e) {
+        const item = e.target.closest('.admin-search-result-item');
+        if (!item) return;
+
+        const isCustom = item.getAttribute('data-custom') === 'true';
+        if (isCustom) {
+          const { value: formValues } = await Swal.fire({
+            title: 'Agregar Producto Personalizado',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">SKU *</label>
+                <input id="swal-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                
+                <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Nombre / Descripción *</label>
+                <input id="swal-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Cantidad Recibida *</label>
+                    <input id="swal-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Código de Barras</label>
+                    <input id="swal-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem;">
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Volumen Unitario (m³)</label>
+                    <input id="swal-custom-vol" type="number" step="0.000001" class="swal2-input" value="0.000100" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Precio Unitario ($)</label>
+                    <input id="swal-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                </div>
+              </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Agregar',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+              const sku = document.getElementById('swal-custom-sku').value.trim();
+              const name = document.getElementById('swal-custom-name').value.trim();
+              const qty = parseInt(document.getElementById('swal-custom-qty').value, 10);
+              const barcode = document.getElementById('swal-custom-barcode').value.trim();
+              const vol = parseFloat(document.getElementById('swal-custom-vol').value);
+              const price = parseFloat(document.getElementById('swal-custom-price').value);
+
+              if (!sku) {
+                Swal.showValidationMessage('El SKU es obligatorio.');
+                return false;
+              }
+              if (!name) {
+                Swal.showValidationMessage('El nombre/descripción es obligatorio.');
+                return false;
+              }
+              if (isNaN(qty) || qty < 1) {
+                Swal.showValidationMessage('La cantidad debe ser mayor o igual a 1.');
+                return false;
+              }
+              return { sku, name, qty, barcode, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
+            }
+          });
+
+          if (formValues) {
+            const { sku, name, qty, barcode, vol, price } = formValues;
+
+            if (!window.currentDeclarationProductsEditing) {
+              window.currentDeclarationProductsEditing = [];
+            }
+
+            const existing = window.currentDeclarationProductsEditing.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+            if (existing) {
+              Swal.fire('Atención', `El producto SKU: ${sku} ya está en la lista de recepción.`, 'info');
+            } else {
+              window.currentDeclarationProductsEditing.push({
+                sku: sku,
+                name: name,
+                qty: 0,
+                qty_confirmed: qty,
+                price: price,
+                volumen: vol,
+                barcode: barcode
+              });
+
+              const currentStatusVal = document.getElementById('manage-dec-status').value || window.currentDeclarationEditing?.status || '';
+              window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+              window.recalculateManageDeclarationTotals();
+            }
+          }
+
+          searchInput.value = '';
+          searchResults.innerHTML = '';
+          searchResults.style.display = 'none';
+          return;
+        }
+
+        const sku = item.getAttribute('data-sku');
+        const name = item.getAttribute('data-name');
+        const vol = parseFloat(item.getAttribute('data-vol') || '0');
+        const price = parseFloat(item.getAttribute('data-price') || '0');
+        const barcode = item.getAttribute('data-barcode') || '';
+
+        if (!window.currentDeclarationProductsEditing) {
+          window.currentDeclarationProductsEditing = [];
+        }
+
+        const existing = window.currentDeclarationProductsEditing.find(p => p.sku === sku);
+        if (existing) {
+          Swal.fire('Atención', `El producto SKU: ${sku} ya está en la lista de recepción.`, 'info');
+        } else {
+          window.currentDeclarationProductsEditing.push({
+            sku: sku,
+            name: name,
+            qty: 0,
+            qty_confirmed: 1,
+            price: price,
+            volumen: vol,
+            barcode: barcode
+          });
+          
+          const currentStatusVal = document.getElementById('manage-dec-status').value || window.currentDeclarationEditing?.status || '';
+          window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+          window.recalculateManageDeclarationTotals();
+        }
+
+        searchInput.value = '';
+        searchResults.innerHTML = '';
+        searchResults.style.display = 'none';
+      };
+
+      // Cerrar resultados al hacer clic fuera
+      document.addEventListener('click', function(e) {
+        if (e.target !== searchInput && e.target !== searchResults && !searchResults.contains(e.target)) {
+          searchResults.style.display = 'none';
+        }
+      });
+    }
+
     // Llenar campos informativos del modal
     document.getElementById('manage-dec-id').value = dec.id;
     document.getElementById('manage-dec-merchant').innerHTML = `<strong>${dec.comercio || 'no asignado'}</strong> <span style="font-size: 0.85rem; color: var(--color-text-muted);">(${dec.profiles?.company_name || 'Desconocido'})</span>`;
@@ -13815,14 +14029,16 @@ document.addEventListener('submit', async (e) => {
       };
 
       if (window.currentDeclarationProductsEditing && window.currentDeclarationProductsEditing_id === id) {
-        if (status === 'Recibido Conforme') {
-          updateData.products_list = window.currentDeclarationProductsEditing.map(item => ({
+        updateData.products_list = window.currentDeclarationProductsEditing.map(item => {
+          const qtyConfirmed = (item.qty_confirmed !== undefined && item.qty_confirmed !== null)
+            ? item.qty_confirmed
+            : (status === 'Recibido Conforme' ? (item.qty || 0) : 0);
+          return {
             ...item,
-            qty_confirmed: item.qty
-          }));
-        } else {
-          updateData.products_list = window.currentDeclarationProductsEditing;
-        }
+            qty_confirmed: qtyConfirmed
+          };
+        });
+        updateData.quantity_declared = updateData.products_list.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
       }
 
       if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].indexOf(status) !== -1) {
@@ -13847,6 +14063,19 @@ document.addEventListener('submit', async (e) => {
         ['Recibido Conforme', 'Recibido con Incidencias'].includes(status);
 
       if (isTransitioningToFinal) {
+        // Limpiar del sistema Picker si existe la orden activa
+        if (pickerSupabase) {
+          const orderNumber = `ING-${id.substring(0, 8).toUpperCase()}`;
+          try {
+            await pickerSupabase
+              .from('active_orders')
+              .delete()
+              .eq('order_number', orderNumber);
+            console.log(`[WMS] Eliminado exitosamente del Picker el ingreso finalizado ${orderNumber}`);
+          } catch (pErr) {
+            console.error("[WMS] Error al eliminar del Picker al finalizar:", pErr);
+          }
+        }
         const productsList = updateData.products_list || getDeclarationProducts(latestDec);
         if (productsList && productsList.length > 0) {
           const targetWarehouseId = latestDec.warehouse_id || updateData.warehouse_id;
@@ -13866,12 +14095,38 @@ document.addEventListener('submit', async (e) => {
                   .limit(1)
                   .maybeSingle();
 
-                if (!prodErr && prod) {
+                let productId = prod ? prod.id : null;
+
+                if (!productId) {
+                  // Si el producto no existía en el catálogo (por ejemplo un producto undeclared o personalizado), crearlo automáticamente
+                  try {
+                    const { data: newProd, error: newProdErr } = await supabase
+                      .from('products')
+                      .insert([{
+                        sku: item.sku.trim(),
+                        name: item.name || item.sku.trim(),
+                        comercio: latestDec.comercio,
+                        volumen: item.volumen || item.vol || 0,
+                        price: item.price || 0,
+                        barcode: item.barcode || ''
+                      }])
+                      .select('id')
+                      .single();
+
+                    if (!newProdErr && newProd) {
+                      productId = newProd.id;
+                    }
+                  } catch (createErr) {
+                    console.error('Error auto-creating missing product on intake confirmation:', createErr);
+                  }
+                }
+
+                if (productId) {
                   // Buscar o crear registro de inventario
                   const { data: inv, error: invErr } = await supabase
                     .from('inventory')
                     .select('id, quantity')
-                    .eq('product_id', prod.id)
+                    .eq('product_id', productId)
                     .eq('warehouse_id', targetWarehouseId)
                     .maybeSingle();
 
@@ -13886,7 +14141,7 @@ document.addEventListener('submit', async (e) => {
                       await supabase
                         .from('inventory')
                         .insert([{
-                          product_id: prod.id,
+                          product_id: productId,
                           warehouse_id: targetWarehouseId,
                           quantity: itemQty,
                           committed_quantity: 0
@@ -13897,7 +14152,7 @@ document.addEventListener('submit', async (e) => {
                     await supabase
                       .from('movements')
                       .insert([{
-                        product_id: prod.id,
+                        product_id: productId,
                         warehouse_id: targetWarehouseId,
                         type: 'in',
                         quantity: itemQty,
@@ -15686,12 +15941,17 @@ async function loadBillingRecords(periodId, bodyElement) {
     };
     
     bodyElement.innerHTML = `
-        <div class="billing-period-tabs" style="display: flex; gap: 0.75rem; padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
-          <button class="billing-period-tab-btn" id="btn-tab-fulf-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'fulf')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'fulf' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
-            <i class="ri-bill-line" style="font-size: 1rem;"></i> Fulfillment
-          </button>
-          <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'env' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
-            <i class="ri-truck-line" style="font-size: 1rem;"></i> Envíame
+        <div class="billing-period-tabs" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); border-top-left-radius: 8px; border-top-right-radius: 8px;">
+          <div style="display: flex; gap: 0.75rem;">
+            <button class="billing-period-tab-btn" id="btn-tab-fulf-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'fulf')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'fulf' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
+              <i class="ri-bill-line" style="font-size: 1rem;"></i> Fulfillment
+            </button>
+            <button class="billing-period-tab-btn" id="btn-tab-env-${periodId}" onclick="switchBillingPeriodTab('${periodId}', 'env')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; font-size: 0.825rem; font-weight: 600; padding: 0.4rem 0.85rem; border-radius: 6px; transition: all 0.2s; ${activeTab === 'env' ? 'border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: bold;' : 'border: 1px solid transparent; background: transparent; color: var(--color-text-muted); cursor: pointer;' }">
+              <i class="ri-truck-line" style="font-size: 1rem;"></i> Envíame
+            </button>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="window.openEasyBillingRecordModal('${periodId}')" style="display: inline-flex; align-items: center; gap: 0.35rem; font-family: Outfit, sans-serif; padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.825rem;">
+            <i class="ri-add-circle-line" style="font-size: 1rem;"></i> Crear Registro
           </button>
         </div>
 
@@ -16120,7 +16380,332 @@ function showSavingBadge(show) {
       }, 1500);
     }
   }
-}
+window.openEasyBillingRecordModal = async function(currentPeriodId) {
+  let modal = document.getElementById('modal-easy-billing-record');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-easy-billing-record';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 500px; font-family: Outfit, sans-serif;">
+      <div class="modal-header" style="display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-border);">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+          <i class="ri-add-circle-line" style="color: var(--color-primary); font-size: 1.35rem;"></i> Crear Registro de Facturación
+        </h3>
+        <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+      </div>
+      <form id="form-easy-billing-record">
+        <div class="modal-body" style="padding: 1.25rem; max-height: 70vh; overflow-y: auto;">
+          <div style="text-align: center; padding: 1.5rem;" id="easy-billing-loader">
+            <i class="ri-loader-4-line spin" style="font-size: 1.75rem; display: block; margin-bottom: 0.5rem; color: var(--color-primary);"></i>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted);">Cargando periodos y comercios...</span>
+          </div>
+          <div id="easy-billing-fields" style="display: none;">
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Periodo de Facturación</label>
+              <select id="easy-billing-period" class="form-input" style="width: 100%;" required></select>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Comercio</label>
+              <select id="easy-billing-comercio" class="form-input" style="width: 100%;" required></select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Servicio</label>
+                <select id="easy-billing-servicio" class="form-input" style="width: 100%;" required>
+                  <option value="fulfillment" selected>Fulfillment</option>
+                  <option value="enviame">Envíame</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Monto ($ CLP)</label>
+                <input type="number" id="easy-billing-monto" class="form-input" placeholder="Ej: 150000" min="0" style="width: 100%;" required>
+              </div>
+            </div>
+
+            <div class="form-group" id="easy-billing-desglose-status-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Estado de Desglose</label>
+              <select id="easy-billing-desglose-status" class="form-input" style="width: 100%;">
+                <option value="Creado" selected>Creado</option>
+                <option value="Por Generar">Por Generar</option>
+                <option value="Enviado">Enviado</option>
+                <option value="Aprobado">Aprobado</option>
+                <option value="Sin movimientos">Sin movimientos</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Cargar PDF Desglose</label>
+              <input type="file" id="easy-billing-pdf" class="form-input" accept=".pdf" style="width: 100%; padding: 0.35rem;">
+            </div>
+
+            <div class="form-group" id="easy-billing-link-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Link del Desglose</label>
+              <input type="url" id="easy-billing-link" class="form-input" placeholder="https://..." style="width: 100%;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Fecha de Registro</label>
+                <input type="date" id="easy-billing-fecha-emision" class="form-input" style="width: 100%;" required>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Fecha Límite de Pago</label>
+                <input type="date" id="easy-billing-fecha-limite" class="form-input" style="width: 100%;" required>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0.5rem; background: rgba(37, 99, 235, 0.03); border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-sm);">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">
+                <input type="checkbox" id="easy-billing-send-email" style="width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); cursor: pointer;">
+                Enviar de inmediato el email con el desglose
+              </label>
+              <small style="display: block; color: var(--color-text-muted); font-size: 0.725rem; margin-top: 0.25rem; margin-left: 1.5rem;">
+                Se enviará a todos los contactos de cobranza activos registrados para este comercio.
+              </small>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.25rem; border-top: 1px solid var(--color-border);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-easy-billing" disabled><i class="ri-save-line"></i> Guardar Registro</button>
+        </div>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+
+  try {
+    // 1. Cargar periodos
+    const { data: periods, error: pErr } = await supabase
+      .from('billing_periods')
+      .select('id, name')
+      .order('name', { ascending: false });
+    if (pErr) throw pErr;
+
+    const periodSelect = document.getElementById('easy-billing-period');
+    periodSelect.innerHTML = (periods || []).map(p => `
+      <option value="${p.id}" ${p.id === currentPeriodId ? 'selected' : ''}>${p.name}</option>
+    `).join('');
+
+    // 2. Cargar comercios usando getBillingCommerceOptions
+    const commerceSelect = document.getElementById('easy-billing-comercio');
+    const commerceOptions = await window.getBillingCommerceOptions();
+    commerceSelect.innerHTML = commerceOptions;
+
+    // Ocultar loader y mostrar campos
+    document.getElementById('easy-billing-loader').style.display = 'none';
+    document.getElementById('easy-billing-fields').style.display = 'block';
+    const btnSubmit = document.getElementById('btn-submit-easy-billing');
+    btnSubmit.disabled = false;
+
+    // Configurar fechas y comportamiento reactivo
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const emisionInput = document.getElementById('easy-billing-fecha-emision');
+    const limiteInput = document.getElementById('easy-billing-fecha-limite');
+    const servicioSelect = document.getElementById('easy-billing-servicio');
+    const desgloseGroup = document.getElementById('easy-billing-desglose-status-group');
+    const linkGroup = document.getElementById('easy-billing-link-group');
+
+    emisionInput.value = todayStr;
+
+    function updateDefaultLimite() {
+      const emisionVal = emisionInput.value;
+      if (!emisionVal) return;
+      const service = servicioSelect.value;
+      const daysToAdd = service === 'fulfillment' ? 5 : 3;
+      
+      const date = new Date(emisionVal + 'T12:00:00');
+      date.setDate(date.getDate() + daysToAdd);
+      limiteInput.value = date.toISOString().slice(0, 10);
+
+      // Mostrar/ocultar condicionalmente
+      if (service === 'fulfillment') {
+        desgloseGroup.style.display = 'block';
+        linkGroup.style.display = 'block';
+      } else {
+        desgloseGroup.style.display = 'none';
+        linkGroup.style.display = 'none';
+      }
+    }
+
+    servicioSelect.addEventListener('change', updateDefaultLimite);
+    emisionInput.addEventListener('change', updateDefaultLimite);
+
+    updateDefaultLimite(); // Llamada inicial
+
+    // Configurar el envío del formulario
+    const form = document.getElementById('form-easy-billing-record');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btnSubmit.disabled = true;
+      btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+
+      try {
+        const periodId = periodSelect.value;
+        const comercio = commerceSelect.value;
+        const servicio = servicioSelect.value;
+        const monto = parseInt(document.getElementById('easy-billing-monto').value, 10);
+        const desgloseStatus = document.getElementById('easy-billing-desglose-status').value;
+        const link = document.getElementById('easy-billing-link').value.trim();
+        const fechaEmision = emisionInput.value;
+        const fechaLimite = limiteInput.value;
+        const sendEmail = document.getElementById('easy-billing-send-email').checked;
+
+        // 1. Validar si ya existe un registro para este comercio y periodo
+        const { data: existing, error: existErr } = await supabase
+          .from('billing_records')
+          .select('id, enviame_pdfs')
+          .eq('period_id', periodId)
+          .eq('comercio', comercio)
+          .maybeSingle();
+
+        if (existErr) throw existErr;
+
+        let recordId = existing ? existing.id : null;
+        let filePublicUrl = null;
+        const fileInput = document.getElementById('easy-billing-pdf');
+        
+        // 2. Subir PDF si se adjuntó uno
+        if (fileInput.files && fileInput.files[0]) {
+          const file = fileInput.files[0];
+          const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+          // Si es un registro nuevo, usamos una clave temporal para la ruta
+          const recordKey = recordId || `new_${Date.now()}`;
+          const storagePath = `billing_files/${recordKey}_${servicio}_${Date.now()}_${sanitizedName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from('payment_receipts')
+            .upload(storagePath, file);
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage
+            .from('payment_receipts')
+            .getPublicUrl(storagePath);
+
+          filePublicUrl = urlData.publicUrl;
+        }
+
+        const updates = {
+          updated_at: new Date().toISOString()
+        };
+
+        if (servicio === 'fulfillment') {
+          updates.total_fulfillment = monto;
+          updates.desglose_fulfillment = desgloseStatus;
+          updates.fecha_limite = fechaLimite;
+          if (filePublicUrl) updates.fulfillment_pdf_url = filePublicUrl;
+          if (link) updates.fulfillment_link = link;
+        } else {
+          updates.enviame = monto;
+          updates.fecha_limite_enviame = fechaLimite;
+          if (filePublicUrl) {
+            const currentPdfs = existing?.enviame_pdfs || [];
+            currentPdfs.push({ name: fileInput.files[0].name, url: filePublicUrl });
+            updates.enviame_pdfs = currentPdfs;
+          }
+        }
+
+        // 3. Guardar en Supabase (INSERT o UPDATE)
+        if (existing) {
+          const { error: updateErr } = await supabase
+            .from('billing_records')
+            .update(updates)
+            .eq('id', existing.id);
+          if (updateErr) throw updateErr;
+        } else {
+          const insertPayload = {
+            period_id: periodId,
+            comercio: comercio,
+            ...updates
+          };
+          const { data: inserted, error: insertErr } = await supabase
+            .from('billing_records')
+            .insert(insertPayload)
+            .select('id')
+            .single();
+          if (insertErr) throw insertErr;
+          recordId = inserted.id;
+        }
+
+        // 4. Enviar email si corresponde
+        let emailNotice = '';
+        if (sendEmail && recordId) {
+          const { data: contacts } = await supabase
+            .from('billing_contacts')
+            .select('email')
+            .eq('comercio', comercio)
+            .eq('activo', true);
+
+          const emails = (contacts || []).map(c => c.email);
+          if (emails.length > 0) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              const response = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                  recordId,
+                  serviceType: servicio,
+                  emails,
+                  customMessage: 'Se ha registrado y generado un nuevo desglose de cobro.',
+                  emailType: 'billing_summary'
+                })
+              });
+              
+              if (response.ok) {
+                await supabase
+                  .from('billing_records')
+                  .update({ last_notified_at: new Date().toISOString() })
+                  .eq('id', recordId);
+                emailNotice = ' y correo de desglose enviado exitosamente';
+              } else {
+                console.warn('Fallo el envío del correo por Edge Function.');
+                emailNotice = ' (el correo no pudo ser enviado)';
+              }
+            }
+          } else {
+            emailNotice = ' (no hay contactos de cobranza activos configurados)';
+          }
+        }
+
+        modal.remove();
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Registro Guardado',
+          text: `El registro de facturación de ${servicio === 'fulfillment' ? 'Fulfillment' : 'Envíame'} para ${comercio} fue registrado con éxito${emailNotice}.`,
+          timer: 4000,
+          showConfirmButton: false
+        });
+
+        // Recargar la tabla
+        await loadBillingPeriods();
+
+      } catch (err) {
+        console.error('Error saving billing record:', err);
+        alert('Error al guardar el registro: ' + err.message);
+        btnSubmit.disabled = false;
+        btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar Registro';
+      }
+    });
+
+  } catch (err) {
+    console.error('Error loading easy billing modal:', err);
+    alert('Error al inicializar el formulario: ' + err.message);
+    modal.remove();
+  }
+};
 
 window.openCreatePeriodModal = function() {
   let modal = document.getElementById('modal-create-billing-period');
@@ -24248,8 +24833,129 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
   }
 };
 
+window.registerPickupIfNeeded = async function(order) {
+  if (!order) return;
+
+  const agenda = (order.agenda || '').trim().toUpperCase();
+  if (agenda !== 'RETIRO') return;
+
+  const orderNumber = String(order.external_order_number || order.id);
+  const sucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
+  const comercio = order.comercio || '';
+  const customerName = order.customer_name || 'Cliente';
+
+  // Helper para generar PIN
+  const generatePin = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let pin = '';
+    for (let i = 0; i < 6; i++) {
+      pin += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pin;
+  };
+
+  // 1. WMS store_pickups
+  try {
+    const { data: wmsExists, error: wmsCheckErr } = await supabase
+      .from('store_pickups')
+      .select('id')
+      .eq('pedido', orderNumber)
+      .maybeSingle();
+
+    if (!wmsCheckErr && !wmsExists) {
+      const pin = generatePin();
+
+      // Obtener el ID máximo actual de store_pickups para incrementarlo manualmente
+      const { data: maxIdData } = await supabase
+        .from('store_pickups')
+        .select('id')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextId = maxIdData ? (parseInt(maxIdData.id, 10) + 1) : 1;
+
+      const { error: insErr } = await supabase
+        .from('store_pickups')
+        .insert([{
+          id: nextId,
+          comercio: comercio,
+          pedido: orderNumber,
+          nombre_apellido: customerName,
+          estado_pedido: 'NO PREPARADO',
+          sucursal: sucursal,
+          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          pin_retiro: pin,
+          marcar_retirado_web: false,
+          avisado_x_mail: false,
+          cant_mails_enviados: 0,
+          notificado_automatico: false
+        }]);
+
+      if (insErr) {
+        console.error(`Error registrando pickup en WMS para ${orderNumber}:`, insErr);
+      } else {
+        console.log(`📌 Pickup registrado automáticamente en WMS para ${orderNumber} con ID ${nextId}`);
+      }
+    }
+  } catch (err) {
+    console.error("Error en registerPickupIfNeeded WMS:", err);
+  }
+
+  // 2. Picker sucursal_pickups
+  if (pickerSupabase) {
+    try {
+      const { data: pickerExists, error: pickerCheckErr } = await pickerSupabase
+        .from('sucursal_pickups')
+        .select('id')
+        .eq('pedido', orderNumber)
+        .maybeSingle();
+
+      if (!pickerCheckErr && !pickerExists) {
+        // Obtener el PIN que insertamos en WMS
+        let pin = '';
+        const { data: wmsPickup } = await supabase
+          .from('store_pickups')
+          .select('pin_retiro')
+          .eq('pedido', orderNumber)
+          .maybeSingle();
+        
+        if (wmsPickup && wmsPickup.pin_retiro) {
+          pin = wmsPickup.pin_retiro;
+        } else {
+          pin = generatePin();
+        }
+
+        const { error: insErr } = await pickerSupabase
+          .from('sucursal_pickups')
+          .insert([{
+            comercio: comercio,
+            pedido: orderNumber,
+            nombre_apellido: customerName,
+            estado_pedido: 'NO PREPARADO',
+            sucursal: sucursal,
+            observaciones: `${customerName} | Ingreso automático desde WMS`,
+            pin_retiro: pin,
+            marcar_retirado_web: false,
+            avisado_x_mail: false,
+            cant_mails_enviados: 0,
+            notificado_automatico: false
+          }]);
+
+        if (insErr) {
+          console.error(`Error registrando pickup en Picker para ${orderNumber}:`, insErr);
+        } else {
+          console.log(`📌 Pickup registrado automáticamente en Picker para ${orderNumber}`);
+        }
+      }
+    } catch (err) {
+      console.error("Error en registerPickupIfNeeded Picker:", err);
+    }
+  }
+};
+
 window.propagateOrderUpdateToPicker = async function(order) {
   if (!pickerSupabase) return;
+  await window.registerPickupIfNeeded(order);
 
   const orderNumber = String(order.external_order_number || order.id);
 
@@ -24327,6 +25033,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
 
 window.sendSingleOrderToPicker = async function(order) {
   if (!pickerSupabase) return;
+  await window.registerPickupIfNeeded(order);
 
   const orderNumber = String(order.external_order_number || order.id);
 
@@ -24590,7 +25297,7 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
   const tbody = document.getElementById('manage-dec-products-tbody');
   if (!section || !tbody) return;
 
-  const visibleStatuses = ['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'];
+  const visibleStatuses = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'];
   const showSection = visibleStatuses.indexOf(activeStatus) !== -1;
   section.style.display = showSection ? 'block' : 'none';
 
@@ -24599,17 +25306,13 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
     return;
   }
 
-  const products = getDeclarationProducts(dec) || [];
-  if (products.length === 0) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="4" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
-          No hay productos registrados en esta declaración.
-        </td>
-      </tr>
-    `;
-    return;
+  const isFinalStatus = ['Recibido Conforme', 'Recibido con Incidencias'].indexOf(activeStatus) !== -1;
+  const addProdContainer = document.getElementById('manage-dec-add-product-container');
+  if (addProdContainer) {
+    addProdContainer.style.display = isFinalStatus ? 'none' : 'block';
   }
+
+  const products = getDeclarationProducts(dec) || [];
 
   // Si no está inicializado en memoria, o es una declaración distinta, la inicializamos
   if (!window.currentDeclarationProductsEditing || window.currentDeclarationProductsEditing_id !== dec.id) {
@@ -24624,6 +25327,17 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         qty_confirmed: qtyConfirmed
       };
     });
+  }
+
+  if (window.currentDeclarationProductsEditing.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="padding: 15px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+          No hay productos registrados en esta recepción. Usa el buscador superior para agregar productos.
+        </td>
+      </tr>
+    `;
+    return;
   }
 
   // Renderizar filas
@@ -24642,6 +25356,14 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
       diffColor = 'var(--color-danger)';
     }
 
+    // Si es estado final, los inputs quedan deshabilitados y no se muestra el botón eliminar
+    const inputDisabled = isFinalStatus ? 'disabled style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto; background-color: var(--color-bg); cursor: not-allowed;"' : '';
+    const deleteButtonHtml = isFinalStatus ? '' : `
+      <button type="button" onclick="window.removeManageDeclarationProduct(${idx})" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 4px; display: inline-flex; align-items: center;" title="Eliminar producto de la recepción">
+        <i class="ri-delete-bin-line"></i>
+      </button>
+    `;
+
     tbody.innerHTML += `
       <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
         <td style="padding: 10px 12px; max-width: 300px;">
@@ -24650,7 +25372,10 @@ window.renderManageDeclarationProducts = function(dec, activeStatus) {
         </td>
         <td style="padding: 10px 12px; text-align: right; font-weight: 600; color: var(--color-text-main);">${declared}</td>
         <td style="padding: 10px 12px; text-align: center;">
-          <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto;" oninput="window.updateManageDeclarationProductQty(${idx}, this.value)">
+          <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <input type="number" class="form-input manage-dec-prod-qty-input" data-index="${idx}" min="0" value="${confirmed}" ${inputDisabled || `style="width: 80px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto;" oninput="window.updateManageDeclarationProductQty(${idx}, this.value)"`}>
+            ${deleteButtonHtml}
+          </div>
         </td>
         <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: ${diffColor};" id="manage-dec-prod-diff-${idx}">
           ${diffSign}${diff}
@@ -24691,6 +25416,14 @@ window.updateManageDeclarationProductQty = function(idx, val) {
   window.recalculateManageDeclarationTotals();
 };
 
+window.removeManageDeclarationProduct = function(idx) {
+  if (!window.currentDeclarationProductsEditing) return;
+  window.currentDeclarationProductsEditing.splice(idx, 1);
+  const currentStatusVal = document.getElementById('manage-dec-status').value || window.currentDeclarationEditing?.status || '';
+  window.renderManageDeclarationProducts(window.currentDeclarationEditing, currentStatusVal);
+  window.recalculateManageDeclarationTotals();
+};
+
 window.recalculateManageDeclarationTotals = function() {
   if (!window.currentDeclarationProductsEditing) return;
 
@@ -24708,10 +25441,10 @@ window.recalculateManageDeclarationTotals = function() {
   const qtyReceivedInput = document.getElementById('manage-dec-qty-received');
   const qtyIncidentsInput = document.getElementById('manage-dec-qty-incidents');
 
-  if (qtyReceivedInput && !qtyReceivedInput.disabled) {
+  if (qtyReceivedInput) {
     qtyReceivedInput.value = totalReceived;
   }
-  if (qtyIncidentsInput && !qtyIncidentsInput.disabled) {
+  if (qtyIncidentsInput) {
     qtyIncidentsInput.value = incidents;
   }
 };
