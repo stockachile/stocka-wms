@@ -16508,6 +16508,10 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
               <small style="display: block; color: var(--color-text-muted); font-size: 0.725rem; margin-top: 0.25rem; margin-left: 1.5rem;">
                 Se enviará a todos los contactos de cobranza activos registrados para este comercio.
               </small>
+              <div id="easy-billing-email-note-group" style="display: none; margin-top: 0.75rem; margin-left: 1.5rem;">
+                <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-weight: 600; font-size: 0.775rem; color: var(--color-text-main);">Nota personalizada en el correo</label>
+                <textarea id="easy-billing-email-note" class="form-input" rows="2" placeholder="Ej: Estimados, adjuntamos desglose correspondiente al periodo. Quedamos atentos..." style="width: 100%; font-size: 0.775rem; font-family: Outfit, sans-serif; resize: vertical; box-sizing: border-box;"></textarea>
+              </div>
             </div>
           </div>
         </div>
@@ -16586,6 +16590,7 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
           hiddenInput.value = val;
           selectedText.textContent = txt;
           selectedText.style.color = 'var(--color-text-main)';
+          trigger.style.borderColor = 'var(--color-border)';
           
           // Lanzar evento change para que otras validaciones escuchen si es necesario
           hiddenInput.dispatchEvent(new Event('change'));
@@ -16681,18 +16686,36 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
     servicioSelect.addEventListener('change', updateDefaultLimite);
     emisionInput.addEventListener('change', updateDefaultLimite);
 
+    const sendEmailCheckbox = document.getElementById('easy-billing-send-email');
+    const emailNoteGroup = document.getElementById('easy-billing-email-note-group');
+    sendEmailCheckbox.addEventListener('change', () => {
+      emailNoteGroup.style.display = sendEmailCheckbox.checked ? 'block' : 'none';
+    });
+
     updateDefaultLimite(); // Llamada inicial
 
     // Configurar el envío del formulario
     const form = document.getElementById('form-easy-billing-record');
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
+
+      const comercio = commerceSelect.value;
+      if (!comercio) {
+        Swal.fire({
+          title: 'Campo obligatorio',
+          text: 'Debe seleccionar un comercio antes de guardar.',
+          icon: 'warning',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        trigger.style.borderColor = 'var(--color-danger)';
+        return;
+      }
+
       btnSubmit.disabled = true;
       btnSubmit.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
 
       try {
         const periodId = periodSelect.value;
-        const comercio = commerceSelect.value;
         const servicio = servicioSelect.value;
         const monto = parseInt(document.getElementById('easy-billing-monto').value, 10);
         const desgloseStatus = document.getElementById('easy-billing-desglose-status').value;
@@ -16701,7 +16724,8 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
         const link = document.getElementById('easy-billing-link').value.trim();
         const fechaEmision = emisionInput.value;
         const fechaLimite = limiteInput.value;
-        const sendEmail = document.getElementById('easy-billing-send-email').checked;
+        const sendEmail = sendEmailCheckbox.checked;
+        const emailNote = document.getElementById('easy-billing-email-note').value.trim();
 
         // 1. Validar si ya existe un registro para este comercio y periodo
         const { data: existing, error: existErr } = await supabase
@@ -16807,7 +16831,7 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
                   recordId,
                   serviceType: servicio,
                   emails,
-                  customMessage: 'Se ha registrado y generado un nuevo desglose de cobro.',
+                  customMessage: emailNote || 'Se ha registrado y generado un nuevo desglose de cobro.',
                   emailType: 'billing_summary'
                 })
               });
@@ -16843,7 +16867,12 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
 
       } catch (err) {
         console.error('Error saving billing record:', err);
-        alert('Error al guardar el registro: ' + err.message);
+        Swal.fire({
+          icon: 'error',
+          title: 'Error al guardar',
+          text: err.message,
+          confirmButtonColor: 'var(--color-primary)'
+        });
         btnSubmit.disabled = false;
         btnSubmit.innerHTML = '<i class="ri-save-line"></i> Guardar Registro';
       }
@@ -16851,7 +16880,12 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
 
   } catch (err) {
     console.error('Error loading easy billing modal:', err);
-    alert('Error al inicializar el formulario: ' + err.message);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al abrir modal',
+      text: err.message,
+      confirmButtonColor: 'var(--color-primary)'
+    });
     modal.remove();
   }
 };
