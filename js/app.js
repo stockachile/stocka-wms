@@ -13306,29 +13306,38 @@ window.renderDeclarations = async function() {
             (p.sku && p.sku.toLowerCase().includes(term))
           );
           
-          if (matches.length === 0) {
-            searchResultsDiv.innerHTML = '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center;">Sin coincidencias</div>';
-            searchResultsDiv.style.display = 'block';
-            return;
-          }
-          
           let html = '';
-          matches.forEach(p => {
-            html += `
-              <div class="search-result-item" 
-                   data-sku="${p.sku}" 
-                   data-name="${p.name.replace(/"/g, '&quot;')}" 
-                   data-vol="${p.volumen || 0}" 
-                   data-price="${p.price || 0}" 
-                   data-barcode="${p.barcode || ''}"
-                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
-                   onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
-                   onmouseout="this.style.backgroundColor='transparent'">
-                <strong style="color: var(--color-text-main);">${p.name}</strong>
-                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
-              </div>
-            `;
-          });
+          if (matches.length === 0) {
+            html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias en catálogo</div>';
+          } else {
+            matches.forEach(p => {
+              html += `
+                <div class="search-result-item" 
+                     data-sku="${p.sku}" 
+                     data-name="${p.name.replace(/"/g, '&quot;')}" 
+                     data-vol="${p.volumen || 0}" 
+                     data-price="${p.price || 0}" 
+                     data-barcode="${p.barcode || ''}"
+                     style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                     onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+                     onmouseout="this.style.backgroundColor='transparent'">
+                  <strong style="color: var(--color-text-main);">${p.name}</strong>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+                </div>
+              `;
+            });
+          }
+
+          // Opción para agregar producto personalizado / no en catálogo
+          html += `
+            <div class="search-result-item" 
+                 data-custom="true"
+                 style="padding: 0.6rem 1rem; cursor: pointer; font-size: 0.85rem; color: var(--color-primary); font-weight: bold; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
+                 onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+                 onmouseout="this.style.backgroundColor='transparent'">
+              <i class="ri-add-line"></i> Agregar producto personalizado / no en catálogo...
+            </div>
+          `;
           
           searchResultsDiv.innerHTML = html;
           searchResultsDiv.style.display = 'block';
@@ -13353,9 +13362,83 @@ window.renderDeclarations = async function() {
         });
 
         // When a suggestion item is clicked, add it
-        searchResultsDiv.addEventListener('click', (e) => {
+        searchResultsDiv.addEventListener('click', async (e) => {
           const item = e.target.closest('.search-result-item');
           if (!item) return;
+
+          const isCustom = item.getAttribute('data-custom') === 'true';
+          if (isCustom) {
+            searchResultsDiv.style.display = 'none';
+            const { value: formValues } = await Swal.fire({
+              title: 'Agregar Producto Personalizado',
+              html: `
+                <div style="text-align: left; font-size: 0.9rem;">
+                  <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">SKU *</label>
+                  <input id="swal-client-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                  
+                  <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Nombre / Descripción *</label>
+                  <input id="swal-client-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                  
+                  <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="flex: 1;">
+                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Cantidad a Ingresar *</label>
+                      <input id="swal-client-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    </div>
+                    <div style="flex: 1;">
+                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Código de Barras</label>
+                      <input id="swal-client-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    </div>
+                  </div>
+                  
+                  <div style="display: flex; gap: 1rem;">
+                    <div style="flex: 1;">
+                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Volumen Unitario (m³)</label>
+                      <input id="swal-client-custom-vol" type="number" step="0.000001" class="swal2-input" value="0.000100" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    </div>
+                    <div style="flex: 1;">
+                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Precio Unitario ($)</label>
+                      <input id="swal-client-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box;">
+                    </div>
+                  </div>
+                </div>
+              `,
+              focusConfirm: false,
+              showCancelButton: true,
+              confirmButtonText: 'Agregar',
+              cancelButtonText: 'Cancelar',
+              preConfirm: () => {
+                const sku = document.getElementById('swal-client-custom-sku').value.trim();
+                const name = document.getElementById('swal-client-custom-name').value.trim();
+                const qty = parseInt(document.getElementById('swal-client-custom-qty').value, 10);
+                const barcode = document.getElementById('swal-client-custom-barcode').value.trim();
+                const vol = parseFloat(document.getElementById('swal-client-custom-vol').value);
+                const price = parseFloat(document.getElementById('swal-client-custom-price').value);
+
+                if (!sku) {
+                  Swal.showValidationMessage('El SKU es obligatorio.');
+                  return false;
+                }
+                if (!name) {
+                  Swal.showValidationMessage('El nombre/descripción es obligatorio.');
+                  return false;
+                }
+                if (isNaN(qty) || qty < 1) {
+                  Swal.showValidationMessage('La cantidad debe ser mayor o igual a 1.');
+                  return false;
+                }
+                return { sku, name, qty, barcode, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
+              }
+            });
+
+            if (formValues) {
+              const { sku, name, qty, barcode, vol, price } = formValues;
+              addCatalogProductToDeclarationList(sku, name, vol, price, barcode, qty);
+            }
+            searchProdInput.value = '';
+            searchResultsDiv.innerHTML = '';
+            searchResultsDiv.style.display = 'none';
+            return;
+          }
           
           const sku = item.getAttribute('data-sku');
           const name = item.getAttribute('data-name');
@@ -13363,7 +13446,7 @@ window.renderDeclarations = async function() {
           const price = parseFloat(item.getAttribute('data-price') || '0');
           const barcode = item.getAttribute('data-barcode') || '';
           
-          addCatalogProductToDeclarationList(sku, name, vol, price, barcode);
+          addCatalogProductToDeclarationList(sku, name, vol, price, barcode, 1);
           
           // Clear and hide suggestions
           searchProdInput.value = '';
@@ -13757,7 +13840,8 @@ window.renderDeclarations = async function() {
             const price = parseFloat(qtyInput.getAttribute('data-price') || '0');
             const barcode = qtyInput.getAttribute('data-barcode') || '';
             if (qty > 0) {
-              parsedProducts.push({ sku, name, qty, price, barcode, subtotal: qty * price });
+              const prodVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
+              parsedProducts.push({ sku, name, qty, price, barcode, vol: prodVol, volumen: prodVol, subtotal: qty * price });
               totalQtyFromExcel += qty;
             }
           });
@@ -14325,14 +14409,14 @@ async function fetchAndRenderClientDeclarations() {
         `;
       }
       
-      const isEditable = ['Creada', 'Bodega Asignada', 'En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].indexOf(dec.status) !== -1;
+      const isEditable = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
       const editButtonHtml = isEditable ? `
         <button class="table-action-menu-item" onclick="editDeclaration('${dec.id}')">
           <i class="ri-edit-line" style="color: var(--color-primary);"></i> Editar
         </button>
       ` : '';
 
-      const canDelete = ['Recibido Conforme', 'Recibido con Incidencias'].indexOf(dec.status) === -1;
+      const canDelete = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
       const deleteButtonHtml = canDelete ? `
         <button class="table-action-menu-item danger" onclick="deleteDeclaration('${dec.id}')">
           <i class="ri-delete-bin-line"></i> Eliminar
@@ -15251,6 +15335,13 @@ window.editDeclaration = async function(id) {
     if (error) throw error;
     if (!dec) return;
 
+    // Verificar si el estado permite edición por parte del cliente
+    const isEditable = ['Creada', 'Bodega Asignada'].indexOf(dec.status) !== -1;
+    if (!isEditable) {
+      alert('Esta declaración ya no se puede editar porque ha comenzado el proceso de recepción en bodega.');
+      return;
+    }
+
     editingDeclarationId = dec.id;
 
     document.getElementById('dec-title').value = dec.title || '';
@@ -15436,6 +15527,44 @@ window.editDeclaration = async function(id) {
           labelingQtyInput.style.backgroundColor = '';
           labelingQtyInput.style.cursor = '';
         }
+      }
+    }
+    // Cargar y mostrar productos en el listado de catálogo
+    const catalogList = document.getElementById('dec-selected-products-list');
+    if (catalogList) {
+      catalogList.innerHTML = '';
+    }
+    
+    // Asegurar que precargamos los productos del catálogo para este comercio
+    await loadCatalogProductsForDeclaration(dec.comercio);
+
+    // Habilitar y mostrar el grupo selector de origen para que el cliente pueda cambiar
+    const sourceGroup = document.getElementById('dec-product-source-group');
+    if (sourceGroup) {
+      sourceGroup.style.display = 'block';
+    }
+
+    if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+      // Activar origen "catálogo"
+      setProductSource('catalog');
+
+      dec.products_list.forEach(p => {
+        addCatalogProductToDeclarationList(p.sku, p.name, p.vol || p.volumen || 0, p.price || 0, p.barcode || '');
+        // Ajustar cantidad
+        const row = catalogList.querySelector(`.selected-product-row[data-sku="${p.sku}"]`);
+        if (row) {
+          const qtyInput = row.querySelector('.dec-catalog-qty-input');
+          if (qtyInput) {
+            qtyInput.value = p.qty || p.quantity || p.qty_confirmed || 1;
+          }
+        }
+      });
+      recalculateCatalogTotals();
+    } else {
+      // Si no tiene productos, setear origen "excel" por defecto
+      setProductSource('excel');
+      if (catalogList) {
+        catalogList.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
       }
     }
 
@@ -22331,7 +22460,7 @@ async function loadCatalogProductsForDeclaration(commerce) {
   }
 }
 
-function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '') {
+function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '', initialQty = 1) {
   const container = document.getElementById('dec-selected-products-list');
   if (!container) return;
 
@@ -22343,7 +22472,7 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
   const existingRow = container.querySelector(`.selected-product-row[data-sku="${sku}"]`);
   if (existingRow) {
     const qtyInput = existingRow.querySelector('.dec-catalog-qty-input');
-    qtyInput.value = parseInt(qtyInput.value, 10) + 1;
+    qtyInput.value = parseInt(qtyInput.value, 10) + (parseInt(initialQty, 10) || 1);
     qtyInput.dispatchEvent(new Event('change'));
     return;
   }
@@ -22358,7 +22487,7 @@ function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode =
       <div style="font-size: 0.72rem; color: var(--color-text-muted);">SKU: ${sku} | Vol: ${vol.toFixed(4)} m³</div>
     </div>
     <div style="display: flex; align-items: center; gap: 0.5rem;">
-      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" data-barcode="${barcode}" min="1" value="1" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
+      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" data-barcode="${barcode}" min="1" value="${initialQty || 1}" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
       <button type="button" class="btn-remove-selected-prod" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 0.25rem;"><i class="ri-delete-bin-line"></i></button>
     </div>
   `;

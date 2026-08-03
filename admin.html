@@ -633,9 +633,17 @@
             <label class="form-label" style="font-weight: 700; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; color: var(--color-text-main);">
               <i class="ri-list-check" style="color: var(--color-primary); font-size: 1.15rem;"></i> Confirmación de Unidades Recibidas por Producto
             </label>
-            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem; line-height: 1.4;">
+            <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem; line-height: 1.4;">
               Confirma o ajusta la cantidad física real recibida de cada artículo. Las diferencias se calcularán y aplicarán al inventario físico al finalizar la recepción.
             </p>
+            <div id="manage-dec-add-product-container" style="margin-bottom: 1rem; position: relative;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">Agregar otro producto de catálogo (no declarado):</label>
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="manage-dec-product-search" class="form-input" placeholder="Buscar producto por SKU o Nombre..." style="padding-left: 2.25rem; width: 100%; height: 36px; font-size: 0.85rem; background: var(--color-surface); border-radius: 6px; border: 1px solid var(--color-border);" autocomplete="off">
+              </div>
+              <div id="manage-dec-search-results" style="display: none; position: absolute; left: 0; right: 0; top: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"></div>
+            </div>
             <div style="overflow-x: auto; max-height: 250px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: 6px;">
               <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
                 <thead>

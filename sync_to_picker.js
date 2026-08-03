@@ -87,6 +87,12 @@ async function run() {
 
     for (const wmsOrder of wmsOrders) {
       const orderNo = String(wmsOrder.external_order_number || wmsOrder.id);
+      
+      // Registrar en Punto de Retiro (WMS y Picker) si la agenda es retiro
+      if (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'RETIRO') {
+        await registerPickupIfNeeded(wmsOrder);
+      }
+
       const pickerItemsForOrder = (pickerActiveOrders || []).filter(item => String(item.order_number) === orderNo);
 
       if (pickerItemsForOrder.length > 0) {
@@ -228,3 +234,114 @@ async function run() {
 }
 
 run();
+
+async function registerPickupIfNeeded(order) {
+  const orderNumber = String(order.external_order_number || order.id);
+  const sucursal = order.sucursal_pickeo || 'Sucursal Ñuñoa';
+  const comercio = order.comercio || '';
+  const customerName = order.customer_name || 'Cliente';
+
+  // Helper para generar PIN
+  const generatePin = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let pin = '';
+    for (let i = 0; i < 6; i++) {
+      pin += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pin;
+  };
+
+  try {
+    const { data: wmsExists, error: wmsCheckErr } = await wmsClient
+      .from('store_pickups')
+      .select('id')
+      .eq('pedido', orderNumber)
+      .maybeSingle();
+
+    if (!wmsCheckErr && !wmsExists) {
+      const pin = generatePin();
+      
+      // Obtener el ID máximo actual de store_pickups para incrementarlo manualmente
+      const { data: maxIdData } = await wmsClient
+        .from('store_pickups')
+        .select('id')
+        .order('id', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const nextId = maxIdData ? (parseInt(maxIdData.id, 10) + 1) : 1;
+
+      const { error: insErr } = await wmsClient
+        .from('store_pickups')
+        .insert([{
+          id: nextId,
+          comercio: comercio,
+          pedido: orderNumber,
+          nombre_apellido: customerName,
+          estado_pedido: 'NO PREPARADO',
+          sucursal: sucursal,
+          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          pin_retiro: pin,
+          marcar_retirado_web: false,
+          avisado_x_mail: false,
+          cant_mails_enviados: 0,
+          notificado_automatico: false
+        }]);
+
+      if (insErr) {
+        console.error(`Error registrando pickup en WMS para ${orderNumber}:`, insErr.message);
+      } else {
+        console.log(`📌 Pickup registrado automáticamente en WMS para ${orderNumber} con ID ${nextId}`);
+      }
+    }
+  } catch (err) {
+    console.error(`Error en registerPickupIfNeeded WMS para ${orderNumber}:`, err.message);
+  }
+
+  try {
+    const { data: pickerExists, error: pickerCheckErr } = await pickerClient
+      .from('sucursal_pickups')
+      .select('id')
+      .eq('pedido', orderNumber)
+      .maybeSingle();
+
+    if (!pickerCheckErr && !pickerExists) {
+      // Obtener el PIN que insertamos o generar uno nuevo si falló
+      let pin = '';
+      const { data: wmsPickup } = await wmsClient
+        .from('store_pickups')
+        .select('pin_retiro')
+        .eq('pedido', orderNumber)
+        .maybeSingle();
+      
+      if (wmsPickup && wmsPickup.pin_retiro) {
+        pin = wmsPickup.pin_retiro;
+      } else {
+        pin = generatePin();
+      }
+
+      const { error: insErr } = await pickerClient
+        .from('sucursal_pickups')
+        .insert([{
+          comercio: comercio,
+          pedido: orderNumber,
+          nombre_apellido: customerName,
+          estado_pedido: 'NO PREPARADO',
+          sucursal: sucursal,
+          observaciones: `${customerName} | Ingreso automático desde WMS`,
+          pin_retiro: pin,
+          marcar_retirado_web: false,
+          avisado_x_mail: false,
+          cant_mails_enviados: 0,
+          notificado_automatico: false
+        }]);
+
+      if (insErr) {
+        console.error(`Error registrando pickup en Picker para ${orderNumber}:`, insErr.message);
+      } else {
+        console.log(`📌 Pickup registrado automáticamente en Picker para ${orderNumber}`);
+      }
+    }
+  } catch (err) {
+    console.error(`Error en registerPickupIfNeeded Picker para ${orderNumber}:`, err.message);
+  }
+}
