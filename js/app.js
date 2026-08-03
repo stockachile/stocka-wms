@@ -5274,7 +5274,7 @@ window.applyClientWmsFiltersAndRender = function() {
       }];
     }
 
-    // Detectar packs originales desde el canal de integración
+    // Detectar packs originales desde el canal de integración o desde los items del pedido
     let originalPacksHtml = '';
     let packBadgeHtml = '';
     const masterProducts = window.currentMasterProducts || [];
@@ -5282,8 +5282,25 @@ window.applyClientWmsFiltersAndRender = function() {
     if (packSkus.size === 0) {
       packSkus = new Set(masterProducts.filter(p => p.is_pack).map(p => p.sku.toLowerCase()));
     }
-    const foundPacks = [];
+    const foundPacksMap = new Map(); // Para evitar duplicados
 
+    // 1. Verificar en order.sku
+    const mainSku = (order.sku || '').trim().toLowerCase();
+    if (mainSku && packSkus.has(mainSku)) {
+      foundPacksMap.set(mainSku, order.cantidad || 1);
+    }
+
+    // 2. Verificar en order_items
+    if (Array.isArray(order.order_items)) {
+      order.order_items.forEach(oi => {
+        const itemSku = (oi.products?.sku || '').trim().toLowerCase();
+        if (itemSku && packSkus.has(itemSku)) {
+          foundPacksMap.set(itemSku, oi.quantity || 1);
+        }
+      });
+    }
+
+    // 3. Fallback: verificar en datos crudos de integración
     const checkRawItems = (items, platform = '') => {
       if (!Array.isArray(items)) return;
       items.forEach(item => {
@@ -5304,7 +5321,7 @@ window.applyClientWmsFiltersAndRender = function() {
 
         sku = (sku || '').trim().toLowerCase();
         if (sku && packSkus.has(sku)) {
-          foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
+          foundPacksMap.set(sku, qty);
         }
       });
     };
@@ -5327,6 +5344,11 @@ window.applyClientWmsFiltersAndRender = function() {
     } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
       checkRawItems(order.raw_falabella_data.items, 'falabella');
     }
+
+    const foundPacks = [];
+    foundPacksMap.forEach((qty, sku) => {
+      foundPacks.push(`<strong>${sku.toUpperCase()}</strong> (x${qty})`);
+    });
 
     if (foundPacks.length > 0) {
       originalPacksHtml = `
