@@ -1402,6 +1402,8 @@ async function renderDashboard() {
         src = 'img/woocommerce.png';
       } else if (pLower.includes('walmart')) {
         src = 'img/walmart.png';
+      } else if (pLower.includes('tiendanube')) {
+        src = 'img/tiendanube.png';
       }
       
       if (src) {

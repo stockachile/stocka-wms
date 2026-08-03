@@ -11723,6 +11723,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       else if (pLower.includes('paris')) src = 'img/paris.png';
       else if (pLower.includes('woocommerce')) src = 'img/woocommerce.png';
       else if (pLower.includes('walmart')) src = 'img/walmart.png';
+      else if (pLower.includes('tiendanube')) src = 'img/tiendanube.png';
       
       if (src) {
         return `<img src="${src}" alt="${platform}" style="height: 24px; max-height: 24px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
