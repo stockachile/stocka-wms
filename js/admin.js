@@ -16442,6 +16442,32 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
               </div>
             </div>
 
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Estado de Pago</label>
+                <select id="easy-billing-pago-status" class="form-input" style="width: 100%;" required>
+                  <option value="Por solicitar">Por solicitar</option>
+                  <option value="Recibido">Recibido</option>
+                  <option value="En espera" selected>En espera</option>
+                  <option value="Atrasado">Atrasado</option>
+                  <option value="abono">Abono</option>
+                  <option value="aprobado">Aprobado</option>
+                  <option value="incobrable">Incobrable</option>
+                  <option value="Sin movimientos">Sin movimientos</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Estado de Factura</label>
+                <select id="easy-billing-factura-status" class="form-input" style="width: 100%;" required>
+                  <option value="Esperando">Esperando</option>
+                  <option value="No se factura">No se factura</option>
+                  <option value="Emitida">Emitida</option>
+                  <option value="Facturar" selected>Facturar</option>
+                  <option value="Sin movimientos">Sin movimientos</option>
+                </select>
+              </div>
+            </div>
+
             <div class="form-group" id="easy-billing-desglose-status-group" style="margin-bottom: 1rem;">
               <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.825rem; color: var(--color-text-main);">Estado de Desglose</label>
               <select id="easy-billing-desglose-status" class="form-input" style="width: 100%;">
@@ -16670,6 +16696,8 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
         const servicio = servicioSelect.value;
         const monto = parseInt(document.getElementById('easy-billing-monto').value, 10);
         const desgloseStatus = document.getElementById('easy-billing-desglose-status').value;
+        const pagoStatus = document.getElementById('easy-billing-pago-status').value;
+        const facturaStatus = document.getElementById('easy-billing-factura-status').value;
         const link = document.getElementById('easy-billing-link').value.trim();
         const fechaEmision = emisionInput.value;
         const fechaLimite = limiteInput.value;
@@ -16718,11 +16746,15 @@ window.openEasyBillingRecordModal = async function(currentPeriodId) {
           updates.total_fulfillment = monto;
           updates.desglose_fulfillment = desgloseStatus;
           updates.fecha_limite = fechaLimite;
+          updates.pago_fulfillment = pagoStatus;
+          updates.factura_fulfillment = facturaStatus;
           if (filePublicUrl) updates.fulfillment_pdf_url = filePublicUrl;
           if (link) updates.fulfillment_link = link;
         } else {
           updates.enviame = monto;
           updates.fecha_limite_enviame = fechaLimite;
+          updates.pago_enviame = pagoStatus;
+          updates.factura_enviame = facturaStatus;
           if (filePublicUrl) {
             const currentPdfs = existing?.enviame_pdfs || [];
             currentPdfs.push({ name: fileInput.files[0].name, url: filePublicUrl });
