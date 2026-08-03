@@ -1972,6 +1972,7 @@ async function renderCatalog() {
             <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
             <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
             <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+            <option value="Tiendanube" ${mainPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
           </select>
           <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-md); padding: 0.45rem 1rem; font-weight: 500; height: 34px; font-size: 0.85rem;">
             <i class="ri-save-line"></i> Guardar
@@ -3933,6 +3934,7 @@ async function renderMovements() {
               <option value="Paris" ${window.movementsFilterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
               <option value="WooCommerce" ${window.movementsFilterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
               <option value="Jumpseller" ${window.movementsFilterPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+              <option value="Tiendanube" ${window.movementsFilterPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
             </select>
           </div>
 
@@ -4843,6 +4845,7 @@ async function renderOrders() {
               <option value="Shopify">Shopify</option>
               <option value="WooCommerce">WooCommerce</option>
               <option value="Jumpseller">Jumpseller</option>
+              <option value="Tiendanube">Tiendanube</option>
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>

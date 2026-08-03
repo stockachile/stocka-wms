@@ -1633,6 +1633,7 @@ async function renderAdminOrders() {
               <option value="Shopify">Shopify</option>
               <option value="WooCommerce">WooCommerce</option>
               <option value="Jumpseller">Jumpseller</option>
+              <option value="Tiendanube">Tiendanube</option>
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
@@ -7882,6 +7883,7 @@ async function renderAdminCatalogWorkspace(commerce) {
             <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
             <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
             <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
+            <option value="Tiendanube" ${mainPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
           </select>
           <button id="btn-save-main-platform" class="btn btn-primary" style="display: flex; align-items: center; gap: 0.25rem; border-radius: var(--radius-md); padding: 0.45rem 1rem; font-weight: 500; height: 34px; font-size: 0.85rem;">
             <i class="ri-save-line"></i> Guardar
@@ -22866,95 +22868,455 @@ window.renderMerchantContractsTab = async function() {
 
     if (error) throw error;
 
+    let contentHtml = '';
+
     if (!requests || requests.length === 0) {
-      container.innerHTML = `
-        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+      contentHtml = `
+        <div style="padding: 3rem; text-align: center; color: var(--color-text-muted); background: var(--color-surface);">
           <i class="ri-file-shield-2-line" style="font-size: 3rem; display: block; margin-bottom: 1rem; color: var(--color-border);"></i>
           <strong>No hay contratos firmados</strong>
-          <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem;">Ningún comercio ha cargado contratos o aceptado anexos todavía.</p>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem;">Ningún comercio ha cargado contratos o aceptado anexos todavía. Puedes cargar uno manualmente haciendo clic en el botón superior.</p>
         </div>
       `;
-      return;
+    } else {
+      let rowsHtml = requests.map(req => {
+        const signedDate = req.updated_at ? new Date(req.updated_at).toLocaleDateString('es-CL', {
+          day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+        }) : 'S/F';
+
+        let annexesBadgeList = '';
+        if (Array.isArray(req.accepted_annexes) && req.accepted_annexes.length > 0) {
+          annexesBadgeList = req.accepted_annexes.map(annex => {
+            const docDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
+              day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
+            }) : 'S/F';
+            return `<div style="margin-bottom: 0.25rem; font-size: 0.75rem; background: var(--color-surface); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 0.25rem;">
+              <i class="ri-checkbox-circle-fill" style="color: var(--color-success);"></i>
+              <strong>${annex.name}</strong> 
+              <span style="color: var(--color-text-muted);">(F: ${docDate})</span>
+              <a href="${annex.file_url}" target="_blank" style="color: var(--color-accent); text-decoration: none;" title="Descargar anexo"><i class="ri-download-2-line"></i></a>
+            </div>`;
+          }).join(' ');
+        } else {
+          annexesBadgeList = `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.75rem;">Sin anexos aceptados</span>`;
+        }
+
+        const statusBadge = req.status === 'approved'
+          ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Aprobado</span>`
+          : `<span class="badge-status" style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);"><i class="ri-time-line"></i> Pendiente de Aprobación</span>`;
+
+        return `
+          <tr>
+            <td style="padding: 0.75rem 1rem;">
+              <strong>${req.nombre_fantasia}</strong>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Razón Social: ${req.razon_social}</div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">RUT: ${req.rut_empresa}</div>
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              <div style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+                <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.25rem;"></i>
+                <a href="${req.contrato_url}" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none; font-size: 0.8rem;">Ver Contrato</a>
+              </div>
+              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.25rem;">Firmado: ${signedDate}</div>
+            </td>
+            <td style="padding: 0.75rem 1rem; max-width: 400px; white-space: normal;">
+              ${annexesBadgeList}
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              ${statusBadge}
+            </td>
+            <td style="padding: 0.75rem 1rem;">
+              <div style="font-size: 0.8rem;">
+                <strong>${req.full_name}</strong>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.email}</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.phone}</div>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      contentHtml = `
+        <div style="overflow-x: auto;">
+          <table class="data-table" style="width: 100%; margin: 0; border: none; border-radius: 0;">
+            <thead>
+              <tr style="background: var(--color-bg);">
+                <th style="padding: 0.75rem 1rem; width: 25%;">Comercio / Empresa</th>
+                <th style="padding: 0.75rem 1rem; width: 20%;">Contrato Principal</th>
+                <th style="padding: 0.75rem 1rem; width: 30%;">Anexos Aceptados</th>
+                <th style="padding: 0.75rem 1rem; width: 12%;">Estado Solicitud</th>
+                <th style="padding: 0.75rem 1rem; width: 13%;">Representante / Firma</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+      `;
     }
 
-    let rowsHtml = requests.map(req => {
-      const signedDate = req.updated_at ? new Date(req.updated_at).toLocaleDateString('es-CL', {
-        day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-      }) : 'S/F';
-
-      let annexesBadgeList = '';
-      if (Array.isArray(req.accepted_annexes) && req.accepted_annexes.length > 0) {
-        annexesBadgeList = req.accepted_annexes.map(annex => {
-          const docDate = annex.document_date ? new Date(annex.document_date).toLocaleDateString('es-CL', {
-            day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC'
-          }) : 'S/F';
-          return `<div style="margin-bottom: 0.25rem; font-size: 0.75rem; background: var(--color-surface); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; margin-right: 0.25rem;">
-            <i class="ri-checkbox-circle-fill" style="color: var(--color-success);"></i>
-            <strong>${annex.name}</strong> 
-            <span style="color: var(--color-text-muted);">(F: ${docDate})</span>
-            <a href="${annex.file_url}" target="_blank" style="color: var(--color-accent); text-decoration: none;" title="Descargar anexo"><i class="ri-download-2-line"></i></a>
-          </div>`;
-        }).join(' ');
-      } else {
-        annexesBadgeList = `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.75rem;">Sin anexos aceptados</span>`;
-      }
-
-      const statusBadge = req.status === 'approved'
-        ? `<span class="badge-status active"><i class="ri-checkbox-circle-line"></i> Aprobado</span>`
-        : `<span class="badge-status" style="background: rgba(245, 158, 11, 0.1); color: var(--color-warning);"><i class="ri-time-line"></i> Pendiente de Aprobación</span>`;
-
-      return `
-        <tr>
-          <td style="padding: 0.75rem 1rem;">
-            <strong>${req.nombre_fantasia}</strong>
-            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Razón Social: ${req.razon_social}</div>
-            <div style="font-size: 0.75rem; color: var(--color-text-muted);">RUT: ${req.rut_empresa}</div>
-          </td>
-          <td style="padding: 0.75rem 1rem;">
-            <div style="display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
-              <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.25rem;"></i>
-              <a href="${req.contrato_url}" target="_blank" style="color: var(--color-accent); font-weight: 600; text-decoration: none; font-size: 0.8rem;">Ver Contrato</a>
-            </div>
-            <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.25rem;">Firmado: ${signedDate}</div>
-          </td>
-          <td style="padding: 0.75rem 1rem; max-width: 400px; white-space: normal;">
-            ${annexesBadgeList}
-          </td>
-          <td style="padding: 0.75rem 1rem;">
-            ${statusBadge}
-          </td>
-          <td style="padding: 0.75rem 1rem;">
-            <div style="font-size: 0.8rem;">
-              <strong>${req.full_name}</strong>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.email}</div>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted);">${req.phone}</div>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
     container.innerHTML = `
-      <div style="overflow-x: auto;">
-        <table class="data-table" style="width: 100%; margin: 0; border: none; border-radius: 0;">
-          <thead>
-            <tr style="background: var(--color-bg);">
-              <th style="padding: 0.75rem 1rem; width: 25%;">Comercio / Empresa</th>
-              <th style="padding: 0.75rem 1rem; width: 20%;">Contrato Principal</th>
-              <th style="padding: 0.75rem 1rem; width: 30%;">Anexos Aceptados</th>
-              <th style="padding: 0.75rem 1rem; width: 12%;">Estado Solicitud</th>
-              <th style="padding: 0.75rem 1rem; width: 13%;">Representante / Firma</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-file-shield-2-line" style="color: var(--color-primary);"></i> Registro de Contratos y Anexos
+          </h4>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">Listado de documentos contractuales y anexos aceptados por los comercios.</p>
+        </div>
+        <button class="btn btn-primary" onclick="window.showUploadDocumentModal()" style="background-color: var(--color-primary); color: #000; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.85rem; border-radius: 4px;">
+          <i class="ri-upload-cloud-2-line"></i> Cargar Documento Manual
+        </button>
       </div>
+      ${contentHtml}
     `;
   } catch (err) {
     console.error("Error loading merchant contracts:", err);
     container.innerHTML = `<div class="alert alert-error" style="display: block; margin: 1.5rem;">Error al cargar el registro de contratos: ${err.message}</div>`;
+  }
+};
+
+window.showUploadDocumentModal = function() {
+  const modalId = 'modal-upload-document';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  const commerceOptions = (window.cachedAdminMerchants || []).map(c => 
+    `<option value="${c.nombre}">${c.nombre} (${c.sigla})</option>`
+  ).join('');
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 90%; max-height: 90vh; overflow-y: auto; border-radius: var(--radius-md); box-shadow: var(--shadow-lg);">
+      <div class="modal-header" style="background: var(--color-surface-hover); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-upload-cloud-2-line" style="color: var(--color-primary);"></i> Cargar Documento Manual
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      <form id="form-upload-document" style="margin: 0; padding: 1.5rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.85rem;">Seleccionar Comercio *</label>
+            <select id="manual-doc-commerce" class="form-input" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" onchange="window.updateDocumentUserSelect()" required>
+              <option value="">-- Seleccionar --</option>
+              ${commerceOptions}
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.85rem;">Usuario Asociado (Opcional)</label>
+            <select id="manual-doc-user" class="form-input" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" onchange="window.fillRepresentativeFields()">
+              <option value="">-- Sin usuario asociado --</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.85rem;">Tipo de Documento *</label>
+            <select id="manual-doc-type" class="form-input" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" onchange="window.toggleDocumentTypeFields()" required>
+              <option value="contrato">Contrato Principal</option>
+              <option value="anexo">Anexo</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.85rem;">Fecha de Firma / Documento *</label>
+            <input type="date" id="manual-doc-date" class="form-input" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" required>
+          </div>
+        </div>
+
+        <div id="manual-doc-name-container" style="margin-bottom: 1rem; display: none;">
+          <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.85rem;">Nombre del Anexo *</label>
+          <input type="text" id="manual-doc-name" class="form-input" placeholder="Ej: Tarifas Servicio Fulfillment 2026" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;">
+        </div>
+
+        <div style="margin-bottom: 1rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <label class="form-label" style="display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.85rem;">Origen del Documento *</label>
+          <div style="display: flex; gap: 1.5rem; margin-bottom: 0.75rem;">
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="radio" name="manual-doc-source-type" value="file" checked onclick="window.toggleDocumentSourceFields()"> Subir Archivo PDF
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
+              <input type="radio" name="manual-doc-source-type" value="url" onclick="window.toggleDocumentSourceFields()"> Ingresar Enlace URL
+            </label>
+          </div>
+          
+          <div id="manual-doc-file-container">
+            <input type="file" id="manual-doc-file" accept=".pdf" style="font-size: 0.85rem; width: 100%;">
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Solo archivos PDF. El archivo se subirá al almacenamiento seguro.</span>
+          </div>
+          
+          <div id="manual-doc-url-container" style="display: none;">
+            <input type="url" id="manual-doc-url" class="form-input" placeholder="https://ejemplo.com/documento.pdf" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;">
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Ingrese la URL directa del documento firmado.</span>
+          </div>
+        </div>
+
+        <!-- Representante / Firma -->
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+            <i class="ri-user-signature-line" style="color: var(--color-primary);"></i> Datos del Representante (Firma)
+          </h4>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.82rem;">Nombre Representante *</label>
+              <input type="text" id="manual-doc-rep-name" class="form-input" placeholder="Ej: Juan Pérez" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" required>
+            </div>
+            <div>
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.82rem;">RUT Representante *</label>
+              <input type="text" id="manual-doc-rep-rut" class="form-input" placeholder="Ej: 12.345.678-9" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" required>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+            <div>
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.82rem;">Correo Electrónico *</label>
+              <input type="email" id="manual-doc-rep-email" class="form-input" placeholder="juan@correo.com" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" required>
+            </div>
+            <div>
+              <label class="form-label" style="display: block; margin-bottom: 0.35rem; font-weight: 600; font-size: 0.82rem;">Teléfono *</label>
+              <input type="text" id="manual-doc-rep-phone" class="form-input" placeholder="Ej: +56912345678" style="width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm); height: 38px; padding: 0 0.5rem;" required>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1.25rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.5rem 1.25rem; font-weight: 500;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #000; font-weight: 600; padding: 0.5rem 1.25rem;">Guardar Documento</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Initialize fields
+  document.getElementById('manual-doc-date').value = new Date().toISOString().substring(0, 10);
+  window.toggleDocumentTypeFields();
+  window.toggleDocumentSourceFields();
+
+  // Attach submit listener
+  document.getElementById('form-upload-document').addEventListener('submit', window.saveManualDocument);
+};
+
+window.toggleDocumentTypeFields = function() {
+  const type = document.getElementById('manual-doc-type').value;
+  const nameContainer = document.getElementById('manual-doc-name-container');
+  const nameInput = document.getElementById('manual-doc-name');
+  if (type === 'anexo') {
+    nameContainer.style.display = 'block';
+    nameInput.required = true;
+  } else {
+    nameContainer.style.display = 'none';
+    nameInput.required = false;
+    nameInput.value = '';
+  }
+};
+
+window.toggleDocumentSourceFields = function() {
+  const source = document.querySelector('input[name="manual-doc-source-type"]:checked').value;
+  const fileContainer = document.getElementById('manual-doc-file-container');
+  const urlContainer = document.getElementById('manual-doc-url-container');
+  const fileInput = document.getElementById('manual-doc-file');
+  const urlInput = document.getElementById('manual-doc-url');
+  
+  if (source === 'file') {
+    fileContainer.style.display = 'block';
+    fileInput.required = true;
+    urlContainer.style.display = 'none';
+    urlInput.required = false;
+  } else {
+    fileContainer.style.display = 'none';
+    fileInput.required = false;
+    urlContainer.style.display = 'block';
+    urlInput.required = true;
+  }
+};
+
+window.updateDocumentUserSelect = function() {
+  const commerceName = document.getElementById('manual-doc-commerce').value;
+  const userSelect = document.getElementById('manual-doc-user');
+  if (!userSelect) return;
+  
+  userSelect.innerHTML = '<option value="">-- Sin usuario asociado --</option>';
+  if (!commerceName) return;
+  
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === commerceName);
+  if (commerce && Array.isArray(commerce.associatedUsers)) {
+    commerce.associatedUsers.forEach(u => {
+      userSelect.innerHTML += `<option value="${u.id}" data-name="${u.full_name || ''}" data-email="${u.email || ''}">${u.full_name || u.email} (${u.role})</option>`;
+    });
+  }
+};
+
+window.fillRepresentativeFields = function() {
+  const userSelect = document.getElementById('manual-doc-user');
+  const selectedOption = userSelect.options[userSelect.selectedIndex];
+  if (!selectedOption || !selectedOption.value) return;
+  
+  const repName = selectedOption.getAttribute('data-name');
+  const repEmail = selectedOption.getAttribute('data-email');
+  
+  if (repName) document.getElementById('manual-doc-rep-name').value = repName;
+  if (repEmail) document.getElementById('manual-doc-rep-email').value = repEmail;
+};
+
+window.saveManualDocument = async function(e) {
+  e.preventDefault();
+  
+  const submitBtn = document.querySelector('#form-upload-document button[type="submit"]');
+  const initialBtnText = submitBtn.innerHTML;
+  
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Guardando...';
+
+  try {
+    const commerceName = document.getElementById('manual-doc-commerce').value;
+    const userId = document.getElementById('manual-doc-user').value || null;
+    const docType = document.getElementById('manual-doc-type').value;
+    const docDate = document.getElementById('manual-doc-date').value;
+    const annexName = document.getElementById('manual-doc-name').value.trim();
+    const source = document.querySelector('input[name="manual-doc-source-type"]:checked').value;
+    
+    const repName = document.getElementById('manual-doc-rep-name').value.trim();
+    const repRut = document.getElementById('manual-doc-rep-rut').value.trim();
+    const repEmail = document.getElementById('manual-doc-rep-email').value.trim();
+    const repPhone = document.getElementById('manual-doc-rep-phone').value.trim();
+
+    const commerce = window.cachedAdminMerchants.find(c => c.nombre === commerceName);
+    if (!commerce) throw new Error('No se encontró el comercio seleccionado.');
+
+    let docUrl = '';
+    
+    if (source === 'file') {
+      const fileInput = document.getElementById('manual-doc-file');
+      const file = fileInput.files[0];
+      if (!file) throw new Error('Debe seleccionar un archivo PDF para subir.');
+      
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
+      const storagePath = `onboarding/manual_${Date.now()}_${sanitizedName}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('service_docs')
+        .upload(storagePath, file);
+        
+      if (uploadError) throw uploadError;
+      
+      const { data: urlData } = supabase.storage
+        .from('service_docs')
+        .getPublicUrl(storagePath);
+        
+      docUrl = urlData.publicUrl;
+    } else {
+      docUrl = document.getElementById('manual-doc-url').value.trim();
+      if (!docUrl) throw new Error('Debe ingresar la URL del documento.');
+    }
+
+    const signatureTimestamp = new Date(docDate + 'T12:00:00Z').toISOString();
+
+    const { data: existingReq, error: fetchErr } = await supabase
+      .from('onboarding_requests')
+      .select('*')
+      .eq('nombre_fantasia', commerceName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (fetchErr) throw fetchErr;
+
+    if (existingReq) {
+      if (docType === 'contrato') {
+        const { error: updateErr } = await supabase
+          .from('onboarding_requests')
+          .update({
+            contrato_url: docUrl,
+            updated_at: signatureTimestamp,
+            full_name: repName,
+            rut_personal: repRut,
+            email: repEmail,
+            phone: repPhone,
+            user_id: userId || existingReq.user_id,
+            status: 'approved'
+          })
+          .eq('id', existingReq.id);
+
+        if (updateErr) throw updateErr;
+      } else {
+        const currentAnnexes = Array.isArray(existingReq.accepted_annexes) ? existingReq.accepted_annexes : [];
+        currentAnnexes.push({
+          name: annexName,
+          document_date: docDate,
+          file_url: docUrl
+        });
+
+        const { error: updateErr } = await supabase
+          .from('onboarding_requests')
+          .update({
+            accepted_annexes: currentAnnexes,
+            updated_at: new Date().toISOString(),
+            user_id: userId || existingReq.user_id,
+            status: 'approved'
+          })
+          .eq('id', existingReq.id);
+
+        if (updateErr) throw updateErr;
+      }
+    } else {
+      const newRecord = {
+        nombre_fantasia: commerceName,
+        razon_social: commerce.razon_social || commerceName,
+        rut_empresa: commerce.rut || '77.777.777-7',
+        giro_comercio: 'Servicio de distribución',
+        direccion_facturacion: 'Dirección Comercial',
+        comuna: 'Santiago',
+        email_facturacion: repEmail || commerce.email_colaborador || 'factura@comercio.com',
+        full_name: repName,
+        rut_personal: repRut,
+        email: repEmail,
+        phone: repPhone,
+        user_id: userId,
+        status: 'approved',
+        contrato_url: docType === 'contrato' ? docUrl : null,
+        accepted_annexes: docType === 'anexo' ? [{
+          name: annexName,
+          document_date: docDate,
+          file_url: docUrl
+        }] : [],
+        created_at: signatureTimestamp,
+        updated_at: signatureTimestamp
+      };
+
+      const { error: insertErr } = await supabase
+        .from('onboarding_requests')
+        .insert([newRecord]);
+
+      if (insertErr) throw insertErr;
+    }
+
+    Swal.fire({
+      icon: 'success',
+      title: '¡Guardado!',
+      text: 'El documento ha sido cargado exitosamente para el comercio.',
+      confirmButtonText: 'Aceptar'
+    });
+
+    document.getElementById('modal-upload-document').remove();
+    window.renderMerchantContractsTab();
+
+  } catch (err) {
+    console.error("Error saving manual document:", err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al guardar',
+      text: err.message || JSON.stringify(err)
+    });
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = initialBtnText;
   }
 };
 

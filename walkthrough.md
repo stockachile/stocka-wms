@@ -2435,3 +2435,27 @@ Corregimos y mejoramos la experiencia de usuario al agregar comercios y registra
      * **Crear Saldo Adicional / Cobro Extraordinario** (`window.openCreateExtraChargeModal`).
      * **Editar Saldo Adicional** (`window.openEditExtraChargeModal`).
 
+---
+
+## 107. Integración Completa de Opción Tiendanube en Selectores de Catálogo y Filtros de Origen
+
+Hemos incorporado "Tiendanube" como opción de plataforma principal y filtro de origen en todo el sistema:
+
+1. **Selector de Plataforma Principal / Catálogo Maestro**:
+   - Agregamos la opción `<option value="Tiendanube">Tiendanube</option>` en el selector `#eq-main-platform-select` en ambos portales:
+     * Portal del Administrador (`js/admin.js` - línea ~7885).
+     * Portal del Cliente (`js/app.js` - línea ~1975).
+   - Esto permite configurar Tiendanube como el origen del catálogo maestro de productos de un comercio y sincronizar correctamente sus inventarios.
+
+2. **Filtros de Pedidos por Canal de Origen**:
+   - Incluimos "Tiendanube" en los filtros de origen de pedidos (`#filter-origen` and `#filter-client-origen`):
+     * Portal del Administrador (`js/admin.js`).
+     * Portal del Cliente (`js/app.js`).
+     * Modal de creación de pedidos en el dashboard (`dashboard.html` - `#order-cust-origen`).
+
+3. **Filtro de Movimientos de Inventario**:
+   - Agregamos la opción al selector de plataforma de movimientos `#movs-filter-platform` en `js/app.js` para permitir a los clientes filtrar los movimientos de inventario originados por ventas en Tiendanube.
+
+4. **Incremento de Versiones para Cache-Busting**:
+   - Incrementamos la versión de los scripts en `admin.html` (de `1.0.10` a `1.0.11`) y `dashboard.html` (de `1.0.11` a `1.0.12`) para garantizar que los navegadores carguen las opciones actualizadas inmediatamente.
+

@@ -165,6 +165,7 @@ async function syncProducts(integration, storeId, headers) {
     const products = await response.json();
     console.log(`Se encontraron ${products.length} productos base.`);
 
+    const seenSkus = new Set();
     const productsToUpsert = [];
     for (const product of products) {
       // Tiendanube soporta variantes
@@ -175,6 +176,18 @@ async function syncProducts(integration, storeId, headers) {
         let variantSku = variant.sku || '';
         let cleanSku = variantSku.trim().replace(/\s+/g, '');
         if (!cleanSku) continue; // Ignorar productos sin SKU
+
+        const upperSku = cleanSku.toUpperCase();
+        if (seenSkus.has(upperSku)) {
+          let suffixIndex = 1;
+          let newSku = `${cleanSku}-DUP-${suffixIndex}`;
+          while (seenSkus.has(newSku.toUpperCase())) {
+            suffixIndex++;
+            newSku = `${cleanSku}-DUP-${suffixIndex}`;
+          }
+          cleanSku = newSku;
+        }
+        seenSkus.add(cleanSku.toUpperCase());
 
         // Si la variante tiene una imagen asignada en Tiendanube, la usamos, si no la del producto base
         let imageUrl = mainImageUrl;
@@ -305,6 +318,17 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
   try {
     const response = await fetch(url, { method: 'GET', headers });
     if (!response.ok) {
+      if (response.status === 404) {
+        try {
+          const errData = await response.clone().json();
+          if (errData && errData.description === 'Last page is 0') {
+            console.log('ℹ️ No hay pedidos registrados en la tienda (la API retornó Last page is 0).');
+            return;
+          }
+        } catch (e) {
+          // Si no es JSON o no tiene la descripción, continuar al error regular
+        }
+      }
       throw new Error(`Error en API Tiendanube Pedidos: Status ${response.status} ${response.statusText}`);
     }
 
