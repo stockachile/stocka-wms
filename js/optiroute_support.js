@@ -398,7 +398,10 @@ export async function renderOptirouteSupport() {
               name: c.nombre_destinatario || 'Cliente sin nombre',
               phone: c.telefono_destino || '',
               email: c.email_cliente_destino || sr.customer?.customer?.email || sr.customer?.email || '',
-              delivery_email_notified: Boolean(sr.delivery_email_notified_at || c.delivery_email_notified_at),
+              dispatch_email_notified: Boolean(c.email_notified_at || sr.email_notified_at),
+              dispatch_email_at: c.email_notified_at || sr.email_notified_at || null,
+              delivery_email_notified: Boolean(c.delivery_email_notified_at || sr.delivery_email_notified_at),
+              delivery_email_at: c.delivery_email_notified_at || sr.delivery_email_notified_at || null,
               address: c.direccion_destino || 'Sin Dirección',
               complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
@@ -601,7 +604,10 @@ export async function renderOptirouteSupport() {
           name: w.name || w.service_request?.subscription?.name || 'Cliente sin nombre',
           phone: phone,
           email: email,
+          dispatch_email_notified: Boolean(dbInfo.email_notified_at || detOrder?.email_notified_at),
+          dispatch_email_at: dbInfo.email_notified_at || detOrder?.email_notified_at || null,
           delivery_email_notified: Boolean(dbInfo.delivery_email_notified_at || detOrder?.delivery_email_notified_at),
+          delivery_email_at: dbInfo.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null,
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
           complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
@@ -766,13 +772,37 @@ export async function renderOptirouteSupport() {
         </button>
       ` : '';
 
+      let emailBadgesHTML = '';
+      if (item.dispatch_email_notified) {
+        const dateStr = item.dispatch_email_at 
+          ? new Date(item.dispatch_email_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        emailBadgesHTML += `
+          <span class="badge" style="background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; cursor: default;" title="Aviso de Despacho enviado por Brevo ${dateStr}">
+            <i class="ri-mail-check-line"></i> Despacho Enviado ${dateStr ? `(${dateStr})` : ''}
+          </span>
+        `;
+      }
+
+      if (item.delivery_email_notified) {
+        const dateStr = item.delivery_email_at 
+          ? new Date(item.delivery_email_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        emailBadgesHTML += `
+          <span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; cursor: default;" title="Confirmación de Entrega enviada por Brevo ${dateStr}">
+            <i class="ri-checkbox-circle-line"></i> Entrega Confirmada ${dateStr ? `(${dateStr})` : ''}
+          </span>
+        `;
+      }
+
       const contactHTML = `
-        <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
           ${phoneSpan}
           <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; align-items: center;">
             ${whatsAppBtn}
             ${emailBadge}
           </div>
+          ${emailBadgesHTML ? `<div style="display: flex; flex-direction: column; gap: 0.15rem; margin-top: 0.15rem;">${emailBadgesHTML}</div>` : ''}
         </div>
       `;
 
@@ -1833,8 +1863,16 @@ export async function renderOptirouteSupport() {
 
     const resData = await res.json();
 
+    const now = new Date().toISOString();
+    if (isDispatch) {
+      item.dispatch_email_notified = true;
+      item.dispatch_email_at = now;
+    } else {
+      item.delivery_email_notified = true;
+      item.delivery_email_at = now;
+    }
+
     if (item.reference) {
-      const now = new Date().toISOString();
       const updatePayload = isDispatch 
         ? { email_notified_at: now } 
         : { delivery_email_notified_at: now };
@@ -1843,7 +1881,9 @@ export async function renderOptirouteSupport() {
         .from('optiroute_orders')
         .update(updatePayload)
         .eq('referencia', item.reference)
-        .then(() => {});
+        .then(({ error }) => {
+          if (error) console.warn('Error guardando fecha de correo en Supabase:', error.message);
+        });
     }
 
     return resData;
@@ -2039,6 +2079,7 @@ export async function renderOptirouteSupport() {
         }
 
         modal.remove();
+        renderShipmentsTable(allWaypoints);
 
         if (window.Swal) {
           if (failCount === 0) {
