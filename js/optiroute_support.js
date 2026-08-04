@@ -82,8 +82,8 @@ export async function renderOptirouteSupport() {
               <i class="ri-printer-line"></i> Imprimir Selección (<span id="print-count">0</span>)
             </button>
             <!-- Botón Enviar Correos Masivos (Brevo) -->
-            <button id="btn-send-bulk-email" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid #2563eb; color: #2563eb; background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
-              <i class="ri-mail-send-line"></i> Enviar Correos (<span id="email-count">0</span>)
+            <button id="btn-send-bulk-email" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #2563eb; color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Enviar correos masivos por Brevo">
+              <i class="ri-mail-send-line"></i> Enviar Correos Masivos
             </button>
             <!-- Botón Forzar Actualización Live API -->
             <button id="btn-force-live-api" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid var(--color-primary); color: var(--color-primary); background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
@@ -1873,11 +1873,12 @@ export async function renderOptirouteSupport() {
     }
   }
 
-  function openSendBrevoEmailModal(items) {
+  function openSendBrevoEmailModal(items = []) {
     const modalId = 'optiroute-brevo-email-modal';
     const existing = document.getElementById(modalId);
     if (existing) existing.remove();
 
+    let currentItems = (items && items.length > 0) ? items : allWaypoints;
     let selectedType = 'dispatch';
 
     const modal = document.createElement('div');
@@ -1891,24 +1892,39 @@ export async function renderOptirouteSupport() {
     modal.style.justifyContent = 'center';
     modal.style.animation = 'fadeIn 0.2s ease';
 
-    const withEmail = items.filter(i => i.email && i.email.includes('@'));
-    const withoutEmail = items.filter(i => !i.email || !i.email.includes('@'));
-
     function renderContent() {
-      const sampleItem = withEmail[0] || items[0] || {};
+      const withEmail = currentItems.filter(i => i.email && i.email.includes('@'));
+      const withoutEmail = currentItems.filter(i => !i.email || !i.email.includes('@'));
+      const sampleItem = withEmail[0] || currentItems[0] || {};
       const previewHTML = selectedType === 'dispatch' 
         ? buildDispatchEmailHTML(sampleItem)
         : buildDeliveryConfirmedEmailHTML(sampleItem);
+
+      const hasSelection = items && items.length > 0 && items.length !== allWaypoints.length;
 
       modal.innerHTML = `
         <div class="card" style="width: 720px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); animation: scaleUp 0.2s ease; border-radius: var(--radius-lg);">
           
           <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-              <i class="ri-mail-send-line" style="color: #2563eb;"></i> Enviar Notificación por Correo (Brevo)
+              <i class="ri-mail-send-line" style="color: #2563eb;"></i> Enviar Notificación Masiva por Correo (Brevo)
             </h3>
             <button id="close-brevo-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
           </div>
+
+          ${allWaypoints.length > 0 ? `
+            <div style="display: flex; gap: 0.5rem; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); align-items: center; flex-wrap: wrap;">
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main);">Alcance del Envío:</span>
+              <button id="scope-all" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; ${currentItems.length === allWaypoints.length ? 'background: #2563eb; color: white; border: none;' : 'background: transparent; color: var(--color-text-main); border: 1px solid var(--color-border);'}">
+                Todos los despachos (${allWaypoints.length})
+              </button>
+              ${hasSelection ? `
+                <button id="scope-selected" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; ${currentItems.length === items.length ? 'background: #2563eb; color: white; border: none;' : 'background: transparent; color: var(--color-text-main); border: 1px solid var(--color-border);'}">
+                  Solo seleccionados (${items.length})
+                </button>
+              ` : ''}
+            </div>
+          ` : ''}
 
           <div style="font-size: 0.85rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
             <div>
@@ -1977,6 +1993,22 @@ export async function renderOptirouteSupport() {
 
       modal.querySelector('#close-brevo-modal').addEventListener('click', () => modal.remove());
       modal.querySelector('#cancel-brevo-modal').addEventListener('click', () => modal.remove());
+
+      const scopeAllBtn = modal.querySelector('#scope-all');
+      if (scopeAllBtn) {
+        scopeAllBtn.addEventListener('click', () => {
+          currentItems = allWaypoints;
+          renderContent();
+        });
+      }
+
+      const scopeSelBtn = modal.querySelector('#scope-selected');
+      if (scopeSelBtn) {
+        scopeSelBtn.addEventListener('click', () => {
+          currentItems = items;
+          renderContent();
+        });
+      }
 
       modal.querySelectorAll('input[name="email-type-rad"]').forEach(r => {
         r.addEventListener('change', (e) => {
