@@ -906,7 +906,7 @@ export async function renderOptirouteSupport() {
       });
       thumb.addEventListener('click', () => {
         const url = thumb.getAttribute('data-url');
-        if (url) openPhotoLightbox(url);
+        if (url) openLightboxModal(url);
       });
     });
 
