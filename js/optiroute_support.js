@@ -133,6 +133,7 @@ export async function renderOptirouteSupport() {
   // Variables de Estado locales
   let activeToken = null;
   let allWaypoints = []; // Lista unificada de paradas de clientes
+  let currentFilteredWaypoints = []; // Lista actualmente filtrada / visible en pantalla
   let currentIntegration = null;
 
   // Manejo de tabs
@@ -443,6 +444,7 @@ export async function renderOptirouteSupport() {
           if (btnForceLive) btnForceLive.style.display = 'flex';
 
           renderSummaryDashboard(routeName);
+          currentFilteredWaypoints = [...allWaypoints];
           renderShipmentsTable(allWaypoints);
           checkAndAutoSendDeliveryEmails(allWaypoints);
           
@@ -649,6 +651,7 @@ export async function renderOptirouteSupport() {
       if (btnForceLive) btnForceLive.style.display = 'none';
 
       renderSummaryDashboard(planDetail.name || 'Ruta Optiroute');
+      currentFilteredWaypoints = [...allWaypoints];
       renderShipmentsTable(allWaypoints);
       checkAndAutoSendDeliveryEmails(allWaypoints);
 
@@ -1458,6 +1461,7 @@ export async function renderOptirouteSupport() {
       return matchesSearch && matchesStatus;
     });
 
+    currentFilteredWaypoints = filtered;
     renderShipmentsTable(filtered);
   }
 
@@ -1942,7 +1946,8 @@ export async function renderOptirouteSupport() {
     const existing = document.getElementById(modalId);
     if (existing) existing.remove();
 
-    let currentItems = (items && items.length > 0) ? items : allWaypoints;
+    const baseScope = (currentFilteredWaypoints && currentFilteredWaypoints.length > 0) ? currentFilteredWaypoints : allWaypoints;
+    let currentItems = (items && items.length > 0) ? items : baseScope;
     let selectedType = 'dispatch';
 
     const modal = document.createElement('div');
@@ -1964,7 +1969,11 @@ export async function renderOptirouteSupport() {
         ? buildDispatchEmailHTML(sampleItem)
         : buildDeliveryConfirmedEmailHTML(sampleItem);
 
-      const hasSelection = items && items.length > 0 && items.length !== allWaypoints.length;
+      const hasSelection = items && items.length > 0 && items.length !== baseScope.length;
+      const isFilteredScope = baseScope.length < allWaypoints.length;
+      const scopeLabel = isFilteredScope 
+        ? `Despachos en pantalla / filtrados (${baseScope.length})` 
+        : `Todos los despachos (${baseScope.length})`;
 
       modal.innerHTML = `
         <div class="card" style="width: 720px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); animation: scaleUp 0.2s ease; border-radius: var(--radius-lg);">
@@ -1976,11 +1985,11 @@ export async function renderOptirouteSupport() {
             <button id="close-brevo-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
           </div>
 
-          ${allWaypoints.length > 0 ? `
+          ${baseScope.length > 0 ? `
             <div style="display: flex; gap: 0.5rem; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); align-items: center; flex-wrap: wrap;">
               <span style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main);">Alcance del Envío:</span>
-              <button id="scope-all" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; ${currentItems.length === allWaypoints.length ? 'background: #2563eb; color: white; border: none;' : 'background: transparent; color: var(--color-text-main); border: 1px solid var(--color-border);'}">
-                Todos los despachos (${allWaypoints.length})
+              <button id="scope-all" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; ${currentItems.length === baseScope.length ? 'background: #2563eb; color: white; border: none;' : 'background: transparent; color: var(--color-text-main); border: 1px solid var(--color-border);'}">
+                ${scopeLabel}
               </button>
               ${hasSelection ? `
                 <button id="scope-selected" class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 600; cursor: pointer; ${currentItems.length === items.length ? 'background: #2563eb; color: white; border: none;' : 'background: transparent; color: var(--color-text-main); border: 1px solid var(--color-border);'}">
@@ -2061,7 +2070,7 @@ export async function renderOptirouteSupport() {
       const scopeAllBtn = modal.querySelector('#scope-all');
       if (scopeAllBtn) {
         scopeAllBtn.addEventListener('click', () => {
-          currentItems = allWaypoints;
+          currentItems = baseScope;
           renderContent();
         });
       }
