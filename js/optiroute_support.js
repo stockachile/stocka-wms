@@ -944,14 +944,10 @@ export async function renderOptirouteSupport() {
       if (!btnPrintLabels || !printCountSpan) return;
       const checkedCount = Array.from(rowCheckboxes).filter(c => c.checked).length;
       printCountSpan.textContent = checkedCount;
-      if (emailCountSpan) emailCountSpan.textContent = checkedCount;
-
       if (checkedCount > 0) {
         btnPrintLabels.style.display = 'inline-flex';
-        if (btnSendBulkEmail) btnSendBulkEmail.style.display = 'inline-flex';
       } else {
         btnPrintLabels.style.display = 'none';
-        if (btnSendBulkEmail) btnSendBulkEmail.style.display = 'none';
       }
     }
 
@@ -971,7 +967,9 @@ export async function renderOptirouteSupport() {
     }
 
     // Listener para Enviar Correos Brevo (Masivo)
+    const btnSendBulkEmail = document.getElementById('btn-send-bulk-email');
     if (btnSendBulkEmail) {
+      btnSendBulkEmail.style.display = 'inline-flex';
       const newEmailBtn = btnSendBulkEmail.cloneNode(true);
       btnSendBulkEmail.parentNode.replaceChild(newEmailBtn, btnSendBulkEmail);
       newEmailBtn.addEventListener('click', () => {
@@ -979,8 +977,11 @@ export async function renderOptirouteSupport() {
           .filter(c => c.checked)
           .map(c => parseInt(c.getAttribute('data-order')));
         const selectedWaypoints = data.filter(w => checkedOrders.includes(w.order));
-        if (selectedWaypoints.length > 0) {
-          openSendBrevoEmailModal(selectedWaypoints);
+        
+        // Si hay elementos seleccionados, enviar selección; si no, enviar todos los envíos de la ruta
+        const targetWaypoints = selectedWaypoints.length > 0 ? selectedWaypoints : data;
+        if (targetWaypoints.length > 0) {
+          openSendBrevoEmailModal(targetWaypoints);
         }
       });
     }
