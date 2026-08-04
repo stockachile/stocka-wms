@@ -1607,7 +1607,7 @@ export async function renderOptirouteSupport() {
                 <tr>
                   <td style="vertical-align: middle;">
                     <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA" style="height:38px; max-height:38px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
-                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">Logística & Repartos</span>
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">STOCKA Logística & Fulfillment</span>
                   </td>
                 </tr>
               </table>
