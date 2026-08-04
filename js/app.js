@@ -1404,6 +1404,8 @@ async function renderDashboard() {
         src = 'img/walmart.png';
       } else if (pLower.includes('tiendanube')) {
         src = 'img/tiendanube.png';
+      } else if (pLower.includes('manual') || pLower.includes('stocka')) {
+        src = 'img/stocka.cap.png';
       }
       
       if (src) {
@@ -5371,12 +5373,10 @@ window.applyClientWmsFiltersAndRender = function() {
       `;
     }
 
-    const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
-      ? orderShipments[0].created_at 
-      : order.created_at;
+    const dateSource = order.created_at;
 
     const dateObj = new Date(dateSource);
-    const dateStr = dateObj.toLocaleDateString();
+    const dateStr = dateObj.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
     
     // Badge de Estado Origen
     let badgeColor = 'var(--color-gray)';
@@ -5418,7 +5418,7 @@ window.applyClientWmsFiltersAndRender = function() {
 
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
-    const platformLower = platform.toLowerCase();
+    const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -18512,7 +18512,7 @@ function renderMasterCatalogRows(products) {
     } else if (item.raw_jumpseller_data) {
       platformName = 'Jumpseller'; platformColor = '#0284c7';
     }
-    const platformLower = platformName.toLowerCase();
+    const platformLower = platformName.toLowerCase() === 'manual' ? 'stocka.cap' : platformName.toLowerCase();
     const originBadge = `<img src="./img/${platformLower}.png" alt="${platformName}" title="${platformName}" style="height: 32px; max-width: 100px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>${platformName}</span>';" />`;
 
     const expAndLot = (item.expiration_date || item.lot_number)

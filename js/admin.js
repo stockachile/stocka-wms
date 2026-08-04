@@ -2322,13 +2322,11 @@ window.applyWmsFiltersAndRender = function() {
       `;
     }
 
-    const dateSource = (orderShipments.length > 0 && orderShipments[0].created_at) 
-      ? orderShipments[0].created_at 
-      : order.created_at;
+    const dateSource = order.created_at;
 
     const dateObj = new Date(dateSource);
-    const datePart = dateObj.toLocaleDateString('es-CL');
-    const timePart = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+    const datePart = dateObj.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+    const timePart = dateObj.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
     
     let badgeBg = 'var(--color-gray)';
     let badgeTextColor = '#1a1a1a';
@@ -2354,7 +2352,7 @@ window.applyWmsFiltersAndRender = function() {
 
     const platform = order.origen || order.external_platform || 'Manual';
     const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))));
-    const platformLower = platform.toLowerCase();
+    const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
@@ -4769,7 +4767,7 @@ function renderMasterCatalogRows(products) {
     } else if (item.raw_walmart_data) {
       platformName = 'Walmart'; platformColor = '#0071ce';
     }
-    const platformLower = platformName.toLowerCase();
+    const platformLower = platformName.toLowerCase() === 'manual' ? 'stocka.cap' : platformName.toLowerCase();
     const originBadge = `<img src="./img/${platformLower}.png" alt="${platformName}" title="${platformName}" style="height: 32px; max-width: 100px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span class=\\'badge\\' style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;\\'>${platformName}</span>';" />`;
 
     let packBadge = '';
@@ -11929,6 +11927,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       else if (pLower.includes('woocommerce')) src = 'img/woocommerce.png';
       else if (pLower.includes('walmart')) src = 'img/walmart.png';
       else if (pLower.includes('tiendanube')) src = 'img/tiendanube.png';
+      else if (pLower.includes('manual') || pLower.includes('stocka')) src = 'img/stocka.cap.png';
       
       if (src) {
         return `<img src="${src}" alt="${platform}" style="height: 24px; max-height: 24px; object-fit: contain; display: inline-block; vertical-align: middle;" onerror="this.outerHTML='${platform}'">`;
