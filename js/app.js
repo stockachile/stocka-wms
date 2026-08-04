@@ -25356,6 +25356,13 @@ window.calculateShippingQuote = function() {
       `;
     });
 
+    html += `
+      <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border); margin-top: 0.75rem; line-height: 1.3; display: flex; gap: 0.35rem; align-items: flex-start; text-align: left;">
+        <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.95rem; margin-top: 1px;"></i>
+        <span>El costo calculado es una aproximación referencial basada en el peso y volumen ingresados. El costo final dependerá del embalaje y mediciones finales del transportista.</span>
+      </div>
+    `;
+
     optionsList.innerHTML = html;
 
     // Calcular valores finales
@@ -25558,6 +25565,13 @@ window.calculateShippingQuote = function() {
         </label>
       ` + html;
     });
+
+    html += `
+      <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border); margin-top: 0.75rem; line-height: 1.3; display: flex; gap: 0.35rem; align-items: flex-start; text-align: left;">
+        <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.95rem; margin-top: 1px;"></i>
+        <span>El costo calculado es una aproximación referencial basada en el peso y volumen ingresados. El costo final dependerá del embalaje y mediciones finales del transportista.</span>
+      </div>
+    `;
 
     optionsList.innerHTML = html;
 
