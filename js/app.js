@@ -8427,6 +8427,64 @@ async function renderIntegrations() {
     }
   });
 
+  window.loadNewOrderProducts = async function(selectedCommerce) {
+    const dropdownListEl = document.getElementById('order-product-dropdown-list');
+    if (dropdownListEl) {
+      dropdownListEl.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">Cargando productos...</div>';
+      dropdownListEl.style.display = 'none';
+    }
+
+    try {
+      const { data: userAuth } = await supabase.auth.getUser();
+      if (userAuth && userAuth.user) {
+        let query = supabase.from('products').select('id, name, sku, price, volumen').order('name');
+        if (selectedCommerce) {
+          query = query.eq('comercio', selectedCommerce);
+        } else {
+          query = query.eq('comercio', 'no asignado');
+        }
+        const { data: products } = await query;
+        const productsList = products || [];
+
+        if (productsList.length > 0) {
+          const productIds = productsList.map(p => p.id);
+          const batchSize = 100;
+          const promises = [];
+          for (let i = 0; i < productIds.length; i += batchSize) {
+            const batchIds = productIds.slice(i, i + batchSize);
+            promises.push(
+              supabase
+                .from('inventory')
+                .select('product_id, quantity, committed_quantity')
+                .in('product_id', batchIds)
+            );
+          }
+          const results = await Promise.all(promises);
+          const stockMap = {};
+          results.forEach(res => {
+            if (res.data) {
+              res.data.forEach(inv => {
+                const pid = inv.product_id;
+                const avail = (inv.quantity || 0) - (inv.committed_quantity || 0);
+                stockMap[pid] = (stockMap[pid] || 0) + avail;
+              });
+            }
+          });
+          productsList.forEach(p => {
+            p.availableStock = Math.max(0, stockMap[p.id] || 0);
+          });
+        }
+
+        window.tempClientProductsList = productsList;
+        if (window.filterClientNewOrderProducts) {
+          window.filterClientNewOrderProducts();
+        }
+      }
+    } catch (err) {
+      console.error("Error al cargar productos de pedido manual:", err.message);
+    }
+  };
+
   // Handle opening modals dynamically from injected buttons
   document.addEventListener('click', async (e) => {
     // Si hace click en una opción del dropdown de autocompletado de productos
@@ -8435,6 +8493,12 @@ async function renderIntegrations() {
       const prodId = option.getAttribute('data-id');
       const displayVal = option.getAttribute('data-display');
       
+      const product = (window.tempClientProductsList || []).find(p => p.id === prodId);
+      if (product && product.availableStock !== undefined && product.availableStock <= 0) {
+        alert(`Este producto (${product.sku}) no cuenta con stock disponible en este momento y no se puede agregar.`);
+        return;
+      }
+
       const selectProd = document.getElementById('order-product');
       const searchInput = document.getElementById('order-product-search');
       const dropdownList = document.getElementById('order-product-dropdown-list');
@@ -8486,22 +8550,35 @@ async function renderIntegrations() {
       if (hiddenInput) hiddenInput.value = '';
       window.renderClientNewOrderItemsTable();
 
-      // Cargar productos del usuario
-      const { data: userAuth } = await supabase.auth.getUser();
-      if(userAuth && userAuth.user) {
-        const companyList = getCompanyList();
-        let query = supabase.from('products').select('id, name, sku, price').order('name');
-        if (companyList.length > 0) {
-          query = query.in('comercio', companyList);
+      // Configurar selector de comercio
+      const companies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+      const commerceSelectContainer = document.getElementById('order-commerce-select-container');
+      const commerceSelect = document.getElementById('order-select-commerce');
+      if (commerceSelectContainer && commerceSelect) {
+        if (companies.length > 1) {
+          commerceSelectContainer.style.display = 'flex';
+          commerceSelect.innerHTML = companies.map(c => `<option value="${c}">${c}</option>`).join('');
         } else {
-          query = query.eq('comercio', 'no asignado');
+          commerceSelectContainer.style.display = 'none';
+          commerceSelect.innerHTML = `<option value="${companies[0] || 'STOCKA'}">${companies[0] || 'STOCKA'}</option>`;
         }
-        const { data: products } = await query;
-        window.tempClientProductsList = products || [];
-        if (window.filterClientNewOrderProducts) {
-          window.filterClientNewOrderProducts();
-        }
+
+        // Listener para cambios de comercio
+        commerceSelect.onchange = function() {
+          window.tempClientNewOrderItems = [];
+          window.renderClientNewOrderItemsTable();
+          window.loadNewOrderProducts(this.value);
+        };
       }
+
+      // Initialize Step Wizard
+      if (typeof window.initWizardOrder === 'function') {
+        window.initWizardOrder();
+      }
+
+      // Cargar productos del comercio inicialmente seleccionado
+      const initialCommerce = commerceSelect ? commerceSelect.value : (companies[0] || 'STOCKA');
+      window.loadNewOrderProducts(initialCommerce);
     }
 
     // Cerrar modals
@@ -8795,7 +8872,7 @@ async function renderIntegrations() {
 
         const { error: insErr } = await supabase
           .from('product_pack_items')
-          .insert(rowsToInsert);
+      .insert(rowsToInsert);
 
         if (insErr) throw insErr;
       }
@@ -8826,15 +8903,53 @@ async function renderIntegrations() {
       return;
     }
 
+    // Si no estamos en el paso 3, este listener no debería enviar el formulario
+    if (window.currentWizardStep !== 3) {
+      return;
+    }
+
     const items = window.tempClientNewOrderItems || [];
     if (items.length === 0) {
       alert('Debes agregar al menos un producto al pedido.');
       return;
     }
 
-    const btnSubmit = e.target.querySelector('button[type="submit"]');
-    btnSubmit.disabled = true;
-    btnSubmit.textContent = 'Procesando...';
+    const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+    if (!selectedCourierRadio) {
+      alert('Por favor selecciona un courier / servicio de despacho antes de confirmar.');
+      return;
+    }
+
+    // Validar stock disponible antes de confirmar el pedido
+    for (const item of items) {
+      const prod = (window.tempClientProductsList || []).find(p => p.id === item.product_id);
+      if (prod && prod.availableStock !== undefined && item.quantity > prod.availableStock) {
+        alert(`Error: Stock insuficiente para el producto ${item.sku}.\n` +
+              `Stock disponible: ${prod.availableStock} unidades.\n` +
+              `Cantidad en el pedido: ${item.quantity} unidades.`);
+        return;
+      }
+    }
+
+    const btnSubmit = document.getElementById('btn-wizard-submit');
+    if (btnSubmit) {
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Procesando...';
+    }
+
+    const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+    if (shippingType === 'sucursal') {
+      const branchCourier = document.getElementById('order-sucursal-courier').value;
+      const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+      if (!branchCourier || !branchDetails) {
+        alert('Por favor selecciona el Courier de Sucursal e ingresa la Dirección / Nombre de la Sucursal.');
+        if (btnSubmit) {
+          btnSubmit.disabled = false;
+          btnSubmit.innerHTML = 'Confirmar Pedido <i class="ri-check-line"></i>';
+        }
+        return;
+      }
+    }
 
     try {
       const { data: userAuth } = await supabase.auth.getUser();
@@ -8848,14 +8963,45 @@ async function renderIntegrations() {
       const shippingAddress = document.getElementById('order-cust-address').value.trim();
       const shippingCity = document.getElementById('order-cust-city').value.trim();
       const shippingComplement = document.getElementById('order-cust-complement').value.trim();
-      const shippingMethod = document.getElementById('order-cust-shipping-method').value.trim();
       const origen = document.getElementById('order-cust-origen').value;
       const externalId = document.getElementById('order-cust-external-id').value.trim();
 
+      // Shipping configuration
+      const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+      const selectedCourier = selectedCourierRadio.value; // STARKEN, CHILEXPRESS, BLUEXPRESS, STOCKA
+      const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+
+      // Generate shipping method glosa
+      let finalShippingMethod = '';
+      if (shippingType === 'sucursal') {
+        const branchCourier = document.getElementById('order-sucursal-courier').value;
+        const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+        const branchRef = document.getElementById('order-sucursal-ref').value.trim();
+        finalShippingMethod = `Retiro en Sucursal ${branchCourier} - ${branchDetails}${branchRef ? ' (Ref: ' + branchRef + ')' : ''}`;
+      } else if (shippingType === 'punto_stocka') {
+        finalShippingMethod = 'Retiro en Punto STOCKA (Avenida Campo de Deportes 405, Ñuñoa)';
+      } else {
+        const paymentText = paymentCondition === 'por_pagar' ? 'Por Pagar' : 'Pagado';
+        finalShippingMethod = `Despacho Domicilio - ${selectedCourier} (${paymentText})`;
+      }
+
+      // Generate or retrieve external order number
+      let finalExternalId = externalId;
+      const isAutoOrderNumber = document.getElementById('order-number-auto').checked;
+      if (isAutoOrderNumber || !finalExternalId) {
+        const now = new Date();
+        const yy = String(now.getFullYear()).substring(2);
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        finalExternalId = `MAN-${yy}${mm}${dd}-${hh}${min}-${randomSuffix}`;
+      }
+
       // Aplicar reglas de prefijo para pedidos Manuales
-      let finalExternalId = externalId || `MAN-${Date.now()}`;
       try {
-        const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+        const commerce = document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
         
         const { data: configData } = await supabase
           .from('v_comercios_config')
@@ -8871,7 +9017,7 @@ async function renderIntegrations() {
 
         let siglaComercio = configData?.sigla ? configData.sigla.trim().toUpperCase() : '';
         let prefijoOrigen = '';
-        let agregarPrefijo = true; // Por defecto manual agrega sigla
+        let agregarPrefijo = true;
         
         if (adicionalConfig) {
           const platConfig = (adicionalConfig.plat_siglas_config || {})['Manual'];
@@ -8884,11 +9030,9 @@ async function renderIntegrations() {
         }
 
         let orderNumber = finalExternalId.toString().trim();
-        // Quitar prefijo de origen
         if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
           orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
         }
-        // Añadir prefijo WMS
         if (agregarPrefijo && siglaComercio) {
           if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
             finalExternalId = `${siglaComercio}${orderNumber}`;
@@ -8908,33 +9052,75 @@ async function renderIntegrations() {
       const orderItemsNames = items.map(i => i.name).join(', ');
       const totalValue = items.reduce((sum, i) => sum + (i.quantity * i.price), 0);
 
+      // Quoted costs
+      const netShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-net') || '0');
+      const taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
+
       // 1. Crear el Pedido Padre
-      const { data: insertedOrder, error: insertErr } = await supabase
+      const orderDataPayload = {
+        merchant_id: merchantId,
+        comercio: document.getElementById('order-select-commerce')?.value || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
+        status: 'para procesar',
+        estado_wms: 'En procesamiento',
+        customer_name: customerName,
+        customer_email: customerEmail || null,
+        customer_phone: customerPhone || null,
+        shipping_address: shippingAddress,
+        shipping_city: shippingCity,
+        shipping_complement: shippingComplement || null,
+        shipping_method: finalShippingMethod,
+        operador: selectedCourier,
+        origen: origen || 'Manual',
+        external_platform: origen || 'Manual',
+        external_order_number: finalExternalId,
+        cantidad: totalCantidad,
+        sku: orderSkus,
+        item: orderItemsNames,
+        total_value: totalValue
+      };
+
+      // Add quoted costs with columns
+      orderDataPayload.shipping_cost = paymentCondition === 'por_pagar' ? 0.00 : netShippingCost;
+      orderDataPayload.shipping_cost_tax = paymentCondition === 'por_pagar' ? 0.00 : taxShippingCost;
+
+      let insertedOrder = null;
+      
+      // Intentar insertar con las columnas nuevas de costos de envío
+      const insertResult = await supabase
         .from('orders')
-        .insert([{
-          merchant_id: merchantId,
-          comercio: currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA',
-          status: 'para procesar',
-          estado_wms: 'En procesamiento',
-          customer_name: customerName,
-          customer_email: customerEmail || null,
-          customer_phone: customerPhone || null,
-          shipping_address: shippingAddress,
-          shipping_city: shippingCity,
-          shipping_complement: shippingComplement || null,
-          shipping_method: shippingMethod || 'Por definir',
-          origen: origen || 'Manual',
-          external_platform: origen || 'Manual',
-          external_order_number: finalExternalId,
-          cantidad: totalCantidad,
-          sku: orderSkus,
-          item: orderItemsNames,
-          total_value: totalValue
-        }])
+        .insert([orderDataPayload])
         .select()
         .single();
 
-      if(insertErr) throw insertErr;
+      if (insertResult.error) {
+        // Si falla por columna inexistente (código 42703 o PGRST204 de PostgREST), reintentar sin esas columnas
+        const isColumnError = insertResult.error.code === '42703' || 
+                              insertResult.error.code === 'PGRST204' || 
+                              (insertResult.error.message && insertResult.error.message.includes('shipping_cost'));
+                              
+        if (isColumnError) {
+          console.warn("⚠️ Columnas shipping_cost/shipping_cost_tax no existen en la BD. Reintentando inserción sin ellas...");
+          const fallbackPayload = { ...orderDataPayload };
+          delete fallbackPayload.shipping_cost;
+          delete fallbackPayload.shipping_cost_tax;
+          
+          // Guardar el detalle de costos en shipping_method para no perderlo
+          fallbackPayload.shipping_method = `${finalShippingMethod} [Costo Neto Cotizado: $${netShippingCost} + IVA]`;
+
+          const fallbackResult = await supabase
+            .from('orders')
+            .insert([fallbackPayload])
+            .select()
+            .single();
+
+          if (fallbackResult.error) throw fallbackResult.error;
+          insertedOrder = fallbackResult.data;
+        } else {
+          throw insertResult.error;
+        }
+      } else {
+        insertedOrder = insertResult.data;
+      }
 
       // 2. Determinar la mejor bodega para cada ítem y preparar inserciones
       const itemsPayload = [];
@@ -8948,7 +9134,7 @@ async function renderIntegrations() {
         let bestWarehouse = null;
         let maxAvailable = -1;
 
-        if(invData && invData.length > 0) {
+        if (invData && invData.length > 0) {
           invData.forEach(inv => {
             const available = inv.quantity || 0;
             if (available > maxAvailable) {
@@ -8958,7 +9144,7 @@ async function renderIntegrations() {
           });
         }
 
-        if(!bestWarehouse) {
+        if (!bestWarehouse) {
           const { data: bodegaCentral } = await supabase
             .from('warehouses')
             .select('id')
@@ -8981,7 +9167,7 @@ async function renderIntegrations() {
         .from('order_items')
         .insert(itemsPayload);
 
-      if(errItems) throw errItems;
+      if (errItems) throw errItems;
 
       alert('Pedido registrado con éxito');
       document.getElementById('modal-order').classList.remove('active');
@@ -20872,11 +21058,19 @@ window.filterClientNewOrderProducts = function() {
   let html = '';
   filtered.forEach(p => {
     const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+    const stockQty = p.availableStock !== undefined ? p.availableStock : 0;
+    const isOutOfStock = stockQty <= 0;
+    const stockColor = isOutOfStock ? 'var(--color-danger, #ef4444)' : 'var(--color-success, #10b981)';
+    const stockText = isOutOfStock ? 'Sin stock' : `Stock: ${stockQty} und.`;
+
     html += `
-      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.85rem; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+      <div class="order-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: ${isOutOfStock ? 'not-allowed' : 'pointer'}; opacity: ${isOutOfStock ? '0.6' : '1'}; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="if(!${isOutOfStock}) this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
         <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
         <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
-        <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
+          <span style="color: var(--color-text-muted); font-weight: 500;">${window.formatCLP(p.price || 0)}</span>
+          <span style="color: ${stockColor}; font-weight: 600;">${stockText}</span>
+        </div>
       </div>
     `;
   });
@@ -20909,6 +21103,16 @@ window.addClientNewOrderItem = function() {
 
   window.tempClientNewOrderItems = window.tempClientNewOrderItems || [];
   const existingIdx = window.tempClientNewOrderItems.findIndex(i => i.product_id === prodId);
+  const currentQty = existingIdx !== -1 ? window.tempClientNewOrderItems[existingIdx].quantity : 0;
+  const totalRequested = qty + currentQty;
+
+  if (product.availableStock !== undefined && totalRequested > product.availableStock) {
+    alert(`No hay stock suficiente para el producto ${product.sku}.\n` +
+          `Stock disponible: ${product.availableStock} unidades.\n` +
+          `Cantidad solicitada en total: ${totalRequested} unidades.`);
+    return;
+  }
+
   if (existingIdx !== -1) {
     window.tempClientNewOrderItems[existingIdx].quantity += qty;
   } else {
@@ -20917,6 +21121,7 @@ window.addClientNewOrderItem = function() {
       sku: product.sku,
       name: product.name,
       price: product.price || 0,
+      volumen: product.volumen || 0,
       quantity: qty
     });
   }
@@ -20955,17 +21160,23 @@ window.renderClientNewOrderItemsTable = function() {
     `;
     totalQtyEl.textContent = '0';
     totalValEl.textContent = window.formatCLP(0);
+    
+    // Reset volume estimated
+    const volInput = document.getElementById('order-total-volume-estimated');
+    if (volInput) volInput.value = "0.00000";
     return;
   }
 
   let html = '';
   let totalQty = 0;
   let totalVal = 0;
+  let totalVol = 0;
 
   items.forEach((item, idx) => {
     const subtotal = item.quantity * item.price;
     totalQty += item.quantity;
     totalVal += subtotal;
+    totalVol += item.quantity * (item.volumen || 0);
 
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
@@ -20984,6 +21195,10 @@ window.renderClientNewOrderItemsTable = function() {
   tbody.innerHTML = html;
   totalQtyEl.textContent = totalQty;
   totalValEl.textContent = window.formatCLP(totalVal);
+
+  // Update volume estimated
+  const volInput = document.getElementById('order-total-volume-estimated');
+  if (volInput) volInput.value = totalVol.toFixed(5);
 };
 
 window.exportDeclarationToPDF = async function(id) {
@@ -24575,4 +24790,883 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
     }
   });
 }
+
+// ==========================================================================
+// WMS STOCKA - WIZARD PEDIDO MANUAL & COTIZADOR DE ENVIOS
+// ==========================================================================
+
+window.ALPHA_COBERTURA_36 = [
+  'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
+  'huechuraba', 'independencia', 'la cisterna', 'la florida', 'la granja',
+  'la pintana', 'la reina', 'las condes', 'lo barnechea', 'lo espejo',
+  'lo prado', 'macul', 'maipu', 'nunoa', 'pedro aguirre cerda',
+  'penalolen', 'providencia', 'pudahuel', 'puente alto', 'quilicura',
+  'quinta normal', 'recoleta', 'renca', 'san bernardo', 'san joaquin',
+  'san miguel', 'san ramon', 'santiago', 'vitacura', 'padre hurtado',
+  'colina'
+];
+
+window.isRmCoverage = function(comunaName) {
+  if (!comunaName) return false;
+  const normalized = comunaName.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  return window.ALPHA_COBERTURA_36.includes(normalized);
+};
+
+window.currentWizardStep = 1;
+
+window.initWizardOrder = function() {
+  window.currentWizardStep = 1;
+  window.updateWizardUI();
+
+  // Reiniciar valores de cotización
+  const netEl = document.getElementById('order-quote-net');
+  const taxEl = document.getElementById('order-quote-tax');
+  const totalEl = document.getElementById('order-quote-total');
+  if (netEl) netEl.textContent = '$0';
+  if (taxEl) taxEl.textContent = '$0';
+  if (totalEl) totalEl.textContent = '$0';
+
+  // Configurar listeners de navegación del Footer
+  const btnNext = document.getElementById('btn-wizard-next');
+  const btnPrev = document.getElementById('btn-wizard-prev');
+  const btnSubmit = document.getElementById('btn-wizard-submit');
+
+  if (btnNext) {
+    btnNext.onclick = function() {
+      if (window.validateWizardStep(window.currentWizardStep)) {
+        window.currentWizardStep++;
+        window.updateWizardUI();
+        if (window.currentWizardStep === 3) {
+          window.calculateShippingQuote();
+        }
+      }
+    };
+  }
+
+  if (btnPrev) {
+    btnPrev.onclick = function() {
+      if (window.currentWizardStep > 1) {
+        window.currentWizardStep--;
+        window.updateWizardUI();
+      }
+    };
+  }
+
+  // Configurar autocompletado de clientes en BD
+  window.setupCustomerAutocomplete();
+  window.setupComunaAutocomplete();
+
+  // Configurar listeners de cambios en Paso 3
+  const shippingTypeRadios = document.querySelectorAll('input[name="order-shipping-type"]');
+  shippingTypeRadios.forEach(radio => {
+    radio.onchange = function() {
+      const sucursalPanel = document.getElementById('order-sucursal-panel');
+      const puntoStockaPanel = document.getElementById('order-punto-stocka-panel');
+      if (sucursalPanel) {
+        sucursalPanel.style.display = this.value === 'sucursal' ? 'flex' : 'none';
+      }
+      if (puntoStockaPanel) {
+        puntoStockaPanel.style.display = this.value === 'punto_stocka' ? 'flex' : 'none';
+      }
+      if (this.value !== 'sucursal') {
+        const branchCourierSelect = document.getElementById('order-sucursal-courier');
+        if (branchCourierSelect) branchCourierSelect.value = '';
+      }
+      window.calculateShippingQuote();
+    };
+  });
+
+  const sucursalCourierSelect = document.getElementById('order-sucursal-courier');
+  if (sucursalCourierSelect) {
+    sucursalCourierSelect.onchange = function() {
+      window.calculateShippingQuote();
+    };
+  }
+
+  const shippingPaymentRadios = document.querySelectorAll('input[name="order-shipping-payment"]');
+  shippingPaymentRadios.forEach(radio => {
+    radio.onchange = function() {
+      window.calculateShippingQuote();
+    };
+  });
+
+  const autoOrderNumCheckbox = document.getElementById('order-number-auto');
+  const extOrderIdInput = document.getElementById('order-cust-external-id');
+  if (autoOrderNumCheckbox && extOrderIdInput) {
+    autoOrderNumCheckbox.onchange = function() {
+      extOrderIdInput.style.display = this.checked ? 'none' : 'block';
+      if (!this.checked) extOrderIdInput.focus();
+    };
+    extOrderIdInput.style.display = autoOrderNumCheckbox.checked ? 'none' : 'block';
+  }
+
+  // Listeners para refrescar cotización en tiempo real
+  const cityInput = document.getElementById('order-cust-city');
+  if (cityInput) {
+    cityInput.onchange = function() {
+      if (window.currentWizardStep === 3) window.calculateShippingQuote();
+    };
+    cityInput.onkeyup = function() {
+      if (window.currentWizardStep === 3) window.calculateShippingQuote();
+    };
+  }
+
+  const weightInput = document.getElementById('order-total-weight-input');
+  if (weightInput) {
+    weightInput.onchange = function() {
+      if (parseFloat(this.value) <= 0 || isNaN(parseFloat(this.value))) {
+        this.value = "1.0";
+      }
+      if (window.currentWizardStep === 3) window.calculateShippingQuote();
+    };
+  }
+};
+
+window.updateWizardUI = function() {
+  // Ocultar todos los contenedores de pasos
+  for (let i = 1; i <= 3; i++) {
+    const container = document.getElementById(`wizard-step-${i}`);
+    if (container) container.style.display = 'none';
+
+    const tab = document.getElementById(`wizard-tab-${i}`);
+    const line = document.getElementById(`wizard-line-${i}`);
+    if (tab) {
+      tab.style.color = 'var(--color-text-muted)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = 'var(--color-bg-dark, #cbd5e1)';
+        num.style.color = 'var(--color-text-muted)';
+        num.style.boxShadow = 'none';
+      }
+    }
+    if (line) {
+      line.style.background = 'var(--color-border)';
+    }
+  }
+
+  // Activar paso actual y previos
+  for (let i = 1; i <= window.currentWizardStep; i++) {
+    const tab = document.getElementById(`wizard-tab-${i}`);
+    if (tab) {
+      const isCurrent = i === window.currentWizardStep;
+      tab.style.color = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+        num.style.color = 'white';
+        if (isCurrent) {
+          num.style.boxShadow = '0 0 0 4px rgba(var(--color-primary-rgb), 0.15)';
+        }
+      }
+    }
+    if (i < window.currentWizardStep) {
+      const line = document.getElementById(`wizard-line-${i}`);
+      if (line) line.style.background = 'var(--color-success, #22c55e)';
+    }
+  }
+
+  // Mostrar el contenedor del paso activo
+  const activeContainer = document.getElementById(`wizard-step-${window.currentWizardStep}`);
+  if (activeContainer) activeContainer.style.display = 'block';
+
+  // Control de visibilidad de botones del footer
+  const btnPrev = document.getElementById('btn-wizard-prev');
+  const btnNext = document.getElementById('btn-wizard-next');
+  const btnSubmit = document.getElementById('btn-wizard-submit');
+
+  if (btnPrev) btnPrev.style.display = window.currentWizardStep > 1 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = window.currentWizardStep < 3 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = window.currentWizardStep === 3 ? 'flex' : 'none';
+};
+
+window.validateWizardStep = function(step) {
+  if (step === 1) {
+    const name = document.getElementById('order-cust-name').value.trim();
+    const email = document.getElementById('order-cust-email').value.trim();
+    const phone = document.getElementById('order-cust-phone').value.trim();
+    const address = document.getElementById('order-cust-address').value.trim();
+    const city = document.getElementById('order-cust-city').value.trim();
+
+    if (!name || !email || !phone || !address || !city) {
+      alert('Por favor completa todos los campos obligatorios (*) antes de continuar.');
+      return false;
+    }
+
+    // Validar de forma estricta que la comuna pertenezca a la base de datos de tarifas
+    let validComunas = [];
+    if (window.shippingRates) {
+      validComunas = Object.values(window.shippingRates);
+    }
+
+    const normalizeString = (str) => {
+      return (str || '').toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .trim();
+    };
+
+    const normalizedCityInput = normalizeString(city);
+    const matchingComunaObj = validComunas.find(c => normalizeString(c.comuna) === normalizedCityInput);
+
+    if (!matchingComunaObj) {
+      alert('La comuna/ciudad ingresada no es válida. Por favor, selecciona una comuna de la lista desplegable.');
+      return false;
+    }
+
+    // Auto-corregir con la ortografía oficial (ej. "nunoa" -> "Ñuñoa")
+    document.getElementById('order-cust-city').value = matchingComunaObj.comuna;
+    return true;
+  } else if (step === 2) {
+    const items = window.tempClientNewOrderItems || [];
+    if (items.length === 0) {
+      alert('Debes agregar al menos un producto al pedido.');
+      return false;
+    }
+    return true;
+  }
+  return true;
+};
+
+window.setupCustomerAutocomplete = function() {
+  const searchInput = document.getElementById('order-customer-search-db');
+  const dropdown = document.getElementById('order-customer-dropdown-list-db');
+  if (!searchInput || !dropdown) return;
+
+  let debounceTimeout = null;
+
+  searchInput.addEventListener('input', function() {
+    const term = this.value.trim();
+    clearTimeout(debounceTimeout);
+
+    if (term.length < 3) {
+      dropdown.style.display = 'none';
+      return;
+    }
+
+    debounceTimeout = setTimeout(async () => {
+      try {
+        const selectedCommerce = document.getElementById('order-select-commerce')?.value;
+        let query = supabase
+          .from('orders')
+          .select('customer_name, customer_email, customer_phone, shipping_address, shipping_city, shipping_complement')
+          .or(`customer_name.ilike.%${term}%,customer_email.ilike.%${term}%`)
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (selectedCommerce) {
+          query = query.eq('comercio', selectedCommerce);
+        } else {
+          query = query.eq('comercio', 'no asignado');
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        // Filtrar clientes duplicados en base a nombre y correo
+        const uniqueCustomers = [];
+        const seenKeys = new Set();
+        (data || []).forEach(order => {
+          const name = order.customer_name || '';
+          const email = order.customer_email || '';
+          const key = `${name.toLowerCase()}_${email.toLowerCase()}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            uniqueCustomers.push(order);
+          }
+        });
+
+        if (uniqueCustomers.length === 0) {
+          dropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron clientes anteriores</div>';
+          dropdown.style.display = 'block';
+          return;
+        }
+
+        let html = '';
+        uniqueCustomers.forEach(c => {
+          html += `
+            <div class="customer-autocomplete-option" style="padding: 0.6rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+              <span style="font-weight: bold; font-size: 0.85rem; color: var(--color-text-main);">${c.customer_name}</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">${c.customer_email || 'Sin correo'} | ${c.customer_phone || 'Sin teléfono'}</span>
+              <span style="font-size: 0.75rem; color: var(--color-primary);">${c.shipping_address}, ${c.shipping_city}</span>
+            </div>
+          `;
+        });
+
+        dropdown.innerHTML = html;
+        dropdown.style.display = 'block';
+
+        // Configurar click en las opciones
+        const options = dropdown.querySelectorAll('.customer-autocomplete-option');
+        options.forEach((opt, idx) => {
+          opt.onclick = function() {
+            const customer = uniqueCustomers[idx];
+            document.getElementById('order-cust-name').value = customer.customer_name || '';
+            document.getElementById('order-cust-email').value = customer.customer_email || '';
+            document.getElementById('order-cust-phone').value = customer.customer_phone || '';
+            document.getElementById('order-cust-address').value = customer.shipping_address || '';
+            document.getElementById('order-cust-complement').value = customer.shipping_complement || '';
+
+            // Validar de forma inmediata la comuna del pedido anterior
+            const rawCity = customer.shipping_city || '';
+            let validComunas = [];
+            if (window.shippingRates) {
+              validComunas = Object.values(window.shippingRates);
+            }
+
+            const normalizeString = (str) => {
+              return (str || '').toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/ñ/g, 'n')
+                .trim();
+            };
+
+            const normalizedCityInput = normalizeString(rawCity);
+            const matchingComunaObj = validComunas.find(c => normalizeString(c.comuna) === normalizedCityInput);
+
+            const cityInputEl = document.getElementById('order-cust-city');
+            if (matchingComunaObj) {
+              cityInputEl.value = matchingComunaObj.comuna;
+            } else {
+              cityInputEl.value = rawCity; // Mostrar el valor anterior para referencia
+              alert(`⚠️ Advertencia: La comuna del pedido anterior ("${rawCity}") no coincide con el listado oficial de comunas. Por favor, selecciona la comuna correcta manualmente.`);
+              setTimeout(() => {
+                cityInputEl.focus();
+                // Desplegar la lista de comunas
+                const cityDropdown = document.getElementById('order-cust-city-dropdown');
+                if (cityDropdown && typeof window.setupComunaAutocomplete === 'function') {
+                  cityDropdown.style.display = 'block';
+                }
+              }, 150);
+            }
+
+            dropdown.style.display = 'none';
+            searchInput.value = '';
+          };
+        });
+
+      } catch (err) {
+        console.error("Error al buscar clientes históricos:", err.message);
+      }
+    }, 300);
+  });
+
+  // Cerrar dropdown al hacer click afuera
+  document.addEventListener('click', function(e) {
+    if (e.target !== searchInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+};
+
+window.calculateShippingQuote = function() {
+  const city = document.getElementById('order-cust-city').value.trim();
+  const weight = parseFloat(document.getElementById('order-total-weight-input').value) || 1.0;
+  const volume = parseFloat(document.getElementById('order-total-volume-estimated').value) || 0.0;
+  const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+  const paymentConditionGroup = document.getElementById('order-payment-condition-group');
+
+  const badge = document.getElementById('order-coverage-badge');
+  const optionsList = document.getElementById('order-courier-options-list');
+  const netEl = document.getElementById('order-quote-net');
+  const taxEl = document.getElementById('order-quote-tax');
+  const totalEl = document.getElementById('order-quote-total');
+
+  if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
+
+  if (shippingType === 'punto_stocka') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Retiro en Punto STOCKA (Sin Costo)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-success, #22c55e); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+          <input type="radio" name="order-courier-option" value="STOCKA" checked data-net="0" data-tax="0" style="cursor: pointer;">
+          Retiro en Punto STOCKA (Campo de Deportes 405, Ñuñoa)
+        </span>
+        <span style="font-weight: bold; color: var(--color-success, #22c55e);">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </label>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (!city) {
+    badge.style.background = 'rgba(239, 68, 68, 0.1)';
+    badge.style.color = '#ef4444';
+    badge.innerHTML = '<i class="ri-error-warning-line"></i> Ingrese comuna en el paso 1 para cotizar';
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Defina comuna de destino...</div>';
+    return;
+  }
+
+  // Si elige retiro en sucursal y no ha seleccionado courier, bloquear cotización
+  if (shippingType === 'sucursal') {
+    const branchCourierSelect = document.getElementById('order-sucursal-courier');
+    const selectedBranchCourier = branchCourierSelect ? branchCourierSelect.value : '';
+    if (!selectedBranchCourier) {
+      badge.style.background = 'rgba(245, 158, 11, 0.1)';
+      badge.style.color = '#f59e0b';
+      badge.innerHTML = '<i class="ri-alert-line"></i> Selecciona un courier de sucursal para cotizar';
+      optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic;">Por favor, selecciona el Courier de Sucursal a la izquierda...</div>';
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+  }
+
+  const isRm = window.isRmCoverage(city);
+
+  // Reglas de tipo de entrega
+  if (shippingType === 'sucursal') {
+    // Retiro en sucursal (Starken o Chilexpress)
+    badge.style.background = 'rgba(124, 58, 237, 0.1)';
+    badge.style.color = '#7c3aed';
+    badge.innerHTML = '<i class="ri-building-line"></i> Retiro en Sucursal';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'block'; // Permite pagado o por pagar
+
+    const selectedBranchCourier = document.getElementById('order-sucursal-courier').value; // STARKEN o CHILEXPRESS
+    const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+
+    const normalizedCity = city.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .replace(/[^a-z\s]/g, '')
+      .trim();
+
+    const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+
+    if (!ratesData) {
+      // Comuna no encontrada, mostrar manual bloqueado al courier elegido
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Ingresa la tarifa neta de envío manual para ${selectedBranchCourier}:</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
+          <input type="text" class="form-input" readonly value="${selectedBranchCourier}" style="font-size: 0.8rem; padding: 0.35rem; width: 120px; background: var(--color-bg-dark, #cbd5e1); font-weight: bold;">
+        </div>
+      `;
+
+      const manualNetInput = document.getElementById('manual-shipping-net');
+      const updateManual = () => {
+        let net = parseFloat(manualNetInput?.value) || 0;
+        const isPorPagar = paymentCondition === 'por_pagar';
+        const displayNet = isPorPagar ? 0 : net;
+        const tax = displayNet * 0.19;
+        const total = displayNet + tax;
+
+        netEl.textContent = window.formatCLP(displayNet);
+        taxEl.textContent = window.formatCLP(tax);
+        totalEl.textContent = window.formatCLP(total);
+
+        // Crear una opción ficticia seleccionada para el submit
+        const tempRadio = document.createElement('input');
+        tempRadio.type = 'radio';
+        tempRadio.name = 'order-courier-option';
+        tempRadio.value = selectedBranchCourier;
+        tempRadio.checked = true;
+        tempRadio.setAttribute('data-net', net);
+        tempRadio.setAttribute('data-tax', net * 0.19);
+        tempRadio.style.display = 'none';
+        
+        const existingTemp = optionsList.querySelector('#temp-manual-radio');
+        if (existingTemp) existingTemp.remove();
+        
+        tempRadio.id = 'temp-manual-radio';
+        optionsList.appendChild(tempRadio);
+      };
+
+      if (manualNetInput) {
+        manualNetInput.onchange = updateManual;
+        manualNetInput.onkeyup = updateManual;
+      }
+      updateManual();
+      return;
+    }
+
+    // Comuna encontrada, determinar tramo de peso
+    let bracket = '0-1';
+    if (weight <= 1.0) bracket = '0-1';
+    else if (weight <= 3.0) bracket = '1-3';
+    else if (weight <= 6.0) bracket = '3-6';
+    else if (weight <= 9.0) bracket = '6-9';
+    else if (weight <= 12.0) bracket = '9-12';
+    else if (weight <= 15.0) bracket = '12-15';
+    else bracket = '15-18';
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    let netPrice = selectedBranchCourier === 'STARKEN' ? bracketRates.starken : bracketRates.chilexpress;
+
+    // Recargo por peso extra > 18kg ($1.000 neto/kg)
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      const surcharge = extraKg * 1000;
+      if (netPrice) netPrice += surcharge;
+    }
+
+    if (!netPrice) {
+      optionsList.innerHTML = `<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">El courier ${selectedBranchCourier} no tiene tarifas configuradas para la comuna de ${ratesData.comuna}.</div>`;
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    // Armar opciones de couriers, bloqueando la selección de los otros y seleccionando el elegido
+    let html = '';
+    const couriers = [
+      { id: 'STARKEN', name: 'Starken Next Day', price: selectedBranchCourier === 'STARKEN' ? netPrice : (bracketRates.starken + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) },
+      { id: 'CHILEXPRESS', name: 'Chilexpress Aéreo', price: selectedBranchCourier === 'CHILEXPRESS' ? netPrice : (bracketRates.chilexpress + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) },
+      { id: 'BLUEXPRESS', name: 'Bluexpress Standard', price: bracketRates.bluexpress + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0) }
+    ];
+
+    couriers.forEach(c => {
+      const isSelected = c.id === selectedBranchCourier;
+      const displayPrice = isSelected ? netPrice : c.price;
+      const displayPriceTotal = displayPrice ? displayPrice * 1.19 : 0;
+      
+      const priceText = displayPrice ? `${window.formatCLP(displayPriceTotal)} c/IVA` : 'No Disponible';
+      const checkedAttr = isSelected ? 'checked' : '';
+      const disabledAttr = isSelected ? '' : 'disabled="true"';
+      const labelOpacity = isSelected ? '1' : '0.5';
+      const labelBorder = isSelected ? 'var(--color-primary)' : 'var(--color-border)';
+
+      html += `
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${labelBorder}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: ${isSelected ? 'pointer' : 'not-allowed'}; opacity: ${labelOpacity}; transition: all 0.2s;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="${c.id}" ${checkedAttr} ${disabledAttr} data-net="${displayPrice || 0}" data-tax="${(displayPrice || 0) * 0.19}" style="cursor: ${isSelected ? 'pointer' : 'not-allowed'};">
+            ${c.name} ${isSelected ? '<span style="font-size: 0.7rem; background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Elegido</span>' : ''}
+          </span>
+          <span style="font-weight: bold; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'};">${priceText}</span>
+        </label>
+      `;
+    });
+
+    optionsList.innerHTML = html;
+
+    // Calcular valores finales
+    const isPorPagar = paymentCondition === 'por_pagar';
+    const finalNet = isPorPagar ? 0 : netPrice;
+    const tax = finalNet * 0.19;
+    const total = finalNet + tax;
+
+    netEl.textContent = window.formatCLP(finalNet);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+
+  } else if (isRm) {
+    // Cobertura RM Domicilio
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Cobertura RM Directa (STOCKA Same Day)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    // Determinar tarifa
+    const normalizedCity = city.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .replace(/[^a-z\s]/g, '')
+      .trim();
+
+    let net = 3200;
+    const isColina = normalizedCity === 'colina';
+
+    if (isColina) {
+      net = 3490;
+    }
+
+    const volumeExceeded = volume > 0.125; // 50x50x50 cm
+    const weightExceeded = weight > 10.0;
+
+    if (volumeExceeded || weightExceeded) {
+      net = isColina ? 6980 : 6200;
+    }
+
+    const tax = net * 0.19;
+    const total = net + tax;
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+          <input type="radio" name="order-courier-option" value="STOCKA" checked data-net="${net}" data-tax="${tax}" style="cursor: pointer;">
+          STOCKA Same Day (Flex)
+        </span>
+        <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(net + tax)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+
+    netEl.textContent = window.formatCLP(net);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+
+  } else {
+    // Regiones o Zona Rural sin Cobertura RM Directa Domicilio
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-road-map-line"></i> Envío a Regiones / Zona Rural';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'block';
+
+    const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+    const normalizedCity = city.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .replace(/[^a-z\s]/g, '')
+      .trim();
+
+    const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+
+    if (!ratesData) {
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+        </div>
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.5rem;">Por favor, ingresa una tarifa neta de envío manual:</div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <input type="number" id="manual-shipping-net" class="form-input" placeholder="Neto en $" style="font-size: 0.8rem; width: 120px;" value="0">
+          <select id="manual-shipping-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem; width: 120px;">
+            <option value="STARKEN">Starken</option>
+            <option value="BLUEXPRESS">Bluexpress</option>
+            <option value="CHILEXPRESS">Chilexpress</option>
+          </select>
+        </div>
+      `;
+
+      const manualNetInput = document.getElementById('manual-shipping-net');
+      const manualCourierSelect = document.getElementById('manual-shipping-courier');
+      
+      const updateManual = () => {
+        let net = parseFloat(manualNetInput?.value) || 0;
+        let courier = manualCourierSelect?.value || 'STARKEN';
+        
+        const isPorPagar = paymentCondition === 'por_pagar';
+        const displayNet = isPorPagar ? 0 : net;
+        const tax = displayNet * 0.19;
+        const total = displayNet + tax;
+
+        netEl.textContent = window.formatCLP(displayNet);
+        taxEl.textContent = window.formatCLP(tax);
+        totalEl.textContent = window.formatCLP(total);
+
+        // Crear una opción ficticia seleccionada para el submit
+        const tempRadio = document.createElement('input');
+        tempRadio.type = 'radio';
+        tempRadio.name = 'order-courier-option';
+        tempRadio.value = courier;
+        tempRadio.checked = true;
+        tempRadio.setAttribute('data-net', net);
+        tempRadio.setAttribute('data-tax', net * 0.19);
+        tempRadio.style.display = 'none';
+        
+        const existingTemp = optionsList.querySelector('#temp-manual-radio');
+        if (existingTemp) existingTemp.remove();
+        
+        tempRadio.id = 'temp-manual-radio';
+        optionsList.appendChild(tempRadio);
+      };
+
+      if (manualNetInput) manualNetInput.onchange = updateManual;
+      if (manualNetInput) manualNetInput.onkeyup = updateManual;
+      if (manualCourierSelect) manualCourierSelect.onchange = updateManual;
+      updateManual();
+      return;
+    }
+
+    // Comuna encontrada en regiones, determinar tramo de peso
+    let bracket = '0-1';
+    if (weight <= 1.0) bracket = '0-1';
+    else if (weight <= 3.0) bracket = '1-3';
+    else if (weight <= 6.0) bracket = '3-6';
+    else if (weight <= 9.0) bracket = '6-9';
+    else if (weight <= 12.0) bracket = '9-12';
+    else if (weight <= 15.0) bracket = '12-15';
+    else bracket = '15-18';
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    
+    let starkenNet = bracketRates.starken;
+    let bluexpressNet = bracketRates.bluexpress;
+    let chilexpressNet = bracketRates.chilexpress;
+
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      const surcharge = extraKg * 1000;
+      if (starkenNet) starkenNet += surcharge;
+      if (bluexpressNet) bluexpressNet += surcharge;
+      if (chilexpressNet) chilexpressNet += surcharge;
+    }
+
+    // Armar opciones de couriers disponibles
+    let html = '';
+    const validOptions = [];
+
+    if (starkenNet) {
+      validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Next Day' });
+    }
+    if (bluexpressNet) {
+      validOptions.push({ courier: 'BLUEXPRESS', net: bluexpressNet, label: 'Bluexpress Standard' });
+    }
+    if (chilexpressNet) {
+      validOptions.push({ courier: 'CHILEXPRESS', net: chilexpressNet, label: 'Chilexpress Aéreo' });
+    }
+
+    // Correos de Chile deshabilitado
+    html += `
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: var(--color-bg-dark, #cbd5e1); border: 1px dashed var(--color-border); border-radius: var(--radius-sm); font-size: 0.82rem; opacity: 0.6; cursor: not-allowed;">
+        <span style="font-weight: 500; color: var(--color-text-muted);">
+          Correos de Chile (Courier)
+        </span>
+        <span style="font-weight: 600; font-size: 0.75rem; color: var(--color-text-muted);">No Disponible</span>
+      </div>
+    `;
+
+    if (validOptions.length === 0) {
+      optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600;">No hay couriers configurados para esta comuna. Elija otra comuna o cotice de forma manual.</div>' + html;
+      return;
+    }
+
+    // Ordenar opciones para recomendar la más barata
+    validOptions.sort((a, b) => a.net - b.net);
+
+    validOptions.forEach((opt, idx) => {
+      const recommendedText = idx === 0 ? ' <span style="font-size: 0.7rem; background: #22c55e; color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Recomendado</span>' : '';
+      const checked = idx === 0 ? 'checked' : '';
+      const optTotal = opt.net * 1.19;
+
+      html = `
+        <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}'">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}" style="cursor: pointer;">
+            ${opt.label} ${recommendedText}
+          </span>
+          <span style="font-weight: bold; color: ${idx === 0 ? 'var(--color-primary)' : 'var(--color-text-main)'};">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+        </label>
+      ` + html;
+    });
+
+    optionsList.innerHTML = html;
+
+    // Configurar listener para actualizar precios al cambiar courier
+    const radios = optionsList.querySelectorAll('input[name="order-courier-option"]');
+    const updatePrices = () => {
+      const selectedRadio = optionsList.querySelector('input[name="order-courier-option"]:checked');
+      if (!selectedRadio) return;
+
+      const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
+      const isPorPagar = paymentCondition === 'por_pagar';
+
+      const finalNet = isPorPagar ? 0 : netPrice;
+      const tax = finalNet * 0.19;
+      const total = finalNet + tax;
+
+      netEl.textContent = window.formatCLP(finalNet);
+      taxEl.textContent = window.formatCLP(tax);
+      totalEl.textContent = window.formatCLP(total);
+    };
+
+    radios.forEach(r => {
+      r.onchange = updatePrices;
+    });
+
+    updatePrices();
+  }
+};;
+
+window.setupComunaAutocomplete = function() {
+  const cityInput = document.getElementById('order-cust-city');
+  const dropdown = document.getElementById('order-cust-city-dropdown');
+  if (!cityInput || !dropdown) return;
+
+  // Extraer las comunas reales (ordenadas alfabéticamente) desde window.shippingRates
+  let comunas = [];
+  if (window.shippingRates) {
+    comunas = Object.values(window.shippingRates)
+      .map(r => r.comuna)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  const renderOptions = (filterText) => {
+    const term = (filterText || '').toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .trim();
+
+    const filtered = comunas.filter(comuna => {
+      const normalizedComuna = comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n');
+      return normalizedComuna.includes(term);
+    });
+
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 0.5rem 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No se encontraron comunas</div>';
+      return;
+    }
+
+    let html = '';
+    filtered.forEach(comuna => {
+      html += `
+        <div class="comuna-autocomplete-option" data-comuna="${comuna}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+          ${comuna}
+        </div>
+      `;
+    });
+    dropdown.innerHTML = html;
+
+    // Configurar clicks
+    const options = dropdown.querySelectorAll('.comuna-autocomplete-option');
+    options.forEach(opt => {
+      opt.onclick = function() {
+        const val = this.getAttribute('data-comuna');
+        cityInput.value = val;
+        dropdown.style.display = 'none';
+        
+        // Disparar eventos para actualizar la cotización inmediatamente
+        cityInput.dispatchEvent(new Event('change'));
+        if (window.currentWizardStep === 3) {
+          window.calculateShippingQuote();
+        }
+      };
+    });
+  };
+
+  // Mostrar al hacer focus
+  cityInput.addEventListener('focus', function() {
+    renderOptions(this.value);
+    dropdown.style.display = 'block';
+  });
+
+  // Filtrar al escribir
+  cityInput.addEventListener('input', function() {
+    renderOptions(this.value);
+    dropdown.style.display = 'block';
+  });
+
+  // Cerrar al hacer click afuera
+  document.addEventListener('click', function(e) {
+    if (e.target !== cityInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+};
+
+
 
