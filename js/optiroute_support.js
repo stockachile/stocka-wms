@@ -1601,12 +1601,12 @@ export async function renderOptirouteSupport() {
           
           <!-- Header Banner -->
           <tr>
-            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:28px 32px; text-align:left;">
+            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:24px 32px; text-align:left;">
               <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td>
-                    <span style="font-size:24px; font-weight:800; color:#ffffff; letter-spacing:-0.5px;">STOCKA</span>
-                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:8px; text-transform:uppercase; vertical-align:middle;">Logística & Repartos</span>
+                  <td style="vertical-align: middle;">
+                    <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA" style="height:36px; max-height:36px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">Logística & Repartos</span>
                   </td>
                 </tr>
               </table>
@@ -1719,12 +1719,12 @@ export async function renderOptirouteSupport() {
           
           <!-- Header Banner -->
           <tr>
-            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); padding:28px 32px; text-align:left;">
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); padding:24px 32px; text-align:left;">
               <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td>
-                    <span style="font-size:24px; font-weight:800; color:#ffffff; letter-spacing:-0.5px;">STOCKA</span>
-                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#a7f3d0; background:rgba(167,243,208,0.2); border:1px solid rgba(167,243,208,0.3); padding:3px 8px; border-radius:4px; margin-left:8px; text-transform:uppercase; vertical-align:middle;">¡Pedido Entregado! 🎉</span>
+                  <td style="vertical-align: middle;">
+                    <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA" style="height:36px; max-height:36px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#a7f3d0; background:rgba(167,243,208,0.2); border:1px solid rgba(167,243,208,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">¡Pedido Entregado! 🎉</span>
                   </td>
                 </tr>
               </table>
