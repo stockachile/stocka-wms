@@ -1736,10 +1736,10 @@ export async function renderOptirouteSupport() {
           <tr>
             <td style="padding:32px 32px 24px 32px;">
               <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
-                ¡Hola, ${nombre}!
+                ¡Hola, ${nombre}! 👋
               </h1>
               <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
-                Nos complace informarte que tu pedido enviado por <strong style="color:#0f172a;">${proveedor}</strong> ha sido entregado con éxito en tu dirección.
+                Estamos muy contentos de informarte que tu pedido enviado por <strong style="color:#0f172a;">${proveedor}</strong> ha sido entregado con éxito en tu dirección.
               </p>
 
               <!-- Delivery Receipt Card -->
