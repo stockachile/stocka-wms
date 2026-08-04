@@ -320,12 +320,37 @@ export async function renderOptirouteSupport() {
     if (!detailedOrders || detailedOrders.length === 0) return;
     console.log(`Guardando/Actualizando ${detailedOrders.length} pedidos en caché local (Bulk)...`);
     
+    const refList = detailedOrders.map(d => d.reference ? d.reference.trim() : null).filter(Boolean);
+    let existingMap = new Map();
+    if (refList.length > 0) {
+      const { data: existingRows } = await supabase
+        .from('optiroute_orders')
+        .select('referencia, raw_data')
+        .in('referencia', refList);
+      (existingRows || []).forEach(r => {
+        if (r.referencia) existingMap.set(r.referencia, r.raw_data || {});
+      });
+    }
+
     const payloads = [];
     for (const detailedOrder of detailedOrders) {
       try {
         if (!detailedOrder.route_plan && detailedOrder.waypoint?.route_plan) {
           detailedOrder.route_plan = detailedOrder.waypoint.route_plan;
         }
+
+        const ref = detailedOrder.reference ? detailedOrder.reference.trim() : null;
+        const localDispatchAt = ref ? localStorage.getItem(`stk_email_dispatch_${ref}`) : null;
+        const localDeliveryAt = ref ? localStorage.getItem(`stk_email_delivery_${ref}`) : null;
+
+        const prevRaw = ref ? existingMap.get(ref) : {};
+
+        const emailNotifiedAt = localDispatchAt || prevRaw?.email_notified_at || detailedOrder.email_notified_at || null;
+        const deliveryEmailNotifiedAt = localDeliveryAt || prevRaw?.delivery_email_notified_at || detailedOrder.delivery_email_notified_at || null;
+
+        if (emailNotifiedAt) detailedOrder.email_notified_at = emailNotifiedAt;
+        if (deliveryEmailNotifiedAt) detailedOrder.delivery_email_notified_at = deliveryEmailNotifiedAt;
+
         const email = detailedOrder.customer?.customer?.email || detailedOrder.customer?.email || null;
         const addressStr = detailedOrder.address?.full_address || 
                            detailedOrder.address?.excel_address || 
@@ -562,7 +587,9 @@ export async function renderOptirouteSupport() {
             supplier: o.empresa_comercio_proveedor,
             comuna: o.comuna_destino,
             tracking_url: o.tracking_url,
-            delivery_email_notified_at: o.raw_data?.delivery_email_notified_at
+            email_notified_at: o.raw_data?.email_notified_at,
+            delivery_email_notified_at: o.raw_data?.delivery_email_notified_at,
+            raw_data: o.raw_data
           });
         }
       });
@@ -647,8 +674,8 @@ export async function renderOptirouteSupport() {
         const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
         const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
 
-        const dispatchAt = localDispatchAt || dbInfo.raw_data?.email_notified_at || detOrder?.email_notified_at || null;
-        const deliveryAt = localDeliveryAt || dbInfo.raw_data?.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null;
+        const dispatchAt = localDispatchAt || dbInfo.email_notified_at || dbInfo.raw_data?.email_notified_at || detOrder?.email_notified_at || null;
+        const deliveryAt = localDeliveryAt || dbInfo.delivery_email_notified_at || dbInfo.raw_data?.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null;
 
         return {
           order: w.customer_order || w.order || 0,
