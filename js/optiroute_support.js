@@ -81,6 +81,10 @@ export async function renderOptirouteSupport() {
             <button id="btn-print-labels" class="btn btn-primary" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-printer-line"></i> Imprimir Selección (<span id="print-count">0</span>)
             </button>
+            <!-- Botón Enviar Correos Masivos (Brevo) -->
+            <button id="btn-send-bulk-email" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid #2563eb; color: #2563eb; background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+              <i class="ri-mail-send-line"></i> Enviar Correos (<span id="email-count">0</span>)
+            </button>
             <!-- Botón Forzar Actualización Live API -->
             <button id="btn-force-live-api" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid var(--color-primary); color: var(--color-primary); background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-refresh-line"></i> Actualizar en Vivo
@@ -393,6 +397,8 @@ export async function renderOptirouteSupport() {
               reference: c.referencia || 'S/R',
               name: c.nombre_destinatario || 'Cliente sin nombre',
               phone: c.telefono_destino || '',
+              email: c.email_cliente_destino || sr.customer?.customer?.email || sr.customer?.email || '',
+              delivery_email_notified: Boolean(sr.delivery_email_notified_at || c.delivery_email_notified_at),
               address: c.direccion_destino || 'Sin Dirección',
               complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
@@ -428,6 +434,7 @@ export async function renderOptirouteSupport() {
 
           renderSummaryDashboard(routeName);
           renderShipmentsTable(allWaypoints);
+          checkAndAutoSendDeliveryEmails(allWaypoints);
           
           btnFetchRoute.disabled = false;
           btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
@@ -492,7 +499,7 @@ export async function renderOptirouteSupport() {
       if (referenceList.length > 0) {
         const { data } = await supabase
           .from('optiroute_orders')
-          .select('referencia, telefono_destino, empresa_comercio_proveedor, comuna_destino, tracking_url')
+          .select('referencia, telefono_destino, email_cliente_destino, empresa_comercio_proveedor, comuna_destino, tracking_url, raw_data')
           .in('referencia', referenceList);
         dbOrders = data || [];
       }
@@ -502,9 +509,11 @@ export async function renderOptirouteSupport() {
         if (o.referencia) {
           dbMap.set(o.referencia, {
             phone: o.telefono_destino,
+            email: o.email_cliente_destino,
             supplier: o.empresa_comercio_proveedor,
             comuna: o.comuna_destino,
-            tracking_url: o.tracking_url
+            tracking_url: o.tracking_url,
+            delivery_email_notified_at: o.raw_data?.delivery_email_notified_at
           });
         }
       });
@@ -552,7 +561,12 @@ export async function renderOptirouteSupport() {
                 };
                 detailedOrdersList.push(reqDetail);
                 if (reqDetail.customer && reqDetail.customer.phone_number) {
-                  dbMap.set(w.service_request.reference, reqDetail.customer.phone_number);
+                  const existingMap = dbMap.get(w.service_request.reference) || {};
+                  dbMap.set(w.service_request.reference, {
+                    ...existingMap,
+                    phone: existingMap.phone || reqDetail.customer.phone_number,
+                    email: existingMap.email || reqDetail.customer.customer?.email || reqDetail.customer.email
+                  });
                 }
               }
             }
@@ -569,6 +583,7 @@ export async function renderOptirouteSupport() {
         const detOrder = detailedOrdersList.find(d => String(d.id) === String(w.service_request?.id));
 
         const phone = dbInfo.phone || detOrder?.customer?.phone_number || w.service_request?.customer?.phone_number || '';
+        const email = dbInfo.email || detOrder?.customer?.customer?.email || detOrder?.customer?.email || w.service_request?.customer?.email || '';
         const supplier = dbInfo.supplier || detOrder?.supplier?.name || detOrder?.enterprise?.name || 'STOCKA';
         const comuna = dbInfo.comuna || detOrder?.address?.commune_string || detOrder?.address?.commune?.name || '';
         const tracking_url = dbInfo.tracking_url || detOrder?.tracking_url || '';
@@ -585,6 +600,8 @@ export async function renderOptirouteSupport() {
           reference: ref,
           name: w.name || w.service_request?.subscription?.name || 'Cliente sin nombre',
           phone: phone,
+          email: email,
+          delivery_email_notified: Boolean(dbInfo.delivery_email_notified_at || detOrder?.delivery_email_notified_at),
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
           complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
@@ -614,6 +631,7 @@ export async function renderOptirouteSupport() {
 
       renderSummaryDashboard(planDetail.name || 'Ruta Optiroute');
       renderShipmentsTable(allWaypoints);
+      checkAndAutoSendDeliveryEmails(allWaypoints);
 
       // Guardar en la caché local atómicamente
       if (detailedOrdersList.length > 0) {
@@ -732,29 +750,31 @@ export async function renderOptirouteSupport() {
     }
 
     tableBody.innerHTML = data.map((item) => {
-      // 1. WhatsApp Button
-      let whatsAppBtn = '<span style="color: var(--color-text-muted); font-size: 0.8rem;">Sin teléfono</span>';
-      if (item.phone) {
-        // Limpiar teléfono
-        let cleanPhone = String(item.phone).replace(/\D/g, '');
-        if (cleanPhone.startsWith('9') && cleanPhone.length === 9) {
-          cleanPhone = '56' + cleanPhone;
-        } else if (cleanPhone.length === 9 && !cleanPhone.startsWith('56')) {
-          cleanPhone = '56' + cleanPhone;
-        }
-        
-        const messageText = `Hola ${item.name}, te escribimos de STOCKA para informarte que tu pedido con referencia ${item.reference} está programado para reparto.`;
-        const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(messageText)}`;
-        
-        whatsAppBtn = `
-          <div style="display: flex; flex-direction: column; gap: 0.2rem;">
-            <span style="font-weight: 500; font-family: monospace;">+${cleanPhone}</span>
-            <button class="btn btn-sm btn-success btn-contactar-whatsapp" data-order="${item.order}" style="display: flex; align-items: center; justify-content: center; gap: 0.25rem; background-color: var(--color-success); color: white; border: none; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: var(--radius-sm); font-weight: 600; width: fit-content; cursor: pointer;">
-              <i class="ri-whatsapp-line"></i> Contactar
-            </button>
+      // 1. Contacto (WhatsApp + Correo Brevo)
+      let phoneSpan = item.phone 
+        ? `<span style="font-weight: 500; font-family: monospace; font-size: 0.75rem;">+${String(item.phone).replace(/\D/g, '')}</span>` 
+        : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">Sin teléfono</span>';
+
+      const hasEmail = item.email && item.email.includes('@');
+      const emailBadge = hasEmail 
+        ? `<button class="btn btn-sm btn-outline btn-send-single-email" data-order="${item.order}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; border: 1px solid #2563eb; color: #2563eb; background: transparent; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar correo Brevo desde info@stocka.cl (${item.email})"><i class="ri-mail-line"></i> Correo</button>`
+        : `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-style: italic;">Sin correo</span>`;
+
+      const whatsAppBtn = item.phone ? `
+        <button class="btn btn-sm btn-success btn-contactar-whatsapp" data-order="${item.order}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; background-color: var(--color-success); color: white; border: none; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar WhatsApp">
+          <i class="ri-whatsapp-line"></i> WSP
+        </button>
+      ` : '';
+
+      const contactHTML = `
+        <div style="display: flex; flex-direction: column; gap: 0.2rem;">
+          ${phoneSpan}
+          <div style="display: flex; gap: 0.25rem; flex-wrap: wrap; align-items: center;">
+            ${whatsAppBtn}
+            ${emailBadge}
           </div>
-        `;
-      }
+        </div>
+      `;
 
       // 2. Dirección con validación
       const isWarning = item.address_status !== 1 && item.address_status !== 3;
@@ -862,7 +882,7 @@ export async function renderOptirouteSupport() {
           </td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 600; font-family: monospace; color: var(--color-primary);">${item.reference}</td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
-          <td style="padding: 0.75rem 0.5rem;">${whatsAppBtn}</td>
+          <td style="padding: 0.75rem 0.5rem;">${contactHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${addressHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${driverHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${statusBadge}</td>
@@ -875,33 +895,28 @@ export async function renderOptirouteSupport() {
     const thumbnails = tableBody.querySelectorAll('.photo-thumbnail');
     thumbnails.forEach(thumb => {
       thumb.addEventListener('mouseenter', () => {
-        thumb.style.transform = 'scale(1.08)';
-        thumb.querySelector('.thumb-overlay').style.opacity = '1';
+        const overlay = thumb.querySelector('.thumb-overlay');
+        if (overlay) overlay.style.opacity = '1';
+        thumb.style.transform = 'scale(1.05)';
       });
       thumb.addEventListener('mouseleave', () => {
+        const overlay = thumb.querySelector('.thumb-overlay');
+        if (overlay) overlay.style.opacity = '0';
         thumb.style.transform = 'scale(1)';
-        thumb.querySelector('.thumb-overlay').style.opacity = '0';
       });
       thumb.addEventListener('click', () => {
-        openLightboxModal(thumb.getAttribute('data-url'));
+        const url = thumb.getAttribute('data-url');
+        if (url) openPhotoLightbox(url);
       });
     });
 
-    // Agregar event listener para contactar por whatsapp
-    const contactBtns = tableBody.querySelectorAll('.btn-contactar-whatsapp');
-    contactBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const orderNum = parseInt(btn.getAttribute('data-order'));
-        const item = data.find(w => w.order === orderNum);
-        if (item) openWhatsAppModal(item);
-      });
-    });
-
-    // --- Manejo de Selección e Impresión de Etiquetas ---
+    // Checkboxes y Botón Masivo
     const checkAll = document.getElementById('check-all-shipments');
     const rowCheckboxes = tableBody.querySelectorAll('.shipment-checkbox');
     const btnPrintLabels = document.getElementById('btn-print-labels');
     const printCountSpan = document.getElementById('print-count');
+    const btnSendBulkEmail = document.getElementById('btn-send-bulk-email');
+    const emailCountSpan = document.getElementById('email-count');
 
     // Resetear checkAll y ocultar botón al (re)renderizar la tabla
     if (checkAll) checkAll.checked = false;
@@ -929,10 +944,14 @@ export async function renderOptirouteSupport() {
       if (!btnPrintLabels || !printCountSpan) return;
       const checkedCount = Array.from(rowCheckboxes).filter(c => c.checked).length;
       printCountSpan.textContent = checkedCount;
+      if (emailCountSpan) emailCountSpan.textContent = checkedCount;
+
       if (checkedCount > 0) {
         btnPrintLabels.style.display = 'inline-flex';
+        if (btnSendBulkEmail) btnSendBulkEmail.style.display = 'inline-flex';
       } else {
         btnPrintLabels.style.display = 'none';
+        if (btnSendBulkEmail) btnSendBulkEmail.style.display = 'none';
       }
     }
 
@@ -950,6 +969,42 @@ export async function renderOptirouteSupport() {
         }
       });
     }
+
+    // Listener para Enviar Correos Brevo (Masivo)
+    if (btnSendBulkEmail) {
+      const newEmailBtn = btnSendBulkEmail.cloneNode(true);
+      btnSendBulkEmail.parentNode.replaceChild(newEmailBtn, btnSendBulkEmail);
+      newEmailBtn.addEventListener('click', () => {
+        const checkedOrders = Array.from(rowCheckboxes)
+          .filter(c => c.checked)
+          .map(c => parseInt(c.getAttribute('data-order')));
+        const selectedWaypoints = data.filter(w => checkedOrders.includes(w.order));
+        if (selectedWaypoints.length > 0) {
+          openSendBrevoEmailModal(selectedWaypoints);
+        }
+      });
+    }
+
+    // Listener para Envío de Correo Individual
+    tableBody.querySelectorAll('.btn-send-single-email').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const orderNum = parseInt(btn.getAttribute('data-order'));
+        const item = data.find(w => w.order === orderNum);
+        if (item) {
+          openSendBrevoEmailModal([item]);
+        }
+      });
+    });
+
+    // Agregar event listener para contactar por whatsapp
+    const contactBtns = tableBody.querySelectorAll('.btn-contactar-whatsapp');
+    contactBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const orderNum = parseInt(btn.getAttribute('data-order'));
+        const item = data.find(w => w.order === orderNum);
+        if (item) openWhatsAppModal(item);
+      });
+    });
 
     // Listener para Impresión Individual
     const singlePrintBtns = tableBody.querySelectorAll('.btn-print-single-label');
@@ -1449,12 +1504,15 @@ export async function renderOptirouteSupport() {
           }
 
           const compKey = keys.find(k => /depto|departamento|piso|oficina|complemento/i.test(k));
+          const emailKey = keys.find(k => /email|correo|mail/i.test(k));
 
           return {
             order: idx + 1,
             reference: String(row[refKey] || `PL-${idx + 1}`).trim(),
             name: row[nameKey] || 'Cliente Sin Nombre',
             phone: row[phoneKey] ? String(row[phoneKey]).trim() : '',
+            email: emailKey && row[emailKey] ? String(row[emailKey]).trim() : '',
+            delivery_email_notified: false,
             address: addressStr.trim() || 'Sin Dirección',
             complemento: compKey && row[compKey] ? String(row[compKey]).trim() : '',
             address_status: 1, // consider simple success since we don't have API geocoding info here
@@ -1509,6 +1567,472 @@ export async function renderOptirouteSupport() {
       }
     `;
     document.head.appendChild(style);
+  }
+
+  // === SISTEMA DE ENVÍO DE CORREOS B2C VÍA BREVO (info@stocka.cl) ===
+  const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+
+  function buildDispatchEmailHTML(item) {
+    const nombre = item.name || 'Cliente';
+    const proveedor = item.supplier || 'STOCKA';
+    const referencia = item.reference || 'S/R';
+    const direccion = item.address || 'Dirección registrada';
+    const complemento = item.complemento ? ` (${item.complemento})` : '';
+    const comuna = item.comuna || '';
+    const conductor = item.route_driver 
+      ? `<tr><td style="color:#64748b; font-weight:600; padding: 4px 0;">Conductor / Repartidor:</td><td style="font-weight:600; color:#0f172a; padding: 4px 0;">${item.route_driver} ${item.route_vehicle ? `(${item.route_vehicle})` : ''}</td></tr>` 
+      : '';
+    
+    const waText = encodeURIComponent(`Hola, necesito ajustar la dirección de mi pedido ${referencia} (${nombre})`);
+    const waUrl = `https://api.whatsapp.com/send?phone=56982606602&text=${waText}`;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tu despacho está programado - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:28px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td>
+                    <span style="font-size:24px; font-weight:800; color:#ffffff; letter-spacing:-0.5px;">STOCKA</span>
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:8px; text-transform:uppercase; vertical-align:middle;">Logística & Repartos</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}! 👋
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Te informamos que tu pedido realizado en <strong style="color:#0f172a;">${proveedor}</strong> ha sido procesado por nuestro centro logístico <strong>STOCKA</strong> y se encuentra programado para entrega.
+              </p>
+
+              <!-- Order Details Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                      📦 Datos de tu Despacho
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#2563eb; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Origen:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección de Entrega:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      ${conductor}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- WhatsApp CTA Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0; padding:20px; text-align:center;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 8px 0; font-size:15px; font-weight:700; color:#166534;">
+                      ¿Necesitas corregir tu dirección o dar alguna indicación?
+                    </h3>
+                    <p style="margin:0 0 16px 0; font-size:13px; color:#15803d; line-height:1.5;">
+                      Si tu número de depto, casa o dirección requieren algún ajuste, avísanos por WhatsApp antes de salir a reparto.
+                    </p>
+                    <a href="${waUrl}" target="_blank" style="display:inline-block; background-color:#25D366; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; padding:12px 24px; border-radius:8px; box-shadow:0 2px 8px rgba(37,211,102,0.3);">
+                      💬 Corregir o Confirmar por WhatsApp
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                STOCKA SpA &bull; Logística y Cumplimiento E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                ¿Consultas? Escríbenos a <a href="mailto:info@stocka.cl" style="color:#2563eb; text-decoration:none;">info@stocka.cl</a> o al WhatsApp +56 9 8260 6602
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
+  function buildDeliveryConfirmedEmailHTML(item) {
+    const nombre = item.name || 'Cliente';
+    const proveedor = item.supplier || 'STOCKA';
+    const referencia = item.reference || 'S/R';
+    const direccion = item.address || 'Dirección registrada';
+    const complemento = item.complemento ? ` (${item.complemento})` : '';
+    const comuna = item.comuna || '';
+    const recibe = item.reception_name 
+      ? `<tr><td style="color:#64748b; font-weight:600; padding: 4px 0;">Recibido por:</td><td style="font-weight:600; color:#0f172a; padding: 4px 0;">${item.reception_name} ${item.reception_rut ? `(${item.reception_rut})` : ''}</td></tr>` 
+      : '';
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>¡Pedido Entregado! - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); padding:28px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td>
+                    <span style="font-size:24px; font-weight:800; color:#ffffff; letter-spacing:-0.5px;">STOCKA</span>
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#a7f3d0; background:rgba(167,243,208,0.2); border:1px solid rgba(167,243,208,0.3); padding:3px 8px; border-radius:4px; margin-left:8px; text-transform:uppercase; vertical-align:middle;">¡Pedido Entregado! 🎉</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}!
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Nos complace informarte que tu pedido enviado por <strong style="color:#0f172a;">${proveedor}</strong> ha sido entregado con éxito en tu dirección.
+              </p>
+
+              <!-- Delivery Receipt Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#047857; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                      ✅ Comprobante de Entrega
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#059669; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Proveedor:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección de Entrega:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      ${recibe}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size:13px; color:#64748b; line-height:1.5; margin:0 0 16px 0; text-align:center;">
+                Si tienes alguna consulta sobre tu entrega, nuestro equipo de soporte está disponible vía WhatsApp en el <a href="https://api.whatsapp.com/send?phone=56982606602" style="color:#059669; font-weight:700; text-decoration:none;">+56 9 8260 6602</a>.
+              </p>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                STOCKA SpA &bull; Logística y Cumplimiento E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#059669; text-decoration:none;">info@stocka.cl</a>
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
+  async function sendBrevoNotificationEmail(item, type = 'dispatch') {
+    if (!item.email || !item.email.includes('@')) {
+      throw new Error(`El pedido ${item.reference} no tiene un correo válido asignado.`);
+    }
+
+    const isDispatch = type === 'dispatch';
+    const subject = isDispatch 
+      ? `🚚 Tu despacho está programado - ${item.supplier || 'STOCKA'}`
+      : `🎉 ¡Tu pedido ${item.reference} ha sido entregado! - ${item.supplier || 'STOCKA'}`;
+
+    const htmlBody = isDispatch 
+      ? buildDispatchEmailHTML(item)
+      : buildDeliveryConfirmedEmailHTML(item);
+
+    const payload = {
+      sender: { name: 'STOCKA Despachos', email: 'info@stocka.cl' },
+      to: [{ email: item.email.trim(), name: item.name || 'Cliente' }],
+      subject: subject,
+      htmlContent: htmlBody
+    };
+
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Respuesta de Brevo: ${res.status} ${errText}`);
+    }
+
+    const resData = await res.json();
+
+    if (item.reference) {
+      const now = new Date().toISOString();
+      const updatePayload = isDispatch 
+        ? { email_notified_at: now } 
+        : { delivery_email_notified_at: now };
+
+      supabase
+        .from('optiroute_orders')
+        .update(updatePayload)
+        .eq('referencia', item.reference)
+        .then(() => {});
+    }
+
+    return resData;
+  }
+
+  async function checkAndAutoSendDeliveryEmails(waypoints) {
+    const delivered = waypoints.filter(w => {
+      const isDelivered = w.status === 'Completado' || w.status === 'Entregado';
+      const hasEmail = w.email && w.email.includes('@');
+      const notNotified = !w.delivery_email_notified;
+      return isDelivered && hasEmail && notNotified;
+    });
+
+    if (delivered.length === 0) return;
+
+    console.log(`Auto-enviando ${delivered.length} correos de confirmación de entrega...`);
+    for (const item of delivered) {
+      try {
+        await sendBrevoNotificationEmail(item, 'delivery');
+        item.delivery_email_notified = true;
+        console.log(`✅ Correo de entrega enviado a ${item.email} para pedido ${item.reference}`);
+      } catch (err) {
+        console.warn(`Error auto-enviando correo de entrega a ${item.reference}:`, err.message);
+      }
+    }
+  }
+
+  function openSendBrevoEmailModal(items) {
+    const modalId = 'optiroute-brevo-email-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    let selectedType = 'dispatch';
+
+    const modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(15, 23, 42, 0.75)';
+    modal.style.zIndex = '99999';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.animation = 'fadeIn 0.2s ease';
+
+    const withEmail = items.filter(i => i.email && i.email.includes('@'));
+    const withoutEmail = items.filter(i => !i.email || !i.email.includes('@'));
+
+    function renderContent() {
+      const sampleItem = withEmail[0] || items[0] || {};
+      const previewHTML = selectedType === 'dispatch' 
+        ? buildDispatchEmailHTML(sampleItem)
+        : buildDeliveryConfirmedEmailHTML(sampleItem);
+
+      modal.innerHTML = `
+        <div class="card" style="width: 720px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); animation: scaleUp 0.2s ease; border-radius: var(--radius-lg);">
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-mail-send-line" style="color: #2563eb;"></i> Enviar Notificación por Correo (Brevo)
+            </h3>
+            <button id="close-brevo-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+          </div>
+
+          <div style="font-size: 0.85rem; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <span style="color: var(--color-text-main); font-weight: 600;">Remitente:</span>
+              <span style="color: var(--color-primary); font-weight: 700; font-family: monospace;">info@stocka.cl</span> (STOCKA Despachos)
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <span class="badge" style="background: var(--badge-success-bg); color: var(--badge-success-text); font-weight: 700;">
+                <i class="ri-checkbox-circle-line"></i> ${withEmail.length} Con Correo
+              </span>
+              ${withoutEmail.length > 0 ? `
+                <span class="badge" style="background: var(--badge-danger-bg); color: var(--badge-danger-text); font-weight: 700;" title="${withoutEmail.map(x => x.reference).join(', ')}">
+                  <i class="ri-close-circle-line"></i> ${withoutEmail.length} Sin Correo
+                </span>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <label style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Tipo de Plantilla de Correo</label>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+              <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.65rem 0.75rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'dispatch' ? '#2563eb' : 'var(--color-border)'}; flex: 1; min-width: 250px;">
+                <input type="radio" name="email-type-rad" value="dispatch" ${selectedType === 'dispatch' ? 'checked' : ''} style="margin-top: 0.2rem;">
+                <div>
+                  <strong style="color: #2563eb;">🚚 Aviso de Despacho Programado</strong>
+                  <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Muestra datos de entrega y botón WhatsApp para corregir dirección (+56982606602)</div>
+                </div>
+              </label>
+              <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.65rem 0.75rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'delivery' ? '#059669' : 'var(--color-border)'}; flex: 1; min-width: 250px;">
+                <input type="radio" name="email-type-rad" value="delivery" ${selectedType === 'delivery' ? 'checked' : ''} style="margin-top: 0.2rem;">
+                <div>
+                  <strong style="color: #059669;">🎉 Confirmación de Entrega Exitosa</strong>
+                  <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Confirma que el pedido ha sido entregado en la dirección del cliente</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Vista Previa del Correo (${sampleItem.reference || 'Ejemplo'})</label>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Formato B2C Responsive</span>
+            </div>
+            <iframe id="brevo-email-preview-frame" style="width: 100%; height: 280px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: white;"></iframe>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <button id="cancel-brevo-modal" class="btn btn-outline" style="padding: 0.5rem 1rem;">Cancelar</button>
+            <button id="btn-submit-send-brevo" class="btn btn-primary" style="background: #2563eb; color: white; padding: 0.5rem 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; border: none; border-radius: var(--radius-md); cursor: pointer;" ${withEmail.length === 0 ? 'disabled' : ''}>
+              <i class="ri-send-plane-fill"></i> Enviar ${withEmail.length} Correo(s) por Brevo
+            </button>
+          </div>
+
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const iframe = document.getElementById('brevo-email-preview-frame');
+      if (iframe) {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        doc.open();
+        doc.write(previewHTML);
+        doc.close();
+      }
+
+      modal.querySelector('#close-brevo-modal').addEventListener('click', () => modal.remove());
+      modal.querySelector('#cancel-brevo-modal').addEventListener('click', () => modal.remove());
+
+      modal.querySelectorAll('input[name="email-type-rad"]').forEach(r => {
+        r.addEventListener('change', (e) => {
+          selectedType = e.target.value;
+          renderContent();
+        });
+      });
+
+      const btnSubmit = modal.querySelector('#btn-submit-send-brevo');
+      btnSubmit.addEventListener('click', async () => {
+        if (withEmail.length === 0) return;
+        
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Enviando... (0/${withEmail.length})`;
+
+        let successCount = 0;
+        let failCount = 0;
+        const errors = [];
+
+        for (let i = 0; i < withEmail.length; i++) {
+          const item = withEmail[i];
+          btnSubmit.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Enviando (${i + 1}/${withEmail.length})...`;
+          try {
+            await sendBrevoNotificationEmail(item, selectedType);
+            successCount++;
+          } catch (err) {
+            failCount++;
+            errors.push(`${item.reference}: ${err.message}`);
+          }
+        }
+
+        modal.remove();
+
+        if (window.Swal) {
+          if (failCount === 0) {
+            Swal.fire({
+              icon: 'success',
+              title: '¡Correos Enviados!',
+              text: `Se enviaron ${successCount} correo(s) correctamente desde info@stocka.cl a través de Brevo.`,
+              confirmButtonColor: 'var(--color-primary)'
+            });
+          } else {
+            Swal.fire({
+              icon: 'warning',
+              title: 'Envío Completado con Observaciones',
+              html: `Enviados con éxito: <strong>${successCount}</strong><br>Fallidos: <strong>${failCount}</strong><br><br><small style="color:red;">${errors.join('<br>')}</small>`,
+              confirmButtonColor: 'var(--color-primary)'
+            });
+          }
+        } else {
+          alert(`Se enviaron ${successCount} correos (${failCount} fallidos).`);
+        }
+      });
+    }
+
+    renderContent();
   }
 
   // default templates
