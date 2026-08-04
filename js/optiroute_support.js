@@ -967,7 +967,6 @@ export async function renderOptirouteSupport() {
     }
 
     // Listener para Enviar Correos Brevo (Masivo)
-    const btnSendBulkEmail = document.getElementById('btn-send-bulk-email');
     if (btnSendBulkEmail) {
       btnSendBulkEmail.style.display = 'inline-flex';
       const newEmailBtn = btnSendBulkEmail.cloneNode(true);
