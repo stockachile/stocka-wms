@@ -77,6 +77,10 @@ export async function renderOptirouteSupport() {
             <span id="data-source-badge" style="font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.35rem; border-radius: 4px; display: none;"></span>
           </h3>
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+            <!-- Botón Imprimir Selección (Masivo) -->
+            <button id="btn-print-labels" class="btn btn-primary" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+              <i class="ri-printer-line"></i> Imprimir Selección (<span id="print-count">0</span>)
+            </button>
             <!-- Botón Forzar Actualización Live API -->
             <button id="btn-force-live-api" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid var(--color-primary); color: var(--color-primary); background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-refresh-line"></i> Actualizar en Vivo
@@ -102,11 +106,13 @@ export async function renderOptirouteSupport() {
           <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
             <thead>
               <tr style="text-align: left; border-bottom: 2px solid var(--color-border);">
-                <th style="padding: 0.75rem 0.5rem; width: 60px;">#</th>
+                <th style="padding: 0.75rem 0.5rem; width: 40px; text-align: center;"><input type="checkbox" id="check-all-shipments" style="transform: scale(1.1); cursor: pointer;"></th>
+                <th style="padding: 0.75rem 0.5rem; width: 80px;">#</th>
                 <th style="padding: 0.75rem 0.5rem; width: 130px;">Referencia</th>
                 <th style="padding: 0.75rem 0.5rem; min-width: 150px;">Destinatario</th>
                 <th style="padding: 0.75rem 0.5rem; width: 140px;">Contacto</th>
                 <th style="padding: 0.75rem 0.5rem; min-width: 200px;">Dirección Física</th>
+                <th style="padding: 0.75rem 0.5rem; width: 130px;">Conductor</th>
                 <th style="padding: 0.75rem 0.5rem; width: 110px;">Estado</th>
                 <th style="padding: 0.75rem 0.5rem; min-width: 150px;">Notas / Verificaciones</th>
               </tr>
@@ -398,7 +404,10 @@ export async function renderOptirouteSupport() {
               reception_rut: w.reception_rut || '',
               supplier: c.empresa_comercio_proveedor || sr.supplier?.name || 'STOCKA',
               comuna: c.comuna_destino || sr.address?.commune_string || '',
-              tracking_url: c.tracking_url || sr.tracking_url || ''
+              tracking_url: c.tracking_url || sr.tracking_url || '',
+              route_vehicle: w.route_vehicle || sr.route_vehicle || '',
+              route_driver: w.route_driver || sr.route_driver || '',
+              route_name: w.route_name || sr.route_plan?.name || ''
             };
           });
 
@@ -454,7 +463,15 @@ export async function renderOptirouteSupport() {
         });
         if (routeRes.ok) {
           const detail = await routeRes.json();
-          return detail.waypoints || [];
+          const wps = detail.waypoints || [];
+          const vehicleName = detail.vehicle?.license_plate || detail.vehicle?.name || detail.vehicle || routeObj.vehicle?.license_plate || routeObj.vehicle?.name || routeObj.vehicle || 'Sin Asignación';
+          const driverName = detail.driver?.first_name ? `${detail.driver.first_name} ${detail.driver.last_name || ''}`.trim() : (detail.driver?.name || routeObj.driver?.name || '');
+          wps.forEach(wp => {
+            wp.route_vehicle = vehicleName;
+            wp.route_driver = driverName;
+            wp.route_name = detail.name || routeObj.name || planDetail.name || 'Ruta';
+          });
+          return wps;
         }
         return [];
       });
@@ -528,7 +545,10 @@ export async function renderOptirouteSupport() {
                   images: w.images,
                   reception_name: w.reception_name,
                   reception_rut: w.reception_rut,
-                  route_plan: { id: planDetail.id, name: planDetail.name }
+                  route_plan: { id: planDetail.id, name: planDetail.name },
+                  route_vehicle: w.route_vehicle || '',
+                  route_driver: w.route_driver || '',
+                  route_name: w.route_name || ''
                 };
                 detailedOrdersList.push(reqDetail);
                 if (reqDetail.customer && reqDetail.customer.phone_number) {
@@ -576,7 +596,10 @@ export async function renderOptirouteSupport() {
           reception_rut: w.reception_rut || '',
           supplier: supplier,
           comuna: comuna,
-          tracking_url: tracking_url
+          tracking_url: tracking_url,
+          route_vehicle: w.route_vehicle || '',
+          route_driver: w.route_driver || '',
+          route_name: w.route_name || ''
         };
       });
 
@@ -700,7 +723,7 @@ export async function renderOptirouteSupport() {
     if (data.length === 0) {
       tableBody.innerHTML = `
         <tr>
-          <td colspan="7" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          <td colspan="9" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
             No hay registros para mostrar con los filtros aplicados.
           </td>
         </tr>
@@ -764,7 +787,17 @@ export async function renderOptirouteSupport() {
         </div>
       `;
 
-      // 3. Estado Badge
+      // 3. Conductor / Vehículo
+      const driverName = item.route_driver || 'Sin Asignación';
+      const vehicleInfo = item.route_vehicle ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); font-family: monospace; display: block;">${item.route_vehicle}</span>` : '';
+      const driverHTML = `
+        <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+          <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">${driverName}</span>
+          ${vehicleInfo}
+        </div>
+      `;
+
+      // 4. Estado Badge
       let badgeStyle = 'background: var(--badge-neutral-bg); color: var(--badge-neutral-text);';
       const cleanStatus = item.status.toLowerCase();
       if (cleanStatus.includes('completado') || cleanStatus.includes('entregado') || cleanStatus.includes('exito')) {
@@ -783,7 +816,7 @@ export async function renderOptirouteSupport() {
         </span>
       `;
 
-      // 4. Notas / Verificaciones
+      // 5. Notas / Verificaciones
       let notesHTML = '';
       if (item.note) {
         notesHTML += `<p style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic; background: var(--color-bg); padding: 0.35rem 0.5rem; border-radius: 4px; margin: 0 0 0.5rem 0; border-left: 2px solid var(--color-border);">${item.note}</p>`;
@@ -818,11 +851,20 @@ export async function renderOptirouteSupport() {
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border); align-items: center;">
-          <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--color-text-muted); font-family: monospace;">#${item.order}</td>
+          <td style="padding: 0.75rem 0.5rem; text-align: center;"><input type="checkbox" class="shipment-checkbox" data-order="${item.order}" style="transform: scale(1.1); cursor: pointer;"></td>
+          <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--color-text-muted); font-family: monospace;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span>#${item.order}</span>
+              <button class="btn btn-sm btn-outline btn-print-single-label" data-order="${item.order}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; gap: 0.1rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
+                <i class="ri-printer-line"></i>
+              </button>
+            </div>
+          </td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 600; font-family: monospace; color: var(--color-primary);">${item.reference}</td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
           <td style="padding: 0.75rem 0.5rem;">${whatsAppBtn}</td>
           <td style="padding: 0.75rem 0.5rem;">${addressHTML}</td>
+          <td style="padding: 0.75rem 0.5rem;">${driverHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${statusBadge}</td>
           <td style="padding: 0.75rem 0.5rem;">${verifiedHTML}</td>
         </tr>
@@ -854,6 +896,404 @@ export async function renderOptirouteSupport() {
         if (item) openWhatsAppModal(item);
       });
     });
+
+    // --- Manejo de Selección e Impresión de Etiquetas ---
+    const checkAll = document.getElementById('check-all-shipments');
+    const rowCheckboxes = tableBody.querySelectorAll('.shipment-checkbox');
+    const btnPrintLabels = document.getElementById('btn-print-labels');
+    const printCountSpan = document.getElementById('print-count');
+
+    // Resetear checkAll y ocultar botón al (re)renderizar la tabla
+    if (checkAll) checkAll.checked = false;
+    updatePrintButtonState();
+
+    if (checkAll) {
+      checkAll.addEventListener('change', () => {
+        const isChecked = checkAll.checked;
+        rowCheckboxes.forEach(cb => {
+          cb.checked = isChecked;
+        });
+        updatePrintButtonState();
+      });
+    }
+
+    rowCheckboxes.forEach(cb => {
+      cb.addEventListener('change', () => {
+        const allChecked = Array.from(rowCheckboxes).every(c => c.checked);
+        if (checkAll) checkAll.checked = allChecked;
+        updatePrintButtonState();
+      });
+    });
+
+    function updatePrintButtonState() {
+      if (!btnPrintLabels || !printCountSpan) return;
+      const checkedCount = Array.from(rowCheckboxes).filter(c => c.checked).length;
+      printCountSpan.textContent = checkedCount;
+      if (checkedCount > 0) {
+        btnPrintLabels.style.display = 'inline-flex';
+      } else {
+        btnPrintLabels.style.display = 'none';
+      }
+    }
+
+    // Listener para Imprimir Selección (Masivo)
+    if (btnPrintLabels) {
+      const newBtn = btnPrintLabels.cloneNode(true);
+      btnPrintLabels.parentNode.replaceChild(newBtn, btnPrintLabels);
+      newBtn.addEventListener('click', () => {
+        const checkedOrders = Array.from(rowCheckboxes)
+          .filter(c => c.checked)
+          .map(c => parseInt(c.getAttribute('data-order')));
+        const selectedWaypoints = data.filter(w => checkedOrders.includes(w.order));
+        if (selectedWaypoints.length > 0) {
+          printWaypointsLabels(selectedWaypoints);
+        }
+      });
+    }
+
+    // Listener para Impresión Individual
+    const singlePrintBtns = tableBody.querySelectorAll('.btn-print-single-label');
+    singlePrintBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const orderNum = parseInt(btn.getAttribute('data-order'));
+        const selectedWp = data.find(w => w.order === orderNum);
+        if (selectedWp) {
+          printWaypointsLabels([selectedWp]);
+        }
+      });
+    });
+  }
+
+  // Función para Renderizar e Imprimir Etiquetas Térmicas de Envío (100mm x 150mm)
+  function printWaypointsLabels(waypoints) {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Por favor, permite las ventanas emergentes (popups) para poder imprimir las etiquetas.');
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Etiquetas de Envío WMS STOCKA</title>
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+        <style>
+          @page {
+            size: 100mm 150mm;
+            margin: 0;
+          }
+          @media print {
+            body {
+              margin: 0;
+              padding: 0;
+              background: white;
+            }
+            .label-page {
+              page-break-after: always;
+            }
+          }
+          body {
+            font-family: 'Outfit', 'Segoe UI', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: white;
+            -webkit-print-color-adjust: exact;
+          }
+          .label-page {
+            width: 100mm;
+            height: 150mm;
+            box-sizing: border-box;
+            padding: 4mm;
+            display: flex;
+            flex-direction: column;
+            gap: 2.5mm;
+            background: white;
+            color: black;
+          }
+          .label-box {
+            border: 2px solid #000000;
+            border-radius: 8px;
+            padding: 2mm 3mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-sizing: border-box;
+          }
+          .label-row-1 {
+            display: flex;
+            gap: 2.5mm;
+            height: 20mm;
+          }
+          .label-box-order {
+            width: 25%;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+          }
+          .label-box-pedido {
+            width: 75%;
+            justify-content: center;
+          }
+          .label-row-2 {
+            display: flex;
+            gap: 2.5mm;
+            height: 28mm;
+          }
+          .label-box-cliente {
+            width: 65%;
+            justify-content: space-between;
+          }
+          .label-box-qr {
+            width: 35%;
+            align-items: center;
+            justify-content: center;
+            padding: 1mm;
+          }
+          .qr-code {
+            width: 100%;
+            height: 100%;
+            max-width: 22mm;
+            max-height: 22mm;
+            object-fit: contain;
+          }
+          .label-row-3 {
+            height: 44mm;
+          }
+          .label-box-direccion {
+            height: 100%;
+            justify-content: flex-start;
+            gap: 1mm;
+          }
+          .label-row-4 {
+            height: 16mm;
+          }
+          .label-box-notas {
+            height: 100%;
+            justify-content: flex-start;
+            overflow: hidden;
+          }
+          .label-row-5 {
+            display: flex;
+            gap: 2.5mm;
+            height: 16mm;
+          }
+          .label-box-route {
+            width: 55%;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 4mm;
+          }
+          .label-box-logo {
+            width: 45%;
+            border: none;
+            padding: 0;
+            align-items: center;
+            justify-content: flex-end;
+          }
+          .label-title {
+            font-size: 7.5pt;
+            font-weight: 700;
+            color: #4b5563;
+            text-transform: uppercase;
+            margin: 0;
+            letter-spacing: 0.5px;
+          }
+          .label-value-order {
+            font-size: 32pt;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1;
+            color: #000;
+          }
+          .label-value-reference {
+            font-size: 13pt;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .label-value-comercio {
+            font-size: 10.5pt;
+            font-weight: 700;
+            margin: 2px 0 0 0;
+            text-transform: uppercase;
+            color: #374151;
+            letter-spacing: 0.3px;
+          }
+          .label-value-name {
+            font-size: 10pt;
+            font-weight: 700;
+            margin: 1px 0;
+          }
+          .label-value-phone {
+            font-size: 10.5pt;
+            font-weight: 700;
+            margin: 0;
+            font-family: monospace;
+          }
+          .label-value-address {
+            font-size: 11pt;
+            font-weight: 700;
+            margin: 0;
+            line-height: 1.2;
+          }
+          .label-value-complemento {
+            font-size: 9.5pt;
+            font-weight: 600;
+            margin: 0;
+            color: #1f2937;
+          }
+          .label-value-comuna {
+            font-size: 18pt;
+            font-weight: 800;
+            margin: 0;
+            text-transform: uppercase;
+            color: #000;
+            line-height: 1.1;
+          }
+          .label-value-notes {
+            font-size: 8pt;
+            font-weight: 500;
+            margin: 2px 0 0 0;
+            color: #1f2937;
+            line-height: 1.3;
+          }
+          .label-value-assign {
+            font-size: 20pt;
+            font-weight: 800;
+            margin: 0;
+            line-height: 1;
+          }
+          .label-value-route-name {
+            font-size: 9pt;
+            font-weight: 700;
+            margin: 0;
+            color: #374151;
+          }
+          .stocka-logo-container {
+            display: flex;
+            align-items: center;
+            gap: 2mm;
+          }
+          .stocka-logo-text {
+            font-size: 13.5pt;
+            font-weight: 800;
+            color: #1e1b4b;
+            margin: 0;
+            line-height: 1;
+          }
+          .stocka-logo-sub {
+            font-size: 5pt;
+            font-weight: 600;
+            color: #4b5563;
+            margin: 0.15rem 0 0 0;
+            line-height: 1.2;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+          }
+        </style>
+      </head>
+      <body>
+        ${waypoints.map(wp => {
+          const qrid = wp.reference !== 'S/R' ? wp.reference : wp.order;
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(wp.tracking_url || qrid)}`;
+          const cleanVehicle = wp.route_vehicle || 'Sin Asig.';
+          const cleanRouteName = wp.route_name || 'Ruta Optiroute';
+          
+          return `
+            <div class="label-page">
+              <div class="label-row-1">
+                <div class="label-box label-box-order">
+                  <span class="label-title">Orden</span>
+                  <span class="label-value-order">${wp.order}</span>
+                </div>
+                <div class="label-box label-box-pedido">
+                  <span class="label-title">Pedido:</span>
+                  <span class="label-value-reference">${wp.reference}</span>
+                  <span class="label-value-comercio">${wp.supplier}</span>
+                </div>
+              </div>
+              
+              <div class="label-row-2">
+                <div class="label-box label-box-cliente">
+                  <div>
+                    <span class="label-title">Cliente</span>
+                    <div class="label-value-name">${wp.name}</div>
+                  </div>
+                  <div>
+                    <span class="label-title">Teléfono</span>
+                    <div class="label-value-phone">${wp.phone || 'Sin número'}</div>
+                  </div>
+                </div>
+                <div class="label-box label-box-qr">
+                  <img class="qr-code" src="${qrUrl}" alt="QR">
+                </div>
+              </div>
+              
+              <div class="label-row-3">
+                <div class="label-box label-box-direccion">
+                  <span class="label-title">Dirección</span>
+                  <span class="label-value-address">${wp.address}</span>
+                  
+                  <span class="label-title" style="margin-top: 3px;">Complemento:</span>
+                  <span class="label-value-complemento">${wp.complemento || 'Sin complemento'}</span>
+                  
+                  <span class="label-title" style="margin-top: 5px;">Zona Entrega:</span>
+                  <span class="label-value-comuna">${wp.comuna || 'Sin Comuna'}</span>
+                </div>
+              </div>
+              
+              <div class="label-row-4">
+                <div class="label-box label-box-notas">
+                  <span class="label-title">Notas:</span>
+                  <span class="label-value-notes">${wp.note || 'Sin notas del pedido.'}</span>
+                </div>
+              </div>
+              
+              <div class="label-row-5">
+                <div class="label-box label-box-route">
+                  <div>
+                    <span class="label-title">Asignación</span>
+                    <div class="label-value-assign">${cleanVehicle}</div>
+                  </div>
+                  <div>
+                    <span class="label-title">Ruta</span>
+                    <div class="label-value-route-name">${cleanRouteName}</div>
+                  </div>
+                </div>
+                <div class="label-box label-box-logo">
+                  <div class="stocka-logo-container">
+                    <svg viewBox="0 0 100 100" width="28" height="28" style="flex-shrink: 0;">
+                      <polygon points="50,5 95,25 95,75 50,95 5,75 5,25" fill="#6366f1" />
+                      <path d="M35 65 L65 35 M45 35 L65 35 L65 55" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                    </svg>
+                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                      <span class="stocka-logo-text">Stocka</span>
+                      <span class="stocka-logo-sub">Logística y Fulfillment</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+        
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 500);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   }
 
   // Lightbox Modal para fotos de entrega
@@ -901,7 +1341,9 @@ export async function renderOptirouteSupport() {
       const matchesSearch = !q || 
         w.name.toLowerCase().includes(q) || 
         w.reference.toLowerCase().includes(q) || 
-        w.address.toLowerCase().includes(q);
+        w.address.toLowerCase().includes(q) ||
+        (w.route_driver && w.route_driver.toLowerCase().includes(q)) ||
+        (w.route_vehicle && w.route_vehicle.toLowerCase().includes(q));
 
       // 2. Filtro de estado
       let matchesStatus = true;
@@ -996,6 +1438,9 @@ export async function renderOptirouteSupport() {
         const noteKey = keys.find(k => /notas|comentario|comentarios|observación|observaciones|note/i.test(k));
         const statusKey = keys.find(k => /estado|status/i.test(k));
 
+        const vehicleKey = keys.find(k => /vehículo|vehiculo|vehicle|conductor|driver|asignación|asignacion|patente|car/i.test(k));
+        const routeNameKey = keys.find(k => /ruta|route|plan/i.test(k));
+
         // Mapear waypoints
         allWaypoints = rawRows.map((row, idx) => {
           let addressStr = row[addressKey] || '';
@@ -1019,7 +1464,10 @@ export async function renderOptirouteSupport() {
             images: [],
             supplier: row[keys.find(k => /proveedor|comercio|tienda|comerciante/i.test(k))] || 'Excel Import',
             comuna: communeKey && row[communeKey] ? String(row[communeKey]).trim() : '',
-            tracking_url: ''
+            tracking_url: '',
+            route_vehicle: vehicleKey && row[vehicleKey] ? String(row[vehicleKey]).trim() : 'Sin Asignación',
+            route_driver: '',
+            route_name: routeNameKey && row[routeNameKey] ? String(row[routeNameKey]).trim() : file.name
           };
         });
 
