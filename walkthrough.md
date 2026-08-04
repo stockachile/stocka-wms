@@ -2529,4 +2529,19 @@ Hemos incorporado el logotipo oficial de **Tiendanube** en todas las vistas, gri
    - Las vistas de detalles de órdenes en el portal del administrador (`js/admin.js`) y del cliente (`js/app.js`) cargan dinámicamente el logotipo usando la ruta `./img/${platformLower}.png`.
    - Con el nuevo archivo `tiendanube.png` cargado en el directorio de imágenes del WMS, ambos portales ahora despliegan correctamente el logo en el bloque de **Origen de la Orden** al recibir pedidos de este canal.
 
+---
+
+## 109. Integración del Logo Oficial Stocka.cap en Pedidos Manuales
+
+Hemos incorporado el logotipo oficial de **Stocka.cap** (`img/stocka.cap.png`) para identificar visualmente a todos los pedidos ingresados manualmente en el WMS:
+
+1. **Uso en getPlatformBadge**:
+   - Modificamos la función `getPlatformBadge(platform)` tanto en `js/app.js` como en `js/admin.js` para asociar los valores de plataforma que contengan `"manual"` o `"stocka"` con la imagen del logo `img/stocka.cap.png`.
+   - Esto asegura que todas las grillas e historiales de integraciones activas muestren el logo corporativo de Stocka.cap para las órdenes manuales.
+
+2. **Cálculo y Resolución Dinámica del Logo en Detalles**:
+   - Ajustamos la resolución de `platformLower` en las vistas detalladas y modales de pedidos de ambos portales (`js/app.js` y `js/admin.js`).
+   - Si la plataforma de origen es `"Manual"`, el resolvedor dinámico lo traduce automáticamente a `"stocka.cap"`, permitiendo que la etiqueta de origen (`originHtml` / `originBadge`) cargue directamente `./img/stocka.cap.png` sin fallar ni recurrir al fallback de texto plano.
+
+
 
