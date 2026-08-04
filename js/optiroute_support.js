@@ -749,7 +749,7 @@ export async function renderOptirouteSupport() {
       return;
     }
 
-    tableBody.innerHTML = data.map((item) => {
+    tableBody.innerHTML = data.map((item, idx) => {
       // 1. Contacto (WhatsApp + Correo Brevo)
       let phoneSpan = item.phone 
         ? `<span style="font-weight: 500; font-family: monospace; font-size: 0.75rem;">+${String(item.phone).replace(/\D/g, '')}</span>` 
@@ -757,11 +757,11 @@ export async function renderOptirouteSupport() {
 
       const hasEmail = item.email && item.email.includes('@');
       const emailBadge = hasEmail 
-        ? `<button class="btn btn-sm btn-outline btn-send-single-email" data-order="${item.order}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; border: 1px solid #2563eb; color: #2563eb; background: transparent; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar correo Brevo desde info@stocka.cl (${item.email})"><i class="ri-mail-line"></i> Correo</button>`
+        ? `<button class="btn btn-sm btn-outline btn-send-single-email" data-idx="${idx}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; border: 1px solid #2563eb; color: #2563eb; background: transparent; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar correo Brevo desde info@stocka.cl (${item.email})"><i class="ri-mail-line"></i> Correo</button>`
         : `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-style: italic;">Sin correo</span>`;
 
       const whatsAppBtn = item.phone ? `
-        <button class="btn btn-sm btn-success btn-contactar-whatsapp" data-order="${item.order}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; background-color: var(--color-success); color: white; border: none; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar WhatsApp">
+        <button class="btn btn-sm btn-success btn-contactar-whatsapp" data-idx="${idx}" style="display: flex; align-items: center; justify-content: center; gap: 0.2rem; background-color: var(--color-success); color: white; border: none; font-size: 0.7rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 600; cursor: pointer;" title="Enviar WhatsApp">
           <i class="ri-whatsapp-line"></i> WSP
         </button>
       ` : '';
@@ -871,11 +871,11 @@ export async function renderOptirouteSupport() {
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border); align-items: center;">
-          <td style="padding: 0.75rem 0.5rem; text-align: center;"><input type="checkbox" class="shipment-checkbox" data-order="${item.order}" style="transform: scale(1.1); cursor: pointer;"></td>
+          <td style="padding: 0.75rem 0.5rem; text-align: center;"><input type="checkbox" class="shipment-checkbox" data-idx="${idx}" style="transform: scale(1.1); cursor: pointer;"></td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--color-text-muted); font-family: monospace;">
             <div style="display: flex; align-items: center; gap: 0.4rem;">
               <span>#${item.order}</span>
-              <button class="btn btn-sm btn-outline btn-print-single-label" data-order="${item.order}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; gap: 0.1rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
+              <button class="btn btn-sm btn-outline btn-print-single-label" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; gap: 0.1rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
                 <i class="ri-printer-line"></i>
               </button>
             </div>
@@ -956,10 +956,10 @@ export async function renderOptirouteSupport() {
       const newBtn = btnPrintLabels.cloneNode(true);
       btnPrintLabels.parentNode.replaceChild(newBtn, btnPrintLabels);
       newBtn.addEventListener('click', () => {
-        const checkedOrders = Array.from(rowCheckboxes)
+        const checkedIndices = Array.from(rowCheckboxes)
           .filter(c => c.checked)
-          .map(c => parseInt(c.getAttribute('data-order')));
-        const selectedWaypoints = data.filter(w => checkedOrders.includes(w.order));
+          .map(c => parseInt(c.getAttribute('data-idx')));
+        const selectedWaypoints = checkedIndices.map(i => data[i]).filter(Boolean);
         if (selectedWaypoints.length > 0) {
           printWaypointsLabels(selectedWaypoints);
         }
@@ -972,10 +972,10 @@ export async function renderOptirouteSupport() {
       const newEmailBtn = btnSendBulkEmail.cloneNode(true);
       btnSendBulkEmail.parentNode.replaceChild(newEmailBtn, btnSendBulkEmail);
       newEmailBtn.addEventListener('click', () => {
-        const checkedOrders = Array.from(rowCheckboxes)
+        const checkedIndices = Array.from(rowCheckboxes)
           .filter(c => c.checked)
-          .map(c => parseInt(c.getAttribute('data-order')));
-        const selectedWaypoints = data.filter(w => checkedOrders.includes(w.order));
+          .map(c => parseInt(c.getAttribute('data-idx')));
+        const selectedWaypoints = checkedIndices.map(i => data[i]).filter(Boolean);
         
         // Si hay elementos seleccionados, enviar selección; si no, enviar todos los envíos de la ruta
         const targetWaypoints = selectedWaypoints.length > 0 ? selectedWaypoints : data;
@@ -988,8 +988,8 @@ export async function renderOptirouteSupport() {
     // Listener para Envío de Correo Individual
     tableBody.querySelectorAll('.btn-send-single-email').forEach(btn => {
       btn.addEventListener('click', () => {
-        const orderNum = parseInt(btn.getAttribute('data-order'));
-        const item = data.find(w => w.order === orderNum);
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
         if (item) {
           openSendBrevoEmailModal([item]);
         }
@@ -1000,8 +1000,8 @@ export async function renderOptirouteSupport() {
     const contactBtns = tableBody.querySelectorAll('.btn-contactar-whatsapp');
     contactBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const orderNum = parseInt(btn.getAttribute('data-order'));
-        const item = data.find(w => w.order === orderNum);
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
         if (item) openWhatsAppModal(item);
       });
     });
@@ -1010,11 +1010,9 @@ export async function renderOptirouteSupport() {
     const singlePrintBtns = tableBody.querySelectorAll('.btn-print-single-label');
     singlePrintBtns.forEach(btn => {
       btn.addEventListener('click', () => {
-        const orderNum = parseInt(btn.getAttribute('data-order'));
-        const selectedWp = data.find(w => w.order === orderNum);
-        if (selectedWp) {
-          printWaypointsLabels([selectedWp]);
-        }
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
+        if (item) printWaypointsLabels([item]);
       });
     });
   }
