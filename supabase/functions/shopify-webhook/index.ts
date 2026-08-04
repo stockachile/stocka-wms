@@ -234,7 +234,7 @@ async function handleOrderCreate(merchantId, comercio, order) {
     let product = null;
 
     // Buscar si existe equivalencia para el SKU en Shopify o Todas las plataformas
-    let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
+    let cleanSku = (item.sku || item.variant_id?.toString() || "").trim().replace(/\s+/g, '');
     let mappedSku = cleanSku;
     let hasEquivalence = false;
 
