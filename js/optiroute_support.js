@@ -1678,10 +1678,10 @@ export async function renderOptirouteSupport() {
           <tr>
             <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
               <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
-                STOCKA SpA &bull; Logística y Cumplimiento E-commerce
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
               </p>
               <p style="margin:0; font-size:11px; color:#94a3b8;">
-                ¿Consultas? Escríbenos a <a href="mailto:info@stocka.cl" style="color:#2563eb; text-decoration:none;">info@stocka.cl</a> o al WhatsApp +56 9 8260 6602
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#2563eb; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
               </p>
             </td>
           </tr>
@@ -1783,10 +1783,10 @@ export async function renderOptirouteSupport() {
           <tr>
             <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
               <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
-                STOCKA SpA &bull; Logística y Cumplimiento E-commerce
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
               </p>
               <p style="margin:0; font-size:11px; color:#94a3b8;">
-                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#059669; text-decoration:none;">info@stocka.cl</a>
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#059669; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
               </p>
             </td>
           </tr>
