@@ -92,16 +92,33 @@ export async function renderOptirouteSupport() {
             <!-- Buscador -->
             <div style="position: relative;">
               <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
-              <input type="text" id="search-shipments" class="form-input" placeholder="Buscar cliente, ref..." style="padding-left: 1.85rem; font-size: 0.8rem; width: 180px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <input type="text" id="search-shipments" class="form-input" placeholder="Buscar cliente, ref, dir..." style="padding-left: 1.85rem; font-size: 0.8rem; width: 160px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
             </div>
             <!-- Filtro de Estado -->
             <select id="filter-status" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
               <option value="">Todos los estados</option>
               <option value="Completado">Entregado / Completado</option>
-              <option value="En ruta">En ruta</option>
-              <option value="Pendiente">Pendiente</option>
-              <option value="Saltado">Saltado / Fallido</option>
+              <option value="En ruta">En ruta / En viaje</option>
+              <option value="Pendiente">Pendiente / Ingresado</option>
+              <option value="Saltado">Saltado / Cancelado</option>
               <option value="Warning">Con advertencias de dirección</option>
+            </select>
+            <!-- Filtro de Conductor -->
+            <select id="filter-driver" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <option value="">Todos los conductores</option>
+            </select>
+            <!-- Filtro de Proveedor / Comercio -->
+            <select id="filter-supplier" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <option value="">Todos los proveedores</option>
+            </select>
+            <!-- Filtro de Estado de Correo -->
+            <select id="filter-email-status" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <option value="">Todos los correos</option>
+              <option value="dispatch_sent">✉️ Despacho Notificado</option>
+              <option value="delivery_sent">✅ Entrega Confirmada</option>
+              <option value="not_sent">⏳ Sin Notificar</option>
+              <option value="has_email">📧 Con Correo Registrado</option>
+              <option value="no_email">🚫 Sin Correo Registrado</option>
             </select>
           </div>
         </div>
@@ -444,8 +461,8 @@ export async function renderOptirouteSupport() {
           if (btnForceLive) btnForceLive.style.display = 'flex';
 
           renderSummaryDashboard(routeName);
-          currentFilteredWaypoints = [...allWaypoints];
-          renderShipmentsTable(allWaypoints);
+          populateFilterDropdowns();
+          applyFilters();
           checkAndAutoSendDeliveryEmails(allWaypoints);
           
           btnFetchRoute.disabled = false;
@@ -651,8 +668,8 @@ export async function renderOptirouteSupport() {
       if (btnForceLive) btnForceLive.style.display = 'none';
 
       renderSummaryDashboard(planDetail.name || 'Ruta Optiroute');
-      currentFilteredWaypoints = [...allWaypoints];
-      renderShipmentsTable(allWaypoints);
+      populateFilterDropdowns();
+      applyFilters();
       checkAndAutoSendDeliveryEmails(allWaypoints);
 
       // Guardar en la caché local atómicamente
@@ -1430,43 +1447,100 @@ export async function renderOptirouteSupport() {
   // Filtrado de la tabla de forma instantánea
   const searchInput = document.getElementById('search-shipments');
   const filterStatus = document.getElementById('filter-status');
+  const filterDriver = document.getElementById('filter-driver');
+  const filterSupplier = document.getElementById('filter-supplier');
+  const filterEmailStatus = document.getElementById('filter-email-status');
+
+  function populateFilterDropdowns() {
+    if (filterDriver) {
+      const selectedDriver = filterDriver.value;
+      const drivers = Array.from(new Set(allWaypoints.map(w => w.route_driver || w.route_vehicle).filter(Boolean))).sort();
+      filterDriver.innerHTML = '<option value="">Todos los conductores</option>' + 
+        drivers.map(d => `<option value="${d}">${d}</option>`).join('');
+      filterDriver.value = selectedDriver || '';
+    }
+
+    if (filterSupplier) {
+      const selectedSupplier = filterSupplier.value;
+      const suppliers = Array.from(new Set(allWaypoints.map(w => w.supplier).filter(Boolean))).sort();
+      filterSupplier.innerHTML = '<option value="">Todos los proveedores</option>' + 
+        suppliers.map(s => `<option value="${s}">${s}</option>`).join('');
+      filterSupplier.value = selectedSupplier || '';
+    }
+  }
 
   function applyFilters() {
-    const q = searchInput.value.toLowerCase().trim();
-    const statusVal = filterStatus.value;
+    const q = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    const statusVal = filterStatus ? filterStatus.value : '';
+    const driverVal = filterDriver ? filterDriver.value : '';
+    const supplierVal = filterSupplier ? filterSupplier.value : '';
+    const emailStatusVal = filterEmailStatus ? filterEmailStatus.value : '';
 
     const filtered = allWaypoints.filter(w => {
-      // 1. Buscador
+      // 1. Buscador global
       const matchesSearch = !q || 
-        w.name.toLowerCase().includes(q) || 
-        w.reference.toLowerCase().includes(q) || 
-        w.address.toLowerCase().includes(q) ||
+        (w.name && w.name.toLowerCase().includes(q)) || 
+        (w.reference && w.reference.toLowerCase().includes(q)) || 
+        (w.address && w.address.toLowerCase().includes(q)) ||
+        (w.comuna && w.comuna.toLowerCase().includes(q)) ||
+        (w.supplier && w.supplier.toLowerCase().includes(q)) ||
+        (w.phone && String(w.phone).includes(q)) ||
         (w.route_driver && w.route_driver.toLowerCase().includes(q)) ||
         (w.route_vehicle && w.route_vehicle.toLowerCase().includes(q));
 
       // 2. Filtro de estado
       let matchesStatus = true;
+      const st = (w.status || '').toLowerCase();
       if (statusVal === 'Completado') {
-        matchesStatus = w.status === 'Completado' || w.status === 'Entregado';
+        matchesStatus = st.includes('completado') || st.includes('entregado') || st.includes('exito') || st.includes('delivered');
       } else if (statusVal === 'En ruta') {
-        matchesStatus = w.status === 'En ruta' || w.status === 'En viaje';
+        matchesStatus = st.includes('ruta') || st.includes('viaje') || st.includes('onroute') || st.includes('ongoing');
       } else if (statusVal === 'Pendiente') {
-        matchesStatus = w.status === 'Pendiente' || w.status === 'En revisión';
+        matchesStatus = st.includes('ingresado') || st.includes('programado') || st.includes('pendiente') || st.includes('revisión') || st.includes('espera') || st.includes('scheduled') || st.includes('imported') || st.includes('reviewing');
       } else if (statusVal === 'Saltado') {
-        matchesStatus = w.status === 'Saltado' || w.status === 'Cancelado' || w.status === 'Eliminado';
+        matchesStatus = st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped') || st.includes('cancelled') || st.includes('deleted');
       } else if (statusVal === 'Warning') {
         matchesStatus = w.address_status !== 1 && w.address_status !== 3;
       }
 
-      return matchesSearch && matchesStatus;
+      // 3. Filtro de Conductor
+      let matchesDriver = true;
+      if (driverVal) {
+        matchesDriver = (w.route_driver || w.route_vehicle) === driverVal;
+      }
+
+      // 4. Filtro de Proveedor / Comercio
+      let matchesSupplier = true;
+      if (supplierVal) {
+        matchesSupplier = w.supplier === supplierVal;
+      }
+
+      // 5. Filtro de Estado de Correo
+      let matchesEmailStatus = true;
+      if (emailStatusVal === 'dispatch_sent') {
+        matchesEmailStatus = Boolean(w.dispatch_email_notified);
+      } else if (emailStatusVal === 'delivery_sent') {
+        matchesEmailStatus = Boolean(w.delivery_email_notified);
+      } else if (emailStatusVal === 'not_sent') {
+        matchesEmailStatus = !w.dispatch_email_notified && !w.delivery_email_notified;
+      } else if (emailStatusVal === 'has_email') {
+        matchesEmailStatus = Boolean(w.email && w.email.includes('@'));
+      } else if (emailStatusVal === 'no_email') {
+        matchesEmailStatus = !w.email || !w.email.includes('@');
+      }
+
+      return matchesSearch && matchesStatus && matchesDriver && matchesSupplier && matchesEmailStatus;
     });
 
     currentFilteredWaypoints = filtered;
     renderShipmentsTable(filtered);
   }
 
-  searchInput.addEventListener('input', applyFilters);
-  filterStatus.addEventListener('change', applyFilters);
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+  if (filterStatus) filterStatus.addEventListener('change', applyFilters);
+  if (filterDriver) filterDriver.addEventListener('change', applyFilters);
+  if (filterSupplier) filterSupplier.addEventListener('change', applyFilters);
+  if (filterEmailStatus) filterEmailStatus.addEventListener('change', applyFilters);
 
   // 2. Carga Manual desde Excel (Fallback)
   const excelDropZone = document.getElementById('excel-drop-zone');
@@ -2114,7 +2188,7 @@ export async function renderOptirouteSupport() {
         }
 
         modal.remove();
-        renderShipmentsTable(allWaypoints);
+        applyFilters();
 
         if (window.Swal) {
           if (failCount === 0) {
