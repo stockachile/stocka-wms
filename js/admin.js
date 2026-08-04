@@ -1336,6 +1336,28 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
   if (dateTo) {
     toISO = new Date(dateTo + 'T23:59:59').toISOString();
   }
+
+  // Cargar mapeos de Envíame ID a comercio para resolver colisiones de referencias comunes (#1006, #1007, etc.)
+  window.enviameIdToCommerceMap = {};
+  try {
+    const { data: configs } = await supabase
+      .from('comercios_adicional_config')
+      .select('comercio, enviame_id');
+    if (configs) {
+      configs.forEach(c => {
+        if (c.enviame_id) {
+          const ids = c.enviame_id.split(',').map(id => id.trim().replace(/^ID\s*:?\s*/i, ''));
+          ids.forEach(id => {
+            if (id) {
+              window.enviameIdToCommerceMap[id] = c.comercio;
+            }
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.error("Error loading enviame configs mapping:", e);
+  }
   
   const orders = await window.fetchAllSupabaseRows('orders', `
     id,
@@ -2086,12 +2108,26 @@ window.applyWmsFiltersAndRender = function() {
 
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
-    // Buscar el envío en el listado cargado
-    let orderShipments = shipments.filter(s => 
-      s.pedido_referencia === order.id || 
-      (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
-      (order.tracking_number && s.pedido_referencia === order.tracking_number)
-    );
+    // Buscar el envío en el listado cargado con control de colisiones por comercio
+    let orderShipments = shipments.filter(s => {
+      const refMatches = s.pedido_referencia === order.id || 
+                         (order.external_order_number && s.pedido_referencia === order.external_order_number) ||
+                         (order.tracking_number && s.pedido_referencia === order.tracking_number);
+      if (!refMatches) return false;
+
+      // Validar coincidencia de comercio para evitar colisiones cruzadas
+      let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
+      const orderCommerce = (order.comercio || '').trim().toUpperCase();
+      if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+
+      let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
+      if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
+        const mapped = window.enviameIdToCommerceMap[envId];
+        if (mapped) shipCommerce = mapped.trim().toUpperCase();
+      }
+
+      return shipCommerce === orderCommerce;
+    });
 
     // Priorizar los envíos según:
     // 1. Si tiene movimiento (global_status = 'DESPACHADO' o 'ALERTA', evaluado dinámicamente)
@@ -4634,7 +4670,7 @@ function renderMasterCatalogRows(products) {
   if (products.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
+        <td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
           No hay productos en el catálogo master.
         </td>
       </tr>
@@ -4820,8 +4856,14 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
 
+    const isChecked = window.catalogSelectedProductIds.has(item.id) ? 'checked' : '';
+    const checkboxCell = `<td style="padding: 0.75rem 1.5rem; text-align: center; width: 40px;">
+      <input type="checkbox" class="catalog-row-checkbox" data-id="${item.id}" ${isChecked} style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+    </td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
+        ${checkboxCell}
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
         <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
@@ -4846,6 +4888,163 @@ function renderMasterCatalogRows(products) {
     rows.forEach(row => {
       const text = row.textContent.toLowerCase();
       row.style.display = text.includes(q) ? '' : 'none';
+    });
+  }
+
+  // Manejo de checkboxes de selección masiva
+  const commerce = window.activeAdminComercio || '';
+  const cbAll = document.getElementById('catalog-select-all');
+  const rowCheckboxes = tbody.querySelectorAll('.catalog-row-checkbox');
+
+  if (cbAll) {
+    cbAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      rowCheckboxes.forEach(cb => {
+        const row = cb.closest('tr');
+        if (row && row.style.display !== 'none') {
+          cb.checked = checked;
+          const id = cb.getAttribute('data-id');
+          if (checked) {
+            window.catalogSelectedProductIds.add(id);
+          } else {
+            window.catalogSelectedProductIds.delete(id);
+          }
+        }
+      });
+      window.renderCatalogBulkActionsBar(commerce);
+    });
+
+    // Sincronizar select-all inicial
+    const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
+      const row = cb.closest('tr');
+      return row && row.style.display !== 'none';
+    });
+    if (visibleCheckboxes.length > 0) {
+      cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+    } else {
+      cbAll.checked = false;
+    }
+  }
+
+  rowCheckboxes.forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const id = e.target.getAttribute('data-id');
+      if (e.target.checked) {
+        window.catalogSelectedProductIds.add(id);
+      } else {
+        window.catalogSelectedProductIds.delete(id);
+      }
+
+      if (cbAll) {
+        const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
+          const row = cb.closest('tr');
+          return row && row.style.display !== 'none';
+        });
+        cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+      }
+      window.renderCatalogBulkActionsBar(commerce);
+    });
+  });
+
+  window.renderCatalogBulkActionsBar(commerce);
+}
+
+window.renderCatalogBulkActionsBar = function(commerce) {
+  const container = document.getElementById('catalog-bulk-actions-container');
+  if (!container) return;
+
+  const selectedCount = window.catalogSelectedProductIds ? window.catalogSelectedProductIds.size : 0;
+  if (selectedCount === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
+        <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} productos seleccionados</span>
+        <button onclick="window.clearCatalogSelection('${commerce}')" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <button onclick="window.bulkSetVirtualStatus('${commerce}', true)" class="btn" style="background: #10b981; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-computer-line"></i> Marcar como Virtual
+        </button>
+        <button onclick="window.bulkSetVirtualStatus('${commerce}', false)" class="btn" style="background: #64748b; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-archive-line"></i> Marcar como Físico
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.clearCatalogSelection = function(commerce) {
+  if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+  const cbAll = document.getElementById('catalog-select-all');
+  if (cbAll) cbAll.checked = false;
+  document.querySelectorAll('.catalog-row-checkbox').forEach(cb => cb.checked = false);
+  window.renderCatalogBulkActionsBar(commerce);
+};
+
+window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
+  const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
+  if (selectedIds.length === 0) return;
+
+  const actionText = isVirtual ? 'marcar como virtuales' : 'marcar como físicos';
+  const confirmResult = await Swal.fire({
+    title: '¿Confirmar acción masiva?',
+    text: `Vas a ${actionText} ${selectedIds.length} productos seleccionados.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: 'var(--color-primary)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Aplicando cambios...',
+    text: 'Por favor espera...',
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ is_virtual: isVirtual })
+      .in('id', selectedIds);
+
+    if (error) throw error;
+
+    Swal.fire({
+      title: '¡Éxito!',
+      text: 'Los productos se actualizaron correctamente.',
+      icon: 'success',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+
+    // Limpiar selección y recargar catálogo
+    if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+    if (window.renderAdminCatalogWorkspace) {
+      window.renderAdminCatalogWorkspace(commerce);
+    } else if (window.renderCatalog) {
+      window.renderCatalog();
+    }
+  } catch (err) {
+    console.error('Error in bulkSetVirtualStatus:', err);
+    Swal.fire({
+      title: 'Error',
+      text: 'Ocurrió un error al actualizar los productos: ' + err.message,
+      icon: 'error',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
     });
   }
 }
@@ -7640,6 +7839,8 @@ async function renderAdminCatalog() {
 }
 
 async function renderAdminCatalogWorkspace(commerce) {
+  window.activeAdminComercio = commerce;
+  window.catalogSelectedProductIds = new Set();
   window.catalogQuickEditMode = false;
   const workspace = document.getElementById('eq-admin-workspace');
   workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando catálogo del comercio...</p>`;
@@ -7908,6 +8109,7 @@ async function renderAdminCatalogWorkspace(commerce) {
 
       <div class="integration-content">
         <div id="tab-catalog-master" class="catalog-tab-pane" style="display: block;">
+          <div id="catalog-bulk-actions-container"></div>
           <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
               <div>
@@ -7929,6 +8131,9 @@ async function renderAdminCatalogWorkspace(commerce) {
               <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                    <th style="padding: 1rem 1.5rem; width: 40px; text-align: center;">
+                      <input type="checkbox" id="catalog-select-all" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+                    </th>
                     <th style="padding: 1rem 1.5rem;">Imagen</th>
                     <th class="sortable-header" data-sort="sku" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por SKU">
                       SKU <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
@@ -25127,7 +25332,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     // 1. Obtener los datos frescos de la orden
     const { data: order, error: orderErr } = await supabase
       .from('orders')
-      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms')
+      .select('id, external_order_number, tracking_number, tracking_url, courier, raw_lightdata_data, estado_wms, comercio')
       .eq('id', orderId)
       .maybeSingle();
 
@@ -25148,7 +25353,22 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
       .select('*')
       .in('pedido_referencia', refs);
 
-    const orderShipments = (!shipErr && shipData) ? shipData : [];
+    let orderShipments = (!shipErr && shipData) ? shipData : [];
+    if (orderShipments.length > 0) {
+      orderShipments = orderShipments.filter(s => {
+        let shipCommerce = (s.empresa_comercio_proveedor || '').trim().toUpperCase();
+        const orderCommerce = (order.comercio || '').trim().toUpperCase();
+        if (!shipCommerce || shipCommerce === 'NO ASIGNADO' || shipCommerce === 'STOCKA STORE TEST') return true;
+
+        let envId = shipCommerce.replace(/^ID\s*:?\s*/i, '').trim();
+        if (/^\d+$/.test(envId) && window.enviameIdToCommerceMap) {
+          const mapped = window.enviameIdToCommerceMap[envId];
+          if (mapped) shipCommerce = mapped.trim().toUpperCase();
+        }
+
+        return shipCommerce === orderCommerce;
+      });
+    }
 
     // Priorizar los envíos según movimiento y coincidencia
     if (orderShipments.length > 1) {

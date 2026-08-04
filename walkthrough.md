@@ -462,6 +462,62 @@ Hemos solucionado el problema que provocaba que las órdenes importadas automát
 
 ---
 
+## 105. Corrección en la Detección y Etiquetado de Packs en Pedidos
+
+Hemos corregido la lógica de detección de productos de tipo **Pack / Combo** en la lista de pedidos tanto en el panel del Administrador (`js/admin.js`) como en el del Cliente (`js/app.js`):
+
+1. **Causa Raíz del Error**:
+   - El sistema dependía de la inspección de los campos JSON crudos de integración (como `raw_shopify_data.line_items`, `raw_woocommerce_data.line_items`, etc.) para identificar si los ítems de un pedido contenían SKUs marcados como packs.
+   - Sin embargo, para mejorar el rendimiento de la red y optimizar la velocidad de carga de las órdenes en el WMS, las consultas SQL omitían la descarga de estas columnas JSON completas (o solo traían campos mínimos como el estado). Al no estar presentes los line items crudos, el sistema nunca identificaba los packs y no mostraba la etiqueta `"Con Packs"`.
+
+2. **Detección Directa y Confiable**:
+   - Reestructuramos la lógica para comprobar las fuentes directas de información de la orden procesada:
+     - **`order.sku`**: El SKU principal del pedido si es de un solo ítem.
+     - **`order.order_items`**: Los productos asociados de forma nativa en la base de datos a la orden (que ya contiene los SKUs y cantidades procesadas en WMS).
+     - **Fallback Crudo**: Se mantiene la inspección de datos crudos de integración por compatibilidad.
+   - Si cualquiera de estos SKUs se encuentra en el conjunto global de packs cargados (`window.currentPackSkusList`), el sistema lo cataloga y muestra con éxito el badge morado **`Con Packs`** y el desglose de packs contenidos en el detalle de la fila.
+
+---
+
+## 106. Acciones Masivas en Catálogo de Administrador (Virtual vs. Físico)
+
+Hemos implementado un sistema de **acciones masivas (bulk actions)** para el catálogo de productos en el panel del administrador (`js/admin.js`). Esto permite actualizar múltiples productos simultáneamente:
+
+1. **Casillas de Selección y Barra Flotante**:
+   - Se añadió un checkbox "Seleccionar Todo" en el encabezado de la tabla de catálogo.
+   - Se agregaron checkboxes individuales en cada fila del producto.
+   - Al seleccionar uno o más productos, aparece dinámicamente una barra superior de acciones masivas premium en color corporativo que indica el número de ítems seleccionados.
+2. **Cambio de Estado Virtual/Físico en Lote**:
+   - Permite a los administradores marcar todos los productos seleccionados como **Virtuales** o **Físicos** de un solo golpe.
+   - Se integra con alertas SweetAlert2 para solicitar confirmación del usuario antes de aplicar la modificación masiva en la tabla `products` de Supabase.
+
+---
+
+## 107. Protección de Colisiones en Envíos por Comercio (Despachos)
+
+Hemos implementado protección avanzada contra colisiones de referencias de envíos en el panel de administrador (`js/admin.js`):
+
+1. **El Problema de las Referencias Duplicadas**:
+   - Anteriormente, al filtrar la tabla de envíos unificados por número de referencia del pedido (`pedido_referencia`), si dos comercios distintos tenían una orden con la misma referencia (por ejemplo, el correlativo `#1024` o `1024` usado por Shopify en diferentes tiendas), ambos envíos aparecían asociados al pedido del comercio activo en la tabla de WMS, mezclando estados de courier incorrectos.
+2. **Solución mediante Coincidencia de Comercio**:
+   - El sistema ahora compara el campo `empresa_comercio_proveedor` del envío en `envios_unificados` con el campo `comercio` de la orden.
+   - Se implementó un mapeo dinámico de IDs de Envíame (`enviameIdToCommerceMap`) para traducir códigos numéricos al nombre del comercio correspondiente.
+   - Si se detecta que el envío pertenece a un comercio diferente al del pedido, se excluye de la renderización del pedido (tanto en la grilla principal del WMS como en el modal de detalle del pedido), garantizando una correlación 100% libre de colisiones cruzadas.
+
+---
+
+## 108. Adición del Estado "Cancelado" en Acciones Masivas del WMS
+
+Para dar respuesta al requerimiento de anulación/cancelación masiva de pedidos por parte del usuario, realizamos las siguientes modificaciones:
+
+1. **Dropdown de Acciones Masivas**:
+   - Añadimos la opción `<option value="Cancelado">Cancelado</option>` a la barra de acciones masivas de la tabla de órdenes (`#bulk-wms-status`).
+2. **Ejecución y Descuento de Inventario**:
+   - Al marcar masivamente o de forma individual un conjunto de órdenes como `Cancelado`, se actualizan los campos correspondientes en Supabase.
+   - Esto interactúa correctamente con los triggers de base de datos (`on_order_status_update` / `handle_order_status_change()`), liberando automáticamente el stock previamente comprometido (`committed_quantity`) de los ítems de las órdenes canceladas.
+
+---
+
 ## 22. Visualización e Indicador de Stock Insuficiente en Pedidos (Admin y Cliente)
 
 Hemos implementado un sistema visual de alertas en tiempo real para notificar tanto a los administradores del WMS como a los clientes cuando un pedido no tiene stock físico disponible suficiente en la bodega asignada:
