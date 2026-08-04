@@ -392,16 +392,23 @@ export async function renderOptirouteSupport() {
           allWaypoints = cached.map(c => {
             const w = c.raw_data?.waypoint || {};
             const sr = c.raw_data || {};
+            const ref = c.referencia || 'S/R';
+            const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
+            const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
+
+            const dispatchAt = localDispatchAt || sr.email_notified_at || null;
+            const deliveryAt = localDeliveryAt || sr.delivery_email_notified_at || null;
+
             return {
               order: w.customer_order || w.order || 0,
-              reference: c.referencia || 'S/R',
+              reference: ref,
               name: c.nombre_destinatario || 'Cliente sin nombre',
               phone: c.telefono_destino || '',
               email: c.email_cliente_destino || sr.customer?.customer?.email || sr.customer?.email || '',
-              dispatch_email_notified: Boolean(c.email_notified_at || sr.email_notified_at),
-              dispatch_email_at: c.email_notified_at || sr.email_notified_at || null,
-              delivery_email_notified: Boolean(c.delivery_email_notified_at || sr.delivery_email_notified_at),
-              delivery_email_at: c.delivery_email_notified_at || sr.delivery_email_notified_at || null,
+              dispatch_email_notified: Boolean(dispatchAt),
+              dispatch_email_at: dispatchAt,
+              delivery_email_notified: Boolean(deliveryAt),
+              delivery_email_at: deliveryAt,
               address: c.direccion_destino || 'Sin Dirección',
               complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
@@ -598,16 +605,22 @@ export async function renderOptirouteSupport() {
           w.address?.address_more_info
         ].filter(Boolean).join(', ') || '';
 
+        const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
+        const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
+
+        const dispatchAt = localDispatchAt || dbInfo.raw_data?.email_notified_at || detOrder?.email_notified_at || null;
+        const deliveryAt = localDeliveryAt || dbInfo.raw_data?.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null;
+
         return {
           order: w.customer_order || w.order || 0,
           reference: ref,
           name: w.name || w.service_request?.subscription?.name || 'Cliente sin nombre',
           phone: phone,
           email: email,
-          dispatch_email_notified: Boolean(dbInfo.email_notified_at || detOrder?.email_notified_at),
-          dispatch_email_at: dbInfo.email_notified_at || detOrder?.email_notified_at || null,
-          delivery_email_notified: Boolean(dbInfo.delivery_email_notified_at || detOrder?.delivery_email_notified_at),
-          delivery_email_at: dbInfo.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null,
+          dispatch_email_notified: Boolean(dispatchAt),
+          dispatch_email_at: dispatchAt,
+          delivery_email_notified: Boolean(deliveryAt),
+          delivery_email_at: deliveryAt,
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
           complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
@@ -1867,22 +1880,35 @@ export async function renderOptirouteSupport() {
     if (isDispatch) {
       item.dispatch_email_notified = true;
       item.dispatch_email_at = now;
+      if (item.reference) localStorage.setItem(`stk_email_dispatch_${item.reference}`, now);
     } else {
       item.delivery_email_notified = true;
       item.delivery_email_at = now;
+      if (item.reference) localStorage.setItem(`stk_email_delivery_${item.reference}`, now);
     }
 
     if (item.reference) {
-      const updatePayload = isDispatch 
-        ? { email_notified_at: now } 
-        : { delivery_email_notified_at: now };
-
       supabase
         .from('optiroute_orders')
-        .update(updatePayload)
+        .select('raw_data')
         .eq('referencia', item.reference)
-        .then(({ error }) => {
-          if (error) console.warn('Error guardando fecha de correo en Supabase:', error.message);
+        .single()
+        .then(({ data: rowData }) => {
+          if (rowData && rowData.raw_data) {
+            const currentRaw = rowData.raw_data || {};
+            if (isDispatch) {
+              currentRaw.email_notified_at = now;
+            } else {
+              currentRaw.delivery_email_notified_at = now;
+            }
+            supabase
+              .from('optiroute_orders')
+              .update({ raw_data: currentRaw })
+              .eq('referencia', item.reference)
+              .then(({ error }) => {
+                if (error) console.warn('Error actualizando raw_data en Supabase:', error.message);
+              });
+          }
         });
     }
 
