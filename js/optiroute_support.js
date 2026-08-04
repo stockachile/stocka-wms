@@ -71,10 +71,12 @@ export async function renderOptirouteSupport() {
 
       <!-- Tabla y Filtros de Resultados - Oculto hasta cargar datos -->
       <div id="route-data-card" class="card" style="padding: 1rem; display: none; flex-direction: column; gap: 0.75rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;">
-          <h3 id="loaded-route-title" style="margin: 0; font-size: 1.05rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+        <!-- Fila 1: Título y Acciones Principales -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+          <h3 id="loaded-route-title" style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
             Envíos de la Ruta
             <span id="data-source-badge" style="font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.35rem; border-radius: 4px; display: none;"></span>
+            <span id="filtered-count-badge" class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.7rem; border: 1px solid var(--color-border); padding: 0.15rem 0.45rem; border-radius: 12px; font-weight: 600;"></span>
           </h3>
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
             <!-- Botón Imprimir Selección (Masivo) -->
@@ -89,37 +91,55 @@ export async function renderOptirouteSupport() {
             <button id="btn-force-live-api" class="btn btn-outline" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid var(--color-primary); color: var(--color-primary); background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-refresh-line"></i> Actualizar en Vivo
             </button>
-            <!-- Buscador -->
-            <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
-              <input type="text" id="search-shipments" class="form-input" placeholder="Buscar cliente, ref, dir..." style="padding-left: 1.85rem; font-size: 0.8rem; width: 160px; height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
-            </div>
-            <!-- Filtro de Estado -->
-            <select id="filter-status" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
-              <option value="">Todos los estados</option>
+          </div>
+        </div>
+
+        <!-- Fila 2: Barra de Filtros Elegante en Grid -->
+        <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; align-items: center;">
+          <!-- Buscador -->
+          <div style="position: relative; min-width: 170px;">
+            <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+            <input type="text" id="search-shipments" class="form-input" placeholder="Buscar cliente, ref, comuna..." style="padding-left: 1.85rem; font-size: 0.78rem; width: 100%; height: 34px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+          </div>
+          <!-- Filtro de Estado -->
+          <div>
+            <select id="filter-status" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+              <option value="">📌 Estado: Todos</option>
               <option value="Completado">Entregado / Completado</option>
               <option value="En ruta">En ruta / En viaje</option>
               <option value="Pendiente">Pendiente / Ingresado</option>
               <option value="Saltado">Saltado / Cancelado</option>
               <option value="Warning">Con advertencias de dirección</option>
             </select>
-            <!-- Filtro de Conductor -->
-            <select id="filter-driver" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
-              <option value="">Todos los conductores</option>
+          </div>
+          <!-- Filtro de Conductor -->
+          <div>
+            <select id="filter-driver" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+              <option value="">🚚 Conductor: Todos</option>
             </select>
-            <!-- Filtro de Proveedor / Comercio -->
-            <select id="filter-supplier" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
-              <option value="">Todos los proveedores</option>
+          </div>
+          <!-- Filtro de Proveedor / Comercio -->
+          <div>
+            <select id="filter-supplier" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+              <option value="">🏢 Proveedor: Todos</option>
             </select>
-            <!-- Filtro de Estado de Correo -->
-            <select id="filter-email-status" class="form-input" style="font-size: 0.8rem; height: 32px; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
-              <option value="">Todos los correos</option>
+          </div>
+          <!-- Filtro de Estado de Correo -->
+          <div>
+            <select id="filter-email-status" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-main);">
+              <option value="">✉️ Correo: Todos</option>
               <option value="dispatch_sent">✉️ Despacho Notificado</option>
               <option value="delivery_sent">✅ Entrega Confirmada</option>
               <option value="not_sent">⏳ Sin Notificar</option>
               <option value="has_email">📧 Con Correo Registrado</option>
               <option value="no_email">🚫 Sin Correo Registrado</option>
             </select>
+          </div>
+          <!-- Botón Limpiar Filtros -->
+          <div style="display: flex; justify-content: flex-end;">
+            <button id="btn-clear-filters" class="btn btn-outline btn-sm" style="display: none; height: 34px; font-size: 0.75rem; padding: 0 0.6rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); color: var(--color-text-muted); background: var(--color-surface); cursor: pointer; align-items: center; gap: 0.2rem;" title="Limpiar todos los filtros">
+              <i class="ri-filter-off-line"></i> Limpiar
+            </button>
           </div>
         </div>
 
@@ -1455,7 +1475,7 @@ export async function renderOptirouteSupport() {
     if (filterDriver) {
       const selectedDriver = filterDriver.value;
       const drivers = Array.from(new Set(allWaypoints.map(w => w.route_driver || w.route_vehicle).filter(Boolean))).sort();
-      filterDriver.innerHTML = '<option value="">Todos los conductores</option>' + 
+      filterDriver.innerHTML = '<option value="">🚚 Conductor: Todos</option>' + 
         drivers.map(d => `<option value="${d}">${d}</option>`).join('');
       filterDriver.value = selectedDriver || '';
     }
@@ -1463,7 +1483,7 @@ export async function renderOptirouteSupport() {
     if (filterSupplier) {
       const selectedSupplier = filterSupplier.value;
       const suppliers = Array.from(new Set(allWaypoints.map(w => w.supplier).filter(Boolean))).sort();
-      filterSupplier.innerHTML = '<option value="">Todos los proveedores</option>' + 
+      filterSupplier.innerHTML = '<option value="">🏢 Proveedor: Todos</option>' + 
         suppliers.map(s => `<option value="${s}">${s}</option>`).join('');
       filterSupplier.value = selectedSupplier || '';
     }
@@ -1533,6 +1553,28 @@ export async function renderOptirouteSupport() {
     });
 
     currentFilteredWaypoints = filtered;
+
+    // Actualizar badge de contador
+    const countBadge = document.getElementById('filtered-count-badge');
+    if (countBadge) {
+      if (allWaypoints.length === 0) {
+        countBadge.style.display = 'none';
+      } else if (filtered.length < allWaypoints.length) {
+        countBadge.textContent = `${filtered.length} de ${allWaypoints.length} envíos`;
+        countBadge.style.display = 'inline-block';
+      } else {
+        countBadge.textContent = `${allWaypoints.length} envíos`;
+        countBadge.style.display = 'inline-block';
+      }
+    }
+
+    // Botón Limpiar Filtros
+    const btnClearFilters = document.getElementById('btn-clear-filters');
+    if (btnClearFilters) {
+      const hasActiveFilter = Boolean(q || statusVal || driverVal || supplierVal || emailStatusVal);
+      btnClearFilters.style.display = hasActiveFilter ? 'inline-flex' : 'none';
+    }
+
     renderShipmentsTable(filtered);
   }
 
@@ -1541,6 +1583,18 @@ export async function renderOptirouteSupport() {
   if (filterDriver) filterDriver.addEventListener('change', applyFilters);
   if (filterSupplier) filterSupplier.addEventListener('change', applyFilters);
   if (filterEmailStatus) filterEmailStatus.addEventListener('change', applyFilters);
+
+  const btnClearFilters = document.getElementById('btn-clear-filters');
+  if (btnClearFilters) {
+    btnClearFilters.addEventListener('click', () => {
+      if (searchInput) searchInput.value = '';
+      if (filterStatus) filterStatus.value = '';
+      if (filterDriver) filterDriver.value = '';
+      if (filterSupplier) filterSupplier.value = '';
+      if (filterEmailStatus) filterEmailStatus.value = '';
+      applyFilters();
+    });
+  }
 
   // 2. Carga Manual desde Excel (Fallback)
   const excelDropZone = document.getElementById('excel-drop-zone');
