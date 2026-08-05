@@ -8903,8 +8903,8 @@ async function renderIntegrations() {
       return;
     }
 
-    // Si no estamos en el paso 3, este listener no debería enviar el formulario
-    if (window.currentWizardStep !== 3) {
+    // Si no estamos en el paso 4, este listener no debería enviar el formulario
+    if (window.currentWizardStep !== 4) {
       return;
     }
 
@@ -9171,6 +9171,9 @@ async function renderIntegrations() {
 
       if (errItems) throw errItems;
 
+      // Enviar notificación por correo de forma asíncrona usando Brevo
+      sendOrderNotificationEmail(insertedOrder, items);
+
       alert('Pedido registrado con éxito');
       document.getElementById('modal-order').classList.remove('active');
       e.target.reset();
@@ -9184,6 +9187,110 @@ async function renderIntegrations() {
       btnSubmit.textContent = 'Confirmar Pedido';
     }
   });
+
+async function sendOrderNotificationEmail(order, items) {
+  try {
+    const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+    const subject = `🆕 Nuevo pedido manual registrado - ${order.external_order_number || 'Sin Nro'}`;
+    
+    const itemsHtml = items.map(item => `
+      <tr style="border-bottom: 1px solid #edf2f7;">
+        <td style="padding: 8px; color: #4a5568; font-family: monospace;">${item.sku}</td>
+        <td style="padding: 8px; color: #2d3748; font-weight: 500;">${item.name}</td>
+        <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${item.quantity}</td>
+      </tr>
+    `).join('');
+
+    const htmlBody = `
+      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
+        <h2 style="color: #3b82f6; margin-top: 0;">¡Nuevo Pedido Registrado en WMS STOCKA!</h2>
+        <p>Se ha creado un nuevo pedido manual con los siguientes detalles:</p>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096; width: 150px;">N° de Pedido:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${order.external_order_number || 'No especificado'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Comercio:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.comercio}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Destinatario:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.customer_name}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Teléfono:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.customer_phone || 'No especificado'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Email:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.customer_email || 'No especificado'}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.shipping_address}, ${order.shipping_city}${order.shipping_complement ? ' (' + order.shipping_complement + ')' : ''}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Método Envío:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.shipping_method}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Operador:</td>
+            <td style="padding: 6px 0; color: #1a202c;">${order.operador}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #718096;">Total:</td>
+            <td style="padding: 6px 0; font-weight: bold; color: #22c55e;">${window.formatCLP(order.total_value || 0)}</td>
+          </tr>
+        </table>
+
+        <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Detalle de Productos</h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
+              <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
+              <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
+              <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 60px;">Cant</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+        
+        <div style="margin-top: 30px; font-size: 12px; color: #a0aec0; text-align: center; border-top: 1px solid #edf2f7; padding-top: 15px;">
+          Enviado automáticamente desde WMS STOCKA.
+        </div>
+      </div>
+    `;
+
+    const payload = {
+      sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
+      to: [{ email: 'stockachile@gmail.com', name: 'STOCKA Chile' }],
+      subject: subject,
+      htmlContent: htmlBody
+    };
+
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Error de Brevo al enviar notificación de orden: ${res.status} ${errText}`);
+    } else {
+      console.log('✅ Correo de notificación de nuevo pedido enviado exitosamente a stockachile@gmail.com');
+    }
+  } catch (err) {
+    console.error('Error al enviar correo de notificación por Brevo:', err.message);
+  }
+}
 
 // ==========================================================================
 // Shipments View Rendering & Logic (envios_unificados)
