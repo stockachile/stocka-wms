@@ -505,23 +505,40 @@
             </div>
 
             <!-- Panel de Peso y Volumen Estimados -->
-            <div style="margin-top: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; padding: 1.25rem; background: var(--color-surface); border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-              <div>
-                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;"><i class="ri-box-3-line" style="color: var(--color-primary);"></i> Volumen Total Estimado</label>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <input type="number" id="order-total-volume-estimated" class="form-input" readonly style="font-size: 0.85rem; font-weight: bold; background: var(--color-bg-dark, #cbd5e1); width: 120px; text-align: right;" value="0.00000">
-                  <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">m³</span>
+            <div style="margin-top: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+              
+              <!-- Card 1: Volumen Total Estimado -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: flex-start; gap: 0.75rem;">
+                <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <i class="ri-box-3-line" style="color: var(--color-primary); font-size: 1.3rem;"></i>
                 </div>
-                <small style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Calculado sumando el volumen unitario de cada producto del catálogo.</small>
-              </div>
-              <div>
-                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;"><i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Peso Aproximado para Cotizar <span style="color: var(--color-danger);">*</span></label>
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <input type="number" id="order-total-weight-input" class="form-input" min="0.1" step="0.1" style="font-size: 0.85rem; font-weight: bold; width: 120px; text-align: right;" value="" placeholder="Ej: 2.5">
-                  <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">Kg</span>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 1;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Volumen Total Estimado</span>
+                  <div style="display: flex; align-items: baseline; gap: 0.25rem;">
+                    <!-- Input oculto pero accesible para JS -->
+                    <input type="number" id="order-total-volume-estimated" style="display: none;" value="0.00000">
+                    <span id="order-total-volume-display" style="font-size: 1.4rem; font-weight: bold; color: var(--color-text-main); font-family: monospace;">0.00000</span>
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">m³</span>
+                  </div>
+                  <small style="font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.25;">Calculado sumando el volumen unitario de cada producto del catálogo.</small>
                 </div>
-                <small style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">Indica un peso estimado en kg para cotizar en el siguiente paso.</small>
               </div>
+
+              <!-- Card 2: Peso Aproximado para Cotizar -->
+              <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: flex-start; gap: 0.75rem;">
+                <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(59, 130, 246, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <i class="ri-scales-3-line" style="color: var(--color-primary); font-size: 1.3rem;"></i>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 1;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Peso Aproximado para Cotizar <span style="color: var(--color-danger);">*</span></span>
+                  <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.1rem;">
+                    <input type="number" id="order-total-weight-input" class="form-input" min="0.1" step="0.1" style="font-size: 1.1rem; font-weight: bold; width: 110px; text-align: right; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.25rem 0.5rem; font-family: monospace;" value="" placeholder="Ej: 2.5">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 600;">Kg</span>
+                  </div>
+                  <small style="font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.25;">Indica un peso estimado en kg para cotizar en el siguiente paso.</small>
+                </div>
+              </div>
+
             </div>
           </div>
 

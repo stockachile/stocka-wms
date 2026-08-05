@@ -21166,6 +21166,8 @@ window.renderClientNewOrderItemsTable = function() {
     // Reset volume estimated
     const volInput = document.getElementById('order-total-volume-estimated');
     if (volInput) volInput.value = "0.00000";
+    const volDisplay = document.getElementById('order-total-volume-display');
+    if (volDisplay) volDisplay.textContent = "0.00000";
     return;
   }
 
@@ -21201,6 +21203,8 @@ window.renderClientNewOrderItemsTable = function() {
   // Update volume estimated
   const volInput = document.getElementById('order-total-volume-estimated');
   if (volInput) volInput.value = totalVol.toFixed(5);
+  const volDisplay = document.getElementById('order-total-volume-display');
+  if (volDisplay) volDisplay.textContent = totalVol.toFixed(5);
 };
 
 window.exportDeclarationToPDF = async function(id) {
