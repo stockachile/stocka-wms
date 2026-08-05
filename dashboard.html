@@ -630,12 +630,25 @@
                 <!-- Pagado / Por Pagar (Condicional para Regiones) -->
                 <div class="form-group" id="order-payment-condition-group" style="margin: 0; display: none;">
                   <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Condición de Envío</label>
-                  <div style="display: flex; gap: 1rem;">
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-payment" value="pagado" checked style="cursor: pointer;"> Envío Pagado (Prepagado)
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                    <!-- Card 1: Pagado -->
+                    <label class="payment-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-payment" value="pagado" checked style="display: none;">
+                      <i class="ri-wallet-3-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Envío Pagado</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Prepagado (Costo en sistema)</span>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-payment" value="por_pagar" style="cursor: pointer;"> Envío por Pagar (Cobro en Destino)
+
+                    <!-- Card 2: Por Pagar -->
+                    <label class="payment-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-payment" value="por_pagar" style="display: none;">
+                      <i class="ri-hand-coin-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Por Pagar</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Cobro en Destino ($0 sistema)</span>
+                      </div>
                     </label>
                   </div>
                 </div>

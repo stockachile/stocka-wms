@@ -24914,8 +24914,29 @@ window.initWizardOrder = function() {
   }
 
   const shippingPaymentRadios = document.querySelectorAll('input[name="order-shipping-payment"]');
+  const updatePaymentCardsVisuals = () => {
+    shippingPaymentRadios.forEach(r => {
+      const card = r.closest('.payment-card-option');
+      if (!card) return;
+      const icon = card.querySelector('i');
+      if (r.checked) {
+        card.style.borderColor = 'var(--color-primary)';
+        card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+        if (icon) icon.style.color = 'var(--color-primary)';
+      } else {
+        card.style.borderColor = 'var(--color-border)';
+        card.style.background = 'var(--color-surface)';
+        if (icon) icon.style.color = 'var(--color-text-muted)';
+      }
+    });
+  };
+
+  // Inicializar estado visual de las tarjetas
+  updatePaymentCardsVisuals();
+
   shippingPaymentRadios.forEach(radio => {
     radio.onchange = function() {
+      updatePaymentCardsVisuals();
       window.calculateShippingQuote();
     };
   });
