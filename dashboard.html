@@ -542,18 +542,45 @@
                 <!-- Domicilio o Sucursal -->
                 <div class="form-group" style="margin: 0;">
                   <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Tipo de Entrega</label>
-                  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-type" value="domicilio" checked style="cursor: pointer;"> Envío a Domicilio
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                    <!-- Card 1: Domicilio -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="domicilio" checked style="display: none;">
+                      <i class="ri-home-4-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">A Domicilio</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Entrega en dirección</span>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-type" value="sucursal" style="cursor: pointer;"> Retiro en Sucursal (Courier)
+
+                    <!-- Card 2: Sucursal -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="sucursal" style="display: none;">
+                      <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">En Sucursal</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Retiro en courier</span>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-type" value="punto_stocka" style="cursor: pointer;"> Retiro en Punto STOCKA
+
+                    <!-- Card 3: Punto STOCKA -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="punto_stocka" style="display: none;">
+                      <i class="ri-map-pin-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Punto STOCKA</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Retiro Ñuñoa (Gratis)</span>
+                      </div>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; cursor: pointer;">
-                      <input type="radio" name="order-shipping-type" value="transporte_propio" style="cursor: pointer;"> Transporte Propio
+
+                    <!-- Card 4: Transporte Propio -->
+                    <label class="shipping-card-option" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: var(--color-surface); border: 2px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" onmouseover="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-primary)'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='var(--color-border)'">
+                      <input type="radio" name="order-shipping-type" value="transporte_propio" style="display: none;">
+                      <i class="ri-truck-line" style="font-size: 1.4rem; color: var(--color-text-muted); transition: color 0.2s;"></i>
+                      <div style="display: flex; flex-direction: column; text-align: left;">
+                        <span style="font-weight: 600; font-size: 0.82rem; color: var(--color-text-main);">Transporte Propio</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo asociado</span>
+                      </div>
                     </label>
                   </div>
                 </div>

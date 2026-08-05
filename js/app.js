@@ -24867,8 +24867,29 @@ window.initWizardOrder = function() {
 
   // Configurar listeners de cambios en Paso 3
   const shippingTypeRadios = document.querySelectorAll('input[name="order-shipping-type"]');
+  const updateShippingCardsVisuals = () => {
+    shippingTypeRadios.forEach(r => {
+      const card = r.closest('.shipping-card-option');
+      if (!card) return;
+      const icon = card.querySelector('i');
+      if (r.checked) {
+        card.style.borderColor = 'var(--color-primary)';
+        card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+        if (icon) icon.style.color = 'var(--color-primary)';
+      } else {
+        card.style.borderColor = 'var(--color-border)';
+        card.style.background = 'var(--color-surface)';
+        if (icon) icon.style.color = 'var(--color-text-muted)';
+      }
+    });
+  };
+
+  // Inicializar estado visual de las tarjetas
+  updateShippingCardsVisuals();
+
   shippingTypeRadios.forEach(radio => {
     radio.onchange = function() {
+      updateShippingCardsVisuals();
       const sucursalPanel = document.getElementById('order-sucursal-panel');
       const puntoStockaPanel = document.getElementById('order-punto-stocka-panel');
       if (sucursalPanel) {
