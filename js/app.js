@@ -8980,6 +8980,8 @@ async function renderIntegrations() {
         finalShippingMethod = `Retiro en Sucursal ${branchCourier} - ${branchDetails}${branchRef ? ' (Ref: ' + branchRef + ')' : ''}`;
       } else if (shippingType === 'punto_stocka') {
         finalShippingMethod = 'Retiro en Punto STOCKA (Avenida Campo de Deportes 405, Ñuñoa)';
+      } else if (shippingType === 'transporte_propio') {
+        finalShippingMethod = 'Transporte Propio';
       } else {
         const paymentText = paymentCondition === 'por_pagar' ? 'Por Pagar' : 'Pagado';
         finalShippingMethod = `Despacho Domicilio - ${selectedCourier} (${paymentText})`;
@@ -24843,6 +24845,8 @@ window.initWizardOrder = function() {
         window.updateWizardUI();
         if (window.currentWizardStep === 3) {
           window.calculateShippingQuote();
+        } else if (window.currentWizardStep === 4) {
+          window.populateWizardSummary();
         }
       }
     };
@@ -24929,7 +24933,7 @@ window.initWizardOrder = function() {
 
 window.updateWizardUI = function() {
   // Ocultar todos los contenedores de pasos
-  for (let i = 1; i <= 3; i++) {
+  for (let i = 1; i <= 4; i++) {
     const container = document.getElementById(`wizard-step-${i}`);
     if (container) container.style.display = 'none';
 
@@ -24980,8 +24984,111 @@ window.updateWizardUI = function() {
   const btnSubmit = document.getElementById('btn-wizard-submit');
 
   if (btnPrev) btnPrev.style.display = window.currentWizardStep > 1 ? 'flex' : 'none';
-  if (btnNext) btnNext.style.display = window.currentWizardStep < 3 ? 'flex' : 'none';
-  if (btnSubmit) btnSubmit.style.display = window.currentWizardStep === 3 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = window.currentWizardStep < 4 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = window.currentWizardStep === 4 ? 'flex' : 'none';
+};
+
+window.populateWizardSummary = function() {
+  const selectCommerce = document.getElementById('order-select-commerce');
+  const commerce = selectCommerce ? selectCommerce.value : 'STOCKA';
+  const name = document.getElementById('order-cust-name').value.trim();
+  const email = document.getElementById('order-cust-email').value.trim();
+  const phone = document.getElementById('order-cust-phone').value.trim();
+  const address = document.getElementById('order-cust-address').value.trim();
+  const complement = document.getElementById('order-cust-complement').value.trim();
+  const city = document.getElementById('order-cust-city').value.trim();
+  const origin = document.getElementById('order-cust-origen').value;
+  const isAuto = document.getElementById('order-number-auto')?.checked;
+  const extId = document.getElementById('order-cust-external-id').value.trim();
+  const finalExtId = isAuto ? 'Autogenerado por el sistema' : (extId || 'Autogenerado por el sistema');
+
+  const shippingTypeVal = document.querySelector('input[name="order-shipping-type"]:checked')?.value || 'domicilio';
+  const paymentCondition = document.querySelector('input[name="order-shipping-payment"]:checked')?.value || 'pagado';
+
+  let shippingTypeLabel = 'Envío a Domicilio';
+  if (shippingTypeVal === 'sucursal') {
+    const branchCourier = document.getElementById('order-sucursal-courier').value;
+    const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+    shippingTypeLabel = `Retiro en Sucursal (${branchCourier} - ${branchDetails})`;
+  } else if (shippingTypeVal === 'punto_stocka') {
+    shippingTypeLabel = 'Retiro en Punto STOCKA';
+  } else if (shippingTypeVal === 'transporte_propio') {
+    shippingTypeLabel = 'Transporte Propio';
+  }
+
+  const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+  const courierVal = selectedCourierRadio ? selectedCourierRadio.value : 'Ninguno';
+  const isPorPagar = paymentCondition === 'por_pagar';
+  
+  let netShippingCost = 0;
+  let taxShippingCost = 0;
+  
+  if (selectedCourierRadio) {
+    netShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-net') || '0');
+    taxShippingCost = parseFloat(selectedCourierRadio.getAttribute('data-tax') || '0');
+  }
+
+  const displayNet = isPorPagar ? 0 : netShippingCost;
+  const displayTax = isPorPagar ? 0 : taxShippingCost;
+  const displayTotal = displayNet + displayTax;
+
+  let courierLabel = courierVal;
+  if (isPorPagar) {
+    courierLabel += ' (Envío por Pagar)';
+  } else if (shippingTypeVal === 'transporte_propio') {
+    courierLabel = 'Transporte Propio';
+  }
+
+  // Set fields
+  document.getElementById('summary-commerce').textContent = commerce;
+  document.getElementById('summary-name').textContent = name;
+  document.getElementById('summary-email').textContent = email || 'Sin email';
+  document.getElementById('summary-phone').textContent = phone || 'Sin teléfono';
+  document.getElementById('summary-address').textContent = address;
+  document.getElementById('summary-complement').textContent = complement || 'Ninguno';
+  document.getElementById('summary-city').textContent = city;
+  document.getElementById('summary-origin').textContent = origin || 'Manual';
+  document.getElementById('summary-external-id').textContent = finalExtId;
+  document.getElementById('summary-shipping-type').textContent = `${shippingTypeLabel} / Operador: ${courierLabel}`;
+
+  // Populate items table
+  const tbody = document.getElementById('summary-items-tbody');
+  const items = window.tempClientNewOrderItems || [];
+  let itemsHtml = '';
+  
+  let totalVolume = 0;
+  let totalWeight = 0;
+  
+  items.forEach(item => {
+    const prod = (window.tempClientProductsList || []).find(p => p.id === item.product_id);
+    const volumeUnit = prod ? parseFloat(prod.volumen || '0') : 0;
+    totalVolume += volumeUnit * item.quantity;
+    
+    itemsHtml += `
+      <tr style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 0.4rem 0.5rem; color: var(--color-text-muted); font-family: monospace;">${item.sku}</td>
+        <td style="padding: 0.4rem 0.5rem; font-weight: 500; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: bold; color: var(--color-primary);">${item.quantity}</td>
+      </tr>
+    `;
+  });
+  
+  if (items.length === 0) {
+    itemsHtml = '<tr><td colspan="3" style="padding: 1rem; text-align: center; color: var(--color-text-muted); font-style: italic;">No hay productos seleccionados</td></tr>';
+  }
+  
+  tbody.innerHTML = itemsHtml;
+
+  // Total weight and volume
+  const weightInput = document.getElementById('order-total-weight-input');
+  totalWeight = parseFloat(weightInput?.value) || 0;
+  
+  document.getElementById('summary-totals-weight-vol').textContent = `${totalWeight.toFixed(1)} Kg / ${totalVolume.toFixed(5)} m³`;
+
+  // Shipping costs
+  document.getElementById('summary-shipping-net').textContent = window.formatCLP(displayNet);
+  document.getElementById('summary-shipping-tax').textContent = window.formatCLP(displayTax);
+  document.getElementById('summary-shipping-total').textContent = window.formatCLP(displayTotal);
 };
 
 window.validateWizardStep = function(step) {
@@ -25040,6 +25147,22 @@ window.validateWizardStep = function(step) {
           input.select();
         }
       }, 150);
+      return false;
+    }
+  } else if (step === 3) {
+    const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+    if (shippingType === 'sucursal') {
+      const branchCourier = document.getElementById('order-sucursal-courier').value;
+      const branchDetails = document.getElementById('order-sucursal-details').value.trim();
+      if (!branchCourier || !branchDetails) {
+        alert('Por favor selecciona el Courier de Sucursal e ingresa la Dirección / Nombre de la Sucursal.');
+        return false;
+      }
+    }
+
+    const selectedCourierRadio = document.querySelector('input[name="order-courier-option"]:checked');
+    if (!selectedCourierRadio) {
+      alert('Por favor selecciona un courier / servicio de despacho antes de continuar.');
       return false;
     }
     return true;
@@ -25208,6 +25331,32 @@ window.calculateShippingQuote = function() {
         </span>
         <span style="font-weight: bold; color: var(--color-success, #22c55e);">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
       </label>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (shippingType === 'transporte_propio') {
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-truck-line"></i> Transporte Propio (Sin Costo)';
+    if (paymentConditionGroup) paymentConditionGroup.style.display = 'none';
+
+    optionsList.innerHTML = `
+      <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid #3b82f6; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
+        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+          <input type="radio" name="order-courier-option" value="Manual" checked data-net="0" data-tax="0" style="cursor: pointer;">
+          Transporte Propio (Coordinado por el cliente/comercio)
+        </span>
+        <span style="font-weight: bold; color: #3b82f6;">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </label>
+      <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px dashed var(--color-border); margin-top: 0.75rem; line-height: 1.3; display: flex; gap: 0.35rem; align-items: flex-start; text-align: left;">
+        <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.95rem; margin-top: 1px;"></i>
+        <span>Deberás coordinar y cotizar el despacho directamente usando tu propio transportista o sistema de entregas.</span>
+      </div>
     `;
 
     netEl.textContent = '$0';
