@@ -24919,9 +24919,9 @@ window.initWizardOrder = function() {
   const weightInput = document.getElementById('order-total-weight-input');
   if (weightInput) {
     weightInput.onchange = function() {
-      if (parseFloat(this.value) <= 0 || isNaN(parseFloat(this.value))) {
-        this.value = "1.0";
-      }
+      if (window.currentWizardStep === 3) window.calculateShippingQuote();
+    };
+    weightInput.oninput = function() {
       if (window.currentWizardStep === 3) window.calculateShippingQuote();
     };
   }
@@ -25026,6 +25026,20 @@ window.validateWizardStep = function(step) {
     const items = window.tempClientNewOrderItems || [];
     if (items.length === 0) {
       alert('Debes agregar al menos un producto al pedido.');
+      return false;
+    }
+
+    const weightValStr = document.getElementById('order-total-weight-input').value.trim();
+    const weightVal = parseFloat(weightValStr);
+    if (!weightValStr || isNaN(weightVal) || weightVal <= 0) {
+      alert('Por favor ingresa un peso aproximado válido (mayor que 0) para cotizar el despacho.');
+      setTimeout(() => {
+        const input = document.getElementById('order-total-weight-input');
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      }, 150);
       return false;
     }
     return true;
