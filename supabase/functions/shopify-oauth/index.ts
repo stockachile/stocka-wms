@@ -318,58 +318,6 @@ async function syncShopifyProducts(integration: any): Promise<number> {
   return count;
 }
 
-async function resolveShopifyOrderNumber(comercio: string, shopifyOrderName: string): Promise<string> {
-  let orderNumber = (shopifyOrderName || "").toString().trim();
-  let siglaComercio = "";
-  let prefijoOrigen = "";
-  let agregarPrefijo = false;
-
-  if (comercio) {
-    try {
-      const { data: configData } = await supabase
-        .from("v_comercios_config")
-        .select("sigla")
-        .eq("nombre", comercio)
-        .maybeSingle();
-
-      if (configData && configData.sigla) {
-        siglaComercio = configData.sigla.trim().toUpperCase();
-      }
-
-      const { data: adicionalConfig } = await supabase
-        .from("comercios_adicional_config")
-        .select("pedido_trae_sigla, plat_siglas_config")
-        .eq("comercio", comercio)
-        .maybeSingle();
-
-      if (adicionalConfig) {
-        const platConfig = (adicionalConfig.plat_siglas_config || {})["Shopify"];
-        if (platConfig) {
-          agregarPrefijo = platConfig.agregar_prefijo !== false;
-          prefijoOrigen = (platConfig.prefijo_origen || "").trim().toUpperCase();
-        }
-      }
-    } catch (err) {
-      console.error("⚠️ Error al consultar configuración de sigla para el comercio:", err);
-    }
-  }
-
-  // 1. Quitar prefijo de origen si coincide
-  if (prefijoOrigen && orderNumber.toUpperCase().startsWith(prefijoOrigen)) {
-    orderNumber = orderNumber.substring(prefijoOrigen.length).trim();
-  }
-
-  // 2. Aplicar prefijo del WMS si corresponde
-  let finalOrderNumber = orderNumber;
-  if (agregarPrefijo && siglaComercio) {
-    if (!orderNumber.toUpperCase().startsWith(siglaComercio)) {
-      finalOrderNumber = `${siglaComercio}${orderNumber}`;
-    }
-  }
-
-  return finalOrderNumber;
-}
-
 async function syncShopifyOrders(integration: any): Promise<number> {
   let url = `https://${integration.shop_url}/admin/api/2024-04/orders.json?status=any&limit=250`;
   let count = 0;
@@ -393,12 +341,10 @@ async function syncShopifyOrders(integration: any): Promise<number> {
     const orders = data.orders || [];
 
     for (const order of orders) {
-      const finalOrderNumber = await resolveShopifyOrderNumber(integration.comercio, order.name);
-
       const orderDataToSave = {
         merchant_id: integration.merchant_id,
         comercio: integration.comercio,
-        external_order_number: finalOrderNumber,
+        external_order_number: order.name,
         external_platform: "Shopify",
         payment_status: order.financial_status,
         total_value: order.current_total_price,
@@ -416,16 +362,12 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       };
 
       const shopifyOrderIdStr = (order.id || "").toString();
-      const orClauses = [`raw_shopify_data->>id.eq.${shopifyOrderIdStr}`];
-      if (order.name) orClauses.push(`external_order_number.eq.${order.name}`);
-      if (finalOrderNumber && finalOrderNumber !== order.name) orClauses.push(`external_order_number.eq.${finalOrderNumber}`);
-
       const { data: existingOrder } = await supabase
         .from("orders")
         .select("id")
         .eq("comercio", integration.comercio)
         .eq("external_platform", "Shopify")
-        .or(orClauses.join(","))
+        .or(`raw_shopify_data->>id.eq.${shopifyOrderIdStr},external_order_number.eq.${order.name}`)
         .maybeSingle();
 
       let orderId: string;

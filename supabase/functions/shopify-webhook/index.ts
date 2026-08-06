@@ -191,18 +191,12 @@ async function handleOrderCreate(merchantId, comercio, order) {
     status: "para procesar"
   };
 
-  const shopifyOrderIdStr = (order.id || "").toString();
-  const orClauses = [`raw_shopify_data->>id.eq.${shopifyOrderIdStr}`];
-  if (order.name) orClauses.push(`external_order_number.eq.${order.name}`);
-  if (finalOrderNumber && finalOrderNumber !== order.name) orClauses.push(`external_order_number.eq.${finalOrderNumber}`);
-
   // Verificamos que no exista
   const { data: existing } = await supabase
     .from("orders")
     .select("id")
     .eq("merchant_id", merchantId)
-    .eq("external_platform", "Shopify")
-    .or(orClauses.join(","))
+    .in("external_order_number", [order.name, finalOrderNumber])
     .maybeSingle();
 
   if (existing) {
@@ -317,18 +311,12 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const finalOrderNumber = await resolveShopifyOrderNumber(comercio, order.name);
   console.log(`[Shopify Webhook] Buscando pedido para actualizar con Ref: ${finalOrderNumber}`);
 
-  const shopifyOrderIdStr = (order.id || "").toString();
-  const orClauses = [`raw_shopify_data->>id.eq.${shopifyOrderIdStr}`];
-  if (order.name) orClauses.push(`external_order_number.eq.${order.name}`);
-  if (finalOrderNumber && finalOrderNumber !== order.name) orClauses.push(`external_order_number.eq.${finalOrderNumber}`);
-
   // Buscamos el estado actual del pedido en WMS
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
     .select("id, status, estado_wms")
     .eq("merchant_id", merchantId)
-    .eq("external_platform", "Shopify")
-    .or(orClauses.join(","))
+    .eq("external_order_number", finalOrderNumber)
     .maybeSingle();
 
   if (findErr || !existingOrder) {
