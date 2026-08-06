@@ -421,27 +421,11 @@ async function init() {
       if (urlParams.get('integration') === 'success') {
         const shop = urlParams.get('shop') || '';
         const cleanShop = shop.trim().replace(/^https?:\/\//, '');
-        const isTestStore = cleanShop.includes('zv4ycx-r8') || cleanShop.includes('test') || cleanShop.includes('dev') || cleanShop.includes('review') || cleanShop.includes('partner');
-
-        if (isTestStore) {
-          console.log('DEBUG: Retorno de integración exitosa de tienda de prueba. Auto-logueando usuario de pruebas...');
-          const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-            email: 'shopify-test@stockachile.cl',
-            password: 'ShopifyTest2026!'
-          });
-          if (!loginError && loginData) {
-            window.location.reload();
-            return;
-          } else {
-            console.error('Error en auto-login:', loginError);
-          }
-        } else {
-          // Si es un comerciante real, redirigir a index.html para iniciar sesión / registrarse primero
-          console.log('DEBUG: Redirigiendo comerciante real a index.html para vincular cuenta...');
-          window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
-          return;
-        }
+        console.log('DEBUG: Redirigiendo a index.html para iniciar sesión y vincular cuenta...');
+        window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
+        return;
       }
+
 
       console.warn('DEBUG: No hay sesión activa. Redirigiendo a index.html...');
       window.location.href = 'index.html';
@@ -10531,6 +10515,11 @@ async function renderProfile() {
               <i class="ri-file-shield-line"></i> Contrato y Documentos
             </button>
             ` : ''}
+            ${(profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
+            <button type="button" class="profile-tab-btn" data-tab="redzone" style="background: none; border: none; padding: 0.75rem 1.25rem; color: #ef4444; font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.2s; outline: none;">
+              <i class="ri-error-warning-line" style="color: #ef4444;"></i> Zona Roja
+            </button>
+            ` : ''}
           </div>
           ` : ''}
 
@@ -10611,6 +10600,13 @@ async function renderProfile() {
           </div>
           ` : ''}
 
+          ${(profile.role === 'admin' || (profile.comercio && profile.comercio.toLowerCase() !== 'no asignado')) ? `
+          <!-- Tab 5: Zona Roja (Término de Servicio) -->
+          <div id="profile-tab-content-redzone" class="profile-tab-content" style="display: none; padding: 1.5rem; background: var(--color-surface);">
+            <!-- Se inyecta dinámicamente -->
+          </div>
+          ` : ''}
+
         </div>
       </div>
     `;
@@ -10679,14 +10675,23 @@ async function renderProfile() {
 
           tabButtons.forEach(b => {
             b.classList.remove('active');
-            b.style.color = 'var(--color-text-muted)';
+            if (b.getAttribute('data-tab') === 'redzone') {
+              b.style.color = '#ef4444';
+            } else {
+              b.style.color = 'var(--color-text-muted)';
+            }
             b.style.borderBottomColor = 'transparent';
             b.style.fontWeight = '500';
           });
 
           btn.classList.add('active');
-          btn.style.color = 'var(--color-primary)';
-          btn.style.borderBottomColor = 'var(--color-primary)';
+          if (targetTab === 'redzone') {
+            btn.style.color = '#dc2626';
+            btn.style.borderBottomColor = '#dc2626';
+          } else {
+            btn.style.color = 'var(--color-primary)';
+            btn.style.borderBottomColor = 'var(--color-primary)';
+          }
           btn.style.fontWeight = '600';
 
           tabContents.forEach(content => {
@@ -10707,6 +10712,9 @@ async function renderProfile() {
           } else if (targetTab === 'contract') {
             const contractContainer = document.getElementById('profile-tab-content-contract');
             renderProfileContractTab(contractContainer, onboardingRequest);
+          } else if (targetTab === 'redzone') {
+            const redzoneContainer = document.getElementById('profile-tab-content-redzone');
+            renderRedZone(redzoneContainer, profile, commerceList);
           }
         });
       });
@@ -10790,8 +10798,950 @@ function renderProfileContractTab(container, req) {
   `;
 }
 
-async function renderPackagingConfig(container, userCommerceList, isUserAdmin) {
+async function renderRedZone(container, profile, commerceList) {
   if (!container) return;
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px; padding: 2rem; background: transparent;">
+      <div style="width: 40px; height: 40px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: #ef4444; border-radius: 50%; animation: wms-spin 1s linear infinite; margin-bottom: 1rem;"></div>
+      <h4 style="margin: 0; color: var(--color-text-main); font-weight: 600; font-size: 0.95rem;">Cargando datos de Zona Roja...</h4>
+    </div>
+  `;
+
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error("No se pudo obtener el usuario autenticado.");
+
+    const isYhanos = commerceList.some(c => c.toLowerCase() === 'yhanos');
+
+    // 1. Resolver mappings y obtener periodos
+    let mappings = [];
+    try {
+      const { data: mappingsData } = await supabase
+        .from('billing_mappings')
+        .select('comercio_nombre, billing_name');
+      if (mappingsData) mappings = mappingsData;
+    } catch (err) {
+      console.warn('Advertencia al cargar mappings en Zona Roja:', err);
+    }
+
+    const uniqueBillingNames = new Set();
+    commerceList.forEach(c => {
+      const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+      const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+      uniqueBillingNames.add(nameToUse);
+    });
+    const resolvedCompanyList = Array.from(uniqueBillingNames);
+
+    // Obtener todos los períodos de facturación
+    const { data: periods, error: pError } = await supabase
+      .from('billing_periods')
+      .select('*')
+      .order('name', { ascending: false });
+    if (pError) throw pError;
+
+    // Obtener registros de facturación del comercio
+    const { data: billingRecords, error: rError } = await supabase
+      .from('billing_records')
+      .select('*')
+      .in('comercio', resolvedCompanyList);
+    if (rError) throw rError;
+
+    // Obtener inventario actual en tiempo real con paginación para superar el límite de 1000 de PostgREST
+    let products = [];
+    let page = 0;
+    const pageSize = 1000;
+    let keepFetching = true;
+
+    while (keepFetching) {
+      const { data: prods, error: prodError } = await supabase
+        .from('products')
+        .select(`
+          id,
+          sku,
+          name,
+          comercio,
+          is_virtual,
+          inventory (
+            quantity,
+            warehouse_id,
+            warehouses (name)
+          )
+        `)
+        .in('comercio', commerceList)
+        .eq('is_virtual', false)
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (prodError) throw prodError;
+
+      if (prods && prods.length > 0) {
+        products = products.concat(prods);
+        if (prods.length < pageSize) {
+          keepFetching = false;
+        } else {
+          page++;
+        }
+      } else {
+        keepFetching = false;
+      }
+    }
+
+    // Calcular stock físico
+    let totalSKUsWithStock = 0;
+    let totalUnits = 0;
+    const stockItems = [];
+
+    if (products) {
+      products.forEach(p => {
+        let qty = 0;
+        let warehousesStr = '';
+        if (Array.isArray(p.inventory)) {
+          p.inventory.forEach(inv => {
+            if (inv.quantity && inv.quantity > 0) {
+              qty += inv.quantity;
+              const wName = inv.warehouses ? inv.warehouses.name : `Bodega #${inv.warehouse_id}`;
+              warehousesStr += (warehousesStr ? ', ' : '') + `${wName} (${inv.quantity} ud)`;
+            }
+          });
+        }
+        if (qty > 0) {
+          totalSKUsWithStock++;
+          totalUnits += qty;
+          stockItems.push({
+            sku: p.sku || 'S/SKU',
+            name: p.name || 'Sin nombre',
+            quantity: qty,
+            warehouses: warehousesStr || 'Sin bodega asignada'
+          });
+        }
+      });
+    }
+
+    // Calcular costo estimado de retiro
+    const baseFee = 1250;
+    const skuLimit = 3;
+    const unitsLimit = 10;
+
+    let skuSurcharge = 0;
+    if (totalSKUsWithStock > skuLimit) {
+      skuSurcharge = (totalSKUsWithStock - skuLimit) * 100;
+    }
+
+    let unitsSurcharge = 0;
+    if (totalUnits > unitsLimit) {
+      unitsSurcharge = (totalUnits - unitsLimit) * 50;
+    }
+
+    const netTotal = baseFee + skuSurcharge + unitsSurcharge;
+    const iva = Math.round(netTotal * 0.19);
+    const brutoTotal = netTotal + iva;
+
+    // Determinar la fecha de retiro estimada
+    let exitDateStr = '';
+    if (isYhanos) {
+      exitDateStr = '28 de agosto de 2026';
+    } else {
+      const exitDate = new Date();
+      exitDate.setDate(exitDate.getDate() + 30);
+      exitDateStr = exitDate.toLocaleDateString('es-CL', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      });
+    }
+
+    // Mapear los períodos con sus registros de facturación
+    const periodStatusList = periods.map(p => {
+      const record = billingRecords ? billingRecords.find(r => r.period_id === p.id) : null;
+      const totalFulf = record ? (record.total_fulfillment || 0) : 0;
+      const abonoFulf = record ? (record.abono_fulfillment || 0) : 0;
+      const totalEnv = record ? (record.enviame || 0) : 0;
+      const abonoEnv = record ? (record.abono_enviame || 0) : 0;
+
+      const totalFacturado = totalFulf + totalEnv;
+      const totalAbonado = abonoFulf + abonoEnv;
+      const pendingAmount = totalFacturado - totalAbonado;
+
+      let isPaid = false;
+      if (record) {
+        const fulfPaid = record.total_fulfillment === 0 || record.pago_fulfillment === 'Recibido';
+        const envPaid = record.enviame === 0 || record.pago_enviame === 'Recibido';
+        isPaid = fulfPaid && envPaid && pendingAmount <= 0;
+      } else {
+        isPaid = true; // Sin movimientos o sin registro creado
+      }
+
+      return {
+        id: p.id,
+        name: p.name,
+        total: totalFacturado,
+        pending: pendingAmount,
+        isPaid: isPaid,
+        record: record
+      };
+    });
+
+    const hasPendingBilling = periodStatusList.some(p => !p.isPaid && p.total > 0);
+
+    // Renderizar panel de Zona Roja
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 1.5rem; font-family: system-ui, -apple-system, sans-serif;">
+        <!-- Banner de Advertencia -->
+        <div style="background: linear-gradient(135deg, #fef2f2 0%, #ffe4e6 100%); border: 1px solid #fecdd3; border-radius: var(--radius-lg); padding: 1.5rem; display: flex; gap: 1rem; align-items: flex-start; box-shadow: var(--shadow-sm);">
+          <div style="background-color: #ef4444; color: white; width: 44px; height: 44px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.5rem; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.4);">
+            <i class="ri-error-warning-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0 0 0.5rem 0; color: #991b1b; font-size: 1.15rem; font-weight: 700;">Zona Roja - Solicitud de Término de Servicio</h3>
+            <p style="margin: 0; color: #7f1d1d; font-size: 0.9rem; line-height: 1.5;">
+              Ha ingresado al panel de baja voluntaria y salida de servicio logístico con Stocka. Este proceso es de carácter formal y definitivo.
+            </p>
+            <div style="margin-top: 1rem; background-color: rgba(255,255,255,0.6); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(239, 68, 68, 0.15);">
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 700; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">Condiciones Contractuales Obligatorias:</h4>
+              <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: #7f1d1d; display: flex; flex-direction: column; gap: 0.35rem;">
+                <li><strong>1. Cuenta al Día:</strong> No poseer deudas, saldos pendientes o disputas de pago activas en la plataforma.</li>
+                <li><strong>2. Aviso de Salida Anticipado:</strong> Informar la baja del servicio con un mínimo de <strong>30 días corridos de anticipación</strong> antes del retiro físico.</li>
+                <li><strong>3. Liquidación Total:</strong> Todo desglose de servicios o tarifas que se encuentre pendiente o en proceso de facturación a la fecha será emitido para asegurar que la cuenta quede saldada.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <form id="form-service-exit" style="display: flex; flex-direction: column; gap: 1.5rem;">
+          <div id="redzone-alert-container"></div>
+
+          <!-- SECCIÓN 1: Períodos de Facturación y Liquidación de Desgloses -->
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-refund-2-line" style="color: var(--color-primary);"></i> 1. Historial de Facturación y Desgloses
+            </h4>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              Revise a continuación el estado de pago de cada periodo registrado para sus comercios asociados:
+            </p>
+            
+            <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); margin-bottom: 1.25rem;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                <thead>
+                  <tr style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border);">
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Período</th>
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Monto Facturado</th>
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Saldo Pendiente</th>
+                    <th style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${periodStatusList.map(p => {
+                    const statusText = p.isPaid ? 'Saldado' : 'Pendiente de Pago';
+                    const statusBg = p.isPaid ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+                    const statusColor = p.isPaid ? '#10b981' : '#ef4444';
+                    return `
+                      <tr style="border-bottom: 1px solid var(--color-border);">
+                        <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">${p.name}</td>
+                        <td style="padding: 0.75rem 1rem; color: var(--color-text-main);">$${p.total.toLocaleString('es-CL')}</td>
+                        <td style="padding: 0.75rem 1rem; font-weight: 600; color: ${p.pending > 0 ? '#ef4444' : 'var(--color-text-main)'};">$${p.pending.toLocaleString('es-CL')}</td>
+                        <td style="padding: 0.75rem 1rem;">
+                          <span style="background-color: ${statusBg}; color: ${statusColor}; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 700;">
+                            ${statusText}
+                          </span>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            ${hasPendingBilling ? `
+              <div style="background-color: #fffbeb; border: 1px solid #fef3c7; border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                <i class="ri-error-warning-fill" style="color: #d97706; font-size: 1.25rem;"></i>
+                <span style="font-size: 0.8rem; color: #92400e; font-weight: 500;">
+                  Atención: Posee períodos con montos pendientes de pago. Para autorizar el retiro físico de su stock, deberá regularizar su saldo.
+                </span>
+              </div>
+            ` : ''}
+
+            <!-- Checkbox de Declaración Jurada Legal -->
+            <div style="display: flex; gap: 0.75rem; align-items: flex-start; background-color: var(--color-bg); padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <input type="checkbox" id="chk-legal-billing-declaration" required style="margin-top: 0.25rem; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
+              <label for="chk-legal-billing-declaration" style="font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5; cursor: pointer; font-weight: 500;">
+                <span style="color: #ef4444; font-weight: 700;">[DECLARACIÓN JURADA DE PAGO Y NO RECLAMO]</span> El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Asimismo, declara que no existen disputas de cobro ni reclamos pendientes y renuncia irrevocablemente a cualquier acción legal, civil, comercial o administrativa posterior tendiente a reclamar diferencias de cobros, tarifas o saldos de los períodos detallados en esta declaración, liberando de toda responsabilidad a Stocka SpA y a su representante legal.
+              </label>
+            </div>
+          </div>
+
+          <!-- SECCIÓN 2: Control de Inventario y Cuadraje Físico -->
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-archive-line" style="color: var(--color-primary);"></i> 2. Inventario Registrado en Sistema
+            </h4>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              A continuación se detalla el volumen de stock disponible en la plataforma WMS a la fecha:
+            </p>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+              <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); padding: 1rem; border-radius: var(--radius-sm); text-align: center;">
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 0.25rem;">SKUs con Unidades</span>
+                <strong style="font-size: 1.75rem; color: var(--color-text-main);">${totalSKUsWithStock}</strong>
+              </div>
+              <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); padding: 1rem; border-radius: var(--radius-sm); text-align: center;">
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 0.25rem;">Unidades Totales</span>
+                <strong style="font-size: 1.75rem; color: var(--color-text-main);">${totalUnits}</strong>
+              </div>
+            </div>
+
+            <!-- Advertencia de cuadraje físico y movimientos -->
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 1rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+              <i class="ri-checkbox-circle-fill" style="color: #16a34a; font-size: 1.25rem; margin-top: 0.1rem; flex-shrink: 0;"></i>
+              <div style="font-size: 0.825rem; color: #14532d; line-height: 1.5;">
+                <strong>Certificación de Inventario para Retiro:</strong>
+                <p style="margin: 0.25rem 0 0 0;">
+                  Es condición indispensable para la entrega de la mercadería coordinar y certificar un <strong>conteo físico presencial en bodega</strong>. Las unidades finales se cuadrarán contra el reporte del sistema y se descontará cualquier merma autorizada contractualmente. Asegúrese de que no existan movimientos de inventario o despachos pendientes de registrar en la plataforma previo a esta fecha.
+                </p>
+              </div>
+            </div>
+
+            <!-- Colapsable para ver detalle de productos en stock -->
+            ${totalUnits > 0 ? `
+              <div style="margin-top: 1rem;">
+                <details style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg);">
+                  <summary style="padding: 0.75rem; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                    Ver Desglose de Stock por SKU (${totalSKUsWithStock} ítems)
+                  </summary>
+                  <div style="padding: 0.75rem; border-top: 1px solid var(--color-border); max-height: 250px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                      <thead>
+                        <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted);">
+                          <th style="padding: 0.5rem; font-weight: 600;">SKU</th>
+                          <th style="padding: 0.5rem; font-weight: 600;">Descripción</th>
+                          <th style="padding: 0.5rem; font-weight: 600;">Ubicación / Unidades</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${stockItems.map(item => `
+                          <tr style="border-bottom: 1px dashed var(--color-border);">
+                            <td style="padding: 0.5rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+                            <td style="padding: 0.5rem; color: var(--color-text-main);">${item.name}</td>
+                            <td style="padding: 0.5rem; color: var(--color-text-main); font-size: 0.75rem;">${item.warehouses}</td>
+                          </tr>
+                        `).join('')}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- SECCIÓN 3: Costos de Preparación y Retiro -->
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> 3. Costo Estimado de Preparación de Retiro
+            </h4>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              Cálculo tarifario de la preparación física del inventario completo (pick & packing) de acuerdo al Anexo de Tarifarios Stocka 2024-2025:
+            </p>
+
+            <div style="background-color: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
+                <span>Costo de Preparación Base (Pedido):</span>
+                <span style="font-weight: 600; color: var(--color-text-main);">$1.250</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
+                <span>Recargo por SKU Adicionales (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalSKUsWithStock > 3 ? totalSKUsWithStock - 3 : 0} SKUs excedentes)</span></span>
+                <span style="font-weight: 600; color: var(--color-text-main);">$${skuSurcharge.toLocaleString('es-CL')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; padding-bottom: 0.5rem; border-bottom: 1px dashed var(--color-border);">
+                <span>Recargo por Unidades Adicionales (+$50 por cada Unidad > 10): <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+                <span style="font-weight: 600; color: var(--color-text-main);">$${unitsSurcharge.toLocaleString('es-CL')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-weight: 600; padding-top: 0.5rem; font-size: 0.9rem; color: var(--color-text-main);">
+                <span>Total Neto Estimado:</span>
+                <span>$${netTotal.toLocaleString('es-CL')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--color-text-muted);">
+                <span>IVA (19%):</span>
+                <span>$${iva.toLocaleString('es-CL')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 1.15rem; color: #ef4444; border-top: 1px solid var(--color-border); padding-top: 0.75rem; margin-top: 0.25rem;">
+                <span>Total Bruto Estimado:</span>
+                <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+              </div>
+            </div>
+            <p style="margin: 0.75rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted); line-height: 1.4;">
+              *Nota: Este valor estima únicamente el costo de pickeo, embalaje estándar y acondicionamiento del stock completo para entrega sobre camión del cliente en las dependencias de Stocka. No considera costos fijos del periodo de facturación actual, cobros por volumen de almacenamiento acumulados, ni despachos realizados en el mes.
+            </p>
+          </div>
+
+          <!-- SECCIÓN 4: Fecha de Retiro Estimada -->
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-calendar-check-line" style="color: var(--color-primary);"></i> 4. Fecha de Salida y Retiro
+            </h4>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              De acuerdo con las políticas de aviso anticipado de 30 días, se proyecta la siguiente fecha para el retiro físico del stock:
+            </p>
+            
+            <div style="background-color: var(--color-bg); border-left: 4px solid #ef4444; padding: 1rem; border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 0.25rem;">Fecha Estimada de Salida</span>
+                <strong style="font-size: 1.25rem; color: #ef4444;">${exitDateStr}</strong>
+              </div>
+              <div style="font-size: 0.8rem; text-align: right; color: var(--color-text-muted); max-width: 50%;">
+                ${isYhanos 
+                  ? 'Salida acordada con fecha oficial del 28 de agosto según previa notificación por el cliente.' 
+                  : 'Fecha estimada calculada en base a los 30 días reglamentarios desde esta notificación.'
+                }
+              </div>
+            </div>
+          </div>
+
+          <!-- SECCIÓN 5: Documentación Legal de Finiquito de Relación Comercial -->
+          <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+            <h4 style="margin: 0 0 0.75rem 0; font-size: 1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-file-text-line" style="color: var(--color-primary);"></i> 5. Convenio de Término y Finiquito de Cuenta
+            </h4>
+            <p style="margin: 0 0 1rem 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              Consulte la minuta legal de finiquito y descárguela para su firma conjunta el día del retiro. Este documento constituye la liberación mutua de responsabilidades.
+            </p>
+
+            <!-- Previsualización del documento legal -->
+            <div id="redzone-document-preview" style="background-color: #fafafa; border: 1px solid #e5e5e5; border-radius: var(--radius-sm); padding: 1.5rem; max-height: 250px; overflow-y: auto; font-family: 'Courier New', Courier, monospace; font-size: 0.75rem; color: #374151; line-height: 1.6; border-left: 3px solid var(--color-primary); white-space: pre-wrap; margin-bottom: 1rem; user-select: none;">
+              <!-- Se inyecta dinámicamente el texto formal -->
+            </div>
+
+            <div style="display: flex; gap: 1fr; justify-content: flex-end; gap: 0.75rem;">
+              <button type="button" id="btn-print-redzone-doc" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-printer-line"></i> Descargar / Imprimir Minuta de Término
+              </button>
+            </div>
+          </div>
+
+          <!-- Acciones de la Solicitud -->
+          <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; flex-wrap: wrap;">
+            <button type="button" id="btn-print-exit-report" class="btn btn-outline" style="border-color: var(--color-border); color: var(--color-text-main); display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; padding: 0.75rem 1.5rem; font-size: 0.9rem; border-radius: var(--radius-md); cursor: pointer;">
+              <i class="ri-file-chart-line"></i> Descargar Informe de Salida (PDF)
+            </button>
+            <button type="submit" id="btn-submit-exit-request" class="btn" style="background-color: #ef4444; color: white; border: none; padding: 0.75rem 1.5rem; font-weight: 700; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(239, 68, 68, 0.3); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-close-circle-line"></i> Enviar Solicitud Oficial de Baja de Servicio
+            </button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    // 9. Inyectar texto formal en el colapsable del documento
+    const legalDocText = generateLegalDocumentText(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr);
+    const docPreviewContainer = document.getElementById('redzone-document-preview');
+    if (docPreviewContainer) {
+      docPreviewContainer.textContent = legalDocText;
+    }
+
+    // 10. Escuchar el botón de imprimir documento
+    document.getElementById('btn-print-redzone-doc').addEventListener('click', () => {
+      printLegalDocument(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr);
+    });
+
+    // 10b. Escuchar el botón de imprimir informe de salida
+    document.getElementById('btn-print-exit-report').addEventListener('click', () => {
+      printExitReport(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, periodStatusList);
+    });
+
+    // 11. Escuchar el submit del formulario de salida
+    document.getElementById('form-service-exit').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const chk = document.getElementById('chk-legal-billing-declaration');
+      const alertContainer = document.getElementById('redzone-alert-container');
+      const submitBtn = document.getElementById('btn-submit-exit-request');
+
+      if (!chk.checked) {
+        alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Debe aceptar la declaración jurada sobre el estado de facturación para proceder.</div>`;
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<i class="ri-loader-4-line spin"></i> Enviando Solicitud...`;
+
+      try {
+        const ticketDesc = `SOLICITUD DE TÉRMINO DE SERVICIOS Y FINIQUITO DE CUENTA
+
+INFORMACIÓN DEL CLIENTE:
+- Comercio: ${commerceList.join(', ')}
+- Representante: ${profile.full_name || 'No especificado'}
+- Empresa/Razón Social: ${profile.company_name || 'No especificada'}
+- Correo: ${profile.contact_email || user.email}
+- Teléfono: ${profile.phone || 'No especificado'}
+
+DATOS DE SALIDA:
+- Fecha Estimada de Salida: ${exitDateStr}
+- Unidades Totales en Inventario: ${totalUnits}
+- SKUs con Stock Activo: ${totalSKUsWithStock}
+
+DESGLOSE ECONÓMICO DE RETIRO:
+- Costo Base Preparación: $1.250 CLP
+- Recargo por SKU adicional (sobre 3): $${skuSurcharge.toLocaleString('es-CL')} CLP
+- Recargo por Unidades adicional (sobre 10): $${unitsSurcharge.toLocaleString('es-CL')} CLP
+- Costo Neto: $${netTotal.toLocaleString('es-CL')} CLP
+- IVA (19%): $${iva.toLocaleString('es-CL')} CLP
+- Costo Bruto Total de Preparación: $${brutoTotal.toLocaleString('es-CL')} CLP
+
+DECLARACIÓN JURADA DE FACTURACIÓN:
+- Aceptada por el usuario: SÍ
+- Texto: El Comercio declara formalmente y bajo juramento que los desgloses de tarifas y facturas emitidas a la fecha por Stocka SpA (RUT N° 77.524.557-3), representada legalmente por doña Kyria Alejandra Oyarce Pérez (RUT N° 18.732.412-2), se encuentran totalmente saldados, conformes y pagados en su integridad. Renuncia irrevocablemente a cualquier reclamo posterior y libera de responsabilidad a la empresa y a su representante legal.`;
+
+        const { data: ticket, error: ticketError } = await supabase
+          .from('tickets')
+          .insert([{
+            user_id: user.id,
+            comercio: commerceList.join(', '),
+            subject: `[SOLICITUD DE BAJA] Término de Servicio - ${commerceList.join(', ')}`,
+            category: 'facturacion',
+            priority: 'alta',
+            status: 'abierto',
+            description: ticketDesc
+          }])
+          .select()
+          .single();
+
+        if (ticketError) throw ticketError;
+
+        alertContainer.innerHTML = `
+          <div class="alert alert-success" style="display: block; background-color: #d1fae5; border-color: #34d399; color: #065f46; padding: 1.25rem; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); margin-bottom: 1.5rem;">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; font-weight: 700;">¡Solicitud Procesada Exitosamente!</h4>
+            <p style="margin: 0; font-size: 0.85rem; line-height: 1.5;">
+              La solicitud de término de servicio y el desglose de retiro han sido notificados formalmente al equipo de operaciones de Stocka. Se ha generado el Ticket de Soporte formal para el seguimiento del proceso. Procederemos a coordinar el cuadraje físico presencial de bodega.
+            </p>
+          </div>
+        `;
+
+        // Desactivar campos del formulario
+        document.getElementById('chk-legal-billing-declaration').disabled = true;
+        document.getElementById('btn-print-redzone-doc').disabled = true;
+        submitBtn.style.display = 'none';
+
+      } catch (err) {
+        console.error("Error al enviar solicitud de salida:", err);
+        alertContainer.innerHTML = `<div class="alert alert-error" style="display: block;">Error al procesar la solicitud: ${err.message}</div>`;
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<i class="ri-close-circle-line"></i> Enviar Solicitud Oficial de Baja de Servicio`;
+      }
+    });
+
+  } catch (err) {
+    console.error("Error en renderRedZone:", err);
+    container.innerHTML = `
+      <div style="padding: 2rem; background-color: #fef2f2; border: 1px solid #fecdd3; border-radius: var(--radius-md); text-align: center; color: #ef4444;">
+        <i class="ri-error-warning-fill" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        <strong>Error al cargar la información:</strong> ${err.message}
+      </div>
+    `;
+  }
+}
+
+function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate) {
+  const repName = profile.full_name || "[Nombre del Representante]";
+  const compName = profile.company_name || "[Razón Social / Empresa]";
+  const rutText = profile.rut || "[RUT de la Empresa]";
+  const dateTodayStr = new Date().toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  return `CONVENIO DE TÉRMINO DE PRESTACIÓN DE SERVICIOS LOGÍSTICOS Y FINIQUITO DE CUENTA
+
+En Santiago de Chile, a ${dateTodayStr}, entre:
+
+1. STOCKA SpA, sociedad del giro logístico y almacenamiento, Rol Único Tributario N° 77.524.557-3, representada legalmente por doña Kyria Alejandra Oyarce Pérez, cédula nacional de identidad número 18.732.412-2, ambos domiciliados para estos efectos en Avenida Campo de Deportes 405, comuna de Ñuñoa, en adelante e indistintamente "STOCKA"; y
+
+2. La empresa ${compName}, del giro de su denominación, representada por don(ña) ${repName}, RUT N° ${rutText}, de su mismo domicilio, en adelante e indistintamente el "CLIENTE" o el "COMERCIO", asociado en la plataforma WMS al comercio denominado "${commerceName}".
+
+Ambas partes acuerdan convenir al tenor de las siguientes cláusulas y declaraciones:
+
+PRIMERA: ANTECEDENTES Y TÉRMINO DEL SERVICIO
+Las partes suscribieron con anterioridad un contrato de prestación de servicios logísticos de fulfillment. Conforme a las condiciones del servicio, el CLIENTE ha manifestado de manera expresa y voluntaria su decisión de poner término a la relación contractual de servicios logísticos que le vincula con STOCKA. Para ello, se ha cumplido formalmente con la obligación de dar el aviso previo de 30 días corridos exigidos para la salida. La fecha de cese de operaciones y retiro definitivo del stock se acuerda formalmente para el día ${exitDate}.
+
+SEGUNDA: DECLARACIÓN JURADA DE FACTURACIÓN Y FINIQUITO DE CUENTAS
+El CLIENTE declara bajo juramento que a la fecha de la suscripción del presente instrumento, todos los períodos de facturación de servicios ordinarios, almacenamiento, despachos, devoluciones e insumos emitidos por STOCKA se encuentran íntegramente saldados y pagados de conformidad, no existiendo saldos deudores ni cuentas pendientes de ninguna especie.
+Asimismo, el CLIENTE renuncia de manera irrevocable a entablar cualquier acción legal, civil, mercantil o de otra índole posterior tendiente a reclamar diferencias de tarifas, devoluciones de cobros o revisión de facturaciones pasadas correspondientes a la vigencia de la relación contractual, otorgando a STOCKA el más amplio finiquito respecto de tales conceptos.
+
+TERCERA: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD
+Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+- Unidades Totales: ${totalUnits} unidades.
+- SKUs con Stock: ${totalSKUs} ítems.
+
+Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+
+CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
+- Tarifa Fija Base de Preparación: $1.250 CLP neto
+- Recargo por SKU adicional (sobre 3): $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto
+- Recargo por unidades adicionales (sobre 10): $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto
+- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
+- IVA (19%): $${iva.toLocaleString('es-CL')} CLP
+- TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
+
+Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+
+QUINTA: LIBERACIÓN MUTUA DE RESPONSABILIDADES Y PACTO DE INDEMNIDAD
+Con la firma de este convenio de término, las partes se otorgan recíproco y definitivo finiquito respecto de todas y cada una de las obligaciones emanadas del contrato de prestación de servicios logísticos, declarando que nada se adeudan por concepto de indemnizaciones, perjuicios, multas o prestaciones pendientes de ninguna naturaleza. El CLIENTE se compromete a mantener indemne a STOCKA por cualquier reclamo de terceros derivado de los productos retirados, vicios ocultos de fabricación, o uso indebido de los mismos posterior a la entrega.
+
+Las partes firman en dos ejemplares de un mismo tenor y fecha, comprometiéndose a legalizar las firmas ante Notario Público si cualquiera de ellas así lo solicitase el día del retiro.
+
+
+__________________________________            __________________________________
+            STOCKA SpA                                     EL CLIENTE
+         Representante Legal                            Representante Legal`;
+}
+
+function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate) {
+  const text = generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate);
+  const printWindow = window.open('', '_blank');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Convenio de Termino - ${commerceName}</title>
+        <style>
+          body {
+            font-family: 'Times New Roman', Times, serif;
+            padding: 3rem;
+            line-height: 1.6;
+            color: #111;
+            max-width: 800px;
+            margin: 0 auto;
+          }
+          pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 11pt;
+            font-family: inherit;
+            text-align: justify;
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="margin-bottom: 2rem; padding: 1rem; background-color: #f3f4f6; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif; font-size: 0.9rem;">
+          <span>Este es el borrador del documento legal de término de servicio.</span>
+          <button onclick="window.print()" style="padding: 0.5rem 1rem; background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 4px; cursor: pointer;">Imprimir / Guardar como PDF</button>
+        </div>
+        <pre>${text}</pre>
+        <script>
+          window.onload = function() {
+            // Opcional: auto disparar
+          };
+        </script>
+      </body>
+    </html>
+  `);
+}
+
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList) {
+  const repName = profile.full_name || "No especificado";
+  const compName = profile.company_name || "No especificada";
+  const rutText = profile.rut || "No informado";
+  const dateTodayStr = new Date().toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  const baseFee = 1250;
+  const skuSurcharge = totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0;
+  const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
+
+  const printWindow = window.open('', '_blank');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Informe de Salida - ${commerceName}</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 2.5rem;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.5;
+            background-color: #fff;
+          }
+          .header-title {
+            text-align: center;
+            border-bottom: 2px solid #ef4444;
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+          }
+          .header-title h1 {
+            font-size: 1.6rem;
+            color: #991b1b;
+            margin: 0 0 0.5rem 0;
+            text-transform: uppercase;
+            font-weight: 800;
+          }
+          .header-title p {
+            font-size: 0.85rem;
+            color: #666;
+            margin: 0;
+          }
+          .info-table, .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+          }
+          .info-table td {
+            padding: 0.5rem;
+            vertical-align: top;
+          }
+          .info-table td.label {
+            font-weight: bold;
+            color: #555;
+            width: 30%;
+          }
+          .data-table th, .data-table td {
+            padding: 0.6rem;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+          }
+          .data-table th {
+            background-color: #f9fafb;
+            font-weight: bold;
+            color: #374151;
+          }
+          .section-title {
+            font-size: 1.1rem;
+            color: #991b1b;
+            border-bottom: 1px solid #f3f4f6;
+            padding-bottom: 0.4rem;
+            margin: 1.5rem 0 1rem 0;
+            font-weight: bold;
+            text-transform: uppercase;
+          }
+          .cost-box {
+            background-color: #fafafa;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 1rem;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+          }
+          .cost-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.35rem 0;
+            border-bottom: 1px dashed #e5e7eb;
+          }
+          .cost-row.total {
+            border-top: 1px solid #333;
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 1.05rem;
+            color: #b91c1c;
+            padding-top: 0.5rem;
+          }
+          .signature-section {
+            margin-top: 3rem;
+            display: flex;
+            justify-content: space-between;
+            gap: 2rem;
+            page-break-inside: avoid;
+          }
+          .signature-col {
+            width: 45%;
+            text-align: center;
+            font-size: 0.85rem;
+          }
+          .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 3rem;
+            padding-top: 0.5rem;
+          }
+          .no-print {
+            background-color: #f3f4f6;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: sans-serif;
+            font-size: 0.85rem;
+            margin-bottom: 2rem;
+          }
+          .no-print button {
+            padding: 0.5rem 1rem;
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print">
+          <span>Este es el Informe Resumen de Salida del Servicio listo para descargar o imprimir.</span>
+          <button onclick="window.print()">Imprimir / Guardar PDF</button>
+        </div>
+
+        <div class="header-title">
+          <h1>Informe de Salida y Término de Servicio</h1>
+          <p>Stocka SpA Fulfillment Logístico • Generado el ${dateTodayStr}</p>
+        </div>
+
+        <h2 class="section-title">Antecedentes del Comercio y Salida</h2>
+        <table class="info-table">
+          <tr>
+            <td class="label">Comercio / Cuenta:</td>
+            <td>${commerceName}</td>
+            <td class="label">Razón Social:</td>
+            <td>${compName}</td>
+          </tr>
+          <tr>
+            <td class="label">Representante:</td>
+            <td>${repName}</td>
+            <td class="label">RUT de Empresa:</td>
+            <td>${rutText}</td>
+          </tr>
+          <tr>
+            <td class="label">Fecha Solicitud Aviso:</td>
+            <td>${dateTodayStr}</td>
+            <td class="label">Fecha Estimada de Salida:</td>
+            <td style="font-weight: bold; color: #b91c1c;">${exitDate}</td>
+          </tr>
+        </table>
+
+        <h2 class="section-title">1. Resumen de Cuentas y Facturación</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Estado de pago consolidado de los períodos de servicio registrados en plataforma:
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Monto Facturado</th>
+              <th>Saldo Pendiente</th>
+              <th>Estado de Pago</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${periodStatusList.map(p => `
+              <tr>
+                <td><strong>${p.name}</strong></td>
+                <td>$${p.total.toLocaleString('es-CL')}</td>
+                <td style="font-weight: ${p.pending > 0 ? 'bold' : 'normal'}; color: ${p.pending > 0 ? '#b91c1c' : '#333'}">$${p.pending.toLocaleString('es-CL')}</td>
+                <td>
+                  <span style="font-weight: bold; color: ${p.isPaid ? '#047857' : '#b91c1c'};">
+                    ${p.isPaid ? 'Saldado' : 'Pendiente'}
+                  </span>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <p style="font-size: 0.75rem; color: #4b5563; font-style: italic; background-color: #f9fafb; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 4px; line-height: 1.4;">
+          <strong>Declaración de Conformidad:</strong> El Comercio acepta formalmente la liquidación de las tarifas del servicio correspondientes a los períodos señalados, reconociendo que se encuentran íntegramente saldadas y renuncia irrevocablemente a cualquier reclamo posterior por diferencias de cobro.
+        </p>
+
+        <h2 class="section-title">2. Resumen de Inventario Registrado</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Resumen total de existencias en el WMS a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th style="text-align: center;">Cantidad</th>
+              <th>Notas Operativas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Total de SKUs en Stock</strong></td>
+              <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalSKUs}</td>
+              <td style="font-size: 0.8rem; color: #666;">Variedad de artículos con stock activo para retiro.</td>
+            </tr>
+            <tr>
+              <td><strong>Total de Unidades Físicas</strong></td>
+              <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalUnits}</td>
+              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas almacenadas en bodegas Stocka.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Costo estimado del retiro físico (preparación y entrega de stock) según Anexo de Tarifarios Stocka 2024-2025:
+        </p>
+        <div class="cost-box">
+          <div class="cost-row">
+            <span>Costo de Preparación Base:</span>
+            <span>$1.250</span>
+          </div>
+          <div class="cost-row">
+            <span>Recargo SKU Adicional (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > 3 ? totalSKUs - 3 : 0} SKUs excedentes)</span></span>
+            <span>$${skuSurcharge.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row">
+            <span>Recargo Unidades Adicional (+$50 por cada unidad > 10): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+            <span>$${unitsSurcharge.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row" style="font-weight: bold; border-top: 1px dashed #ccc; padding-top: 0.5rem; margin-top: 0.25rem;">
+            <span>Total Neto Preparación:</span>
+            <span>$${netTotal.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row" style="color: #666;">
+            <span>IVA (19%):</span>
+            <span>$${iva.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row total">
+            <span>Total Bruto Estimado de Salida:</span>
+            <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+          </div>
+        </div>
+        <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
+          *Nota: Este presupuesto no contempla los costos proporcionales de almacenamiento y despachos que puedan devengarse durante el mes en curso antes del retiro físico definitivo.
+        </p>
+
+        <div class="signature-section">
+          <div class="signature-col">
+            <div class="signature-line">
+              <strong>STOCKA SpA</strong><br>
+              Representación y Operaciones
+            </div>
+          </div>
+          <div class="signature-col">
+            <div class="signature-line">
+              <strong>EL CLIENTE</strong><br>
+              Representante Legal / Comercio
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+async function renderPackagingConfig(container, userCommerceList, isUserAdmin) {
 
   // Mostrar spinner de carga
   container.innerHTML = `
@@ -12498,35 +13448,102 @@ window.activeSystemBannerHtml = '';
 
 window.checkSystemCommunications = async function(userId) {
   try {
+    const roleToUse = typeof userRole !== 'undefined' ? userRole : 'observer';
+    
     // 1. Fetch active Banner
-    const { data: banners } = await supabase.from('system_banners').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(1);
+    const { data: banners } = await supabase.from('system_banners').select('*').eq('is_active', true).order('created_at', { ascending: false });
     if (banners && banners.length > 0) {
-      const banner = banners[0];
-      const { data: readBanner } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'banner').eq('entity_id', banner.id);
-      if (!readBanner || readBanner.length === 0) {
-        window.activeSystemBannerHtml = `
-          <div id="system-banner-${banner.id}" style="background-color: ${banner.bg_color || '#2563eb'}; color: ${banner.text_color || '#ffffff'}; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-            <div style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-information-fill"></i> ${banner.content}</div>
-            <button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex;"><i class="ri-close-line"></i></button>
-          </div>
-        `;
-        // Dynamically inject into app-content if not already there
-        const appContent = document.getElementById('app-content');
-        if (appContent && !document.getElementById(`system-banner-${banner.id}`)) {
-          const temp = document.createElement('div');
-          temp.innerHTML = window.activeSystemBannerHtml.trim();
-          appContent.prepend(temp.firstChild);
+      // Find latest banner matching role
+      const banner = banners.find(b => {
+        const target = b.target_role || 'all';
+        return target === 'all' || target === roleToUse;
+      });
+
+      if (banner) {
+        const isDismissible = banner.is_dismissible !== false; // default true
+        let shouldShow = false;
+        
+        if (!isDismissible) {
+          shouldShow = true; // permanent banner, always show
+        } else {
+          // Check if already dismissed
+          const { data: readBanner } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'banner').eq('entity_id', banner.id);
+          if (!readBanner || readBanner.length === 0) {
+            shouldShow = true;
+          }
         }
+
+        if (shouldShow) {
+          const preset = banner.style_preset || 'info';
+          const iconClass = banner.icon || 'ri-information-fill';
+          
+          let bgColor = banner.bg_color || '#2563eb';
+          let textColor = banner.text_color || '#ffffff';
+          
+          // Presets overrides if preset is not custom
+          if (preset === 'info') {
+            bgColor = '#2563eb';
+            textColor = '#ffffff';
+          } else if (preset === 'success') {
+            bgColor = '#10b981';
+            textColor = '#ffffff';
+          } else if (preset === 'warning') {
+            bgColor = '#f59e0b';
+            textColor = '#ffffff';
+          } else if (preset === 'danger') {
+            bgColor = '#ef4444';
+            textColor = '#ffffff';
+          }
+
+          const closeButtonHtml = isDismissible 
+            ? `<button onclick="dismissSystemBanner('${banner.id}', '${userId}')" style="background: none; border: none; color: inherit; cursor: pointer; font-size: 1.25rem; opacity: 0.8; padding: 0; display: flex; transition: opacity 0.2s;" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.8'"><i class="ri-close-line"></i></button>`
+            : '';
+
+          window.activeSystemBannerHtml = `
+            <div id="system-banner-${banner.id}" style="background-color: ${bgColor}; color: ${textColor}; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.5rem; font-weight: 500; display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); border: 1px solid rgba(0,0,0,0.05); animation: slideDown 0.3s ease-out;">
+              <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <i class="${iconClass}" style="font-size: 1.2rem; display: flex; align-items: center;"></i>
+                <div style="line-height: 1.4;">${banner.content}</div>
+              </div>
+              ${closeButtonHtml}
+            </div>
+          `;
+          
+          const appContent = document.getElementById('app-content');
+          if (appContent) {
+            // Remove previous active banners if any
+            const oldBanner = document.querySelector('[id^="system-banner-"]');
+            if (oldBanner) oldBanner.remove();
+            
+            const temp = document.createElement('div');
+            temp.innerHTML = window.activeSystemBannerHtml.trim();
+            appContent.prepend(temp.firstChild);
+          }
+        }
+      } else {
+        // Clean banner if no matching active banner
+        const oldBanner = document.querySelector('[id^="system-banner-"]');
+        if (oldBanner) oldBanner.remove();
       }
+    } else {
+      // Clean banner if none active
+      const oldBanner = document.querySelector('[id^="system-banner-"]');
+      if (oldBanner) oldBanner.remove();
     }
 
     // 2. Fetch active Popup
-    const { data: popups } = await supabase.from('system_popups').select('*').eq('is_active', true).order('created_at', { ascending: false }).limit(1);
+    const { data: popups } = await supabase.from('system_popups').select('*').eq('is_active', true).order('created_at', { ascending: false });
     if (popups && popups.length > 0) {
-      const popup = popups[0];
-      const { data: readPopup } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'popup').eq('entity_id', popup.id);
-      if (!readPopup || readPopup.length === 0) {
-        window.showSystemPopupModal(popup, userId);
+      const popup = popups.find(p => {
+        const target = p.target_role || 'all';
+        return target === 'all' || target === roleToUse;
+      });
+
+      if (popup) {
+        const { data: readPopup } = await supabase.from('user_notification_reads').select('id').eq('user_id', userId).eq('entity_type', 'popup').eq('entity_id', popup.id);
+        if (!readPopup || readPopup.length === 0) {
+          window.showSystemPopupModal(popup, userId);
+        }
       }
     }
   } catch (err) {
@@ -12558,18 +13575,78 @@ window.showSystemPopupModal = function(popup, userId) {
   modal.style.alignItems = 'center';
   modal.style.justifyContent = 'center';
   modal.style.backdropFilter = 'blur(4px)';
+  modal.style.animation = 'fadeIn 0.2s ease-out';
   
-  const formattedContent = popup.content.replace(/\n/g, '<br>');
+  // Format content: render safe HTML if tag structure exists, else do paragraph text breaks
+  let formattedContent = popup.content;
+  if (!/<[a-z][\s\S]*>/i.test(formattedContent)) {
+    formattedContent = formattedContent.replace(/\n/g, '<br>');
+  }
+  
+  const preset = popup.style_preset || 'info';
+  const iconClass = popup.icon || 'ri-notification-3-line';
+  
+  let iconColor = 'var(--color-primary)';
+  let btnBg = 'var(--color-primary)';
+  
+  if (preset === 'info') {
+    iconColor = 'var(--color-accent)';
+    btnBg = 'var(--color-accent)';
+  } else if (preset === 'success') {
+    iconColor = 'var(--color-success)';
+    btnBg = 'var(--color-success)';
+  } else if (preset === 'warning') {
+    iconColor = 'var(--color-warning)';
+    btnBg = 'var(--color-warning)';
+  } else if (preset === 'danger') {
+    iconColor = 'var(--color-danger)';
+    btnBg = 'var(--color-danger)';
+  }
+
+  const isDismissible = popup.is_dismissible !== false;
+  let closeButtonHtml = '';
+  
+  if (isDismissible) {
+    closeButtonHtml = `<button onclick="dismissSystemPopup('${popup.id}', '${userId}')" class="btn btn-primary" style="width: 100%; background-color: ${btnBg}; border-color: ${btnBg}; color: #fff; font-size: 1rem; padding: 0.75rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; transition: filter 0.2s;" onmouseover="this.style.filter='brightness(0.9)'" onmouseout="this.style.filter='none'">Entendido, cerrar aviso</button>`;
+  } else {
+    // Show countdown on button
+    closeButtonHtml = `<button id="popup-dismiss-btn" disabled class="btn btn-primary" style="width: 100%; background-color: ${btnBg}; border-color: ${btnBg}; color: #fff; font-size: 1rem; padding: 0.75rem; border-radius: var(--radius-md); font-weight: 600; cursor: not-allowed; opacity: 0.6;">Entendido (5s)</button>`;
+    
+    let secondsLeft = 5;
+    const timer = setInterval(() => {
+      secondsLeft--;
+      const btn = document.getElementById('popup-dismiss-btn');
+      if (btn) {
+        if (secondsLeft > 0) {
+          btn.textContent = `Entendido (${secondsLeft}s)`;
+        } else {
+          btn.textContent = 'Entendido, cerrar aviso';
+          btn.disabled = false;
+          btn.style.cursor = 'pointer';
+          btn.style.opacity = '1';
+          btn.onclick = () => {
+            clearInterval(timer);
+            dismissSystemPopup(popup.id, userId);
+          };
+        }
+      } else {
+        clearInterval(timer);
+      }
+    }, 1000);
+  }
   
   modal.innerHTML = `
-    <div style="background: var(--color-surface); padding: 2rem; border-radius: var(--radius-lg); max-width: 500px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); position: relative; animation: slideUp 0.3s ease-out forwards;">
-      <h3 style="margin-top: 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--color-border);">
-        <i class="ri-notification-3-line" style="color: var(--color-accent);"></i> ${popup.title}
+    <div style="background: var(--color-surface); padding: 2.25rem; border-radius: var(--radius-lg); max-width: 500px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); border: 1px solid var(--color-border); position: relative; animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;">
+      <h3 style="margin-top: 0; color: var(--color-text-main); display: flex; align-items: center; gap: 0.75rem; font-size: 1.4rem; padding-bottom: 1rem; border-bottom: 1px solid var(--color-border); font-weight: 700;">
+        <i class="${iconClass}" style="color: ${iconColor}; font-size: 1.6rem; display: flex;"></i> 
+        <span>${popup.title}</span>
       </h3>
-      <div style="color: var(--color-text-muted); line-height: 1.6; margin-bottom: 2rem; margin-top: 1.5rem; font-size: 1rem; max-height: 50vh; overflow-y: auto;">
+      <div style="color: var(--color-text-main); line-height: 1.6; margin-bottom: 2rem; margin-top: 1.5rem; font-size: 0.95rem; max-height: 50vh; overflow-y: auto;">
         ${formattedContent}
       </div>
-      <button onclick="dismissSystemPopup('${popup.id}', '${userId}')" class="btn btn-primary" style="width: 100%; background-color: var(--color-accent); font-size: 1rem; padding: 0.75rem;">Entendido, cerrar aviso</button>
+      <div style="display: flex; gap: 1rem;">
+        ${closeButtonHtml}
+      </div>
     </div>
   `;
   document.body.appendChild(modal);
@@ -18416,12 +19493,12 @@ async function renderPacksTab() {
 
     tbody.innerHTML = packs.map(item => {
       const imgHtml = item.image_url 
-        ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+        ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
         : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
 
       const comps = relationsMap[item.id] || [];
       const compsHtml = comps.length > 0
-        ? comps.map(c => `<div style="margin-bottom: 0.25rem;"><strong>${c.products?.sku || 'Sin SKU'}</strong>: ${c.products?.name || 'Desconocido'} <span style="color: var(--color-primary); font-weight: bold;">x${c.quantity}</span></div>`).join('')
+        ? comps.map(c => `<div style="margin-bottom: 0.25rem;"><strong>${escapeHtml(c.products?.sku || 'Sin SKU')}</strong>: ${escapeHtml(c.products?.name || 'Desconocido')} <span style="color: var(--color-primary); font-weight: bold;">x${c.quantity}</span></div>`).join('')
         : '<span style="color: var(--color-danger); font-style: italic;">Sin componentes configurados</span>';
 
       const isObserver = userRole === 'observer';
@@ -18436,8 +19513,8 @@ async function renderPacksTab() {
       return `
         <tr data-product-row-id="${item.id}">
           <td style="padding: 0.75rem 2rem;">${imgHtml}</td>
-          <td style="padding: 0.75rem 2rem;"><strong>${item.sku}</strong></td>
-          <td style="padding: 0.75rem 2rem;">${item.name}</td>
+          <td style="padding: 0.75rem 2rem;"><strong>${escapeHtml(item.sku)}</strong></td>
+          <td style="padding: 0.75rem 2rem;">${escapeHtml(item.name)}</td>
           <td style="padding: 0.75rem 2rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
           <td style="padding: 0.75rem 2rem; line-height: 1.4;">${compsHtml}</td>
           <td style="padding: 0.75rem 2rem;">${actionBtn}</td>
@@ -18595,7 +19672,7 @@ function renderMasterCatalogRows(products) {
 
   tbody.innerHTML = sortedProducts.map(item => {
     const imgHtml = item.image_url 
-      ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+      ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
       : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
 
     const dimensions = (item.length || item.width || item.height)
@@ -18626,8 +19703,8 @@ function renderMasterCatalogRows(products) {
 
     const expAndLot = (item.expiration_date || item.lot_number)
       ? `<div style="font-size: 0.8rem; line-height: 1.2;">
-           ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
-           ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
+           ${item.expiration_date ? `Vence: ${escapeHtml(item.expiration_date)}<br>` : ''}
+           ${item.lot_number ? `Lote: ${escapeHtml(item.lot_number)}` : ''}
          </div>`
       : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
 
@@ -18697,9 +19774,9 @@ function renderMasterCatalogRows(products) {
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
-        <td style="padding: 0.45rem 0.75rem;"><strong>${item.sku}</strong></td>
-        <td style="padding: 0.45rem 0.75rem;">${item.name}</td>
-        <td style="padding: 0.45rem 0.75rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        <td style="padding: 0.45rem 0.75rem;"><strong>${escapeHtml(item.sku)}</strong></td>
+        <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}</td>
+        <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
         ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}${virtualBadge}</td>
@@ -18769,22 +19846,22 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
         label = 'Archivado';
       }
 
-      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${label}</span>`;
+      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${escapeHtml(label)}</span>`;
     }
 
     return `
       <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}${statusBadge}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${escapeHtml(sp.name)}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
-          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
         </td>
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${sp.sku}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(sp.sku)}</td>
         <td style="padding: 0.5rem 2rem;">
           <input type="text" class="form-input eq-mapping-input" 
                  list="master-skus-list" 
-                 data-platform-sku="${sp.sku}" 
-                 data-platform="${sp.platform}" 
-                 value="${currentMapping}" 
+                 data-platform-sku="${escapeHtml(sp.sku)}" 
+                 data-platform="${escapeHtml(sp.platform)}" 
+                 value="${escapeHtml(currentMapping)}" 
                  placeholder="Escribe para buscar o seleccionar..." 
                  ${isObserver ? 'disabled' : ''}
                  style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); width: 100%; transition: border-color 0.2s;">

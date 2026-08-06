@@ -63,7 +63,7 @@ async function run() {
         agenda,
         sucursal_pickeo,
         operador,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -148,8 +148,9 @@ async function run() {
           // 2. Insertar los actualizados con advertencia
           const payloads = [];
           const nowStr = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
-          wmsOrder.order_items.forEach(oi => {
-            if (oi.products?.is_virtual) return;
+          const physicalItems = wmsOrder.order_items.filter(oi => !oi.products?.is_virtual);
+          const totu = physicalItems.reduce((sum, oi) => sum + (parseInt(oi.quantity, 10) || 0), 0) || 1;
+          physicalItems.forEach(oi => {
             const prod = oi.products || {};
             const opt = prod.options || {};
             payloads.push({
@@ -166,7 +167,7 @@ async function run() {
               client_name: wmsOrder.customer_name || 'Sin nombre',
               tracking: (wmsOrder.agenda && wmsOrder.agenda.trim().toUpperCase() === 'STK') ? orderNo : (wmsOrder.tracking_number || ''),
               operator: wmsOrder.operador || '',
-              totu: 0,
+              totu: totu,
               sheet_status: 'Pendiente (Obs)', // Resalta en color de alerta en Picker
               observation: `⚠️ [MODIFICADO] Este pedido sufrió cambios en el WMS el [${nowStr}]. Por favor verificar ítems.`,
               contact_data_q: wmsOrder.customer_email || '',
@@ -176,7 +177,8 @@ async function run() {
               contact_data_u: wmsOrder.shipping_complement || '',
               extra_col_v: prod.image_url || '',
               comercio: wmsOrder.comercio || 'MAGIC MAKEUP',
-              created_by: 'Sistema WMS'
+              created_by: 'Sistema WMS',
+              picking_match_strict: prod.picking_match_strict || false
             });
           });
 

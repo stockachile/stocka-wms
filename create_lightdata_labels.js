@@ -105,10 +105,11 @@ async function sendSingleOrderToPicker(order) {
     .eq('order_number', orderNumber);
 
   const items = order.order_items || [];
-  const totu = items.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+  const physicalItems = items.filter(item => !item.products?.is_virtual);
+  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
 
-  for (const item of items) {
+  for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
     payloads.push({
@@ -135,7 +136,8 @@ async function sendSingleOrderToPicker(order) {
       contact_data_u: order.shipping_complement || '',
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
-      created_by: 'Sistema WMS'
+      created_by: 'Sistema WMS',
+      picking_match_strict: prod.picking_match_strict || false
     });
   }
 
@@ -579,7 +581,7 @@ async function handleIndividualMode(idPedido) {
 async function handleBulkMode(limiteCarga) {
   console.log(`🔄 Iniciando procesamiento masivo de envíos (límite: ${limiteCarga})...`);
   
-  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))');
+  let query = supabase.from('orders').select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))');
 
   if (args.orderIds && args.orderIds.trim() !== '') {
     const idsList = args.orderIds.split(',').map(id => id.trim()).filter(Boolean);

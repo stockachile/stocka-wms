@@ -21,3 +21,9 @@ Thumbs.db
 
 # Scratch temporary debug scripts
 scratch/
+
+# Credentials, tokens and integration scripts
+*.txt
+!documentacion*.txt
+!documentacion *.txt
+

@@ -221,6 +221,10 @@
             <input type="checkbox" id="prod-is-virtual" style="width: auto; cursor: pointer;">
             <label for="prod-is-virtual" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">¿Es un Producto Virtual? (Sin stock/logística)</label>
           </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="checkbox" id="prod-picking-strict" style="width: auto; cursor: pointer;">
+            <label for="prod-picking-strict" style="cursor: pointer; font-weight: 600; margin-bottom: 0; color: var(--color-text-main);">Lectura Estricta en Picker (no permite coincidencia parcial de SKU)</label>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline" data-close="modal-product">Cancelar</button>
@@ -256,6 +260,12 @@
             <input type="checkbox" id="edit-prod-send-barcode" style="width: auto; cursor: pointer; margin: 0;">
             <label for="edit-prod-send-barcode" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
               Enviar código de barras al Picker (en lugar del SKU)
+            </label>
+          </div>
+          <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.75rem;">
+            <input type="checkbox" id="edit-prod-picking-strict" style="width: auto; cursor: pointer; margin: 0;">
+            <label for="edit-prod-picking-strict" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
+              Lectura Estricta en Picker (no permite lectura parcial)
             </label>
           </div>
           <div class="form-group" style="margin-bottom: 0.75rem;">

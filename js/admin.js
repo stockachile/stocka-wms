@@ -1404,7 +1404,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     meli_status:raw_meli_data->status,
     meli_order_items:raw_meli_data->order_items,
     paris_items:raw_paris_data->items,
-    order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))
+    order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
   `, q => {
     let query = q;
     if (fromISO) query = query.gte('created_at', fromISO);
@@ -4739,7 +4739,7 @@ function renderMasterCatalogRows(products) {
 
   tbody.innerHTML = sortedProducts.map(item => {
     const imgHtml = item.image_url 
-      ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+      ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
       : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
 
     const dimensions = (item.length || item.width || item.height)
@@ -4782,8 +4782,8 @@ function renderMasterCatalogRows(products) {
 
     const expAndLot = (item.expiration_date || item.lot_number)
       ? `<div style="font-size: 0.8rem; line-height: 1.2;">
-           ${item.expiration_date ? `Vence: ${item.expiration_date}<br>` : ''}
-           ${item.lot_number ? `Lote: ${item.lot_number}` : ''}
+           ${item.expiration_date ? `Vence: ${escapeHtml(item.expiration_date)}<br>` : ''}
+           ${item.lot_number ? `Lote: ${escapeHtml(item.lot_number)}` : ''}
          </div>`
       : '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
 
@@ -4844,15 +4844,19 @@ function renderMasterCatalogRows(products) {
       ? ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras enviado al Picker"><i class="ri-barcode-box-line"></i> Picker</span>`
       : '';
 
+    const strictBadge = item.picking_match_strict
+      ? ` <span class="badge" style="background-color: #ef4444; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Lectura Estricta Obligatoria en Picker"><i class="ri-lock-line"></i> Estricto</span>`
+      : '';
+
     const barcodeCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.5rem 1rem;">
-           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${item.barcode || ''}" value="${item.barcode || ''}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
              <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
              <span>Al Picker</span>
            </div>
          </td>`
-      : `<td style="padding: 0.75rem 1.5rem;">${item.barcode || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
+      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}${strictBadge}</td>`;
 
     const isChecked = window.catalogSelectedProductIds.has(item.id) ? 'checked' : '';
     const checkboxCell = `<td style="padding: 0.75rem 1.5rem; text-align: center; width: 40px;">
@@ -4863,8 +4867,8 @@ function renderMasterCatalogRows(products) {
       <tr data-product-row-id="${item.id}">
         ${checkboxCell}
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
-        <td style="padding: 0.75rem 1.5rem;"><strong>${item.sku}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">${item.name}</td>
+        <td style="padding: 0.75rem 1.5rem;"><strong>${escapeHtml(item.sku)}</strong></td>
+        <td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.name)}</td>
         ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
@@ -5094,12 +5098,12 @@ async function renderPacksTab() {
 
     tbody.innerHTML = packs.map(item => {
       const imgHtml = item.image_url 
-        ? `<img src="${item.image_url}" alt="${item.name}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
+        ? `<img src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.name)}" style="width: 40px; height: 40px; object-fit: cover; border-radius: 4px; border: 1px solid var(--color-border);">` 
         : `<div style="width: 40px; height: 40px; background-color: var(--color-gray-dark); border-radius: 4px; display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); border: 1px solid var(--color-border);"><i class="ri-image-line" style="font-size: 1.2rem;"></i></div>`;
 
       const comps = relationsMap[item.id] || [];
       const compsHtml = comps.length > 0
-        ? comps.map(c => `<div style="margin-bottom: 0.25rem;"><strong>${c.products?.sku || 'Sin SKU'}</strong>: ${c.products?.name || 'Desconocido'} <span style="color: var(--color-primary); font-weight: bold;">x${c.quantity}</span></div>`).join('')
+        ? comps.map(c => `<div style="margin-bottom: 0.25rem;"><strong>${escapeHtml(c.products?.sku || 'Sin SKU')}</strong>: ${escapeHtml(c.products?.name || 'Desconocido')} <span style="color: var(--color-primary); font-weight: bold;">x${c.quantity}</span></div>`).join('')
         : '<span style="color: var(--color-danger); font-style: italic;">Sin componentes configurados</span>';
 
       const isObserver = userRole === 'observer';
@@ -5114,8 +5118,8 @@ async function renderPacksTab() {
       return `
         <tr data-product-row-id="${item.id}">
           <td style="padding: 0.75rem 2rem;">${imgHtml}</td>
-          <td style="padding: 0.75rem 2rem;"><strong>${item.sku}</strong></td>
-          <td style="padding: 0.75rem 2rem;">${item.name}</td>
+          <td style="padding: 0.75rem 2rem;"><strong>${escapeHtml(item.sku)}</strong></td>
+          <td style="padding: 0.75rem 2rem;">${escapeHtml(item.name)}</td>
           <td style="padding: 0.75rem 2rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
           <td style="padding: 0.75rem 2rem; line-height: 1.4;">${compsHtml}</td>
           <td style="padding: 0.75rem 2rem;">${actionBtn}</td>
@@ -5205,22 +5209,22 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
         label = 'Archivado';
       }
 
-      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${label}</span>`;
+      statusBadge = ` <span class="badge" style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${borderClr}; padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem; text-transform: uppercase;">${escapeHtml(label)}</span>`;
     }
 
     return `
       <tr class="eq-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${sp.name}${statusBadge}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; color: var(--color-text-main); font-weight: 500;">${escapeHtml(sp.name)}${statusBadge}</td>
         <td style="padding: 0.75rem 2rem;">
-          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${sp.platform}</span>
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(sp.platform)}</span>
         </td>
-        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${sp.sku}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(sp.sku)}</td>
         <td style="padding: 0.5rem 2rem;">
           <input type="text" class="form-input eq-mapping-input" 
                  list="master-skus-list" 
-                 data-platform-sku="${sp.sku}" 
-                 data-platform="${sp.platform}" 
-                 value="${currentMapping}" 
+                 data-platform-sku="${escapeHtml(sp.sku)}" 
+                 data-platform="${escapeHtml(sp.platform)}" 
+                 value="${escapeHtml(currentMapping)}" 
                  placeholder="Escribe para buscar o seleccionar..." 
                  ${isObserver ? 'disabled' : ''}
                  style="margin: 0; padding: 0.4rem 0.8rem; font-size: 0.85rem; font-family: monospace; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); border-radius: var(--radius-md); width: 100%; transition: border-color 0.2s;">
@@ -10186,9 +10190,11 @@ document.addEventListener('change', async (e) => {
         }
       }
 
-      // Si cambia de cliente a otro rol, establecer comercio a 'no asignado'
+      // Si cambia de cliente a otro rol, establecer comercio a 'no asignado' (u 'all' si es admin)
       const updateData = { role: newRole };
-      if (newRole !== 'client') {
+      if (newRole === 'admin') {
+        updateData.comercio = 'all';
+      } else if (newRole !== 'client') {
         updateData.comercio = 'no asignado';
       }
 
@@ -10640,9 +10646,11 @@ document.addEventListener('submit', async (e) => {
     const password = document.getElementById('new-user-password').value.trim();
     const role = document.getElementById('new-user-role').value;
     
-    // Obtener comercios seleccionados (solo si el rol es cliente)
+    // Obtener comercios seleccionados (solo si el rol es cliente o 'all' si es admin)
     let commerceString = 'no asignado';
-    if (role === 'client') {
+    if (role === 'admin') {
+      commerceString = 'all';
+    } else if (role === 'client') {
       const checked = Array.from(document.querySelectorAll('.new-user-comercio-cb:checked')).map(cb => cb.value);
       if (checked.length > 0) {
         commerceString = checked.join(', ');
@@ -12384,15 +12392,50 @@ async function renderNotificationsAdmin() {
                   <label class="form-label">Texto del Aviso</label>
                   <input type="text" id="banner-content" class="form-input" required>
                 </div>
+                <div class="form-group">
+                  <label class="form-label">Destinatarios</label>
+                  <select id="banner-target" class="form-input" required>
+                    <option value="all">Todos los usuarios</option>
+                    <option value="client">Solo Clientes</option>
+                    <option value="admin">Solo Administradores</option>
+                  </select>
+                </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                   <div class="form-group">
+                    <label class="form-label">Preset de Estilo</label>
+                    <select id="banner-preset" class="form-input" required>
+                      <option value="info">Información (Azul)</option>
+                      <option value="success">Éxito (Verde)</option>
+                      <option value="warning">Alerta (Amarillo)</option>
+                      <option value="danger">Peligro (Rojo)</option>
+                      <option value="custom">Personalizado...</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Icono</label>
+                    <select id="banner-icon" class="form-input" required>
+                      <option value="ri-information-fill">Información</option>
+                      <option value="ri-checkbox-circle-fill">Éxito</option>
+                      <option value="ri-error-warning-fill">Advertencia</option>
+                      <option value="ri-alert-fill">Error/Crítico</option>
+                      <option value="ri-megaphone-fill">Megáfono</option>
+                      <option value="ri-flashlight-fill">Novedad/Rayo</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="banner-colors-container" style="display: none; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                  <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Color de Fondo</label>
                     <input type="color" id="banner-bg" class="form-input" value="#2563eb" style="height: 40px; padding: 0.2rem;">
                   </div>
-                  <div class="form-group">
+                  <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label">Color de Texto</label>
                     <input type="color" id="banner-text" class="form-input" value="#ffffff" style="height: 40px; padding: 0.2rem;">
                   </div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                  <input type="checkbox" id="banner-dismissible" checked style="width: 1.2rem; height: 1.2rem;">
+                  <label for="banner-dismissible" style="font-weight: 600; cursor: pointer; margin: 0;">Permitir cerrar (ocultar)</label>
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
                   <input type="checkbox" id="banner-active" style="width: 1.2rem; height: 1.2rem;">
@@ -12415,6 +12458,40 @@ async function renderNotificationsAdmin() {
                 <div class="form-group">
                   <label class="form-label">Contenido Detallado</label>
                   <textarea id="popup-content" class="form-input" rows="4" required style="resize: vertical;"></textarea>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Destinatarios</label>
+                  <select id="popup-target" class="form-input" required>
+                    <option value="all">Todos los usuarios</option>
+                    <option value="client">Solo Clientes</option>
+                    <option value="admin">Solo Administradores</option>
+                  </select>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div class="form-group">
+                    <label class="form-label">Estilo / Preset</label>
+                    <select id="popup-preset" class="form-input" required>
+                      <option value="info">Información (Morado)</option>
+                      <option value="success">Éxito (Verde)</option>
+                      <option value="warning">Alerta (Naranja)</option>
+                      <option value="danger">Crítico (Rojo)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Icono</label>
+                    <select id="popup-icon" class="form-input" required>
+                      <option value="ri-notification-3-line">Notificación</option>
+                      <option value="ri-information-fill">Información</option>
+                      <option value="ri-checkbox-circle-fill">Éxito</option>
+                      <option value="ri-error-warning-fill">Advertencia</option>
+                      <option value="ri-alert-fill">Error/Crítico</option>
+                      <option value="ri-megaphone-fill">Megáfono</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                  <input type="checkbox" id="popup-dismissible" checked style="width: 1.2rem; height: 1.2rem;">
+                  <label for="popup-dismissible" style="font-weight: 600; cursor: pointer; margin: 0;">Permitir cerrar modal</label>
                 </div>
                 <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1.5rem;">
                   <input type="checkbox" id="popup-active" style="width: 1.2rem; height: 1.2rem;">
@@ -12537,9 +12614,20 @@ async function renderNotificationsAdmin() {
       const b = banners[0];
       document.getElementById('banner-id').value = b.id;
       document.getElementById('banner-content').value = b.content;
-      document.getElementById('banner-bg').value = b.bg_color;
-      document.getElementById('banner-text').value = b.text_color;
+      document.getElementById('banner-bg').value = b.bg_color || '#2563eb';
+      document.getElementById('banner-text').value = b.text_color || '#ffffff';
       document.getElementById('banner-active').checked = b.is_active;
+      
+      document.getElementById('banner-preset').value = b.style_preset || 'custom';
+      document.getElementById('banner-icon').value = b.icon || 'ri-information-fill';
+      document.getElementById('banner-target').value = b.target_role || 'all';
+      document.getElementById('banner-dismissible').checked = b.is_dismissible !== false;
+      
+      // Update color picker visibility
+      const colorsContainer = document.getElementById('banner-colors-container');
+      if (colorsContainer) {
+        colorsContainer.style.display = (b.style_preset === 'custom' || !b.style_preset) ? 'grid' : 'none';
+      }
     }
 
     const { data: popups } = await supabase.from('system_popups').select('*').order('created_at', { ascending: false }).limit(1);
@@ -12549,6 +12637,11 @@ async function renderNotificationsAdmin() {
       document.getElementById('popup-title').value = p.title;
       document.getElementById('popup-content').value = p.content;
       document.getElementById('popup-active').checked = p.is_active;
+      
+      document.getElementById('popup-preset').value = p.style_preset || 'info';
+      document.getElementById('popup-icon').value = p.icon || 'ri-notification-3-line';
+      document.getElementById('popup-target').value = p.target_role || 'all';
+      document.getElementById('popup-dismissible').checked = p.is_dismissible !== false;
     }
 
     // Load profiles for direct messaging
@@ -12794,6 +12887,43 @@ async function renderNotificationsAdmin() {
     } catch(err) { console.error(err); alert('Error al guardar evento'); }
   });
 
+  // Banner Preset Styles Logic
+  setTimeout(() => {
+    const bannerPresetSelect = document.getElementById('banner-preset');
+    if (bannerPresetSelect) {
+      const updateBannerColorsUI = () => {
+        const preset = bannerPresetSelect.value;
+        const bgInput = document.getElementById('banner-bg');
+        const textInput = document.getElementById('banner-text');
+        const colorsContainer = document.getElementById('banner-colors-container');
+        if (!bgInput || !textInput || !colorsContainer) return;
+        
+        if (preset === 'info') {
+          bgInput.value = '#2563eb';
+          textInput.value = '#ffffff';
+          colorsContainer.style.display = 'none';
+        } else if (preset === 'success') {
+          bgInput.value = '#10b981';
+          textInput.value = '#ffffff';
+          colorsContainer.style.display = 'none';
+        } else if (preset === 'warning') {
+          bgInput.value = '#f59e0b';
+          textInput.value = '#ffffff';
+          colorsContainer.style.display = 'none';
+        } else if (preset === 'danger') {
+          bgInput.value = '#ef4444';
+          textInput.value = '#ffffff';
+          colorsContainer.style.display = 'none';
+        } else {
+          colorsContainer.style.display = 'grid';
+        }
+      };
+      bannerPresetSelect.addEventListener('change', updateBannerColorsUI);
+      // Run once on load
+      updateBannerColorsUI();
+    }
+  }, 100);
+
   document.getElementById('form-create-banner').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -12801,17 +12931,43 @@ async function renderNotificationsAdmin() {
         content: document.getElementById('banner-content').value,
         bg_color: document.getElementById('banner-bg').value,
         text_color: document.getElementById('banner-text').value,
-        is_active: document.getElementById('banner-active').checked
+        is_active: document.getElementById('banner-active').checked,
+        style_preset: document.getElementById('banner-preset').value,
+        icon: document.getElementById('banner-icon').value,
+        target_role: document.getElementById('banner-target').value,
+        is_dismissible: document.getElementById('banner-dismissible').checked
       };
       
       const existingId = document.getElementById('banner-id').value;
-      if (existingId) {
-        await supabase.from('system_banners').update(payload).eq('id', existingId);
-      } else {
-        await supabase.from('system_banners').insert([payload]);
+      let res;
+      try {
+        if (existingId) {
+          res = await supabase.from('system_banners').update(payload).eq('id', existingId);
+        } else {
+          res = await supabase.from('system_banners').insert([payload]);
+        }
+        if (res.error) throw res.error;
+      } catch (err) {
+        if (err.code === '42703' || (err.message && (err.message.includes('column') || err.message.includes('relation')))) {
+          console.warn("Nuevas columnas de banners no detectadas. Usando guardado básico...", err);
+          alert("Aviso: Las nuevas configuraciones (preset, icono, destinatarios y botón de cerrar) se omitirán porque no has ejecutado el script SQL de migración en Supabase. Se guardarán los datos básicos.");
+          const basicPayload = {
+            content: payload.content,
+            bg_color: payload.bg_color,
+            text_color: payload.text_color,
+            is_active: payload.is_active
+          };
+          if (existingId) {
+            res = await supabase.from('system_banners').update(basicPayload).eq('id', existingId);
+          } else {
+            res = await supabase.from('system_banners').insert([basicPayload]);
+          }
+          if (res.error) throw res.error;
+        } else {
+          throw err;
+        }
       }
       
-      // If activated, optionally deactivate others. For simplicity, we just keep one or assume the admin knows.
       if (payload.is_active && existingId) {
          await supabase.from('system_banners').update({is_active: false}).neq('id', existingId);
       }
@@ -12827,14 +12983,40 @@ async function renderNotificationsAdmin() {
       const payload = {
         title: document.getElementById('popup-title').value,
         content: document.getElementById('popup-content').value,
-        is_active: document.getElementById('popup-active').checked
+        is_active: document.getElementById('popup-active').checked,
+        style_preset: document.getElementById('popup-preset').value,
+        icon: document.getElementById('popup-icon').value,
+        target_role: document.getElementById('popup-target').value,
+        is_dismissible: document.getElementById('popup-dismissible').checked
       };
       
       const existingId = document.getElementById('popup-id').value;
-      if (existingId) {
-        await supabase.from('system_popups').update(payload).eq('id', existingId);
-      } else {
-        await supabase.from('system_popups').insert([payload]);
+      let res;
+      try {
+        if (existingId) {
+          res = await supabase.from('system_popups').update(payload).eq('id', existingId);
+        } else {
+          res = await supabase.from('system_popups').insert([payload]);
+        }
+        if (res.error) throw res.error;
+      } catch (err) {
+        if (err.code === '42703' || (err.message && (err.message.includes('column') || err.message.includes('relation')))) {
+          console.warn("Nuevas columnas de popups no detectadas. Usando guardado básico...", err);
+          alert("Aviso: Las nuevas configuraciones (preset, icono, destinatarios y botón de cerrar) se omitirán porque no has ejecutado el script SQL de migración en Supabase. Se guardarán los datos básicos.");
+          const basicPayload = {
+            title: payload.title,
+            content: payload.content,
+            is_active: payload.is_active
+          };
+          if (existingId) {
+            res = await supabase.from('system_popups').update(basicPayload).eq('id', existingId);
+          } else {
+            res = await supabase.from('system_popups').insert([basicPayload]);
+          }
+          if (res.error) throw res.error;
+        } else {
+          throw err;
+        }
       }
       
       if (payload.is_active && existingId) {
@@ -22581,6 +22763,7 @@ async function renderMerchantsAdmin() {
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
+        picking_match_strict: extra.picking_match_strict || false,
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -23793,6 +23976,17 @@ window.showMerchantCreateModal = function() {
             </div>
           </div>
 
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-create-picking-strict">
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-create-picking-strict" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Lectura Estricta en Picker</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Fuerza a que todos los escaneos de este comercio sean de coincidencia estricta en el sistema de picking, impidiendo la lectura parcial.</p>
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Configuración de Prefijos por Plataforma</label>
             <div style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow: hidden; background: var(--color-bg);">
@@ -23966,7 +24160,8 @@ window.showMerchantCreateModal = function() {
             razon_social: razonSocial || null,
             plat_siglas_config: platSiglasConfig,
             email_colaborador: emailColaborador || null,
-            enviame_id: enviameId || null
+            enviame_id: enviameId || null,
+            picking_match_strict: document.getElementById('merchant-create-picking-strict')?.checked || false
           });
 
         if (configErr) throw configErr;
@@ -24069,6 +24264,17 @@ window.showMerchantEditModal = function(comercioName) {
               <label for="merchant-edit-inventory" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Seguimiento de Inventario</label>
               <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Activa o desactiva la sincronización y control automático del stock físico.</p>
               ${migrationTip}
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-picking-strict" ${commerce.picking_match_strict ? 'checked' : ''}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-picking-strict" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Lectura Estricta en Picker</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Fuerza a que todos los escaneos de este comercio sean de coincidencia estricta en el sistema de picking, impidiendo la lectura parcial.</p>
             </div>
           </div>
 
@@ -24430,7 +24636,8 @@ window.showMerchantEditModal = function(comercioName) {
             razon_social: newRazonSocial || null,
             plat_siglas_config: newPlatSiglasConfig,
             email_colaborador: newEmailColaborador || null,
-            enviame_id: newEnviameId || null
+            enviame_id: newEnviameId || null,
+            picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false
           });
 
         if (configErr) throw configErr;
@@ -24682,6 +24889,7 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-name').value = product.name;
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
     document.getElementById('edit-prod-send-barcode').checked = product.send_barcode_to_picker || false;
+    document.getElementById('edit-prod-picking-strict').checked = product.picking_match_strict || false;
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
     document.getElementById('edit-prod-height').value = product.height || '';
@@ -24840,6 +25048,7 @@ function initProductFormListeners() {
 
         const isPack = document.getElementById('prod-is-pack')?.checked || false;
         const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
+        const pickingMatchStrict = document.getElementById('prod-picking-strict')?.checked || false;
 
         const { data: newProd, error: errProd } = await supabase
           .from('products')
@@ -24850,7 +25059,8 @@ function initProductFormListeners() {
             name: name,
             description: desc,
             is_pack: isPack,
-            is_virtual: isVirtual
+            is_virtual: isVirtual,
+            picking_match_strict: pickingMatchStrict
           }])
           .select()
           .single();
@@ -24968,7 +25178,8 @@ function initProductFormListeners() {
             lot_number: lot,
             is_pack: isPack,
             is_virtual: isVirtual,
-            send_barcode_to_picker: sendBarcode
+            send_barcode_to_picker: sendBarcode,
+            picking_match_strict: document.getElementById('edit-prod-picking-strict')?.checked || false
           })
           .eq('id', prodId);
 
@@ -25624,7 +25835,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker))')
+        .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -25768,6 +25979,18 @@ window.propagateOrderUpdateToPicker = async function(order) {
 
   const orderNumber = String(order.external_order_number || order.id);
 
+  let commerceStrict = false;
+  if (order.comercio) {
+    const { data: commConfig } = await supabase
+      .from('comercios_adicional_config')
+      .select('picking_match_strict')
+      .eq('comercio', order.comercio)
+      .maybeSingle();
+    if (commConfig && commConfig.picking_match_strict) {
+      commerceStrict = true;
+    }
+  }
+
   const { data: existingItems, error: getErr } = await pickerSupabase
     .from('active_orders')
     .select('id')
@@ -25794,12 +26017,13 @@ window.propagateOrderUpdateToPicker = async function(order) {
   }
 
   const items = order.order_items || [];
-  const totu = items.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+  const physicalItems = items.filter(item => !item.products?.is_virtual);
+  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
   const now = new Date();
   const shortDate = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  for (const item of items) {
+  for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
     payloads.push({
@@ -25807,7 +26031,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -25826,6 +26050,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       contact_data_u: order.shipping_complement || '',
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
+      picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS'
     });
   }
@@ -25846,16 +26071,29 @@ window.sendSingleOrderToPicker = async function(order) {
 
   const orderNumber = String(order.external_order_number || order.id);
 
+  let commerceStrict = false;
+  if (order.comercio) {
+    const { data: commConfig } = await supabase
+      .from('comercios_adicional_config')
+      .select('picking_match_strict')
+      .eq('comercio', order.comercio)
+      .maybeSingle();
+    if (commConfig && commConfig.picking_match_strict) {
+      commerceStrict = true;
+    }
+  }
+
   await pickerSupabase
     .from('active_orders')
     .delete()
     .eq('order_number', orderNumber);
 
   const items = order.order_items || [];
-  const totu = items.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
+  const physicalItems = items.filter(item => !item.products?.is_virtual);
+  const totu = physicalItems.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0) || parseInt(order.cantidad, 10) || 1;
   const payloads = [];
 
-  for (const item of items) {
+  for (const item of physicalItems) {
     const prod = item.products || {};
     const opt = prod.options || {};
     payloads.push({
@@ -25863,7 +26101,7 @@ window.sendSingleOrderToPicker = async function(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -25882,6 +26120,7 @@ window.sendSingleOrderToPicker = async function(order) {
       contact_data_u: order.shipping_complement || '',
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
+      picking_match_strict: commerceStrict || prod.picking_match_strict || false,
       created_by: 'Sistema WMS'
     });
   }
@@ -26023,11 +26262,28 @@ window.sendIntakeToPicker = async function(id) {
       }
     }
 
+    const skus = products.map(p => p.sku.trim());
+    let productsDb = [];
+    if (skus.length > 0) {
+      const { data: dbProds } = await supabase
+        .from('products')
+        .select('sku, picking_match_strict')
+        .eq('comercio', dec.comercio)
+        .in('sku', skus);
+      if (dbProds) {
+        productsDb = dbProds;
+      }
+    }
+    const strictSkusMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p.picking_match_strict]));
+
     for (const item of products) {
       // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
-      const pickingSku = (item.barcode && item.barcode.trim() && item.barcode.trim() !== item.sku.trim())
+      const cleanSku = item.sku.trim();
+      const pickingSku = (item.barcode && item.barcode.trim() && item.barcode.trim() !== cleanSku)
         ? item.barcode.trim()
-        : item.sku.trim();
+        : cleanSku;
+
+      const isStrict = strictSkusMap.get(cleanSku.toLowerCase()) || false;
 
       payloads.push({
         sucursal: pickerSucursal,
@@ -26053,6 +26309,7 @@ window.sendIntakeToPicker = async function(id) {
         contact_data_u: '',
         extra_col_v: '',
         comercio: dec.comercio || 'MAGIC MAKEUP',
+        picking_match_strict: isStrict,
         created_by: 'WMS - Ingreso'
       });
     }
@@ -27688,7 +27945,7 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     const { data: orderItems, error: itemsErr } = await supabase
       .from('order_items')
-      .select('*, products(id, sku, name, price, barcode, send_barcode_to_picker)')
+      .select('*, products(id, sku, name, price, barcode, send_barcode_to_picker, picking_match_strict)')
       .eq('order_id', orderId);
 
     if (itemsErr) throw itemsErr;
@@ -28007,7 +28264,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos asociados
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker)')
+        .select('*, products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {
