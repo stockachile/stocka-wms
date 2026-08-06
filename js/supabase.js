@@ -185,4 +185,33 @@ window.clearDashboardCache = function(key) {
   }
 };
 
+// Interceptor global para abrir comprobantes de pago usando URLs firmadas temporales (bucket privado)
+document.addEventListener('click', async (e) => {
+  const link = e.target.closest('a');
+  if (link && link.href && link.href.includes('/payment_receipts/')) {
+    e.preventDefault();
+    
+    // Extraer el nombre del archivo de la URL
+    const parts = link.href.split('/payment_receipts/');
+    if (parts.length > 1) {
+      const fileName = decodeURIComponent(parts[1]);
+      try {
+        // Solicitar una URL firmada válida por 60 segundos
+        const { data, error } = await supabase.storage
+          .from('payment_receipts')
+          .createSignedUrl(fileName, 60);
+          
+        if (error) throw error;
+        if (data && data.signedUrl) {
+          window.open(data.signedUrl, '_blank');
+        }
+      } catch (err) {
+        console.error('Error al generar URL firmada para comprobante:', err);
+        alert('No tienes permisos para ver este comprobante o el enlace ha caducado.');
+      }
+    }
+  }
+});
+
 export default supabase;
+

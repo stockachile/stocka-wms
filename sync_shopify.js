@@ -250,13 +250,18 @@ async function syncOrders(integration) {
         }
       }
 
+      const shopifyOrderIdStr = (order.id || "").toString();
+      const orClauses = [`raw_shopify_data->>id.eq.${shopifyOrderIdStr}`];
+      if (order.name) orClauses.push(`external_order_number.eq.${order.name}`);
+      if (finalOrderNumber && finalOrderNumber !== order.name) orClauses.push(`external_order_number.eq.${finalOrderNumber}`);
+
       // Intentar buscar si el pedido ya existe en nuestra BD
       const { data: existingOrder } = await supabase
         .from('orders')
         .select('id, comercio')
         .eq('comercio', integration.comercio)
-        .eq('external_order_number', finalOrderNumber)
         .eq('external_platform', 'Shopify')
+        .or(orClauses.join(","))
         .maybeSingle();
 
       const orderDataToSave = {
