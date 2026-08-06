@@ -2063,7 +2063,7 @@ export async function renderOptirouteSupport() {
                 ¡Hola, ${nombre}! 👋
               </h1>
               <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
-                Te escribimos para informarte que nuestro móvil <strong style="color:#c2410c;">no logró concretar la entrega</strong> de tu paquete enviado por <strong style="color:#0f172a;">${proveedor}</strong> debido a un inconveniente o eventualidad presentada en la ruta.
+                Te escribimos para informarte que nuestro móvil <strong style="color:#c2410c;">no logró concretar la entrega</strong> de tu paquete enviado por <strong style="color:#0f172a;">${proveedor}</strong> debido a un inconveniente presentado en la ruta.
               </p>
 
               <!-- Order Details Card -->
