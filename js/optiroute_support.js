@@ -458,9 +458,11 @@ export async function renderOptirouteSupport() {
             const ref = c.referencia || 'S/R';
             const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
             const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
+            const localFailedAt = localStorage.getItem(`stk_email_failed_${ref}`);
 
             const dispatchAt = localDispatchAt || sr.email_notified_at || null;
             const deliveryAt = localDeliveryAt || sr.delivery_email_notified_at || null;
+            const failedAt = localFailedAt || sr.failed_email_notified_at || null;
 
             return {
               order: w.customer_order || w.order || 0,
@@ -472,6 +474,8 @@ export async function renderOptirouteSupport() {
               dispatch_email_at: dispatchAt,
               delivery_email_notified: Boolean(deliveryAt),
               delivery_email_at: deliveryAt,
+              failed_email_notified: Boolean(failedAt),
+              failed_email_at: failedAt,
               address: c.direccion_destino || 'Sin Dirección',
               complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
@@ -509,6 +513,7 @@ export async function renderOptirouteSupport() {
           populateFilterDropdowns();
           applyFilters();
           checkAndAutoSendDeliveryEmails(allWaypoints);
+          checkAndAutoSendFailedEmails(allWaypoints);
           
           btnFetchRoute.disabled = false;
           btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
@@ -589,6 +594,7 @@ export async function renderOptirouteSupport() {
             tracking_url: o.tracking_url,
             email_notified_at: o.raw_data?.email_notified_at,
             delivery_email_notified_at: o.raw_data?.delivery_email_notified_at,
+            failed_email_notified_at: o.raw_data?.failed_email_notified_at,
             raw_data: o.raw_data
           });
         }
@@ -673,9 +679,11 @@ export async function renderOptirouteSupport() {
 
         const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
         const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
+        const localFailedAt = localStorage.getItem(`stk_email_failed_${ref}`);
 
         const dispatchAt = localDispatchAt || dbInfo.email_notified_at || dbInfo.raw_data?.email_notified_at || detOrder?.email_notified_at || null;
         const deliveryAt = localDeliveryAt || dbInfo.delivery_email_notified_at || dbInfo.raw_data?.delivery_email_notified_at || detOrder?.delivery_email_notified_at || null;
+        const failedAt = localFailedAt || dbInfo.failed_email_notified_at || dbInfo.raw_data?.failed_email_notified_at || detOrder?.failed_email_notified_at || null;
 
         return {
           order: w.customer_order || w.order || 0,
@@ -687,6 +695,8 @@ export async function renderOptirouteSupport() {
           dispatch_email_at: dispatchAt,
           delivery_email_notified: Boolean(deliveryAt),
           delivery_email_at: deliveryAt,
+          failed_email_notified: Boolean(failedAt),
+          failed_email_at: failedAt,
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
           complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
@@ -718,6 +728,7 @@ export async function renderOptirouteSupport() {
       populateFilterDropdowns();
       applyFilters();
       checkAndAutoSendDeliveryEmails(allWaypoints);
+      checkAndAutoSendFailedEmails(allWaypoints);
 
       // Guardar en la caché local atómicamente
       if (detailedOrdersList.length > 0) {
@@ -871,6 +882,17 @@ export async function renderOptirouteSupport() {
         emailBadgesHTML += `
           <span class="badge" style="background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; cursor: default;" title="Confirmación de Entrega enviada por Brevo ${dateStr}">
             <i class="ri-checkbox-circle-line"></i> Entrega Confirmada ${dateStr ? `(${dateStr})` : ''}
+          </span>
+        `;
+      }
+
+      if (item.failed_email_notified) {
+        const dateStr = item.failed_email_at 
+          ? new Date(item.failed_email_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+        emailBadgesHTML += `
+          <span class="badge" style="background: #ffedd5; color: #c2410c; border: 1px solid #fed7aa; font-size: 0.65rem; padding: 0.1rem 0.35rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; cursor: default;" title="Novedad / Intento Fallido enviado por Brevo ${dateStr}">
+            <i class="ri-error-warning-line"></i> Novedad Notificada ${dateStr ? `(${dateStr})` : ''}
           </span>
         `;
       }
@@ -1998,19 +2020,161 @@ export async function renderOptirouteSupport() {
 </html>`;
   }
 
+  function buildFailedDeliveryEmailHTML(item) {
+    const nombre = item.name || 'Cliente';
+    const proveedor = item.supplier || 'STOCKA';
+    const referencia = item.reference || 'S/R';
+    const direccion = item.address || 'Dirección registrada';
+    const complemento = item.complemento ? ` (${item.complemento})` : '';
+    const comuna = item.comuna || '';
+    const waUrl = `https://api.whatsapp.com/send?phone=56982606602&text=${encodeURIComponent(`Hola STOCKA, quisiera consultar sobre la reprogramación de mi pedido ${referencia}`)}`;
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Novedad en tu Despacho - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #9a3412 0%, #c2410c 100%); padding:24px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA" style="height:38px; max-height:38px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#ffedd5; background:rgba(255,237,213,0.2); border:1px solid rgba(255,237,213,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">⚠️ Novedad en tu Despacho</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}! 👋
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Te escribimos para informarte que nuestro móvil <strong style="color:#c2410c;">no logró concretar la entrega</strong> de tu paquete enviado por <strong style="color:#0f172a;">${proveedor}</strong> debido a un inconveniente o eventualidad presentada en la ruta.
+              </p>
+
+              <!-- Order Details Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#fff7ed; border-radius:10px; border:1px solid #ffedd5; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#c2410c; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #fed7aa; padding-bottom:8px;">
+                      📋 Estado e Información del Pedido
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#c2410c; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Origen:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección Registrada:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Estado Actual:</td>
+                        <td style="font-weight:700; color:#ea580c; padding: 4px 0;">No Entregado - En Proceso de Reprogramación</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Notice & Next Steps Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; padding:20px; margin-bottom:24px;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 10px 0; font-size:14px; font-weight:700; color:#0f172a; display:flex; align-items:center;">
+                      🔄 Próximos Pasos y Reprogramación
+                    </h3>
+                    <p style="margin:0 0 12px 0; font-size:13px; color:#475569; line-height:1.6;">
+                      Tu pedido podría ser reprogramado para ser entregado <strong>más tarde el día de hoy</strong> o durante el <strong>siguiente día hábil</strong>.
+                    </p>
+                    <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
+                      Nos comunicaremos contigo en caso de requerir ayuda o confirmar detalles respecto a tu dirección de entrega y horarios de recepción.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- WhatsApp Support CTA Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0; padding:20px; text-align:center;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 8px 0; font-size:15px; font-weight:700; color:#166534;">
+                      ¿Deseas dar alguna indicación especial sobre tu entrega?
+                    </h3>
+                    <p style="margin:0 0 16px 0; font-size:13px; color:#15803d; line-height:1.5;">
+                      Puedes escribir directamente a nuestro equipo de Soporte vía WhatsApp para entregarnos horarios o referencias adicionales.
+                    </p>
+                    <a href="${waUrl}" target="_blank" style="display:inline-block; background-color:#25D366; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; padding:12px 24px; border-radius:8px; box-shadow:0 2px 8px rgba(37,211,102,0.3);">
+                      💬 Contactar a Soporte por WhatsApp (+569 8260 6602)
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#c2410c; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
   async function sendBrevoNotificationEmail(item, type = 'dispatch') {
     if (!item.email || !item.email.includes('@')) {
       throw new Error(`El pedido ${item.reference} no tiene un correo válido asignado.`);
     }
 
     const isDispatch = type === 'dispatch';
-    const subject = isDispatch 
-      ? `🚚 Tu despacho está programado - ${item.supplier || 'STOCKA'}`
-      : `🎉 ¡Tu pedido ${item.reference} ha sido entregado! - ${item.supplier || 'STOCKA'}`;
+    const isDelivery = type === 'delivery';
+    const isFailed = type === 'failed' || type === 'saltado';
 
-    const htmlBody = isDispatch 
-      ? buildDispatchEmailHTML(item)
-      : buildDeliveryConfirmedEmailHTML(item);
+    let subject = `🚚 Tu despacho está programado - ${item.supplier || 'STOCKA'}`;
+    let htmlBody = buildDispatchEmailHTML(item);
+
+    if (isDelivery) {
+      subject = `🎉 ¡Tu pedido ${item.reference} ha sido entregado! - ${item.supplier || 'STOCKA'}`;
+      htmlBody = buildDeliveryConfirmedEmailHTML(item);
+    } else if (isFailed) {
+      subject = `⚠️ Novedad con tu despacho - ${item.supplier || 'STOCKA'}`;
+      htmlBody = buildFailedDeliveryEmailHTML(item);
+    }
 
     const payload = {
       sender: { name: 'STOCKA Despachos', email: 'info@stocka.cl' },
@@ -2040,10 +2204,14 @@ export async function renderOptirouteSupport() {
       item.dispatch_email_notified = true;
       item.dispatch_email_at = now;
       if (item.reference) localStorage.setItem(`stk_email_dispatch_${item.reference}`, now);
-    } else {
+    } else if (isDelivery) {
       item.delivery_email_notified = true;
       item.delivery_email_at = now;
       if (item.reference) localStorage.setItem(`stk_email_delivery_${item.reference}`, now);
+    } else if (isFailed) {
+      item.failed_email_notified = true;
+      item.failed_email_at = now;
+      if (item.reference) localStorage.setItem(`stk_email_failed_${item.reference}`, now);
     }
 
     if (item.reference) {
@@ -2057,8 +2225,10 @@ export async function renderOptirouteSupport() {
             const currentRaw = rowData.raw_data || {};
             if (isDispatch) {
               currentRaw.email_notified_at = now;
-            } else {
+            } else if (isDelivery) {
               currentRaw.delivery_email_notified_at = now;
+            } else if (isFailed) {
+              currentRaw.failed_email_notified_at = now;
             }
             supabase
               .from('optiroute_orders')
@@ -2096,6 +2266,29 @@ export async function renderOptirouteSupport() {
     }
   }
 
+  async function checkAndAutoSendFailedEmails(waypoints) {
+    const failedWaypoints = waypoints.filter(w => {
+      const st = (w.status || '').toLowerCase();
+      const isFailed = st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped');
+      const hasEmail = w.email && w.email.includes('@');
+      const notNotified = !w.failed_email_notified;
+      return isFailed && hasEmail && notNotified;
+    });
+
+    if (failedWaypoints.length === 0) return;
+
+    console.log(`Auto-enviando ${failedWaypoints.length} correos de novedad de despacho (Saltados/Cancelados)...`);
+    for (const item of failedWaypoints) {
+      try {
+        await sendBrevoNotificationEmail(item, 'failed');
+        item.failed_email_notified = true;
+        console.log(`⚠️ Correo de novedad enviado a ${item.email} para pedido ${item.reference}`);
+      } catch (err) {
+        console.warn(`Error auto-enviando correo de novedad a ${item.reference}:`, err.message);
+      }
+    }
+  }
+
   function openSendBrevoEmailModal(items = []) {
     const modalId = 'optiroute-brevo-email-modal';
     const existing = document.getElementById(modalId);
@@ -2122,7 +2315,9 @@ export async function renderOptirouteSupport() {
       const sampleItem = withEmail[0] || currentItems[0] || {};
       const previewHTML = selectedType === 'dispatch' 
         ? buildDispatchEmailHTML(sampleItem)
-        : buildDeliveryConfirmedEmailHTML(sampleItem);
+        : selectedType === 'delivery'
+        ? buildDeliveryConfirmedEmailHTML(sampleItem)
+        : buildFailedDeliveryEmailHTML(sampleItem);
 
       const hasSelection = items && items.length > 0 && items.length !== baseScope.length;
       const isFilteredScope = baseScope.length < allWaypoints.length;
@@ -2131,7 +2326,7 @@ export async function renderOptirouteSupport() {
         : `Todos los despachos (${baseScope.length})`;
 
       modal.innerHTML = `
-        <div class="card" style="width: 720px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); animation: scaleUp 0.2s ease; border-radius: var(--radius-lg);">
+        <div class="card" style="width: 760px; max-width: 95%; max-height: 90vh; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); animation: scaleUp 0.2s ease; border-radius: var(--radius-lg);">
           
           <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
@@ -2173,19 +2368,26 @@ export async function renderOptirouteSupport() {
 
           <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
             <label style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Tipo de Plantilla de Correo</label>
-            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-              <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.65rem 0.75rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'dispatch' ? '#2563eb' : 'var(--color-border)'}; flex: 1; min-width: 250px;">
-                <input type="radio" name="email-type-rad" value="dispatch" ${selectedType === 'dispatch' ? 'checked' : ''} style="margin-top: 0.2rem;">
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <label style="display: flex; align-items: flex-start; gap: 0.4rem; cursor: pointer; font-size: 0.8rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.55rem 0.65rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'dispatch' ? '#2563eb' : 'var(--color-border)'}; flex: 1; min-width: 200px;">
+                <input type="radio" name="email-type-rad" value="dispatch" ${selectedType === 'dispatch' ? 'checked' : ''} style="margin-top: 0.15rem;">
                 <div>
-                  <strong style="color: #2563eb;">🚚 Aviso de Despacho Programado</strong>
-                  <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Muestra datos de entrega y botón WhatsApp para corregir dirección (+56982606602)</div>
+                  <strong style="color: #2563eb; font-size: 0.82rem;">🚚 Aviso Programado</strong>
+                  <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.1rem; line-height: 1.3;">Despacho listo y preparado para salida a reparto</div>
                 </div>
               </label>
-              <label style="display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.65rem 0.75rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'delivery' ? '#059669' : 'var(--color-border)'}; flex: 1; min-width: 250px;">
-                <input type="radio" name="email-type-rad" value="delivery" ${selectedType === 'delivery' ? 'checked' : ''} style="margin-top: 0.2rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.4rem; cursor: pointer; font-size: 0.8rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.55rem 0.65rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'delivery' ? '#059669' : 'var(--color-border)'}; flex: 1; min-width: 200px;">
+                <input type="radio" name="email-type-rad" value="delivery" ${selectedType === 'delivery' ? 'checked' : ''} style="margin-top: 0.15rem;">
                 <div>
-                  <strong style="color: #059669;">🎉 Confirmación de Entrega Exitosa</strong>
-                  <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;">Confirma que el pedido ha sido entregado en la dirección del cliente</div>
+                  <strong style="color: #059669; font-size: 0.82rem;">🎉 Entrega Exitosa</strong>
+                  <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.1rem; line-height: 1.3;">Confirmación de entrega efectuada en dirección</div>
+                </div>
+              </label>
+              <label style="display: flex; align-items: flex-start; gap: 0.4rem; cursor: pointer; font-size: 0.8rem; color: var(--color-text-main); background: var(--color-bg); padding: 0.55rem 0.65rem; border-radius: var(--radius-md); border: 1.5px solid ${selectedType === 'failed' ? '#c2410c' : 'var(--color-border)'}; flex: 1; min-width: 200px;">
+                <input type="radio" name="email-type-rad" value="failed" ${selectedType === 'failed' ? 'checked' : ''} style="margin-top: 0.15rem;">
+                <div>
+                  <strong style="color: #c2410c; font-size: 0.82rem;">⚠️ Novedad / Saltado</strong>
+                  <div style="font-size: 0.72rem; color: var(--color-text-muted); margin-top: 0.1rem; line-height: 1.3;">Informa problema en ruta y opción de reprogramación</div>
                 </div>
               </label>
             </div>
