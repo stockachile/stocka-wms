@@ -925,6 +925,18 @@ window.toggleOnboardingCheckbox = async function(stepName, value) {
         .eq('comercio', commerce);
 
       if (error) throw error;
+
+      // Actualizar el badge de forma interactiva en la UI
+      const badge = document.getElementById(`onboarding-badge-${stepName}`);
+      if (badge) {
+        if (value) {
+          badge.className = 'onboarding-badge onboarding-badge-completed';
+          badge.innerHTML = '<i class="ri-checkbox-circle-fill"></i> Listo';
+        } else {
+          badge.className = 'onboarding-badge onboarding-badge-pending';
+          badge.innerHTML = '<i class="ri-time-line"></i> Pendiente';
+        }
+      }
       
       window.updateOnboardingProgress();
     }
@@ -1666,127 +1678,305 @@ async function renderDashboard() {
     if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
       onboardingHtml = `
         <!-- Guía de Inicio Onboarding -->
-        <div class="card" id="onboarding-checklist-card" style="margin-bottom: 2rem; border: 1px solid rgba(94, 23, 235, 0.2); background: radial-gradient(circle at top right, rgba(94, 23, 235, 0.04) 0%, rgba(255, 255, 255, 0) 70%), var(--color-surface); border-radius: var(--radius-lg); position: relative; overflow: hidden; box-shadow: var(--shadow-sm); transition: opacity 0.3s ease;">
-          <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--color-primary);"></div>
+        <style>
+          /* Contenedor principal de la tarjeta */
+          .premium-onboarding-card {
+            margin-bottom: 2.25rem;
+            border-radius: 16px;
+            border: 1px solid rgba(94, 23, 235, 0.12);
+            background: var(--color-surface);
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          }
           
-          <div style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-              <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(94, 23, 235, 0.08); display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0;">
-                <i class="ri-rocket-line" style="font-size: 1.25rem;"></i>
+          /* Línea decorativa del lado izquierdo */
+          .premium-onboarding-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 6px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--color-primary) 0%, #a855f7 100%);
+          }
+
+          /* Adaptación a Modo Oscuro */
+          [data-theme="dark"] .premium-onboarding-card {
+            border-color: rgba(168, 85, 247, 0.25);
+            background: radial-gradient(120% 120% at 50% 10%, rgba(94, 23, 235, 0.06) 0%, rgba(0, 0, 0, 0) 60%), var(--color-surface);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+          }
+
+          /* Adaptación a Modo Claro (Alta visibilidad y contraste) */
+          html:not([data-theme="dark"]) .premium-onboarding-card {
+            border: 1.5px solid rgba(94, 23, 235, 0.16);
+            background: linear-gradient(135deg, rgba(94, 23, 235, 0.015) 0%, #ffffff 100%);
+            box-shadow: 0 16px 36px rgba(94, 23, 235, 0.07);
+          }
+
+          /* Cabecera del contenedor */
+          .onboarding-banner-header {
+            background: linear-gradient(90deg, rgba(94, 23, 235, 0.03) 0%, rgba(168, 85, 247, 0.03) 100%);
+            border-bottom: 1px solid var(--color-border);
+            padding: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+          }
+          [data-theme="dark"] .onboarding-banner-header {
+            background: linear-gradient(90deg, rgba(94, 23, 235, 0.1) 0%, rgba(168, 85, 247, 0.06) 100%);
+          }
+
+          /* Fila de cada paso */
+          .onboarding-step-row-v2 {
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            background: var(--color-surface);
+            overflow: hidden;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-bottom: 0.85rem;
+          }
+
+          .onboarding-step-row-v2:hover {
+            transform: translateY(-2px);
+          }
+
+          /* Hover en modo claro */
+          html:not([data-theme="dark"]) .onboarding-step-row-v2:hover {
+            border-color: var(--color-primary);
+            box-shadow: 0 6px 15px rgba(94, 23, 235, 0.05);
+            background: linear-gradient(135deg, #ffffff 0%, rgba(94, 23, 235, 0.005) 100%);
+          }
+
+          /* Hover en modo oscuro */
+          [data-theme="dark"] .onboarding-step-row-v2:hover {
+            border-color: var(--color-primary);
+            box-shadow: 0 6px 18px rgba(94, 23, 235, 0.12);
+          }
+
+          /* Contenedor de iconos */
+          .onboarding-step-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            flex-shrink: 0;
+            transition: all 0.25s ease;
+          }
+
+          /* Contenedor de detalles expandibles */
+          .onboarding-step-details {
+            display: none;
+            padding: 1.25rem 1.5rem 1.5rem 4.15rem;
+            background: rgba(94, 23, 235, 0.005);
+            border-top: 1px dashed var(--color-border);
+            font-size: 0.85rem;
+            color: var(--color-text-muted);
+            line-height: 1.6;
+          }
+          [data-theme="dark"] .onboarding-step-details {
+            background: rgba(94, 23, 235, 0.015);
+          }
+
+          /* Badges de estado */
+          .onboarding-badge {
+            padding: 0.25rem 0.6rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            transition: all 0.2s ease;
+          }
+          .onboarding-badge-pending {
+            background: rgba(245, 158, 11, 0.08);
+            color: #d97706;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+          }
+          .onboarding-badge-completed {
+            background: rgba(16, 185, 129, 0.08);
+            color: #059669;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+          }
+
+          /* Checkbox con zoom hover */
+          .onboarding-cb {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: var(--color-primary);
+            border-radius: 6px;
+            transition: transform 0.2s ease;
+          }
+          .onboarding-cb:hover {
+            transform: scale(1.1);
+          }
+        </style>
+
+        <div class="premium-onboarding-card" id="onboarding-checklist-card">
+          <!-- Cabecera de la Tarjeta -->
+          <div class="onboarding-banner-header">
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+              <div style="width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--color-primary) 0%, #a855f7 100%); display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 4px 12px rgba(94, 23, 235, 0.25); flex-shrink: 0;">
+                <i class="ri-rocket-fill" style="font-size: 1.4rem;"></i>
               </div>
               <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">Guía de Inicio: Configura tu WMS</h3>
-                <p style="margin: 0.15rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Completa estos pasos clave para comenzar a operar en Stocka</p>
+                <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--color-text-main);">Guía de Inicio: Configura tu WMS</h3>
+                <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Completa estos pasos clave para activar tus despachos e ingresos en Stocka</p>
               </div>
             </div>
-            <button class="btn btn-outline" id="btn-dismiss-onboarding-checklist" onclick="window.dismissOnboardingChecklist()" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <button class="btn btn-outline" id="btn-dismiss-onboarding-checklist" onclick="window.dismissOnboardingChecklist()" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.2s; font-weight: 600; background: var(--color-surface);">
               <i class="ri-eye-off-line"></i> Ocultar guía
             </button>
           </div>
           
           <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
-            <!-- PROGRESS BAR -->
-            <div style="background: var(--color-bg); padding: 0.85rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-              <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem;">
-                <span>Progreso de Configuración</span>
-                <span id="onboarding-progress-text">0%</span>
+            <!-- BARRA DE PROGRESO -->
+            <div style="background: var(--color-bg); padding: 1.15rem 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);">
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 700; color: var(--color-text-main); margin-bottom: 0.65rem;">
+                <span style="display: flex; align-items: center; gap: 0.4rem;"><i class="ri-shield-check-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Progreso de Configuración WMS</span>
+                <span id="onboarding-progress-text" style="background: var(--color-primary); color: white; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.75rem; font-weight: 700;">0%</span>
               </div>
-              <div style="height: 6px; background: var(--color-border); border-radius: 99px; overflow: hidden; position: relative;">
-                <div id="onboarding-progress-bar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.4s ease; border-radius: 99px;"></div>
+              <div style="height: 8px; background: var(--color-border); border-radius: 99px; overflow: hidden; position: relative;">
+                <div id="onboarding-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--color-primary) 0%, #a855f7 100%); transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); border-radius: 99px;"></div>
               </div>
             </div>
 
-            <!-- STEPS -->
-            <div style="display: flex; flex-direction: column; gap: 0.85rem;">
-              <!-- STEP 1 -->
-              <div class="onboarding-step-row" id="step-row-integrations" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
-                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('integrations')">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <input type="checkbox" id="onboarding-step-cb-integrations" ${onboardingChecklist.integrations ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('integrations', this.checked)">
+            <!-- PASOS -->
+            <div style="display: flex; flex-direction: column;">
+              
+              <!-- PASO 1 -->
+              <div class="onboarding-step-row-v2" id="step-row-integrations">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('integrations')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-integrations" ${onboardingChecklist.integrations ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('integrations', this.checked)">
+                    <div class="onboarding-step-icon" style="background: rgba(59, 130, 246, 0.08); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.15);">
+                      <i class="ri-plug-fill"></i>
+                    </div>
                     <div>
-                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">1. Integraciones con tus Canales de Venta</strong>
-                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Vincula Shopify, WooCommerce o Mercado Libre para sincronizar ventas y stock.</span>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">1. Integraciones con tus Canales de Venta</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Vincula Shopify, WooCommerce o Mercado Libre para sincronizar ventas y stock.</span>
                     </div>
                   </div>
-                  <i class="ri-arrow-down-s-line" id="arrow-integrations" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
-                </div>
-                <div id="details-integrations" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
-                  <p style="margin: 0 0 0.75rem 0;">Conectando tus canales de venta, el WMS recibirá tus órdenes de compra automáticamente para ser despachadas en tiempo récord, y actualizará el inventario disponible en tus tiendas.</p>
-                  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
-                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-shopping-bag-3-line" style="color: #95bf47;"></i> Shopify</span>
-                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-wordpress-line" style="color: #9b5c8f;"></i> WooCommerce</span>
-                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-hand-heart-line" style="color: #ffe600;"></i> Mercado Libre</span>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <span id="onboarding-badge-integrations" class="onboarding-badge ${onboardingChecklist.integrations ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                      ${onboardingChecklist.integrations ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                    </span>
+                    <i class="ri-arrow-down-s-line" id="arrow-integrations" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
                   </div>
-                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'integrations\\']')?.click();" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-plug-line"></i> Ir a Integraciones
+                </div>
+                <div class="onboarding-step-details" id="details-integrations">
+                  <p style="margin: 0 0 0.85rem 0;">Al conectar tus canales de venta, el WMS recibirá tus órdenes de compra automáticamente para ser despachadas en tiempo récord, y actualizará el inventario disponible en tus tiendas.</p>
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-shopping-bag-3-fill" style="color: #95bf47;"></i> Shopify</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-wordpress-fill" style="color: #9b5c8f;"></i> WooCommerce</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #ffe600;"></i> Mercado Libre</span>
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'integrations\\']')?.click();" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
+                    <i class="ri-plug-2-line"></i> Configurar Canales de Venta
                   </button>
                 </div>
               </div>
 
-              <!-- STEP 2 -->
-              <div class="onboarding-step-row" id="step-row-catalog_ready" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
-                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('catalog_ready')">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <input type="checkbox" id="onboarding-step-cb-catalog_ready" ${onboardingChecklist.catalog_ready ? 'checked' : ''} disabled style="width: 18px; height: 18px; cursor: not-allowed; accent-color: var(--color-success);">
+              <!-- PASO 2 -->
+              <div class="onboarding-step-row-v2" id="step-row-catalog_ready">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('catalog_ready')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-catalog_ready" ${onboardingChecklist.catalog_ready ? 'checked' : ''} disabled style="cursor: not-allowed;">
+                    <div class="onboarding-step-icon" style="background: rgba(245, 158, 11, 0.08); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.15);">
+                      <i class="ri-database-2-fill"></i>
+                    </div>
                     <div>
-                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">2. Espera de Configuración de Catálogo</strong>
-                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">2. Configuración de tu Catálogo Base</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">
                         ${onboardingChecklist.catalog_ready 
-                          ? '<span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> ¡Configurado con éxito por nuestro equipo!</span>' 
-                          : '<span style="color: var(--color-warning); font-weight: 600;"><i class="ri-time-line"></i> En cola de procesamiento por el equipo de operaciones</span>'
+                          ? '<span style="color: #059669; font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> ¡Listo! Operaciones de Stocka configuró tu catálogo</span>' 
+                          : '<span style="color: #d97706; font-weight: 600;"><i class="ri-time-line"></i> Espera: En cola de carga inicial por nuestro equipo</span>'
                         }
                       </span>
                     </div>
                   </div>
-                  <i class="ri-arrow-down-s-line" id="arrow-catalog_ready" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <span id="onboarding-badge-catalog_ready" class="onboarding-badge ${onboardingChecklist.catalog_ready ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                      ${onboardingChecklist.catalog_ready ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                    </span>
+                    <i class="ri-arrow-down-s-line" id="arrow-catalog_ready" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  </div>
                 </div>
-                <div id="details-catalog_ready" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
-                  ${onboardingChecklist.catalog_ready 
-                    ? 'Tu catálogo base de productos ya ha sido cargado en el sistema. Puedes visualizarlo en el módulo de <strong>Catálogo</strong> y proceder con tus ingresos de mercadería.'
-                    : 'Una vez que firmaste el contrato, nuestro equipo de operaciones toma tus datos de productos para subirlos masivamente y mapear las configuraciones. Te llegará un correo de aviso en cuanto esté listo. (No requiere acción por tu parte).'
-                  }
+                <div class="onboarding-step-details" id="details-catalog_ready">
+                  <p style="margin: 0;">
+                    ${onboardingChecklist.catalog_ready 
+                      ? 'Tu catálogo base de productos ya ha sido cargado en el sistema. Puedes visualizarlo en el módulo de <strong>Catálogo</strong> y proceder con tus ingresos de mercadería.'
+                      : 'Una vez que firmaste el contrato, nuestro equipo de operaciones toma tus datos de productos para subirlos masivamente y mapear las configuraciones. Te llegará un correo de aviso en cuanto esté listo. (No requiere acción por tu parte).'
+                    }
+                  </p>
                 </div>
               </div>
 
-              <!-- STEP 3 -->
-              <div class="onboarding-step-row" id="step-row-stock_declared" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
-                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <input type="checkbox" id="onboarding-step-cb-stock_declared" ${onboardingChecklist.stock_declared ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('stock_declared', this.checked)">
+              <!-- PASO 3 -->
+              <div class="onboarding-step-row-v2" id="step-row-stock_declared">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-stock_declared" ${onboardingChecklist.stock_declared ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('stock_declared', this.checked)">
+                    <div class="onboarding-step-icon" style="background: rgba(16, 185, 129, 0.08); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.15);">
+                      <i class="ri-inbox-archive-fill"></i>
+                    </div>
                     <div>
-                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">3. Realiza tu primer Ingreso de Stock</strong>
-                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.</span>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">3. Declara tu Primer Ingreso de Stock</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.</span>
                     </div>
                   </div>
-                  <i class="ri-arrow-down-s-line" id="arrow-stock_declared" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <span id="onboarding-badge-stock_declared" class="onboarding-badge ${onboardingChecklist.stock_declared ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                      ${onboardingChecklist.stock_declared ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                    </span>
+                    <i class="ri-arrow-down-s-line" id="arrow-stock_declared" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  </div>
                 </div>
-                <div id="details-stock_declared" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
-                  <p style="margin: 0 0 0.75rem 0;">Antes de mandar cajas o pallets a nuestra bodega, debes rellenar una Declaración de Ingreso en el sistema, detallando el SKU, nombre del producto y la cantidad física. Esto permite que la recepción y el conteo sean sumamente ágiles.</p>
-                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'declarations\\']')?.click();" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
-                    <i class="ri-add-circle-line"></i> Declarar Ingreso de Stock
+                <div class="onboarding-step-details" id="details-stock_declared">
+                  <p style="margin: 0 0 0.85rem 0;">Antes de mandar cajas o pallets a nuestra bodega, debes rellenar una Declaración de Ingreso en el sistema, detallando el SKU, nombre del producto y la cantidad física. Esto permite que la recepción y el conteo sean sumamente ágiles.</p>
+                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'declarations\\']')?.click();" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
+                    <i class="ri-add-circle-fill"></i> Declarar Ingreso de Stock
                   </button>
                 </div>
               </div>
 
-              <!-- STEP 4 -->
-              <div class="onboarding-step-row" id="step-row-sku_guide" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
-                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('sku_guide')">
-                  <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <input type="checkbox" id="onboarding-step-cb-sku_guide" ${onboardingChecklist.sku_guide ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('sku_guide', this.checked)">
+              <!-- PASO 4 -->
+              <div class="onboarding-step-row-v2" id="step-row-sku_guide">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('sku_guide')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-sku_guide" ${onboardingChecklist.sku_guide ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('sku_guide', this.checked)">
+                    <div class="onboarding-step-icon" style="background: rgba(20, 184, 166, 0.08); color: #14b8a6; border: 1px solid rgba(20, 184, 166, 0.15);">
+                      <i class="ri-file-text-fill"></i>
+                    </div>
                     <div>
-                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">4. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
-                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Revisa los requisitos obligatorios de rotulación y etiquetado de tus cajas.</span>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">4. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Revisa los requisitos obligatorios de rotulación y etiquetado de tus cajas.</span>
                     </div>
                   </div>
-                  <i class="ri-arrow-down-s-line" id="arrow-sku_guide" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <span id="onboarding-badge-sku_guide" class="onboarding-badge ${onboardingChecklist.sku_guide ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                      ${onboardingChecklist.sku_guide ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                    </span>
+                    <i class="ri-arrow-down-s-line" id="arrow-sku_guide" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  </div>
                 </div>
-                <div id="details-sku_guide" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
-                  <p style="margin: 0 0 0.75rem 0;">Todos los productos deben venir con su código de barra (EAN/SKU) legible para escaneo en el picking. Lee detenidamente nuestra Guía de SKU para evitar rechazos o recargos por re-etiquetado.</p>
-                  <a href="${skuGuideUrl}" ${skuGuideUrl === '#' ? `onclick="event.preventDefault(); document.querySelector('[data-view=\\'documentation\\']')?.click();"` : 'target="_blank"'} class="btn btn-primary btn-sm" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none; font-weight: 600;">
-                    <i class="ri-file-pdf-line"></i> Descargar Guía de SKU
+                <div class="onboarding-step-details" id="details-sku_guide">
+                  <p style="margin: 0 0 0.85rem 0;">Todos los productos deben venir con su código de barra (EAN/SKU) legible para escaneo en el picking. Lee detenidamente nuestra Guía de SKU para evitar rechazos o recargos por re-etiquetado.</p>
+                  <a href="${skuGuideUrl}" ${skuGuideUrl === '#' ? `onclick="event.preventDefault(); document.querySelector('[data-view=\\'documentation\\']')?.click();"` : 'target="_blank"'} class="btn btn-primary btn-sm" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
+                    <i class="ri-file-pdf-fill"></i> Descargar Guía de SKU
                   </a>
                 </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -27879,6 +28069,20 @@ window.renderCotizador = async function() {
       </div>
       
       <div style="padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; text-align: left; font-size: 0.85rem; line-height: 1.5; color: var(--color-text-main);">
+        <!-- Descargar Planilla de Tarifas -->
+        <div style="background: rgba(var(--color-primary-rgb), 0.05); border: 1px dashed var(--color-primary); padding: 1rem; border-radius: var(--radius-md); text-align: center; display: flex; flex-direction: column; gap: 0.6rem; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary); font-weight: 700;">
+            <i class="ri-file-excel-2-line" style="font-size: 1.3rem;"></i>
+            <span>Planilla de Tarifas Oficial</span>
+          </div>
+          <p style="margin: 0; color: var(--color-text-muted); font-size: 0.78rem; line-height: 1.3;">
+            Descarga el archivo Excel con los costos de envío vigentes y comunas con cobertura.
+          </p>
+          <a href="./downloads/tarifas_actuales.xlsx" download="tarifas_actuales.xlsx" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; padding: 0.4rem 1rem; width: 100%; justify-content: center; text-decoration: none;">
+            <i class="ri-download-2-line"></i> Descargar Excel
+          </a>
+        </div>
+
         <div>
           <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
             <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Criterio del Peso Volumétrico

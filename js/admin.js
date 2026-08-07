@@ -33017,9 +33017,14 @@ window.renderCotizadorAdmin = async function() {
               <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.3;">Simula tarifas bajo la cuenta de cualquier comercio activo en el WMS.</p>
             </div>
           </div>
-          <button type="button" onclick="window.resetQuoteFormAdmin()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
-            <i class="ri-refresh-line"></i> Limpiar Todo
-          </button>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" onclick="window.toggleQuoteHelpDrawerAdmin(true)" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem; color: var(--color-primary); border-color: var(--color-primary-light);">
+              <i class="ri-lightbulb-line"></i> Guía de Ayuda
+            </button>
+            <button type="button" onclick="window.resetQuoteFormAdmin()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
+              <i class="ri-refresh-line"></i> Limpiar Todo
+            </button>
+          </div>
         </div>
 
         <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
@@ -33327,12 +33332,123 @@ window.renderCotizadorAdmin = async function() {
 
       </div>
     </div>
+
+    <!-- Backdrop de Ayuda -->
+    <div id="quote-help-drawer-backdrop-admin" onclick="window.toggleQuoteHelpDrawerAdmin(false)" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(4px); z-index: 10000; opacity: 0; transition: opacity 0.25s ease;"></div>
+
+    <!-- Lateral Izquierdo: Cajón de Ayuda (Drawer) -->
+    <div id="quote-help-drawer-admin" style="position: fixed; top: 0; left: -420px; width: 400px; max-width: 85vw; height: 100%; background: var(--color-surface); box-shadow: var(--shadow-2xl); z-index: 10001; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; border-right: 1px solid var(--color-border);">
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <h3 style="margin: 0; color: var(--color-primary); font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; text-align: left;">
+          <i class="ri-lightbulb-line"></i> Guía & Ayuda
+        </h3>
+        <button type="button" onclick="window.toggleQuoteHelpDrawerAdmin(false)" style="background: none; border: none; font-size: 1.3rem; color: var(--color-text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='none'">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+      
+      <div style="padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; text-align: left; font-size: 0.85rem; line-height: 1.5; color: var(--color-text-main);">
+        <!-- Descargar Planilla de Tarifas -->
+        <div style="background: rgba(var(--color-primary-rgb), 0.05); border: 1px dashed var(--color-primary); padding: 1rem; border-radius: var(--radius-md); text-align: center; display: flex; flex-direction: column; gap: 0.6rem; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary); font-weight: 700;">
+            <i class="ri-file-excel-2-line" style="font-size: 1.3rem;"></i>
+            <span>Planilla de Tarifas Oficial</span>
+          </div>
+          <p style="margin: 0; color: var(--color-text-muted); font-size: 0.78rem; line-height: 1.3;">
+            Descarga el archivo Excel con los costos de envío vigentes y comunas con cobertura.
+          </p>
+          <a href="./downloads/tarifas_actuales.xlsx" download="tarifas_actuales.xlsx" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; padding: 0.4rem 1rem; width: 100%; justify-content: center; text-decoration: none;">
+            <i class="ri-download-2-line"></i> Descargar Excel
+          </a>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Criterio del Peso Volumétrico
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            Los couriers aplican el cobro según el valor que sea mayor entre el <strong>peso físico (real)</strong> y el <strong>peso volumétrico</strong>.
+          </p>
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border-left: 3px solid var(--color-primary); font-family: monospace; font-size: 0.8rem; margin-bottom: 0.5rem; font-weight: 700; color: var(--color-primary);">
+            Peso Volumétrico (Kg) = (Largo x Ancho x Alto en cm) / 4.000
+          </div>
+          <p style="margin: 0; color: var(--color-text-muted);">
+            O equivalente a multiplicar el <strong>Volumen total en m³ por 250</strong>. Nuestro sistema calcula esto automáticamente y aplica la tarifa correspondiente al tramo mayor.
+          </p>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-truck-line" style="color: var(--color-primary);"></i> Couriers y Pestañas
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            Nuestras tarifas corresponden a los siguientes operadores y pestañas de la planilla:
+          </p>
+          <ul style="margin: 0; padding-left: 1.25rem; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>STARKEN</strong> (Pestaña SKN-NOR)</li>
+            <li><strong>CHILEXPRESS</strong> (Pestaña CHX-ND)</li>
+            <li><strong>BLUEXPRESS</strong> (Pestaña BLX-STD)</li>
+            <li><strong>STOCKA Same Day</strong> (Pestaña STK-SD)</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-time-line" style="color: var(--color-primary);"></i> Plazos de Entrega Estimados
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            El tiempo de tránsito prometido corre a partir de la salida del pedido desde bodega:
+          </p>
+          <ul style="margin: 0; padding-left: 1.25rem; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>STOCKA</strong>: Entrega el mismo día / 24 hrs.</li>
+            <li><strong>Otros Couriers</strong>: Tiempo en tránsito prometido + 1 día administrativo.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-question-answer-line" style="color: var(--color-primary);"></i> Preguntas Frecuentes
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; font-weight: 600; color: var(--color-text-main);">
+            ¿Por qué el total es $0 con "Por Pagar"?
+          </p>
+          <p style="margin: 0 0 0.75rem 0; color: var(--color-text-muted);">
+            Porque el transportista cobrará directamente al destinatario al entregar el paquete.
+          </p>
+          <p style="margin: 0 0 0.5rem 0; font-weight: 600; color: var(--color-text-main);">
+            ¿Cómo simular múltiples cajas/paquetes?
+          </p>
+          <p style="margin: 0; color: var(--color-text-muted);">
+            Puedes sumar sus pesos físicos o cubicaje directamente en los campos del cotizador, o bien simular agregando productos del catálogo.
+          </p>
+        </div>
+      </div>
+    </div>
   `;
 
   appContent.innerHTML = html;
 
   // Inicializar listeners del formulario de cotización admin
   window.initQuoteFormListenersAdmin();
+};
+
+window.toggleQuoteHelpDrawerAdmin = function(open) {
+  const drawer = document.getElementById('quote-help-drawer-admin');
+  const backdrop = document.getElementById('quote-help-drawer-backdrop-admin');
+  if (!drawer || !backdrop) return;
+  if (open) {
+    backdrop.style.display = 'block';
+    setTimeout(() => {
+      backdrop.style.opacity = '1';
+      drawer.style.left = '0';
+    }, 10);
+  } else {
+    drawer.style.left = '-420px';
+    backdrop.style.opacity = '0';
+    setTimeout(() => {
+      backdrop.style.display = 'none';
+    }, 300);
+  }
 };
 
 window.initQuoteFormListenersAdmin = function() {
