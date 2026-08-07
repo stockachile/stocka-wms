@@ -33972,6 +33972,29 @@ window.runQuoteCalculatorAdmin = function() {
 
   if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
 
+  // Calcular peso volumétrico (Volumen m3 * 250)
+  const volumetricWeight = volume * 250;
+  const appliedWeight = Math.max(weight, volumetricWeight);
+
+  // Actualizar indicador visual de comparación
+  const compareInfoEl = document.getElementById('quote-weight-compare-info');
+  if (compareInfoEl) {
+    document.getElementById('quote-info-phys-weight').textContent = `${weight.toFixed(1)} Kg`;
+    document.getElementById('quote-info-vol-weight').textContent = `${volumetricWeight.toFixed(1)} Kg`;
+    document.getElementById('quote-info-applied-weight').textContent = `${appliedWeight.toFixed(1)} Kg`;
+    
+    const volWeightLabel = document.getElementById('quote-info-vol-weight');
+    const physWeightLabel = document.getElementById('quote-info-phys-weight');
+    
+    if (volumetricWeight > weight) {
+      if (volWeightLabel) volWeightLabel.style.color = 'var(--color-warning, #f59e0b)';
+      if (physWeightLabel) physWeightLabel.style.color = 'var(--color-text-muted)';
+    } else {
+      if (volWeightLabel) volWeightLabel.style.color = 'var(--color-text-muted)';
+      if (physWeightLabel) physWeightLabel.style.color = 'var(--color-text-main)';
+    }
+  }
+
   if (shippingType === 'punto_stocka') {
     badge.style.background = 'rgba(34, 197, 94, 0.1)';
     badge.style.color = '#22c55e';
@@ -34063,13 +34086,14 @@ window.runQuoteCalculatorAdmin = function() {
   const isRm = window.isRmCoverage(normalizedCity);
   const paymentCondition = document.querySelector('input[name="quote-shipping-payment"]:checked').value;
 
+  // Determinar tramo de peso usando el peso aplicado
   let bracket = '0-1';
-  if (weight <= 1.0) bracket = '0-1';
-  else if (weight <= 3.0) bracket = '1-3';
-  else if (weight <= 6.0) bracket = '3-6';
-  else if (weight <= 9.0) bracket = '6-9';
-  else if (weight <= 12.0) bracket = '9-12';
-  else if (weight <= 15.0) bracket = '12-15';
+  if (appliedWeight <= 1.0) bracket = '0-1';
+  else if (appliedWeight <= 3.0) bracket = '1-3';
+  else if (appliedWeight <= 6.0) bracket = '3-6';
+  else if (appliedWeight <= 9.0) bracket = '6-9';
+  else if (appliedWeight <= 12.0) bracket = '9-12';
+  else if (appliedWeight <= 15.0) bracket = '12-15';
   else bracket = '15-18';
 
   if (isRm && shippingType === 'domicilio') {
@@ -34082,7 +34106,7 @@ window.runQuoteCalculatorAdmin = function() {
     if (isColina) net = 3490;
 
     const volumeExceeded = volume > 0.125;
-    const weightExceeded = weight > 10.0;
+    const weightExceeded = appliedWeight > 10.0;
 
     if (volumeExceeded || weightExceeded) {
       net = isColina ? 6980 : 6200;
@@ -34141,8 +34165,8 @@ window.runQuoteCalculatorAdmin = function() {
     let bluexpressNet = bracketRates.bluexpress;
     let chilexpressNet = bracketRates.chilexpress;
 
-    if (weight > 18.0) {
-      const extraKg = Math.ceil(weight - 18.0);
+    if (appliedWeight > 18.0) {
+      const extraKg = Math.ceil(appliedWeight - 18.0);
       const surcharge = extraKg * 1000;
       if (starkenNet) starkenNet += surcharge;
       if (bluexpressNet) bluexpressNet += surcharge;
@@ -34151,7 +34175,8 @@ window.runQuoteCalculatorAdmin = function() {
 
     const validOptions = [];
     if (shippingType === 'sucursal') {
-      const chosenCourier = sucursalCourier.value;
+      const sucursalCourierEl = document.getElementById('quote-sucursal-courier');
+      const chosenCourier = sucursalCourierEl ? sucursalCourierEl.value : 'STARKEN';
       if (chosenCourier === 'STARKEN' && starkenNet) {
         validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Sucursal' });
       } else if (chosenCourier === 'CHILEXPRESS' && chilexpressNet) {

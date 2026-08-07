@@ -27551,9 +27551,14 @@ window.renderCotizador = async function() {
             <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.3;">Simula tarifas y plazos estimados de entrega según ubicación, peso y volumen de tus despachos.</p>
           </div>
         </div>
-        <button type="button" onclick="window.resetQuoteForm()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
-          <i class="ri-refresh-line"></i> Limpiar Todo
-        </button>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <button type="button" onclick="window.toggleQuoteHelpDrawer(true)" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem; color: var(--color-primary); border-color: var(--color-primary-light);">
+            <i class="ri-lightbulb-line"></i> Guía de Ayuda
+          </button>
+          <button type="button" onclick="window.resetQuoteForm()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
+            <i class="ri-refresh-line"></i> Limpiar Todo
+          </button>
+        </div>
       </div>
 
       <!-- Selector de Comercio (Solo si el cliente tiene más de uno) -->
@@ -27652,6 +27657,20 @@ window.renderCotizador = async function() {
                     = <span id="quote-dims-calculated-val" style="font-family: monospace; color: var(--color-primary);">0.00050</span> m³
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <!-- Comparación de peso físico vs volumétrico -->
+            <div id="quote-weight-compare-info" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.6rem 0.8rem; background: var(--color-bg); border-radius: var(--radius-sm); border: 1px dashed var(--color-border); font-size: 0.75rem; text-align: left;">
+              <div style="display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-muted); flex-wrap: wrap;">
+                <i class="ri-scales-3-line" style="font-size: 0.95rem;"></i>
+                <span>Peso Físico: <strong id="quote-info-phys-weight" style="color: var(--color-text-main); font-family: monospace;">1.0 Kg</strong></span>
+                <span style="color: var(--color-border);">|</span>
+                <i class="ri-box-3-line" style="font-size: 0.95rem;"></i>
+                <span>Peso Volumétrico: <strong id="quote-info-vol-weight" style="color: var(--color-text-main); font-family: monospace;">0.1 Kg</strong></span>
+              </div>
+              <div style="font-weight: 700; color: var(--color-primary); flex-shrink: 0;">
+                Peso Aplicado: <span id="quote-info-applied-weight" style="font-family: monospace;">1.0 Kg</span>
               </div>
             </div>
           </div>
@@ -27836,12 +27855,109 @@ window.renderCotizador = async function() {
 
       </div>
     </div>
+
+    <!-- Backdrop de Ayuda -->
+    <div id="quote-help-drawer-backdrop" onclick="window.toggleQuoteHelpDrawer(false)" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(4px); z-index: 10000; opacity: 0; transition: opacity 0.25s ease;"></div>
+
+    <!-- Lateral Izquierdo: Cajón de Ayuda (Drawer) -->
+    <div id="quote-help-drawer" style="position: fixed; top: 0; left: -420px; width: 400px; max-width: 85vw; height: 100%; background: var(--color-surface); box-shadow: var(--shadow-2xl); z-index: 10001; transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; border-right: 1px solid var(--color-border);">
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <h3 style="margin: 0; color: var(--color-primary); font-weight: 700; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; text-align: left;">
+          <i class="ri-lightbulb-line"></i> Guía & Ayuda
+        </h3>
+        <button type="button" onclick="window.toggleQuoteHelpDrawer(false)" style="background: none; border: none; font-size: 1.3rem; color: var(--color-text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='none'">
+          <i class="ri-close-line"></i>
+        </button>
+      </div>
+      
+      <div style="padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.25rem; text-align: left; font-size: 0.85rem; line-height: 1.5; color: var(--color-text-main);">
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Criterio del Peso Volumétrico
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            Los couriers aplican el cobro según el valor que sea mayor entre el <strong>peso físico (real)</strong> y el <strong>peso volumétrico</strong>.
+          </p>
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border-left: 3px solid var(--color-primary); font-family: monospace; font-size: 0.8rem; margin-bottom: 0.5rem; font-weight: 700; color: var(--color-primary);">
+            Peso Volumétrico (Kg) = (Largo x Ancho x Alto en cm) / 4.000
+          </div>
+          <p style="margin: 0; color: var(--color-text-muted);">
+            O equivalente a multiplicar el <strong>Volumen total en m³ por 250</strong>. Nuestro sistema calcula esto automáticamente y aplica la tarifa correspondiente al tramo mayor.
+          </p>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-truck-line" style="color: var(--color-primary);"></i> Couriers y Pestañas
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            Nuestras tarifas corresponden a los siguientes operadores y pestañas de la planilla:
+          </p>
+          <ul style="margin: 0; padding-left: 1.25rem; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>STARKEN</strong> (Pestaña SKN-NOR)</li>
+            <li><strong>CHILEXPRESS</strong> (Pestaña CHX-ND)</li>
+            <li><strong>BLUEXPRESS</strong> (Pestaña BLX-STD)</li>
+            <li><strong>STOCKA Same Day</strong> (Pestaña STK-SD)</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-time-line" style="color: var(--color-primary);"></i> Plazos de Entrega Estimados
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; color: var(--color-text-muted);">
+            El tiempo de tránsito prometido corre a partir de la salida del pedido desde bodega:
+          </p>
+          <ul style="margin: 0; padding-left: 1.25rem; color: var(--color-text-muted); display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><strong>STOCKA</strong>: Entrega el mismo día / 24 hrs.</li>
+            <li><strong>Otros Couriers</strong>: Tiempo en tránsito prometido + 1 día administrativo.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-question-answer-line" style="color: var(--color-primary);"></i> Preguntas Frecuentes
+          </h4>
+          <p style="margin: 0 0 0.5rem 0; font-weight: 600; color: var(--color-text-main);">
+            ¿Por qué el total es $0 con "Por Pagar"?
+          </p>
+          <p style="margin: 0 0 0.75rem 0; color: var(--color-text-muted);">
+            Porque el transportista cobrará directamente al destinatario al entregar el paquete.
+          </p>
+          <p style="margin: 0 0 0.5rem 0; font-weight: 600; color: var(--color-text-main);">
+            ¿Cómo simular múltiples cajas/paquetes?
+          </p>
+          <p style="margin: 0; color: var(--color-text-muted);">
+            Puedes sumar sus pesos físicos o cubicaje directamente en los campos del cotizador, o bien simular agregando productos del catálogo.
+          </p>
+        </div>
+      </div>
+    </div>
   `;
 
   appContent.innerHTML = html;
 
   // Inicializar listeners del formulario de cotización
   window.initQuoteFormListeners();
+};
+
+window.toggleQuoteHelpDrawer = function(open) {
+  const drawer = document.getElementById('quote-help-drawer');
+  const backdrop = document.getElementById('quote-help-drawer-backdrop');
+  if (!drawer || !backdrop) return;
+  if (open) {
+    backdrop.style.display = 'block';
+    setTimeout(() => {
+      backdrop.style.opacity = '1';
+      drawer.style.left = '0';
+    }, 10);
+  } else {
+    drawer.style.left = '-420px';
+    backdrop.style.opacity = '0';
+    setTimeout(() => {
+      backdrop.style.display = 'none';
+    }, 300);
+  }
 };
 
 window.resetQuoteForm = function() {
@@ -28280,6 +28396,29 @@ window.runQuoteCalculator = function() {
 
   if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
 
+  // Calcular peso volumétrico (Volumen m3 * 250)
+  const volumetricWeight = volume * 250;
+  const appliedWeight = Math.max(weight, volumetricWeight);
+
+  // Actualizar indicador visual de comparación
+  const compareInfoEl = document.getElementById('quote-weight-compare-info');
+  if (compareInfoEl) {
+    document.getElementById('quote-info-phys-weight').textContent = `${weight.toFixed(1)} Kg`;
+    document.getElementById('quote-info-vol-weight').textContent = `${volumetricWeight.toFixed(1)} Kg`;
+    document.getElementById('quote-info-applied-weight').textContent = `${appliedWeight.toFixed(1)} Kg`;
+    
+    const volWeightLabel = document.getElementById('quote-info-vol-weight');
+    const physWeightLabel = document.getElementById('quote-info-phys-weight');
+    
+    if (volumetricWeight > weight) {
+      if (volWeightLabel) volWeightLabel.style.color = 'var(--color-warning, #f59e0b)';
+      if (physWeightLabel) physWeightLabel.style.color = 'var(--color-text-muted)';
+    } else {
+      if (volWeightLabel) volWeightLabel.style.color = 'var(--color-text-muted)';
+      if (physWeightLabel) physWeightLabel.style.color = 'var(--color-text-main)';
+    }
+  }
+
   if (shippingType === 'punto_stocka') {
     badge.style.background = 'rgba(34, 197, 94, 0.1)';
     badge.style.color = '#22c55e';
@@ -28356,14 +28495,14 @@ window.runQuoteCalculator = function() {
 
   const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
 
-  // Determinar tramo de peso
+  // Determinar tramo de peso usando el peso aplicado
   let bracket = '0-1';
-  if (weight <= 1.0) bracket = '0-1';
-  else if (weight <= 3.0) bracket = '1-3';
-  else if (weight <= 6.0) bracket = '3-6';
-  else if (weight <= 9.0) bracket = '6-9';
-  else if (weight <= 12.0) bracket = '9-12';
-  else if (weight <= 15.0) bracket = '12-15';
+  if (appliedWeight <= 1.0) bracket = '0-1';
+  else if (appliedWeight <= 3.0) bracket = '1-3';
+  else if (appliedWeight <= 6.0) bracket = '3-6';
+  else if (appliedWeight <= 9.0) bracket = '6-9';
+  else if (appliedWeight <= 12.0) bracket = '9-12';
+  else if (appliedWeight <= 15.0) bracket = '12-15';
   else bracket = '15-18';
 
   // Si elige Sucursal
@@ -28389,8 +28528,8 @@ window.runQuoteCalculator = function() {
     const bracketRates = ratesData.rates[bracket] || {};
     let netPrice = selectedBranchCourier === 'STARKEN' ? bracketRates.starken : bracketRates.chilexpress;
 
-    if (weight > 18.0) {
-      const extraKg = Math.ceil(weight - 18.0);
+    if (appliedWeight > 18.0) {
+      const extraKg = Math.ceil(appliedWeight - 18.0);
       netPrice += extraKg * 1000;
     }
 
@@ -28404,8 +28543,8 @@ window.runQuoteCalculator = function() {
 
     let html = '';
     const couriers = [
-      { id: 'STARKEN', name: 'Starken Next Day', price: selectedBranchCourier === 'STARKEN' ? netPrice : (bracketRates.starken + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) },
-      { id: 'CHILEXPRESS', name: 'Chilexpress Aéreo', price: selectedBranchCourier === 'CHILEXPRESS' ? netPrice : (bracketRates.chilexpress + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) }
+      { id: 'STARKEN', name: 'Starken Next Day', price: selectedBranchCourier === 'STARKEN' ? netPrice : (bracketRates.starken + (appliedWeight > 18.0 ? Math.ceil(appliedWeight - 18.0) * 1000 : 0)) },
+      { id: 'CHILEXPRESS', name: 'Chilexpress Aéreo', price: selectedBranchCourier === 'CHILEXPRESS' ? netPrice : (bracketRates.chilexpress + (appliedWeight > 18.0 ? Math.ceil(appliedWeight - 18.0) * 1000 : 0)) }
     ];
 
     couriers.forEach(c => {
@@ -28465,7 +28604,7 @@ window.runQuoteCalculator = function() {
     if (isColina) net = 3490;
 
     const volumeExceeded = volume > 0.125;
-    const weightExceeded = weight > 10.0;
+    const weightExceeded = appliedWeight > 10.0;
 
     if (volumeExceeded || weightExceeded) {
       net = isColina ? 6980 : 6200;
@@ -28521,8 +28660,8 @@ window.runQuoteCalculator = function() {
     let bluexpressNet = bracketRates.bluexpress;
     let chilexpressNet = bracketRates.chilexpress;
 
-    if (weight > 18.0) {
-      const extraKg = Math.ceil(weight - 18.0);
+    if (appliedWeight > 18.0) {
+      const extraKg = Math.ceil(appliedWeight - 18.0);
       const surcharge = extraKg * 1000;
       if (starkenNet) starkenNet += surcharge;
       if (bluexpressNet) bluexpressNet += surcharge;
