@@ -8740,14 +8740,17 @@ async function renderIntegrations() {
     try {
       const { data: userAuth } = await supabase.auth.getUser();
       if (userAuth && userAuth.user) {
-        let query = supabase.from('products').select('id, name, sku, price, volumen').order('name');
+        let query = supabase.from('products').select('id, name, sku, price, volumen, weight').order('name');
         if (selectedCommerce) {
           query = query.eq('comercio', selectedCommerce);
         } else {
           query = query.eq('comercio', 'no asignado');
         }
         const { data: products } = await query;
-        const productsList = products || [];
+        const productsList = (products || []).map(p => ({
+          ...p,
+          peso: p.weight
+        }));
 
         if (productsList.length > 0) {
           const productIds = productsList.map(p => p.id);

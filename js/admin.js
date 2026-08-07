@@ -32860,7 +32860,7 @@ window.getTransitTimeText = function(courierId, ratesData) {
 
 window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
   try {
-    let query = supabase.from('products').select('id, name, sku, price, volumen, peso').order('name');
+    let query = supabase.from('products').select('id, name, sku, price, volumen, weight').order('name');
     if (selectedCommerce) {
       query = query.eq('comercio', selectedCommerce);
     } else {
@@ -32868,7 +32868,12 @@ window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
     }
     const { data: products, error } = await query;
     if (error) throw error;
-    window.tempClientProductsList = products || [];
+    
+    // Map weight column to peso for consistency with calculation helpers
+    window.tempClientProductsList = (products || []).map(p => ({
+      ...p,
+      peso: p.weight
+    }));
   } catch (err) {
     console.error("Error al cargar productos de cotizador admin:", err.message);
     window.tempClientProductsList = [];
