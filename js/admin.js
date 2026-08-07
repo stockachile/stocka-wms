@@ -34064,14 +34064,13 @@ window.runQuoteCalculatorAdmin = function() {
   const paymentCondition = document.querySelector('input[name="quote-shipping-payment"]:checked').value;
 
   let bracket = '0-1';
-  if (weight > 15.0) bracket = '15-18';
-  else if (weight > 12.0) bracket = '12-15';
-  else if (weight > 10.0) bracket = '10-12';
-  else if (weight > 8.0) bracket = '8-10';
-  else if (weight > 5.0) bracket = '5-8';
-  else if (weight > 3.0) bracket = '3-5';
-  else if (weight > 2.0) bracket = '2-3';
-  else if (weight > 1.0) bracket = '1-2';
+  if (weight <= 1.0) bracket = '0-1';
+  else if (weight <= 3.0) bracket = '1-3';
+  else if (weight <= 6.0) bracket = '3-6';
+  else if (weight <= 9.0) bracket = '6-9';
+  else if (weight <= 12.0) bracket = '9-12';
+  else if (weight <= 15.0) bracket = '12-15';
+  else bracket = '15-18';
 
   if (isRm && shippingType === 'domicilio') {
     badge.style.background = 'rgba(34, 197, 94, 0.1)';
