@@ -9243,7 +9243,8 @@ async function renderIntegrations() {
       btnSubmit.textContent = 'Procesando...';
     }
 
-    const shippingType = document.querySelector('input[name="order-shipping-type"]:checked').value;
+    const shippingTypeChecked = document.querySelector('input[name="order-shipping-type"]:checked');
+    const shippingType = shippingTypeChecked ? shippingTypeChecked.value : 'domicilio';
     if (shippingType === 'sucursal') {
       const branchCourier = document.getElementById('order-sucursal-courier').value;
       const branchDetails = document.getElementById('order-sucursal-details').value.trim();
@@ -26653,6 +26654,13 @@ window.validateWizardStep = function(step) {
 
     if (!name || !email || !phone || !address || !city) {
       alert('Por favor completa todos los campos obligatorios (*) antes de continuar.');
+      return false;
+    }
+
+    // Validar formato de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (email && !emailRegex.test(email)) {
+      alert('Por favor ingresa un correo electrónico válido (ej: cliente@correo.com).');
       return false;
     }
 
