@@ -98,6 +98,18 @@ async function sendSingleOrderToPicker(order) {
   const orderNumber = String(order.external_order_number || order.id);
   console.log(`📡 Enviando pedido ${orderNumber} al Picker (tracking: ${order.tracking_number})...`);
 
+  let commerceStrict = false;
+  if (order.comercio) {
+    const { data: commConfig } = await supabase
+      .from('comercios_adicional_config')
+      .select('picking_match_strict')
+      .eq('comercio', order.comercio)
+      .maybeSingle();
+    if (commConfig && commConfig.picking_match_strict) {
+      commerceStrict = true;
+    }
+  }
+
   // Eliminar si ya existe para evitar duplicados
   await pickerSupabase
     .from('active_orders')
@@ -117,7 +129,7 @@ async function sendSingleOrderToPicker(order) {
       order_number: orderNumber,
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
-      sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
+      sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
       name: prod.name || order.item || 'Producto WMS',
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
@@ -137,7 +149,7 @@ async function sendSingleOrderToPicker(order) {
       extra_col_v: prod.image_url || '',
       comercio: order.comercio || 'MAGIC MAKEUP',
       created_by: 'Sistema WMS',
-      picking_match_strict: prod.picking_match_strict || false
+      picking_match_strict: commerceStrict || prod.picking_match_strict || false
     });
   }
 

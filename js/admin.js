@@ -834,6 +834,9 @@ async function init() {
           } else if (view === 'documentation_admin') {
             viewTitle.textContent = 'Documentación del Servicio';
             renderDocsAdmin();
+          } else if (view === 'cotizador_admin') {
+            viewTitle.textContent = 'Cotizador de Envíos';
+            renderCotizadorAdmin();
           }
         });
       });
@@ -850,7 +853,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -32814,8 +32817,1416 @@ function showNewVersionAnnexModal(annex) {
 
 
 
+// ==========================================
+// Módulo de Cotizaciones de Despacho (Admin)
+// ==========================================
 
+window.ALPHA_COBERTURA_36 = [
+  'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
+  'huechuraba', 'independencia', 'la cisterna', 'la florida', 'la granja',
+  'la pintana', 'la reina', 'las condes', 'lo barnechea', 'lo espejo',
+  'lo prado', 'macul', 'maipu', 'nunoa', 'pedro aguirre cerda',
+  'penalolen', 'providencia', 'pudahuel', 'puente alto', 'quilicura',
+  'quinta normal', 'recoleta', 'renca', 'san bernardo', 'san joaquin',
+  'san miguel', 'san ramon', 'santiago', 'vitacura', 'padre hurtado',
+  'colina'
+];
 
+window.isRmCoverage = function(comunaName) {
+  if (!comunaName) return false;
+  const normalized = comunaName.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  return window.ALPHA_COBERTURA_36.includes(normalized);
+};
+
+window.getTransitTimeText = function(courierId, ratesData) {
+  if (!ratesData || !ratesData.transit_days) return 'No disponible';
+  const cName = courierId.toLowerCase();
+  const promisedDays = ratesData.transit_days[cName];
+  if (promisedDays === undefined || promisedDays === null) return 'No disponible';
+
+  if (cName === 'stocka') {
+    return 'Entrega el mismo día / 24 hrs';
+  }
+  
+  // Externa: sumar 1 día a lo prometido
+  const totalDays = promisedDays + 1;
+  return `${totalDays} ${totalDays === 1 ? 'día hábil' : 'días hábiles'}`;
+};
+
+window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
+  try {
+    let query = supabase.from('products').select('id, name, sku, price, volumen, peso').order('name');
+    if (selectedCommerce) {
+      query = query.eq('comercio', selectedCommerce);
+    } else {
+      query = query.eq('comercio', 'no asignado');
+    }
+    const { data: products, error } = await query;
+    if (error) throw error;
+    window.tempClientProductsList = products || [];
+  } catch (err) {
+    console.error("Error al cargar productos de cotizador admin:", err.message);
+    window.tempClientProductsList = [];
+  }
+};
+
+window.renderCotizadorAdmin = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  // Mostrar spinner inicial
+  appContent.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
+      <div style="width: 48px; height: 48px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite; margin-bottom: 1rem;"></div>
+      <h4 style="margin: 0; color: var(--color-text-main); font-weight: 700;">Cargando Comercios...</h4>
+    </div>
+  `;
+
+  // Cargar comercios para el dropdown
+  let comercios = [];
+  try {
+    const { data: rawComercios, error: comerciosError } = await supabase
+      .from('v_comercios_config')
+      .select('nombre')
+      .order('nombre', { ascending: true });
+    
+    if (comerciosError) throw comerciosError;
+    comercios = rawComercios || [];
+  } catch (err) {
+    console.error("Error al cargar comercios en cotizador admin:", err);
+    Swal.fire('Error', 'No se pudieron cargar los comercios. Por favor reintenta.', 'error');
+    return;
+  }
+
+  window.tempClientProductsList = [];
+  window.tempQuoteItems = [];
+
+  const html = `
+    <style>
+      .shipping-card-option-quote, .payment-card-option-quote {
+        position: relative;
+        overflow: hidden;
+        border: 1.5px solid var(--color-border) !important;
+        background: var(--color-surface) !important;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem !important;
+        border-radius: var(--radius-md) !important;
+        cursor: pointer;
+        user-select: none;
+      }
+      .shipping-card-option-quote:hover, .payment-card-option-quote:hover {
+        transform: translateY(-2px);
+        border-color: var(--color-primary-light, #a5b4fc) !important;
+        box-shadow: 0 6px 15px rgba(var(--color-primary-rgb, 99, 102, 241), 0.1);
+      }
+      .shipping-card-option-quote.active, .payment-card-option-quote.active {
+        border-color: var(--color-primary) !important;
+        background: rgba(var(--color-primary-rgb), 0.05) !important;
+        box-shadow: 0 0 0 1px var(--color-primary), 0 6px 18px rgba(var(--color-primary-rgb), 0.15) !important;
+      }
+      .shipping-card-option-quote.active .icon-container-quote, .payment-card-option-quote.active .icon-container-quote {
+        background: rgba(var(--color-primary-rgb), 0.15) !important;
+        color: var(--color-primary) !important;
+        transform: scale(1.1);
+      }
+      .icon-container-quote {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--color-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        color: var(--color-text-muted);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        flex-shrink: 0;
+      }
+      .courier-option-card {
+        border: 1.5px solid var(--color-border) !important;
+        background: var(--color-surface) !important;
+        border-radius: var(--radius-md) !important;
+        padding: 0.9rem 1.1rem !important;
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 0.75rem;
+      }
+      .courier-option-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--color-primary-light, #a5b4fc) !important;
+        box-shadow: 0 6px 15px rgba(var(--color-primary-rgb, 99, 102, 241), 0.08) !important;
+      }
+      .courier-option-card.selected-courier {
+        border-color: var(--color-success, #22c55e) !important;
+        background: rgba(34, 197, 94, 0.04) !important;
+        box-shadow: 0 0 0 1px var(--color-success, #22c55e), 0 6px 20px rgba(34, 197, 94, 0.15) !important;
+      }
+      .courier-logo-circle {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--color-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        color: var(--color-text-muted);
+        transition: all 0.25s ease;
+        flex-shrink: 0;
+      }
+      .courier-option-card:hover .courier-logo-circle {
+        background: rgba(var(--color-primary-rgb), 0.08);
+        color: var(--color-primary);
+      }
+      .courier-option-card.selected-courier .courier-logo-circle {
+        background: rgba(34, 197, 94, 0.15) !important;
+        color: var(--color-success, #22c55e) !important;
+        transform: scale(1.05);
+      }
+    </style>
+
+    <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1.5rem;">
+      <!-- Tarjeta de Selección de Comercio -->
+      <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1rem; text-align: left;">
+        <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 50px; height: 50px; border-radius: var(--radius-md); background: rgba(var(--color-primary-rgb), 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <i class="ri-calculator-line" style="color: var(--color-primary); font-size: 1.6rem;"></i>
+            </div>
+            <div>
+              <h3 style="margin: 0 0 0.25rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.25rem;">Cotizador de Envíos (Administrador)</h3>
+              <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.3;">Simula tarifas bajo la cuenta de cualquier comercio activo en el WMS.</p>
+            </div>
+          </div>
+          <button type="button" onclick="window.resetQuoteFormAdmin()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
+            <i class="ri-refresh-line"></i> Limpiar Todo
+          </button>
+        </div>
+
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+          <div class="form-group" style="margin: 0; width: 320px;">
+            <label class="form-label" style="font-size: 0.85rem; font-weight: 700; margin-bottom: 0.35rem;">Seleccionar Comercio Activo <span style="color: var(--color-danger);">*</span></label>
+            <select id="quote-admin-commerce-select" class="form-input" style="font-size: 0.9rem; padding: 0.45rem;">
+              <option value="" disabled selected>-- Elige un Comercio --</option>
+              ${comercios.map(c => `<option value="${c.nombre}">${c.nombre}</option>`).join('')}
+            </select>
+          </div>
+          <div id="quote-admin-catalog-status" style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; margin-top: 1.5rem;">
+            Selecciona un comercio para cargar su catálogo de productos.
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel de Actualización de Tarifas (Solo para administradores) -->
+      <div style="background: var(--color-surface); padding: 1.25rem 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.75rem; text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="const el = document.getElementById('admin-import-rates-panel'); el.style.display = el.style.display === 'none' ? 'flex' : 'none'; const icon = document.getElementById('rates-chevron-icon'); icon.className = el.style.display === 'none' ? 'ri-arrow-down-s-line' : 'ri-arrow-up-s-line';">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(34, 197, 94, 0.12); display: flex; align-items: center; justify-content: center; color: #22c55e;">
+              <i class="ri-file-excel-2-line" style="font-size: 1.2rem;"></i>
+            </div>
+            <div>
+              <h4 style="margin: 0; color: var(--color-text-main); font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 0.4rem;">
+                Actualizador de Tarifas (Importar Excel)
+              </h4>
+              <p style="margin: 0; color: var(--color-text-muted); font-size: 0.75rem;">Actualiza las tarifas de Starken, Chilexpress, Bluexpress y Stocka cargando la planilla.</p>
+            </div>
+          </div>
+          <i id="rates-chevron-icon" class="ri-arrow-down-s-line" style="font-size: 1.2rem; color: var(--color-text-muted);"></i>
+        </div>
+        
+        <div id="admin-import-rates-panel" style="display: none; flex-direction: column; gap: 1rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 0.25rem;">
+          <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 250px;">
+              <input type="file" id="rates-excel-file-input" accept=".xlsx, .xls" style="display: none;">
+              <button type="button" onclick="document.getElementById('rates-excel-file-input').click()" class="btn btn-outline" style="width: 100%; height: 42px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border: 2px dashed #22c55e; color: #22c55e; font-weight: 600; background: rgba(34, 197, 94, 0.02); cursor: pointer; transition: all 0.2s;">
+                <i class="ri-upload-cloud-2-line" style="font-size: 1.2rem;"></i> Seleccionar Planilla de Tarifas (.xlsx)
+              </button>
+            </div>
+            <button id="btn-process-upload-rates" type="button" class="btn" style="background: #22c55e; color: white; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; height: 42px; cursor: pointer;" disabled>
+              <i class="ri-play-circle-line"></i> Procesar y Guardar en Supabase
+            </button>
+          </div>
+          <div id="upload-rates-file-info" style="font-size: 0.8rem; color: var(--color-text-muted); display: none;"></div>
+          <div id="upload-rates-status" style="font-size: 0.85rem; font-weight: 600; margin-top: 0.25rem;"></div>
+        </div>
+      </div>
+
+      <!-- Grid Principal (Inicialmente bloqueado o desactivado hasta elegir comercio) -->
+      <div id="quote-admin-main-section" style="opacity: 0.5; pointer-events: none; transition: opacity 0.3s; display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; align-items: start;" class="quote-grid-responsive">
+        
+        <!-- Columna Izquierda: Datos del Despacho -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          
+          <!-- Card: Destino, Peso y Volumen -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-map-pin-line"></i> Destino y Dimensiones
+            </h4>
+
+            <div style="display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr; gap: 1rem; align-items: start;">
+              <!-- Comuna de Destino -->
+              <div class="form-group" style="margin: 0; position: relative;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Comuna de Destino <span style="color: var(--color-danger);">*</span></label>
+                <div style="position: relative; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none; z-index: 5;">
+                    <i class="ri-map-pin-2-line"></i>
+                  </span>
+                  <input type="text" id="quote-cust-city" class="form-input" placeholder="Escribe comuna..." required style="padding-left: 2.2rem; font-size: 0.85rem;" autocomplete="off">
+                  <div id="quote-cust-city-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;"></div>
+                </div>
+              </div>
+
+              <!-- Peso Estimado -->
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Peso Total <span style="color: var(--color-danger);">*</span></label>
+                <div style="position: relative; display: flex; align-items: center; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none;">
+                    <i class="ri-scales-3-line"></i>
+                  </span>
+                  <input type="number" id="quote-total-weight-input" class="form-input" min="0.1" step="0.1" style="padding-left: 2.2rem; padding-right: 2.2rem; font-size: 0.9rem; font-weight: 700; text-align: right; font-family: monospace;" value="1.0">
+                  <span style="position: absolute; right: 0.65rem; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">Kg</span>
+                </div>
+              </div>
+
+              <!-- Volumen Estimado -->
+              <div class="form-group" style="margin: 0; display: flex; flex-direction: column;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <label class="form-label" style="font-size: 0.8rem; margin: 0; font-weight: 600;">Volumen Total</label>
+                  <a href="#" id="quote-toggle-vol-mode" style="font-size: 0.72rem; color: var(--color-primary); font-weight: 700; text-decoration: none; cursor: pointer;" onclick="event.preventDefault();">📐 Por Medidas</a>
+                </div>
+                
+                <!-- Modo Directo (m³) -->
+                <div id="quote-vol-direct-container" style="position: relative; display: flex; align-items: center; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none;">
+                    <i class="ri-box-3-line"></i>
+                  </span>
+                  <input type="number" id="quote-total-volume-estimated" class="form-input" min="0.0" step="0.0001" style="padding-left: 2.2rem; padding-right: 2.2rem; font-size: 0.9rem; font-weight: 700; text-align: right; font-family: monospace;" value="0.00050">
+                  <span style="position: absolute; right: 0.65rem; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">m³</span>
+                </div>
+
+                <!-- Modo Dimensiones (cm) -->
+                <div id="quote-vol-dims-container" style="display: none; flex-direction: column; gap: 0.4rem; width: 100%;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;">
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-largo" class="form-input" placeholder="Largo" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Largo en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">L</span>
+                    </div>
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-ancho" class="form-input" placeholder="Ancho" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Ancho en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">An</span>
+                    </div>
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-alto" class="form-input" placeholder="Alto" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Alto en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">Al</span>
+                    </div>
+                  </div>
+                  <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-align: right;">
+                    = <span id="quote-dims-calculated-val" style="font-family: monospace; color: var(--color-primary);">0.00050</span> m³
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card: Selección Opcional de Productos -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-shopping-basket-2-line"></i> Simular según Productos del Catálogo (Opcional)
+            </h4>
+
+            <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; text-align: left;">
+              <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px; position: relative;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Buscar Producto</label>
+                <div style="position: relative; width: 100%;">
+                  <input type="text" id="quote-product-search" class="form-input" placeholder="🔍 Escribe SKU o nombre para buscar..." style="font-size: 0.85rem; padding: 0.45rem 0.6rem; width: 100%; box-sizing: border-box;" autocomplete="off">
+                  <input type="hidden" id="quote-product" value="">
+                  <div id="quote-product-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;"></div>
+                </div>
+              </div>
+              <div class="form-group" style="margin: 0; width: 90px;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Cantidad</label>
+                <input type="number" id="quote-qty" class="form-input" value="1" min="1" style="font-size: 0.85rem; text-align: center;">
+              </div>
+              <button type="button" onclick="window.addQuoteOrderItemAdmin()" class="btn btn-primary" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; cursor: pointer; color: white; display: flex; align-items: center; gap: 0.25rem; height: 36px; border: none; font-weight: 600;">
+                <i class="ri-add-line"></i> Añadir
+              </button>
+            </div>
+
+            <!-- Tabla de ítems agregados -->
+            <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--color-bg);">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-align: left; background: var(--color-surface-hover);">
+                    <th style="padding: 0.5rem 0.75rem;">SKU</th>
+                    <th style="padding: 0.5rem 0.75rem;">Nombre Producto</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 80px;">Cant</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 100px;">Precio Unit</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Total</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 50px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="quote-order-items-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+                      Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card: Modalidad de Envío -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-truck-line"></i> Modalidad de Envío y Pago
+            </h4>
+
+            <!-- Tipo de Entrega -->
+            <div class="form-group" style="margin: 0; text-align: left;">
+              <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Tipo de Entrega</label>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                <label class="shipping-card-option-quote active" id="lbl-quote-type-domicilio">
+                  <input type="radio" name="quote-shipping-type" value="domicilio" checked style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-home-4-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">A Domicilio</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-sucursal">
+                  <input type="radio" name="quote-shipping-type" value="sucursal" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-store-2-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">En Sucursal</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-punto">
+                  <input type="radio" name="quote-shipping-type" value="punto_stocka" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-map-pin-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Punto STOCKA</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-propio">
+                  <input type="radio" name="quote-shipping-type" value="transporte_propio" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-truck-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Propio</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Panel Sucursal (Condicional) -->
+            <div id="quote-sucursal-panel" style="display: none; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); flex-direction: column; gap: 0.75rem; text-align: left;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; font-weight: 600;">Courier de Sucursal <span style="color: var(--color-danger);">*</span></label>
+                <select id="quote-sucursal-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem;">
+                  <option value="STARKEN" selected>Starken</option>
+                  <option value="CHILEXPRESS">Chilexpress</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Condición de Pago -->
+            <div class="form-group" id="quote-payment-condition-group" style="margin: 0; display: none; text-align: left;">
+              <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Condición de Envío</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.25rem;">
+                <label class="payment-card-option-quote active" id="lbl-quote-payment-pagado">
+                  <input type="radio" name="quote-shipping-payment" value="pagado" checked style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-wallet-3-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Envío Pagado</span>
+                  </div>
+                </label>
+
+                <label class="payment-card-option-quote" id="lbl-quote-payment-porpagar">
+                  <input type="radio" name="quote-shipping-payment" value="por_pagar" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-hand-coin-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Por Pagar</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Resultados de Cotización -->
+        <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem; min-height: 420px; text-align: left;">
+          <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-calculator-line"></i> Opciones de Despacho
+          </h4>
+
+          <!-- Badge de Cobertura -->
+          <div id="quote-coverage-badge" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; background: rgba(239, 68, 68, 0.1); color: #ef4444;">
+            <i class="ri-error-warning-line"></i> Selecciona Comuna para Cotizar
+          </div>
+
+          <!-- Opciones calculadas -->
+          <div id="quote-courier-options-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
+            <div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; padding: 1rem 0; text-align: center;">
+              Ingresa comuna y peso de envío...
+            </div>
+          </div>
+
+          <!-- Panel Desglose -->
+          <div style="margin-top: auto; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+              <span>Neto Despacho:</span>
+              <span id="quote-quote-net" style="font-weight: 600;">$0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+              <span>IVA (19%):</span>
+              <span id="quote-quote-tax" style="font-weight: 600;">$0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700; border-top: 1px solid var(--color-border); padding-top: 0.5rem; margin-top: 0.25rem;">
+              <span>Total a Pagar:</span>
+              <span id="quote-quote-total" style="color: var(--color-primary); font-size: 1.1rem;">$0</span>
+            </div>
+          </div>
+
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; line-height: 1.3;">
+            * Nota: Si se selecciona "Envío por Pagar", el total en sistema figurará como $0, ya que el cobro final se efectúa en destino directamente por el transportista.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  appContent.innerHTML = html;
+
+  // Inicializar listeners del formulario de cotización admin
+  window.initQuoteFormListenersAdmin();
+};
+
+window.initQuoteFormListenersAdmin = function() {
+  const commSelect = document.getElementById('quote-admin-commerce-select');
+  const mainSec = document.getElementById('quote-admin-main-section');
+  const catStatus = document.getElementById('quote-admin-catalog-status');
+
+  const cityInput = document.getElementById('quote-cust-city');
+  const dropdown = document.getElementById('quote-cust-city-dropdown');
+  const weightInput = document.getElementById('quote-total-weight-input');
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  const sucursalCourier = document.getElementById('quote-sucursal-courier');
+
+  if (!cityInput || !dropdown) return;
+
+  // Toggle de modo de volumen (Directo vs Dimensiones)
+  const toggleVolLink = document.getElementById('quote-toggle-vol-mode');
+  const volDirectContainer = document.getElementById('quote-vol-direct-container');
+  const volDimsContainer = document.getElementById('quote-vol-dims-container');
+  const dimLargo = document.getElementById('quote-dim-largo');
+  const dimAncho = document.getElementById('quote-dim-ancho');
+  const dimAlto = document.getElementById('quote-dim-alto');
+  const dimsCalcVal = document.getElementById('quote-dims-calculated-val');
+
+  if (toggleVolLink && volDirectContainer && volDimsContainer && dimLargo && dimAncho && dimAlto && dimsCalcVal) {
+    toggleVolLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isDirect = volDimsContainer.style.display === 'none';
+      if (isDirect) {
+        // Cambiar a Medidas (cm)
+        volDirectContainer.style.display = 'none';
+        volDimsContainer.style.display = 'flex';
+        toggleVolLink.innerHTML = '✏️ Directo (m³)';
+        
+        // Inicializar dimensiones con volumen actual
+        const currentVol = parseFloat(volInput.value) || 0.0005;
+        const side = Math.round(Math.pow(currentVol * 1000000, 1/3));
+        dimLargo.value = side;
+        dimAncho.value = side;
+        dimAlto.value = side;
+        dimsCalcVal.textContent = currentVol.toFixed(5);
+      } else {
+        // Cambiar a Directo (m³)
+        volDirectContainer.style.display = 'flex';
+        volDimsContainer.style.display = 'none';
+        toggleVolLink.innerHTML = '📐 Por Medidas';
+      }
+    });
+
+    const updateDimsVolume = () => {
+      const l = parseFloat(dimLargo.value) || 0;
+      const w = parseFloat(dimAncho.value) || 0;
+      const h = parseFloat(dimAlto.value) || 0;
+      const calculatedVol = (l * w * h) / 1000000;
+      volInput.value = calculatedVol.toFixed(5);
+      dimsCalcVal.textContent = calculatedVol.toFixed(5);
+      window.runQuoteCalculatorAdmin();
+    };
+
+    dimLargo.addEventListener('input', updateDimsVolume);
+    dimAncho.addEventListener('input', updateDimsVolume);
+    dimAlto.addEventListener('input', updateDimsVolume);
+  }
+
+  // Listener para cambio de comercio activo
+  if (commSelect) {
+    commSelect.addEventListener('change', async function() {
+      const selectedCommerce = this.value;
+      if (!selectedCommerce) return;
+
+      if (catStatus) {
+        catStatus.innerHTML = '<span style="color: var(--color-primary);"><i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite; display: inline-block;"></i> Cargando catálogo de productos...</span>';
+      }
+
+      await window.loadNewOrderProductsAdmin(selectedCommerce);
+
+      if (catStatus) {
+        catStatus.innerHTML = `<span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-line"></i> Catálogo cargado: ${window.tempClientProductsList.length} productos</span>`;
+      }
+
+      if (mainSec) {
+        mainSec.style.opacity = '1';
+        mainSec.style.pointerEvents = 'auto';
+      }
+
+      window.tempQuoteItems = [];
+      window.renderQuoteItemsTableAdmin();
+    });
+  }
+
+  // Autocomplete de Comunas
+  let comunas = [];
+  if (window.shippingRates) {
+    comunas = Object.values(window.shippingRates)
+      .map(r => r.comuna)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  const renderComunaOptions = (filterText) => {
+    const term = (filterText || '').toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .trim();
+
+    const filtered = comunas.filter(comuna => {
+      const normalizedComuna = comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n');
+      return normalizedComuna.includes(term);
+    });
+
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 0.5rem 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No se encontraron comunas</div>';
+      return;
+    }
+
+    let htmlOptions = '';
+    filtered.forEach(comuna => {
+      htmlOptions += `
+        <div class="comuna-quote-option" data-comuna="${comuna}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+          ${comuna}
+        </div>
+      `;
+    });
+    dropdown.innerHTML = htmlOptions;
+
+    const options = dropdown.querySelectorAll('.comuna-quote-option');
+    options.forEach(opt => {
+      opt.onclick = function() {
+        cityInput.value = this.getAttribute('data-comuna');
+        dropdown.style.display = 'none';
+        window.runQuoteCalculatorAdmin();
+      };
+    });
+  };
+
+  cityInput.addEventListener('focus', () => {
+    renderComunaOptions(cityInput.value);
+    dropdown.style.display = 'block';
+  });
+
+  cityInput.addEventListener('input', () => {
+    renderComunaOptions(cityInput.value);
+    dropdown.style.display = 'block';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (e.target !== cityInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  // Autocomplete de Productos
+  const prodSearch = document.getElementById('quote-product-search');
+  const prodDropdown = document.getElementById('quote-product-dropdown-list');
+
+  if (prodSearch && prodDropdown) {
+    const renderProductOptions = (filterText) => {
+      const term = (filterText || '').toLowerCase().trim();
+      const products = window.tempClientProductsList || [];
+      const filtered = products.filter(p => {
+        const sku = (p.sku || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        return sku.includes(term) || name.includes(term);
+      });
+
+      if (filtered.length === 0) {
+        prodDropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron productos</div>';
+        return;
+      }
+
+      let htmlProds = '';
+      filtered.forEach(p => {
+        const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+        htmlProds += `
+          <div class="quote-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+            <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+            <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+          </div>
+        `;
+      });
+      prodDropdown.innerHTML = htmlProds;
+
+      const opts = prodDropdown.querySelectorAll('.quote-product-option');
+      opts.forEach(opt => {
+        opt.onclick = function() {
+          document.getElementById('quote-product').value = this.getAttribute('data-id');
+          prodSearch.value = this.getAttribute('data-display');
+          prodDropdown.style.display = 'none';
+        };
+      });
+    };
+
+    prodSearch.addEventListener('focus', () => {
+      renderProductOptions(prodSearch.value);
+      prodDropdown.style.display = 'block';
+    });
+
+    prodSearch.addEventListener('input', () => {
+      renderProductOptions(prodSearch.value);
+      prodDropdown.style.display = 'block';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (e.target !== prodSearch && e.target !== prodDropdown && !prodDropdown.contains(e.target)) {
+        prodDropdown.style.display = 'none';
+      }
+    });
+  }
+
+  // Toggles de Tipo de Entrega
+  const shippingRadios = document.querySelectorAll('input[name="quote-shipping-type"]');
+  shippingRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const type = e.target.value;
+      
+      document.querySelectorAll('.shipping-card-option-quote').forEach(lbl => {
+        lbl.classList.remove('active');
+        lbl.style.borderColor = 'var(--color-border)';
+      });
+      
+      const activeLabel = document.getElementById(`lbl-quote-type-${type === 'punto_stocka' ? 'punto' : type === 'transporte_propio' ? 'propio' : type}`);
+      if (activeLabel) {
+        activeLabel.classList.add('active');
+        activeLabel.style.borderColor = 'var(--color-primary)';
+      }
+
+      const sucursalPanel = document.getElementById('quote-sucursal-panel');
+      const paymentGroup = document.getElementById('quote-payment-condition-group');
+
+      if (type === 'sucursal') {
+        if (sucursalPanel) sucursalPanel.style.display = 'flex';
+        if (paymentGroup) paymentGroup.style.display = 'block';
+      } else if (type === 'domicilio') {
+        if (sucursalPanel) sucursalPanel.style.display = 'none';
+        if (paymentGroup) paymentGroup.style.display = 'block';
+      } else {
+        if (sucursalPanel) sucursalPanel.style.display = 'none';
+        if (paymentGroup) paymentGroup.style.display = 'none';
+      }
+
+      window.runQuoteCalculatorAdmin();
+    });
+  });
+
+  // Toggles de Condición de Pago
+  const paymentRadios = document.querySelectorAll('input[name="quote-shipping-payment"]');
+  paymentRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const payment = e.target.value;
+
+      document.querySelectorAll('.payment-card-option-quote').forEach(lbl => {
+        lbl.classList.remove('active');
+        lbl.style.borderColor = 'var(--color-border)';
+      });
+
+      const activeLabel = document.getElementById(`lbl-quote-payment-${payment === 'por_pagar' ? 'porpagar' : 'pagado'}`);
+      if (activeLabel) {
+        activeLabel.classList.add('active');
+        activeLabel.style.borderColor = 'var(--color-primary)';
+      }
+
+      window.runQuoteCalculatorAdmin();
+    });
+  });
+
+  // Inputs numéricos
+  weightInput.addEventListener('change', () => window.runQuoteCalculatorAdmin());
+  weightInput.addEventListener('keyup', () => window.runQuoteCalculatorAdmin());
+  volInput.addEventListener('change', () => window.runQuoteCalculatorAdmin());
+  volInput.addEventListener('keyup', () => window.runQuoteCalculatorAdmin());
+  sucursalCourier.addEventListener('change', () => window.runQuoteCalculatorAdmin());
+
+  // Listeners de carga de Excel de tarifas
+  const fileInput = document.getElementById('rates-excel-file-input');
+  const fileInfo = document.getElementById('upload-rates-file-info');
+  const btnProcess = document.getElementById('btn-process-upload-rates');
+
+  if (fileInput && fileInfo && btnProcess) {
+    let selectedFile = null;
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        selectedFile = file;
+        fileInfo.textContent = `Archivo seleccionado: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        fileInfo.style.display = 'block';
+        btnProcess.disabled = false;
+      }
+    });
+
+    btnProcess.addEventListener('click', () => {
+      if (selectedFile) {
+        window.processRatesExcelAdmin(selectedFile);
+      }
+    });
+  }
+};
+
+window.processRatesExcelAdmin = function(file) {
+  const statusEl = document.getElementById('upload-rates-status');
+  const btnProcess = document.getElementById('btn-process-upload-rates');
+  if (!statusEl) return;
+
+  statusEl.innerHTML = '<span style="color: var(--color-primary);"><i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite; display: inline-block;"></i> Procesando archivo Excel...</span>';
+  
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      if (!window.XLSX) {
+        throw new Error('La biblioteca SheetJS (XLSX) no está cargada en la página.');
+      }
+      const workbook = window.XLSX.read(data, { type: 'array' });
+      
+      const BRACKETS = ['0-1', '1-3', '3-6', '6-9', '9-12', '12-15', '15-18'];
+      const COURIER_SHEETS = {
+        starken: 'SKN-NOR',
+        chilexpress: 'CHX-ND',
+        bluexpress: 'BLX-STD',
+        stocka: 'STK-SD'
+      };
+
+      const BRACKET_HEADERS = {
+        '0-1': 'Hasta 1 Kilos',
+        '1-3': 'Hasta 3 Kilos',
+        '3-6': 'Hasta 6 Kilos',
+        '6-9': 'Hasta 9 Kilos',
+        '9-12': 'Hasta 12 Kilos',
+        '12-15': 'Hasta 15 Kilos',
+        '15-18': 'Hasta 18 Kilos'
+      };
+
+      const normalizeKey = (name) => {
+        if (!name) return '';
+        return name.toString()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase()
+          .replace(/ñ/g, 'n')
+          .replace(/[^a-z\s]/g, '')
+          .trim()
+          .replace(/\s+/g, ' ');
+      };
+
+      const parseIntSafe = (val) => {
+        if (val === undefined || val === null || val === '') return null;
+        if (typeof val === 'number') return Math.round(val);
+        const cleaned = val.toString().replace(/[^\d]/g, '');
+        return cleaned ? parseInt(cleaned, 10) : null;
+      };
+
+      const ratesDb = {};
+
+      for (const [courierId, sheetName] of Object.entries(COURIER_SHEETS)) {
+        if (!workbook.SheetNames.includes(sheetName)) {
+          console.warn(`Pestaña ${sheetName} no encontrada.`);
+          continue;
+        }
+
+        const ws = workbook.Sheets[sheetName];
+        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
+        if (rows.length === 0) continue;
+
+        let headerRowIdx = 0;
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i] && rows[i].some(cell => cell && cell.toString().toLowerCase().includes('comuna'))) {
+            headerRowIdx = i;
+            break;
+          }
+        }
+
+        const headers = rows[headerRowIdx].map(h => h ? h.toString().trim() : '');
+        const comunaIdx = headers.findIndex(h => h.toLowerCase() === 'comuna');
+        const regionIdx = headers.findIndex(h => h.toLowerCase().includes('region') || h.toLowerCase().includes('región'));
+        const localidadIdx = headers.findIndex(h => h.toLowerCase() === 'localidad');
+
+        if (comunaIdx === -1) {
+          throw new Error(`No se encontró columna 'Comuna' en pestaña ${sheetName}`);
+        }
+
+        const bracketIndices = {};
+        Object.entries(BRACKET_HEADERS).forEach(([bracket, headerName]) => {
+          const idx = headers.findIndex(h => h.toLowerCase() === headerName.toLowerCase());
+          if (idx !== -1) {
+            bracketIndices[bracket] = idx;
+          }
+        });
+
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.length <= comunaIdx) continue;
+
+          const comunaRaw = row[comunaIdx];
+          if (!comunaRaw) continue;
+
+          const key = normalizeKey(comunaRaw);
+          if (!key) continue;
+
+          const region = regionIdx !== -1 && regionIdx < row.length ? row[regionIdx] : '';
+          const transitDays = localidadIdx !== -1 && localidadIdx < row.length ? parseIntSafe(row[localidadIdx]) : null;
+
+          if (!ratesDb[key]) {
+            ratesDb[key] = {
+              region: region ? region.toString().trim() : '',
+              comuna: comunaRaw.toString().trim(),
+              transit_days: { starken: null, chilexpress: null, bluexpress: null, stocka: null },
+              rates: {}
+            };
+            BRACKETS.forEach(b => {
+              ratesDb[key].rates[b] = { starken: null, chilexpress: null, bluexpress: null, stocka: null };
+            });
+          }
+
+          if (transitDays !== null) {
+            ratesDb[key].transit_days[courierId] = transitDays;
+          }
+
+          Object.entries(bracketIndices).forEach(([bracket, idx]) => {
+            if (idx < row.length) {
+              const price = parseIntSafe(row[idx]);
+              if (price !== null) {
+                ratesDb[key].rates[bracket][courierId] = price;
+              }
+            }
+          });
+        }
+      }
+
+      const totalComunas = Object.keys(ratesDb).length;
+      if (totalComunas === 0) {
+        throw new Error('No se procesó ninguna comuna. Verifica las pestañas y columnas del archivo.');
+      }
+
+      statusEl.innerHTML = `<span style="color: var(--color-primary);"><i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite; display: inline-block;"></i> Guardando ${totalComunas} comunas en Supabase...</span>`;
+
+      const { error: upsertError } = await supabase
+        .from('shipping_rates')
+        .upsert({
+          id: 'current',
+          rates: ratesDb,
+          updated_at: new Date().toISOString()
+        });
+
+      if (upsertError) throw upsertError;
+
+      window.shippingRates = ratesDb;
+      statusEl.innerHTML = `<span style="color: var(--color-success); font-weight: 700;"><i class="ri-checkbox-circle-line"></i> ¡Tarifas actualizadas! ${totalComunas} comunas cargadas.</span>`;
+      
+      Swal.fire({
+        title: '¡Éxito!',
+        text: `Las tarifas de ${totalComunas} comunas se han actualizado correctamente en Supabase y ya están activas para todos los usuarios.`,
+        icon: 'success',
+        confirmButtonText: 'Excelente'
+      });
+
+      // Limpiar archivo seleccionado
+      document.getElementById('rates-excel-file-input').value = '';
+      const fileInfo = document.getElementById('upload-rates-file-info');
+      if (fileInfo) fileInfo.style.display = 'none';
+      if (btnProcess) btnProcess.disabled = true;
+
+    } catch (err) {
+      console.error(err);
+      statusEl.innerHTML = `<span style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Error: ${err.message || err}</span>`;
+      Swal.fire('Error', `No se pudo procesar la planilla: ${err.message || err}`, 'error');
+    }
+  };
+
+  reader.onerror = function() {
+    statusEl.innerHTML = '<span style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Error al leer el archivo.</span>';
+  };
+
+  reader.readAsArrayBuffer(file);
+};
+
+window.resetQuoteFormAdmin = function() {
+  window.tempQuoteItems = [];
+  const commSelect = document.getElementById('quote-admin-commerce-select');
+  const cityInput = document.getElementById('quote-cust-city');
+  const weightInput = document.getElementById('quote-total-weight-input');
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  const mainSec = document.getElementById('quote-admin-main-section');
+  const catStatus = document.getElementById('quote-admin-catalog-status');
+  
+  if (commSelect) commSelect.value = '';
+  if (cityInput) cityInput.value = '';
+  if (weightInput) weightInput.value = '1.0';
+  if (volInput) volInput.value = '0.00050';
+  
+  if (catStatus) {
+    catStatus.innerHTML = 'Selecciona un comercio para cargar su catálogo de productos.';
+  }
+  if (mainSec) {
+    mainSec.style.opacity = '0.5';
+    mainSec.style.pointerEvents = 'none';
+  }
+
+  const rDomicilio = document.querySelector('input[name="quote-shipping-type"][value="domicilio"]');
+  if (rDomicilio) {
+    rDomicilio.checked = true;
+    rDomicilio.dispatchEvent(new Event('change'));
+  }
+  
+  window.renderQuoteItemsTableAdmin();
+  window.runQuoteCalculatorAdmin();
+};
+
+window.renderQuoteItemsTableAdmin = function() {
+  const tbody = document.getElementById('quote-order-items-tbody');
+  if (!tbody) return;
+
+  if (window.tempQuoteItems.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+          Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let htmlItems = '';
+  let totalVol = 0;
+  let totalWeight = 0;
+
+  window.tempQuoteItems.forEach((item, idx) => {
+    const subtotal = item.quantity * item.price;
+    totalVol += item.quantity * (item.volumen || 0.0001);
+    totalWeight += item.quantity * (item.peso || 0.5);
+
+    htmlItems += `
+      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface); text-align: left;">
+        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center;">
+          <button type="button" onclick="window.removeQuoteOrderItemAdmin(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = htmlItems;
+
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  if (volInput) {
+    volInput.value = totalVol.toFixed(5);
+    const dimsCalcVal = document.getElementById('quote-dims-calculated-val');
+    if (dimsCalcVal) dimsCalcVal.textContent = totalVol.toFixed(5);
+    const dimLargo = document.getElementById('quote-dim-largo');
+    const dimAncho = document.getElementById('quote-dim-ancho');
+    const dimAlto = document.getElementById('quote-dim-alto');
+    if (dimLargo && dimAncho && dimAlto) {
+      const side = Math.round(Math.pow(totalVol * 1000000, 1/3));
+      dimLargo.value = side;
+      dimAncho.value = side;
+      dimAlto.value = side;
+    }
+  }
+
+  const weightInput = document.getElementById('quote-total-weight-input');
+  if (weightInput) weightInput.value = totalWeight.toFixed(1);
+
+  window.runQuoteCalculatorAdmin();
+};
+
+window.addQuoteOrderItemAdmin = function() {
+  const selectProd = document.getElementById('quote-product');
+  const qtyInput = document.getElementById('quote-qty');
+  if (!selectProd || !qtyInput) return;
+
+  const prodId = selectProd.value;
+  const qty = parseInt(qtyInput.value, 10);
+
+  if (!prodId) {
+    alert('Por favor selecciona un producto buscando y eligiéndolo de la lista.');
+    return;
+  }
+  if (isNaN(qty) || qty < 1) {
+    alert('Cantidad inválida.');
+    return;
+  }
+
+  const product = (window.tempClientProductsList || []).find(p => p.id === prodId);
+  if (!product) return;
+
+  const existing = window.tempQuoteItems.find(item => item.product_id === prodId);
+  if (existing) {
+    existing.quantity += qty;
+  } else {
+    window.tempQuoteItems.push({
+      product_id: prodId,
+      sku: product.sku,
+      name: product.name,
+      quantity: qty,
+      price: product.price || 0,
+      volumen: product.volumen || 0.0001,
+      peso: product.peso || 0.5
+    });
+  }
+
+  selectProd.value = '';
+  document.getElementById('quote-product-search').value = '';
+  qtyInput.value = '1';
+
+  window.renderQuoteItemsTableAdmin();
+};
+
+window.removeQuoteOrderItemAdmin = function(idx) {
+  window.tempQuoteItems.splice(idx, 1);
+  window.renderQuoteItemsTableAdmin();
+};
+
+window.runQuoteCalculatorAdmin = function() {
+  const cityInput = document.getElementById('quote-cust-city');
+  if (!cityInput) return;
+
+  const city = cityInput.value.trim();
+  const weight = parseFloat(document.getElementById('quote-total-weight-input').value) || 1.0;
+  const volume = parseFloat(document.getElementById('quote-total-volume-estimated').value) || 0.0;
+  const shippingType = document.querySelector('input[name="quote-shipping-type"]:checked').value;
+
+  const badge = document.getElementById('quote-coverage-badge');
+  const optionsList = document.getElementById('quote-courier-options-list');
+  const netEl = document.getElementById('quote-quote-net');
+  const taxEl = document.getElementById('quote-quote-tax');
+  const totalEl = document.getElementById('quote-quote-total');
+
+  if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
+
+  if (shippingType === 'punto_stocka') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Retiro en local sin costo de envío (Campo de Deportes 405, Ñuñoa)';
+
+    optionsList.innerHTML = `
+      <label class="courier-option-card selected-courier" style="cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="background: rgba(34, 197, 94, 0.15); color: var(--color-success, #22c55e); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-map-pin-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; text-align: left;">
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="STOCKA" checked data-net="0" data-tax="0" style="cursor: pointer; margin-right: 0.25rem;">
+              Retiro en Punto STOCKA (Campo de Deportes 405, Ñuñoa)
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: Disponible para retiro en 24 hrs hábiles
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: 700; color: var(--color-success); font-size: 0.95rem;">Gratis</span>
+      </label>
+    `;
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (shippingType === 'transporte_propio') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Despacho gestionado por transporte propio del comercio';
+
+    optionsList.innerHTML = `
+      <label class="courier-option-card selected-courier" style="cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="background: rgba(34, 197, 94, 0.15); color: var(--color-success, #22c55e); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-truck-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; text-align: left;">
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="PROPIO" checked data-net="0" data-tax="0" style="cursor: pointer; margin-right: 0.25rem;">
+              Transporte Propio (Costo Externo)
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: Según coordinado por el comercio
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: 700; color: var(--color-success); font-size: 0.95rem;">Externo</span>
+      </label>
+    `;
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (!city) {
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; padding: 1rem 0; text-align: center;">Ingresa comuna para ver tarifas...</div>';
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  const normalizedCity = city.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+
+  let ratesData = null;
+  if (window.shippingRates) {
+    ratesData = Object.values(window.shippingRates).find(r => {
+      const normRateComuna = r.comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .replace(/[^a-z\s]/g, '')
+        .trim();
+      return normRateComuna === normalizedCity;
+    });
+  }
+
+  const isRm = window.isRmCoverage(normalizedCity);
+  const paymentCondition = document.querySelector('input[name="quote-shipping-payment"]:checked').value;
+
+  let bracket = '0-1';
+  if (weight > 15.0) bracket = '15-18';
+  else if (weight > 12.0) bracket = '12-15';
+  else if (weight > 10.0) bracket = '10-12';
+  else if (weight > 8.0) bracket = '8-10';
+  else if (weight > 5.0) bracket = '5-8';
+  else if (weight > 3.0) bracket = '3-5';
+  else if (weight > 2.0) bracket = '2-3';
+  else if (weight > 1.0) bracket = '1-2';
+
+  if (isRm && shippingType === 'domicilio') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Cobertura STOCKA Express Disponible (Entrega en el mismo día)';
+
+    let net = 3200;
+    const isColina = normalizedCity === 'colina';
+    if (isColina) net = 3490;
+
+    const volumeExceeded = volume > 0.125;
+    const weightExceeded = weight > 10.0;
+
+    if (volumeExceeded || weightExceeded) {
+      net = isColina ? 6980 : 6200;
+    }
+
+    const isPorPagar = paymentCondition === 'por_pagar';
+    const finalNet = isPorPagar ? 0 : net;
+    const tax = finalNet * 0.19;
+    const total = finalNet + tax;
+
+    optionsList.innerHTML = `
+      <label class="courier-option-card selected-courier" style="cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="background: rgba(var(--color-primary-rgb), 0.12); color: var(--color-primary);">
+            <i class="ri-flashlight-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+            <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="STOCKA" checked data-net="${net}" data-tax="${net * 0.19}" style="cursor: pointer; margin-right: 0.25rem;">
+              STOCKA Same Day (Flex) <span style="font-size: 0.65rem; background: var(--color-primary); color: white; padding: 2px 6px; border-radius: 12px; font-weight: 700; margin-left: 0.25rem;">Recomendado</span>
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: Entrega el mismo día / 24 hrs
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: 700; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(net * 1.19)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+
+    netEl.textContent = window.formatCLP(finalNet);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+
+  } else {
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = shippingType === 'sucursal' 
+      ? '<i class="ri-store-2-line"></i> Retiro en Sucursal Autorizada'
+      : '<i class="ri-road-map-line"></i> Envío a Regiones / Zona Rural';
+
+    if (!ratesData) {
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; text-align: center; padding: 1rem 0;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+        </div>
+      `;
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    let starkenNet = bracketRates.starken;
+    let bluexpressNet = bracketRates.bluexpress;
+    let chilexpressNet = bracketRates.chilexpress;
+
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      const surcharge = extraKg * 1000;
+      if (starkenNet) starkenNet += surcharge;
+      if (bluexpressNet) bluexpressNet += surcharge;
+      if (chilexpressNet) chilexpressNet += surcharge;
+    }
+
+    const validOptions = [];
+    if (shippingType === 'sucursal') {
+      const chosenCourier = sucursalCourier.value;
+      if (chosenCourier === 'STARKEN' && starkenNet) {
+        validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Sucursal' });
+      } else if (chosenCourier === 'CHILEXPRESS' && chilexpressNet) {
+        validOptions.push({ courier: 'CHILEXPRESS', net: chilexpressNet, label: 'Chilexpress Sucursal' });
+      }
+    } else {
+      if (starkenNet) validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Next Day' });
+      if (bluexpressNet) validOptions.push({ courier: 'BLUEXPRESS', net: bluexpressNet, label: 'Bluexpress Standard' });
+      if (chilexpressNet) validOptions.push({ courier: 'CHILEXPRESS', net: chilexpressNet, label: 'Chilexpress Aéreo' });
+    }
+
+    if (validOptions.length === 0) {
+      optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600; text-align: center; padding: 1rem 0;">No hay tarifas configuradas para esta opción/comuna.</div>';
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    validOptions.sort((a, b) => a.net - b.net);
+
+    let listHtml = '';
+    validOptions.forEach((opt, idx) => {
+      const isSelected = idx === 0;
+      const recommendedText = isSelected ? ' <span style="font-size: 0.65rem; background: #22c55e; color: white; padding: 2px 6px; border-radius: 12px; font-weight: 700; margin-left: 0.25rem;">Recomendado</span>' : '';
+      const checked = isSelected ? 'checked' : '';
+      const optTotal = opt.net * 1.19;
+
+      let courierIcon = 'ri-truck-line';
+      if (opt.courier === 'STARKEN') courierIcon = 'ri-send-plane-2-line';
+      else if (opt.courier === 'CHILEXPRESS') courierIcon = 'ri-plane-line';
+
+      listHtml = `
+        <label class="courier-option-card ${isSelected ? 'selected-courier' : ''}">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="courier-logo-circle" style="background: ${isSelected ? 'rgba(var(--color-primary-rgb), 0.12)' : 'var(--color-bg)'}; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'};">
+              <i class="${courierIcon}"></i>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+                <input type="radio" name="quote-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}">
+                ${opt.label} ${recommendedText}
+              </span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(opt.courier, ratesData)}
+              </span>
+            </div>
+          </div>
+          <span style="font-weight: 700; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-main)'}; font-size: 0.95rem;">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+        </label>
+      ` + listHtml;
+    });
+
+    optionsList.innerHTML = listHtml;
+
+    const radios = optionsList.querySelectorAll('input[name="quote-courier-option"]');
+    const updatePrices = () => {
+      const selectedRadio = optionsList.querySelector('input[name="quote-courier-option"]:checked');
+      if (!selectedRadio) return;
+
+      const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
+      const isPorPagar = paymentCondition === 'por_pagar';
+
+      const finalNet = isPorPagar ? 0 : netPrice;
+      const tax = finalNet * 0.19;
+      const total = finalNet + tax;
+
+      netEl.textContent = window.formatCLP(finalNet);
+      taxEl.textContent = window.formatCLP(tax);
+      totalEl.textContent = window.formatCLP(total);
+    };
+
+    radios.forEach(r => {
+      r.onchange = updatePrices;
+    });
+
+    updatePrices();
+  }
+};
 
 
 

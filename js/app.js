@@ -651,6 +651,9 @@ async function init() {
           } else if (view === 'volumen_diario') {
             viewTitle.textContent = 'Historial de Volumen Diario';
             renderVolumenDiario();
+          } else if (view === 'cotizador') {
+            viewTitle.textContent = 'Cotizador de Envíos';
+            renderCotizador();
           } else if (view === 'profile') {
             viewTitle.textContent = 'Mi Perfil';
             renderProfile();
@@ -871,6 +874,133 @@ async function initNotifications(userId) {
   setInterval(fetchNotifications, 120000);
 }
 
+// ==========================================
+// Funciones de Soporte para el Checklist de Onboarding
+// ==========================================
+window.toggleOnboardingStepExpand = function(stepName) {
+  const details = document.getElementById(`details-${stepName}`);
+  const arrow = document.getElementById(`arrow-${stepName}`);
+  const row = document.getElementById(`step-row-${stepName}`);
+  
+  if (details && arrow && row) {
+    const isCurrentlyOpen = details.style.display === 'block';
+    
+    // Cerrar todas las demás
+    ['integrations', 'catalog_ready', 'stock_declared', 'sku_guide'].forEach(step => {
+      const d = document.getElementById(`details-${step}`);
+      const a = document.getElementById(`arrow-${step}`);
+      const r = document.getElementById(`step-row-${step}`);
+      if (d) d.style.display = 'none';
+      if (a) a.style.transform = 'rotate(0deg)';
+      if (r) r.style.borderColor = 'var(--color-border)';
+    });
+    
+    if (!isCurrentlyOpen) {
+      details.style.display = 'block';
+      arrow.style.transform = 'rotate(180deg)';
+      row.style.borderColor = 'var(--color-primary)';
+    }
+  }
+};
+
+window.toggleOnboardingCheckbox = async function(stepName, value) {
+  const companyList = getCompanyList();
+  const commerce = companyList[0];
+  if (!commerce) return;
+
+  try {
+    const { data: cacData } = await supabase
+      .from('comercios_adicional_config')
+      .select('onboarding_checklist')
+      .eq('comercio', commerce)
+      .maybeSingle();
+
+    if (cacData) {
+      const checklist = cacData.onboarding_checklist || {};
+      checklist[stepName] = value;
+
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .update({ onboarding_checklist: checklist })
+        .eq('comercio', commerce);
+
+      if (error) throw error;
+      
+      window.updateOnboardingProgress();
+    }
+  } catch (err) {
+    console.error("Error updating onboarding step:", err);
+    Swal.fire('Error', 'No se pudo guardar el progreso: ' + err.message, 'error');
+  }
+};
+
+window.updateOnboardingProgress = function() {
+  const cb1 = document.getElementById('onboarding-step-cb-integrations')?.checked || false;
+  const cb2 = document.getElementById('onboarding-step-cb-catalog_ready')?.checked || false;
+  const cb3 = document.getElementById('onboarding-step-cb-stock_declared')?.checked || false;
+  const cb4 = document.getElementById('onboarding-step-cb-sku_guide')?.checked || false;
+
+  let completed = 0;
+  if (cb1) completed++;
+  if (cb2) completed++;
+  if (cb3) completed++;
+  if (cb4) completed++;
+
+  const pct = Math.round((completed / 4) * 100);
+
+  const bar = document.getElementById('onboarding-progress-bar');
+  const text = document.getElementById('onboarding-progress-text');
+  
+  if (bar) bar.style.width = `${pct}%`;
+  if (text) text.textContent = `${pct}%`;
+};
+
+window.dismissOnboardingChecklist = async function() {
+  const companyList = getCompanyList();
+  const commerce = companyList[0];
+  if (!commerce) return;
+
+  const result = await Swal.fire({
+    title: '¿Ocultar guía de inicio?',
+    text: 'Esta acción ocultará permanentemente el checklist de tu dashboard. Podrás seguir operando con normalidad.',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, ocultar',
+    cancelButtonText: 'Cancelar'
+  });
+
+  if (!result.isConfirmed) return;
+
+  try {
+    const { data: cacData } = await supabase
+      .from('comercios_adicional_config')
+      .select('onboarding_checklist')
+      .eq('comercio', commerce)
+      .maybeSingle();
+
+    if (cacData) {
+      const checklist = cacData.onboarding_checklist || {};
+      checklist.dismissed = true;
+
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .update({ onboarding_checklist: checklist })
+        .eq('comercio', commerce);
+
+      if (error) throw error;
+
+      const card = document.getElementById('onboarding-checklist-card');
+      if (card) {
+        card.style.opacity = '0';
+        setTimeout(() => card.remove(), 300);
+      }
+    }
+  } catch (err) {
+    console.error("Error dismissing onboarding checklist:", err);
+    Swal.fire('Error', 'No se pudo ocultar la guía: ' + err.message, 'error');
+  }
+};
+
 async function renderDashboard() {
   const appContent = document.getElementById('app-content');
   const loaderInterval = window.startPremiumLoader('app-content', 'Inicializando Dashboard Logístico');
@@ -914,6 +1044,37 @@ async function renderDashboard() {
 
   try {
     const companyList = getCompanyList();
+
+    // Obtener checklist de onboarding y guía SKU
+    let onboardingChecklist = null;
+    let skuGuideUrl = '#';
+    const targetCommerce = companyList[0] || '';
+    if (targetCommerce && userRole !== 'observer') {
+      try {
+        const [cacRes, docRes] = await Promise.all([
+          supabase
+            .from('comercios_adicional_config')
+            .select('onboarding_checklist')
+            .eq('comercio', targetCommerce)
+            .maybeSingle(),
+          supabase
+            .from('service_docs')
+            .select('file_url')
+            .ilike('name', '%sku%')
+            .limit(1)
+            .maybeSingle()
+        ]);
+        
+        if (cacRes && cacRes.data && cacRes.data.onboarding_checklist) {
+          onboardingChecklist = cacRes.data.onboarding_checklist;
+        }
+        if (docRes && docRes.data && docRes.data.file_url) {
+          skuGuideUrl = docRes.data.file_url;
+        }
+      } catch (err) {
+        console.warn("Error fetching onboarding checklist or SKU guide:", err);
+      }
+    }
     const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company');
     const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
 
@@ -982,6 +1143,28 @@ async function renderDashboard() {
     const ordRes = results[1];
     const intRes = results[2];
     const decRes = results[3];
+
+    // Auto-completar paso 1 (integraciones) si existen integraciones activas en la base de datos
+    const activeInts = intRes?.data || [];
+    if (activeInts.length > 0 && onboardingChecklist && !onboardingChecklist.integrations) {
+      onboardingChecklist.integrations = true;
+      supabase
+        .from('comercios_adicional_config')
+        .update({ onboarding_checklist: onboardingChecklist })
+        .eq('comercio', targetCommerce)
+        .then(({error}) => { if (error) console.error("Error auto-actualizando paso de integraciones:", error); });
+    }
+
+    // Auto-completar paso 3 (ingreso stock) si existen declaraciones de ingreso en la base de datos
+    const recentDecs = decRes?.data || [];
+    if (recentDecs.length > 0 && onboardingChecklist && !onboardingChecklist.stock_declared) {
+      onboardingChecklist.stock_declared = true;
+      supabase
+        .from('comercios_adicional_config')
+        .update({ onboarding_checklist: onboardingChecklist })
+        .eq('comercio', targetCommerce)
+        .then(({error}) => { if (error) console.error("Error auto-actualizando paso de ingreso stock:", error); });
+    }
 
     let totalStock = 0;
     let availableStock = 0;
@@ -1329,7 +1512,6 @@ async function renderDashboard() {
     }
 
     let recentDeclarationsHtml = '';
-    const recentDecs = decRes.data || [];
     if (recentDecs.length === 0) {
       recentDeclarationsHtml = '<div style="padding: 2rem 1.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.9rem;">No hay ingresos declarados recientes.</div>';
     } else {
@@ -1480,12 +1662,145 @@ async function renderDashboard() {
       `;
     }
 
+    let onboardingHtml = '';
+    if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
+      onboardingHtml = `
+        <!-- Guía de Inicio Onboarding -->
+        <div class="card" id="onboarding-checklist-card" style="margin-bottom: 2rem; border: 1px solid rgba(94, 23, 235, 0.2); background: radial-gradient(circle at top right, rgba(94, 23, 235, 0.04) 0%, rgba(255, 255, 255, 0) 70%), var(--color-surface); border-radius: var(--radius-lg); position: relative; overflow: hidden; box-shadow: var(--shadow-sm); transition: opacity 0.3s ease;">
+          <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--color-primary);"></div>
+          
+          <div style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(94, 23, 235, 0.08); display: flex; align-items: center; justify-content: center; color: var(--color-primary); flex-shrink: 0;">
+                <i class="ri-rocket-line" style="font-size: 1.25rem;"></i>
+              </div>
+              <div>
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">Guía de Inicio: Configura tu WMS</h3>
+                <p style="margin: 0.15rem 0 0 0; font-size: 0.78rem; color: var(--color-text-muted);">Completa estos pasos clave para comenzar a operar en Stocka</p>
+              </div>
+            </div>
+            <button class="btn btn-outline" id="btn-dismiss-onboarding-checklist" onclick="window.dismissOnboardingChecklist()" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-color: var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-eye-off-line"></i> Ocultar guía
+            </button>
+          </div>
+          
+          <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+            <!-- PROGRESS BAR -->
+            <div style="background: var(--color-bg); padding: 0.85rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div style="display: flex; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: var(--color-text-main); margin-bottom: 0.5rem;">
+                <span>Progreso de Configuración</span>
+                <span id="onboarding-progress-text">0%</span>
+              </div>
+              <div style="height: 6px; background: var(--color-border); border-radius: 99px; overflow: hidden; position: relative;">
+                <div id="onboarding-progress-bar" style="width: 0%; height: 100%; background: var(--color-primary); transition: width 0.4s ease; border-radius: 99px;"></div>
+              </div>
+            </div>
+
+            <!-- STEPS -->
+            <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+              <!-- STEP 1 -->
+              <div class="onboarding-step-row" id="step-row-integrations" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
+                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('integrations')">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <input type="checkbox" id="onboarding-step-cb-integrations" ${onboardingChecklist.integrations ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('integrations', this.checked)">
+                    <div>
+                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">1. Integraciones con tus Canales de Venta</strong>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Vincula Shopify, WooCommerce o Mercado Libre para sincronizar ventas y stock.</span>
+                    </div>
+                  </div>
+                  <i class="ri-arrow-down-s-line" id="arrow-integrations" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div id="details-integrations" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+                  <p style="margin: 0 0 0.75rem 0;">Conectando tus canales de venta, el WMS recibirá tus órdenes de compra automáticamente para ser despachadas en tiempo récord, y actualizará el inventario disponible en tus tiendas.</p>
+                  <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-shopping-bag-3-line" style="color: #95bf47;"></i> Shopify</span>
+                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-wordpress-line" style="color: #9b5c8f;"></i> WooCommerce</span>
+                    <span style="background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid var(--color-border); font-size: 0.75rem;"><i class="ri-hand-heart-line" style="color: #ffe600;"></i> Mercado Libre</span>
+                  </div>
+                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'integrations\\']')?.click();" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-plug-line"></i> Ir a Integraciones
+                  </button>
+                </div>
+              </div>
+
+              <!-- STEP 2 -->
+              <div class="onboarding-step-row" id="step-row-catalog_ready" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
+                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('catalog_ready')">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <input type="checkbox" id="onboarding-step-cb-catalog_ready" ${onboardingChecklist.catalog_ready ? 'checked' : ''} disabled style="width: 18px; height: 18px; cursor: not-allowed; accent-color: var(--color-success);">
+                    <div>
+                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">2. Espera de Configuración de Catálogo</strong>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+                        ${onboardingChecklist.catalog_ready 
+                          ? '<span style="color: var(--color-success); font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> ¡Configurado con éxito por nuestro equipo!</span>' 
+                          : '<span style="color: var(--color-warning); font-weight: 600;"><i class="ri-time-line"></i> En cola de procesamiento por el equipo de operaciones</span>'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  <i class="ri-arrow-down-s-line" id="arrow-catalog_ready" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div id="details-catalog_ready" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+                  ${onboardingChecklist.catalog_ready 
+                    ? 'Tu catálogo base de productos ya ha sido cargado en el sistema. Puedes visualizarlo en el módulo de <strong>Catálogo</strong> y proceder con tus ingresos de mercadería.'
+                    : 'Una vez que firmaste el contrato, nuestro equipo de operaciones toma tus datos de productos para subirlos masivamente y mapear las configuraciones. Te llegará un correo de aviso en cuanto esté listo. (No requiere acción por tu parte).'
+                  }
+                </div>
+              </div>
+
+              <!-- STEP 3 -->
+              <div class="onboarding-step-row" id="step-row-stock_declared" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
+                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <input type="checkbox" id="onboarding-step-cb-stock_declared" ${onboardingChecklist.stock_declared ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('stock_declared', this.checked)">
+                    <div>
+                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">3. Realiza tu primer Ingreso de Stock</strong>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.</span>
+                    </div>
+                  </div>
+                  <i class="ri-arrow-down-s-line" id="arrow-stock_declared" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div id="details-stock_declared" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+                  <p style="margin: 0 0 0.75rem 0;">Antes de mandar cajas o pallets a nuestra bodega, debes rellenar una Declaración de Ingreso en el sistema, detallando el SKU, nombre del producto y la cantidad física. Esto permite que la recepción y el conteo sean sumamente ágiles.</p>
+                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'declarations\\']')?.click();" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-add-circle-line"></i> Declarar Ingreso de Stock
+                  </button>
+                </div>
+              </div>
+
+              <!-- STEP 4 -->
+              <div class="onboarding-step-row" id="step-row-sku_guide" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); overflow: hidden; transition: all 0.25s;">
+                <div style="padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('sku_guide')">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <input type="checkbox" id="onboarding-step-cb-sku_guide" ${onboardingChecklist.sku_guide ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer; accent-color: var(--color-primary);" onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('sku_guide', this.checked)">
+                    <div>
+                      <strong style="font-size: 0.9rem; color: var(--color-text-main); display: block;">4. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Revisa los requisitos obligatorios de rotulación y etiquetado de tus cajas.</span>
+                    </div>
+                  </div>
+                  <i class="ri-arrow-down-s-line" id="arrow-sku_guide" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                </div>
+                <div id="details-sku_guide" style="display: none; padding: 0 1.25rem 1rem 3rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.45; border-top: 1px dashed var(--color-border); padding-top: 0.85rem;">
+                  <p style="margin: 0 0 0.75rem 0;">Todos los productos deben venir con su código de barra (EAN/SKU) legible para escaneo en el picking. Lee detenidamente nuestra Guía de SKU para evitar rechazos o recargos por re-etiquetado.</p>
+                  <a href="${skuGuideUrl}" ${skuGuideUrl === '#' ? `onclick="event.preventDefault(); document.querySelector('[data-view=\\'documentation\\']')?.click();"` : 'target="_blank"'} class="btn btn-primary btn-sm" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none; font-weight: 600;">
+                    <i class="ri-file-pdf-line"></i> Descargar Guía de SKU
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
     if (loaderInterval) clearInterval(loaderInterval);
     appContent.innerHTML = getObserverBanner() + `
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
         <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
           
+          ${onboardingHtml}
+
           <!-- Hero Banner -->
           <div class="dashboard-hero" style="margin-bottom: 0;">
             <div class="dashboard-hero-content" style="width: 100%;">
@@ -1675,6 +1990,10 @@ async function renderDashboard() {
         window.clearDashboardCache(cacheKey);
         renderDashboard();
       });
+    }
+
+    if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
+      window.updateOnboardingProgress();
     }
 
   } catch (error) {
@@ -26532,6 +26851,18 @@ window.setupCustomerAutocomplete = function() {
   });
 };
 
+window.getTransitTimeText = function(courierId, ratesData) {
+  if (courierId === 'STOCKA') {
+    return 'Entrega el mismo día / 24 hrs';
+  }
+  const transitDays = ratesData && ratesData.transit_days ? ratesData.transit_days[courierId.toLowerCase()] : null;
+  if (transitDays === null || transitDays === undefined) {
+    return 'No disponible';
+  }
+  const finalDays = transitDays + 1;
+  return `${finalDays} ${finalDays === 1 ? 'día hábil' : 'días hábiles'}`;
+};
+
 window.calculateShippingQuote = function() {
   const city = document.getElementById('order-cust-city').value.trim();
   const weight = parseFloat(document.getElementById('order-total-weight-input').value) || 1.0;
@@ -26740,10 +27071,15 @@ window.calculateShippingQuote = function() {
 
       html += `
         <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${labelBorder}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: ${isSelected ? 'pointer' : 'not-allowed'}; opacity: ${labelOpacity}; transition: all 0.2s;">
-          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
-            <input type="radio" name="order-courier-option" value="${c.id}" ${checkedAttr} ${disabledAttr} data-net="${displayPrice || 0}" data-tax="${(displayPrice || 0) * 0.19}" style="cursor: ${isSelected ? 'pointer' : 'not-allowed'};">
-            ${c.name} ${isSelected ? '<span style="font-size: 0.7rem; background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Elegido</span>' : ''}
-          </span>
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+            <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+              <input type="radio" name="order-courier-option" value="${c.id}" ${checkedAttr} ${disabledAttr} data-net="${displayPrice || 0}" data-tax="${(displayPrice || 0) * 0.19}" style="cursor: ${isSelected ? 'pointer' : 'not-allowed'};">
+              ${c.name} ${isSelected ? '<span style="font-size: 0.7rem; background: var(--color-primary); color: white; padding: 1px 4px; border-radius: 4px; font-weight: 600; margin-left: 0.25rem;">Elegido</span>' : ''}
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(c.id, ratesData)}
+            </span>
+          </div>
           <span style="font-weight: bold; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'};">${priceText}</span>
         </label>
       `;
@@ -26802,10 +27138,15 @@ window.calculateShippingQuote = function() {
 
     optionsList.innerHTML = `
       <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-primary); border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer;">
-        <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
-          <input type="radio" name="order-courier-option" value="STOCKA" checked data-net="${net}" data-tax="${tax}" style="cursor: pointer;">
-          STOCKA Same Day (Flex)
-        </span>
+        <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: bold; color: var(--color-text-main);">
+            <input type="radio" name="order-courier-option" value="STOCKA" checked data-net="${net}" data-tax="${tax}" style="cursor: pointer;">
+            STOCKA Same Day (Flex)
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-time-line"></i> Plazo estimado: Entrega el mismo día / 24 hrs
+          </span>
+        </div>
         <span style="font-weight: bold; color: var(--color-primary);">${window.formatCLP(net + tax)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
       </label>
     `;
@@ -26950,10 +27291,15 @@ window.calculateShippingQuote = function() {
 
       html = `
         <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; background: var(--color-surface); border: 1px solid ${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}; border-radius: var(--radius-sm); font-size: 0.85rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='${idx === 0 ? 'var(--color-primary)' : 'var(--color-border)'}'">
-          <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
-            <input type="radio" name="order-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}" style="cursor: pointer;">
-            ${opt.label} ${recommendedText}
-          </span>
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+            <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main);">
+              <input type="radio" name="order-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}" style="cursor: pointer;">
+              ${opt.label} ${recommendedText}
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 1.5rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(opt.courier, ratesData)}
+            </span>
+          </div>
           <span style="font-weight: bold; color: ${idx === 0 ? 'var(--color-primary)' : 'var(--color-text-main)'};">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
         </label>
       ` + html;
@@ -27074,6 +27420,1187 @@ window.setupComunaAutocomplete = function() {
     }
   });
 };
+
+window.renderCotizador = async function() {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  const userCompanies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  const commerce = window.activeIntegrationCommerce || (userCompanies[0] || '');
+  
+  // Mostrar spinner mientras cargamos productos
+  appContent.innerHTML = getObserverBanner() + `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
+      <div style="width: 48px; height: 48px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite; margin-bottom: 1rem;"></div>
+      <h4 style="margin: 0; color: var(--color-text-main); font-weight: 700;">Cargando Módulo de Cotizaciones...</h4>
+    </div>
+  `;
+
+  // Asegurar que los productos del catálogo estén cargados
+  if (!window.tempClientProductsList || window.tempClientProductsList.length === 0) {
+    await window.loadNewOrderProducts(commerce);
+  }
+
+  window.tempQuoteItems = [];
+
+  const html = getObserverBanner() + `
+    <style>
+      .shipping-card-option-quote, .payment-card-option-quote {
+        position: relative;
+        overflow: hidden;
+        border: 1.5px solid var(--color-border) !important;
+        background: var(--color-surface) !important;
+        box-shadow: var(--shadow-sm);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem !important;
+        border-radius: var(--radius-md) !important;
+        cursor: pointer;
+        user-select: none;
+      }
+      .shipping-card-option-quote:hover, .payment-card-option-quote:hover {
+        transform: translateY(-2px);
+        border-color: var(--color-primary-light, #a5b4fc) !important;
+        box-shadow: 0 6px 15px rgba(var(--color-primary-rgb, 99, 102, 241), 0.1);
+      }
+      .shipping-card-option-quote.active, .payment-card-option-quote.active {
+        border-color: var(--color-primary) !important;
+        background: rgba(var(--color-primary-rgb), 0.05) !important;
+        box-shadow: 0 0 0 1px var(--color-primary), 0 6px 18px rgba(var(--color-primary-rgb), 0.15) !important;
+      }
+      .shipping-card-option-quote.active .icon-container-quote, .payment-card-option-quote.active .icon-container-quote {
+        background: rgba(var(--color-primary-rgb), 0.15) !important;
+        color: var(--color-primary) !important;
+        transform: scale(1.1);
+      }
+      .icon-container-quote {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--color-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        color: var(--color-text-muted);
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        flex-shrink: 0;
+      }
+      .courier-option-card {
+        border: 1.5px solid var(--color-border) !important;
+        background: var(--color-surface) !important;
+        border-radius: var(--radius-md) !important;
+        padding: 0.9rem 1.1rem !important;
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: relative;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 0.75rem;
+      }
+      .courier-option-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--color-primary-light, #a5b4fc) !important;
+        box-shadow: 0 6px 15px rgba(var(--color-primary-rgb, 99, 102, 241), 0.08) !important;
+      }
+      .courier-option-card.selected-courier {
+        border-color: var(--color-success, #22c55e) !important;
+        background: rgba(34, 197, 94, 0.04) !important;
+        box-shadow: 0 0 0 1px var(--color-success, #22c55e), 0 6px 20px rgba(34, 197, 94, 0.15) !important;
+      }
+      .courier-logo-circle {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--color-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.3rem;
+        color: var(--color-text-muted);
+        transition: all 0.25s ease;
+        flex-shrink: 0;
+      }
+      .courier-option-card:hover .courier-logo-circle {
+        background: rgba(var(--color-primary-rgb), 0.08);
+        color: var(--color-primary);
+      }
+      .courier-option-card.selected-courier .courier-logo-circle {
+        background: rgba(34, 197, 94, 0.15) !important;
+        color: var(--color-success, #22c55e) !important;
+        transform: scale(1.05);
+      }
+    </style>
+
+    <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1.5rem;">
+      <!-- Tarjeta de Presentación -->
+      <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;">
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 50px; height: 50px; border-radius: var(--radius-md); background: rgba(var(--color-primary-rgb), 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+            <i class="ri-calculator-line" style="color: var(--color-primary); font-size: 1.6rem;"></i>
+          </div>
+          <div style="text-align: left;">
+            <h3 style="margin: 0 0 0.25rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.25rem;">Cotizador Express</h3>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.3;">Simula tarifas y plazos estimados de entrega según ubicación, peso y volumen de tus despachos.</p>
+          </div>
+        </div>
+        <button type="button" onclick="window.resetQuoteForm()" class="btn btn-outline" style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem;">
+          <i class="ri-refresh-line"></i> Limpiar Todo
+        </button>
+      </div>
+
+      <!-- Selector de Comercio (Solo si el cliente tiene más de uno) -->
+      ${userCompanies.length > 1 ? `
+      <div style="background: var(--color-surface); padding: 1.25rem 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; text-align: left;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(99, 102, 241, 0.12); display: flex; align-items: center; justify-content: center; color: var(--color-primary);">
+            <i class="ri-store-2-line" style="font-size: 1.2rem;"></i>
+          </div>
+          <div>
+            <h4 style="margin: 0; color: var(--color-text-main); font-weight: 700; font-size: 0.9rem;">Comercio para la Cotización</h4>
+            <p style="margin: 0; color: var(--color-text-muted); font-size: 0.75rem;">Selecciona el comercio para cargar sus productos del catálogo.</p>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <select id="quote-client-commerce-select" class="form-input" style="font-size: 0.85rem; padding: 0.4rem; width: 260px; margin: 0;">
+            ${userCompanies.map(c => `<option value="${c}" ${c === commerce ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+          <span id="quote-client-catalog-status" style="font-size: 0.75rem; color: var(--color-success); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-checkbox-circle-line"></i> Catálogo: ${window.tempClientProductsList?.length || 0} prod.
+          </span>
+        </div>
+      </div>
+      ` : ''}
+
+      <!-- Grid Principal -->
+      <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; align-items: start;" class="quote-grid-responsive">
+        
+        <!-- Columna Izquierda: Datos del Despacho -->
+        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+          
+          <!-- Card: Destino, Peso y Volumen -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-map-pin-line"></i> Destino y Dimensiones
+            </h4>
+
+            <div style="display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr; gap: 1rem; align-items: start;">
+              <!-- Comuna de Destino -->
+              <div class="form-group" style="margin: 0; position: relative;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Comuna de Destino <span style="color: var(--color-danger);">*</span></label>
+                <div style="position: relative; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none; z-index: 5;">
+                    <i class="ri-map-pin-2-line"></i>
+                  </span>
+                  <input type="text" id="quote-cust-city" class="form-input" placeholder="Escribe comuna..." required style="padding-left: 2.2rem; font-size: 0.85rem;" autocomplete="off">
+                  <div id="quote-cust-city-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 200px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;"></div>
+                </div>
+              </div>
+
+              <!-- Peso Estimado -->
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Peso Total <span style="color: var(--color-danger);">*</span></label>
+                <div style="position: relative; display: flex; align-items: center; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none;">
+                    <i class="ri-scales-3-line"></i>
+                  </span>
+                  <input type="number" id="quote-total-weight-input" class="form-input" min="0.1" step="0.1" style="padding-left: 2.2rem; padding-right: 2.2rem; font-size: 0.9rem; font-weight: 700; text-align: right; font-family: monospace;" value="1.0">
+                  <span style="position: absolute; right: 0.65rem; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">Kg</span>
+                </div>
+              </div>
+
+              <!-- Volumen Estimado -->
+              <div class="form-group" style="margin: 0; display: flex; flex-direction: column;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <label class="form-label" style="font-size: 0.8rem; margin: 0; font-weight: 600;">Volumen Total</label>
+                  <a href="#" id="quote-toggle-vol-mode" style="font-size: 0.72rem; color: var(--color-primary); font-weight: 700; text-decoration: none; cursor: pointer;" onclick="event.preventDefault();">📐 Por Medidas</a>
+                </div>
+                
+                <!-- Modo Directo (m³) -->
+                <div id="quote-vol-direct-container" style="position: relative; display: flex; align-items: center; width: 100%;">
+                  <span style="position: absolute; left: 0.65rem; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center; pointer-events: none;">
+                    <i class="ri-box-3-line"></i>
+                  </span>
+                  <input type="number" id="quote-total-volume-estimated" class="form-input" min="0.0" step="0.0001" style="padding-left: 2.2rem; padding-right: 2.2rem; font-size: 0.9rem; font-weight: 700; text-align: right; font-family: monospace;" value="0.00050">
+                  <span style="position: absolute; right: 0.65rem; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">m³</span>
+                </div>
+
+                <!-- Modo Dimensiones (cm) -->
+                <div id="quote-vol-dims-container" style="display: none; flex-direction: column; gap: 0.4rem; width: 100%;">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;">
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-largo" class="form-input" placeholder="Largo" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Largo en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">L</span>
+                    </div>
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-ancho" class="form-input" placeholder="Ancho" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Ancho en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">An</span>
+                    </div>
+                    <div style="position: relative; display: flex; align-items: center;">
+                      <input type="number" id="quote-dim-alto" class="form-input" placeholder="Alto" min="1" style="padding: 0.45rem 0.5rem; font-size: 0.8rem; text-align: center; font-weight: 600;" title="Alto en cm">
+                      <span style="position: absolute; right: 0.35rem; font-size: 0.6rem; color: var(--color-text-muted); font-weight: 700; pointer-events: none;">Al</span>
+                    </div>
+                  </div>
+                  <div style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 700; text-align: right;">
+                    = <span id="quote-dims-calculated-val" style="font-family: monospace; color: var(--color-primary);">0.00050</span> m³
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card: Selección Opcional de Productos -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-shopping-basket-2-line"></i> Simular según Productos del Catálogo (Opcional)
+            </h4>
+
+            <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; text-align: left;">
+              <div class="form-group" style="margin: 0; flex-grow: 1; min-width: 250px; position: relative;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Buscar Producto</label>
+                <div style="position: relative; width: 100%;">
+                  <input type="text" id="quote-product-search" class="form-input" placeholder="🔍 Escribe SKU o nombre para buscar..." style="font-size: 0.85rem; padding: 0.45rem 0.6rem; width: 100%; box-sizing: border-box;" autocomplete="off">
+                  <input type="hidden" id="quote-product" value="">
+                  <div id="quote-product-dropdown-list" style="display: none; position: absolute; top: 100%; left: 0; right: 0; max-height: 220px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); z-index: 1000; margin-top: 4px;"></div>
+                </div>
+              </div>
+              <div class="form-group" style="margin: 0; width: 90px;">
+                <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem; font-weight: 600;">Cantidad</label>
+                <input type="number" id="quote-qty" class="form-input" value="1" min="1" style="font-size: 0.85rem; text-align: center;">
+              </div>
+              <button type="button" onclick="window.addQuoteOrderItem()" class="btn btn-primary" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; cursor: pointer; color: white; display: flex; align-items: center; gap: 0.25rem; height: 36px; border: none; font-weight: 600;">
+                <i class="ri-add-line"></i> Añadir
+              </button>
+            </div>
+
+            <!-- Tabla de ítems agregados -->
+            <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; background: var(--color-bg);">
+                <thead>
+                  <tr style="border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); text-align: left; background: var(--color-surface-hover);">
+                    <th style="padding: 0.5rem 0.75rem;">SKU</th>
+                    <th style="padding: 0.5rem 0.75rem;">Nombre Producto</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 80px;">Cant</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 100px;">Precio Unit</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: right; width: 120px;">Total</th>
+                    <th style="padding: 0.5rem 0.75rem; text-align: center; width: 50px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="quote-order-items-tbody">
+                  <tr>
+                    <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+                      Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card: Modalidad de Envío -->
+          <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem;">
+            <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; text-align: left;">
+              <i class="ri-truck-line"></i> Modalidad de Envío y Pago
+            </h4>
+
+            <!-- Tipo de Entrega -->
+            <div class="form-group" style="margin: 0; text-align: left;">
+              <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Tipo de Entrega</label>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-top: 0.25rem;">
+                <label class="shipping-card-option-quote active" id="lbl-quote-type-domicilio">
+                  <input type="radio" name="quote-shipping-type" value="domicilio" checked style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-home-4-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">A Domicilio</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-sucursal">
+                  <input type="radio" name="quote-shipping-type" value="sucursal" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-store-2-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">En Sucursal</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-punto">
+                  <input type="radio" name="quote-shipping-type" value="punto_stocka" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-map-pin-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Punto STOCKA</span>
+                  </div>
+                </label>
+
+                <label class="shipping-card-option-quote" id="lbl-quote-type-propio">
+                  <input type="radio" name="quote-shipping-type" value="transporte_propio" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-truck-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Propio</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Panel Sucursal (Condicional) -->
+            <div id="quote-sucursal-panel" style="display: none; background: var(--color-bg); padding: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); flex-direction: column; gap: 0.75rem; text-align: left;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-size: 0.78rem; margin-bottom: 0.25rem; font-weight: 600;">Courier de Sucursal <span style="color: var(--color-danger);">*</span></label>
+                <select id="quote-sucursal-courier" class="form-input" style="font-size: 0.8rem; padding: 0.35rem;">
+                  <option value="STARKEN" selected>Starken</option>
+                  <option value="CHILEXPRESS">Chilexpress</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Condición de Pago -->
+            <div class="form-group" id="quote-payment-condition-group" style="margin: 0; display: none; text-align: left;">
+              <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.35rem; font-weight: 600;">Condición de Envío</label>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.25rem;">
+                <label class="payment-card-option-quote active" id="lbl-quote-payment-pagado">
+                  <input type="radio" name="quote-shipping-payment" value="pagado" checked style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-wallet-3-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Envío Pagado</span>
+                  </div>
+                </label>
+
+                <label class="payment-card-option-quote" id="lbl-quote-payment-porpagar">
+                  <input type="radio" name="quote-shipping-payment" value="por_pagar" style="display: none;">
+                  <div class="icon-container-quote">
+                    <i class="ri-hand-coin-line"></i>
+                  </div>
+                  <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 700; font-size: 0.82rem; color: var(--color-text-main);">Por Pagar</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Resultados de Cotización -->
+        <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 1.25rem; min-height: 420px; text-align: left;">
+          <h4 style="margin: 0; color: var(--color-primary); font-size: 0.95rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-calculator-line"></i> Opciones de Despacho
+          </h4>
+
+          <!-- Badge de Cobertura -->
+          <div id="quote-coverage-badge" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.85rem; font-weight: 600; background: rgba(239, 68, 68, 0.1); color: #ef4444;">
+            <i class="ri-error-warning-line"></i> Selecciona Comuna para Cotizar
+          </div>
+
+          <!-- Opciones calculadas -->
+          <div id="quote-courier-options-list" style="display: flex; flex-direction: column; gap: 0.6rem;">
+            <div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; padding: 1rem 0; text-align: center;">
+              Ingresa comuna y peso de envío...
+            </div>
+          </div>
+
+          <!-- Panel Desglose -->
+          <div style="margin-top: auto; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+              <span>Neto Despacho:</span>
+              <span id="quote-quote-net" style="font-weight: 600;">$0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--color-text-muted);">
+              <span>IVA (19%):</span>
+              <span id="quote-quote-tax" style="font-weight: 600;">$0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.95rem; color: var(--color-text-main); font-weight: 700; border-top: 1px solid var(--color-border); padding-top: 0.5rem; margin-top: 0.25rem;">
+              <span>Total a Pagar:</span>
+              <span id="quote-quote-total" style="color: var(--color-primary); font-size: 1.1rem;">$0</span>
+            </div>
+          </div>
+
+          <div style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic; line-height: 1.3;">
+            * Nota: Si se selecciona "Envío por Pagar", el total en sistema figurará como $0, ya que el cobro final se efectúa en destino directamente por el transportista.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  appContent.innerHTML = html;
+
+  // Inicializar listeners del formulario de cotización
+  window.initQuoteFormListeners();
+};
+
+window.resetQuoteForm = function() {
+  window.tempQuoteItems = [];
+  const cityInput = document.getElementById('quote-cust-city');
+  const weightInput = document.getElementById('quote-total-weight-input');
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  
+  if (cityInput) cityInput.value = '';
+  if (weightInput) weightInput.value = '1.0';
+  if (volInput) volInput.value = '0.00050';
+  
+  // Reset tipo entrega to domicilio
+  const rDomicilio = document.querySelector('input[name="quote-shipping-type"][value="domicilio"]');
+  if (rDomicilio) {
+    rDomicilio.checked = true;
+    rDomicilio.dispatchEvent(new Event('change'));
+  }
+  
+  window.renderQuoteItemsTable();
+  window.runQuoteCalculator();
+};
+
+window.renderQuoteItemsTable = function() {
+  const tbody = document.getElementById('quote-order-items-tbody');
+  if (!tbody) return;
+
+  if (window.tempQuoteItems.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 1.5rem; font-style: italic;">
+          Ningún producto agregado. El peso y volumen se tomarán de los valores ingresados arriba.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let html = '';
+  let totalVol = 0;
+  let totalWeight = 0;
+
+  window.tempQuoteItems.forEach((item, idx) => {
+    const subtotal = item.quantity * item.price;
+    totalVol += item.quantity * (item.volumen || 0.0001);
+    // Asignar fallback de peso por producto si no tiene (0.5 kg por defecto)
+    totalWeight += item.quantity * (item.peso || 0.5);
+
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); background: var(--color-surface); text-align: left;">
+        <td style="padding: 0.5rem 0.75rem; font-weight: 600; color: var(--color-text-main);">${item.sku}</td>
+        <td style="padding: 0.5rem 0.75rem; color: var(--color-text-main);">${item.name}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${item.quantity}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; color: var(--color-text-muted);">${window.formatCLP(item.price)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: right; font-weight: 600; color: var(--color-text-main);">${window.formatCLP(subtotal)}</td>
+        <td style="padding: 0.5rem 0.75rem; text-align: center;">
+          <button type="button" onclick="window.removeQuoteOrderItem(${idx})" class="btn btn-outline" style="padding: 0.25rem 0.4rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  tbody.innerHTML = html;
+
+  // Actualizar automáticamente inputs de peso y volumen
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  if (volInput) {
+    volInput.value = totalVol.toFixed(5);
+    const dimsCalcVal = document.getElementById('quote-dims-calculated-val');
+    if (dimsCalcVal) dimsCalcVal.textContent = totalVol.toFixed(5);
+    const dimLargo = document.getElementById('quote-dim-largo');
+    const dimAncho = document.getElementById('quote-dim-ancho');
+    const dimAlto = document.getElementById('quote-dim-alto');
+    if (dimLargo && dimAncho && dimAlto) {
+      const side = Math.round(Math.pow(totalVol * 1000000, 1/3));
+      dimLargo.value = side;
+      dimAncho.value = side;
+      dimAlto.value = side;
+    }
+  }
+
+  const weightInput = document.getElementById('quote-total-weight-input');
+  if (weightInput) weightInput.value = totalWeight.toFixed(1);
+
+  window.runQuoteCalculator();
+};
+
+window.addQuoteOrderItem = function() {
+  const selectProd = document.getElementById('quote-product');
+  const qtyInput = document.getElementById('quote-qty');
+  if (!selectProd || !qtyInput) return;
+
+  const prodId = selectProd.value;
+  const qty = parseInt(qtyInput.value, 10);
+
+  if (!prodId) {
+    alert('Por favor selecciona un producto buscando y eligiéndolo de la lista.');
+    return;
+  }
+  if (isNaN(qty) || qty < 1) {
+    alert('Cantidad inválida.');
+    return;
+  }
+
+  const product = (window.tempClientProductsList || []).find(p => p.id === prodId);
+  if (!product) return;
+
+  // Añadir ítem a la lista temporal
+  const existing = window.tempQuoteItems.find(item => item.product_id === prodId);
+  if (existing) {
+    existing.quantity += qty;
+  } else {
+    window.tempQuoteItems.push({
+      product_id: prodId,
+      sku: product.sku,
+      name: product.name,
+      quantity: qty,
+      price: product.price || 0,
+      volumen: product.volumen || 0.0001,
+      peso: product.peso || 0.5
+    });
+  }
+
+  // Reset inputs
+  selectProd.value = '';
+  document.getElementById('quote-product-search').value = '';
+  qtyInput.value = '1';
+
+  window.renderQuoteItemsTable();
+};
+
+window.removeQuoteOrderItem = function(idx) {
+  window.tempQuoteItems.splice(idx, 1);
+  window.renderQuoteItemsTable();
+};
+
+window.initQuoteFormListeners = function() {
+  const cityInput = document.getElementById('quote-cust-city');
+  const dropdown = document.getElementById('quote-cust-city-dropdown');
+  const weightInput = document.getElementById('quote-total-weight-input');
+  const volInput = document.getElementById('quote-total-volume-estimated');
+  const sucursalCourier = document.getElementById('quote-sucursal-courier');
+
+  if (!cityInput || !dropdown) return;
+
+  const clientCommerceSelect = document.getElementById('quote-client-commerce-select');
+  const clientCatalogStatus = document.getElementById('quote-client-catalog-status');
+
+  if (clientCommerceSelect) {
+    clientCommerceSelect.addEventListener('change', async function() {
+      const selectedCommerce = this.value;
+      if (!selectedCommerce) return;
+
+      window.activeIntegrationCommerce = selectedCommerce;
+
+      if (clientCatalogStatus) {
+        clientCatalogStatus.innerHTML = '<span style="color: var(--color-primary); font-size: 0.75rem;"><i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite; display: inline-block;"></i> Cargando...</span>';
+      }
+
+      await window.loadNewOrderProducts(selectedCommerce);
+
+      if (clientCatalogStatus) {
+        clientCatalogStatus.innerHTML = `<i class="ri-checkbox-circle-line"></i> Catálogo: ${window.tempClientProductsList?.length || 0} prod.`;
+      }
+
+      // Reset product search inputs
+      const qProduct = document.getElementById('quote-product');
+      const qProductSearch = document.getElementById('quote-product-search');
+      if (qProduct) qProduct.value = '';
+      if (qProductSearch) qProductSearch.value = '';
+
+      window.tempQuoteItems = [];
+      window.renderQuoteItemsTable();
+      window.runQuoteCalculator();
+    });
+  }
+
+  // Toggle de modo de volumen (Directo vs Dimensiones)
+  const toggleVolLink = document.getElementById('quote-toggle-vol-mode');
+  const volDirectContainer = document.getElementById('quote-vol-direct-container');
+  const volDimsContainer = document.getElementById('quote-vol-dims-container');
+  const dimLargo = document.getElementById('quote-dim-largo');
+  const dimAncho = document.getElementById('quote-dim-ancho');
+  const dimAlto = document.getElementById('quote-dim-alto');
+  const dimsCalcVal = document.getElementById('quote-dims-calculated-val');
+
+  if (toggleVolLink && volDirectContainer && volDimsContainer && dimLargo && dimAncho && dimAlto && dimsCalcVal) {
+    toggleVolLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      const isDirect = volDimsContainer.style.display === 'none';
+      if (isDirect) {
+        // Cambiar a Medidas (cm)
+        volDirectContainer.style.display = 'none';
+        volDimsContainer.style.display = 'flex';
+        toggleVolLink.innerHTML = '✏️ Directo (m³)';
+        
+        // Inicializar dimensiones con volumen actual
+        const currentVol = parseFloat(volInput.value) || 0.0005;
+        const side = Math.round(Math.pow(currentVol * 1000000, 1/3));
+        dimLargo.value = side;
+        dimAncho.value = side;
+        dimAlto.value = side;
+        dimsCalcVal.textContent = currentVol.toFixed(5);
+      } else {
+        // Cambiar a Directo (m³)
+        volDirectContainer.style.display = 'flex';
+        volDimsContainer.style.display = 'none';
+        toggleVolLink.innerHTML = '📐 Por Medidas';
+      }
+    });
+
+    const updateDimsVolume = () => {
+      const l = parseFloat(dimLargo.value) || 0;
+      const w = parseFloat(dimAncho.value) || 0;
+      const h = parseFloat(dimAlto.value) || 0;
+      const calculatedVol = (l * w * h) / 1000000;
+      volInput.value = calculatedVol.toFixed(5);
+      dimsCalcVal.textContent = calculatedVol.toFixed(5);
+      window.runQuoteCalculator();
+    };
+
+    dimLargo.addEventListener('input', updateDimsVolume);
+    dimAncho.addEventListener('input', updateDimsVolume);
+    dimAlto.addEventListener('input', updateDimsVolume);
+  }
+
+  // Autocomplete de Comunas
+  let comunas = [];
+  if (window.shippingRates) {
+    comunas = Object.values(window.shippingRates)
+      .map(r => r.comuna)
+      .filter((v, i, a) => a.indexOf(v) === i)
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+  }
+
+  const renderComunaOptions = (filterText) => {
+    const term = (filterText || '').toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ñ/g, 'n')
+      .trim();
+
+    const filtered = comunas.filter(comuna => {
+      const normalizedComuna = comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n');
+      return normalizedComuna.includes(term);
+    });
+
+    if (filtered.length === 0) {
+      dropdown.innerHTML = '<div style="padding: 0.5rem 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No se encontraron comunas</div>';
+      return;
+    }
+
+    let html = '';
+    filtered.forEach(comuna => {
+      html += `
+        <div class="comuna-quote-option" data-comuna="${comuna}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; color: var(--color-text-main); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+          ${comuna}
+        </div>
+      `;
+    });
+    dropdown.innerHTML = html;
+
+    const options = dropdown.querySelectorAll('.comuna-quote-option');
+    options.forEach(opt => {
+      opt.onclick = function() {
+        cityInput.value = this.getAttribute('data-comuna');
+        dropdown.style.display = 'none';
+        window.runQuoteCalculator();
+      };
+    });
+  };
+
+  cityInput.addEventListener('focus', () => {
+    renderComunaOptions(cityInput.value);
+    dropdown.style.display = 'block';
+  });
+
+  cityInput.addEventListener('input', () => {
+    renderComunaOptions(cityInput.value);
+    dropdown.style.display = 'block';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (e.target !== cityInput && e.target !== dropdown && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+
+  // Autocomplete de Productos
+  const prodSearch = document.getElementById('quote-product-search');
+  const prodDropdown = document.getElementById('quote-product-dropdown-list');
+
+  if (prodSearch && prodDropdown) {
+    const renderProductOptions = (filterText) => {
+      const term = (filterText || '').toLowerCase().trim();
+      const products = window.tempClientProductsList || [];
+      const filtered = products.filter(p => {
+        const sku = (p.sku || '').toLowerCase();
+        const name = (p.name || '').toLowerCase();
+        return sku.includes(term) || name.includes(term);
+      });
+
+      if (filtered.length === 0) {
+        prodDropdown.innerHTML = '<div style="padding: 0.75rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No se encontraron productos</div>';
+        return;
+      }
+
+      let html = '';
+      filtered.forEach(p => {
+        const displayVal = `${p.sku} - ${p.name} (${window.formatCLP(p.price || 0)})`;
+        html += `
+          <div class="quote-product-option" data-id="${p.id}" data-display="${displayVal}" style="padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--color-border); color: var(--color-text-main); transition: background-color 0.15s; display: flex; flex-direction: column; gap: 0.15rem;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+            <span style="font-weight: 600; color: var(--color-primary);">${p.sku}</span>
+            <span style="font-size: 0.8rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</span>
+          </div>
+        `;
+      });
+      prodDropdown.innerHTML = html;
+
+      const opts = prodDropdown.querySelectorAll('.quote-product-option');
+      opts.forEach(opt => {
+        opt.onclick = function() {
+          document.getElementById('quote-product').value = this.getAttribute('data-id');
+          prodSearch.value = this.getAttribute('data-display');
+          prodDropdown.style.display = 'none';
+        };
+      });
+    };
+
+    prodSearch.addEventListener('focus', () => {
+      renderProductOptions(prodSearch.value);
+      prodDropdown.style.display = 'block';
+    });
+
+    prodSearch.addEventListener('input', () => {
+      renderProductOptions(prodSearch.value);
+      prodDropdown.style.display = 'block';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (e.target !== prodSearch && e.target !== prodDropdown && !prodDropdown.contains(e.target)) {
+        prodDropdown.style.display = 'none';
+      }
+    });
+  }
+
+  // Toggles de Tipo de Entrega
+  const shippingRadios = document.querySelectorAll('input[name="quote-shipping-type"]');
+  shippingRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const type = e.target.value;
+      
+      // Actualizar clases de bordes
+      document.querySelectorAll('.shipping-card-option-quote').forEach(lbl => {
+        lbl.classList.remove('active');
+        lbl.style.borderColor = 'var(--color-border)';
+        lbl.querySelector('i').style.color = 'var(--color-text-muted)';
+      });
+      
+      const activeLabel = document.getElementById(`lbl-quote-type-${type === 'punto_stocka' ? 'punto' : type === 'transporte_propio' ? 'propio' : type}`);
+      if (activeLabel) {
+        activeLabel.classList.add('active');
+        activeLabel.style.borderColor = 'var(--color-primary)';
+        activeLabel.querySelector('i').style.color = 'var(--color-primary)';
+      }
+
+      // Mostrar/ocultar paneles condicionales
+      const sucursalPanel = document.getElementById('quote-sucursal-panel');
+      const paymentGroup = document.getElementById('quote-payment-condition-group');
+
+      if (type === 'sucursal') {
+        if (sucursalPanel) sucursalPanel.style.display = 'flex';
+        if (paymentGroup) paymentGroup.style.display = 'block';
+      } else if (type === 'domicilio') {
+        if (sucursalPanel) sucursalPanel.style.display = 'none';
+        if (paymentGroup) paymentGroup.style.display = 'block';
+      } else {
+        if (sucursalPanel) sucursalPanel.style.display = 'none';
+        if (paymentGroup) paymentGroup.style.display = 'none';
+      }
+
+      window.runQuoteCalculator();
+    });
+  });
+
+  // Toggles de Condición de Pago
+  const paymentRadios = document.querySelectorAll('input[name="quote-shipping-payment"]');
+  paymentRadios.forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const payment = e.target.value;
+
+      document.querySelectorAll('.payment-card-option-quote').forEach(lbl => {
+        lbl.classList.remove('active');
+        lbl.style.borderColor = 'var(--color-border)';
+        lbl.querySelector('i').style.color = 'var(--color-text-muted)';
+      });
+
+      const activeLabel = document.getElementById(`lbl-quote-payment-${payment === 'por_pagar' ? 'porpagar' : 'pagado'}`);
+      if (activeLabel) {
+        activeLabel.classList.add('active');
+        activeLabel.style.borderColor = 'var(--color-primary)';
+        activeLabel.querySelector('i').style.color = 'var(--color-primary)';
+      }
+
+      window.runQuoteCalculator();
+    });
+  });
+
+  // Inputs numéricos
+  weightInput.addEventListener('change', () => window.runQuoteCalculator());
+  weightInput.addEventListener('keyup', () => window.runQuoteCalculator());
+  volInput.addEventListener('change', () => window.runQuoteCalculator());
+  volInput.addEventListener('keyup', () => window.runQuoteCalculator());
+  sucursalCourier.addEventListener('change', () => window.runQuoteCalculator());
+};
+
+window.runQuoteCalculator = function() {
+  const cityInput = document.getElementById('quote-cust-city');
+  if (!cityInput) return;
+
+  const city = cityInput.value.trim();
+  const weight = parseFloat(document.getElementById('quote-total-weight-input').value) || 1.0;
+  const volume = parseFloat(document.getElementById('quote-total-volume-estimated').value) || 0.0;
+  const shippingType = document.querySelector('input[name="quote-shipping-type"]:checked').value;
+
+  const badge = document.getElementById('quote-coverage-badge');
+  const optionsList = document.getElementById('quote-courier-options-list');
+  const netEl = document.getElementById('quote-quote-net');
+  const taxEl = document.getElementById('quote-quote-tax');
+  const totalEl = document.getElementById('quote-quote-total');
+
+  if (!optionsList || !netEl || !taxEl || !totalEl || !badge) return;
+
+  if (shippingType === 'punto_stocka') {
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Retiro en local sin costo de envío (Campo de Deportes 405, Ñuñoa)';
+
+    optionsList.innerHTML = `
+      <div class="courier-option-card selected-courier" style="cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="background: rgba(34, 197, 94, 0.15); color: var(--color-success, #22c55e); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-map-pin-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; text-align: left;">
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="STOCKA" checked data-net="0" data-tax="0" style="cursor: pointer; margin-right: 0.25rem;">
+              Retiro en Punto STOCKA (Campo de Deportes 405, Ñuñoa)
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: bold; color: var(--color-success, #22c55e); font-size: 0.95rem;">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </div>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (shippingType === 'transporte_propio') {
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-truck-line"></i> Transporte Propio (Sin Costo para WMS)';
+
+    optionsList.innerHTML = `
+      <div class="courier-option-card selected-courier" style="cursor: pointer;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+            <i class="ri-truck-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; text-align: left;">
+            <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="Manual" checked data-net="0" data-tax="0" style="cursor: pointer; margin-right: 0.25rem;">
+              Transporte Propio (Coordinado por el cliente)
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: bold; color: #3b82f6; font-size: 0.95rem;">$0 <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">Gratis</span></span>
+      </div>
+    `;
+
+    netEl.textContent = '$0';
+    taxEl.textContent = '$0';
+    totalEl.textContent = '$0';
+    return;
+  }
+
+  if (!city) {
+    badge.style.background = 'rgba(239, 68, 68, 0.1)';
+    badge.style.color = '#ef4444';
+    badge.innerHTML = '<i class="ri-error-warning-line"></i> Ingrese comuna de destino para cotizar';
+    optionsList.innerHTML = '<div style="font-size: 0.85rem; color: var(--color-text-muted); font-style: italic; text-align: center;">Por favor, ingresa una comuna...</div>';
+    return;
+  }
+
+  const isRm = window.isRmCoverage(city);
+  const paymentCondition = document.querySelector('input[name="quote-shipping-payment"]:checked')?.value || 'pagado';
+  const normalizedCity = city.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ');
+
+  const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+
+  // Determinar tramo de peso
+  let bracket = '0-1';
+  if (weight <= 1.0) bracket = '0-1';
+  else if (weight <= 3.0) bracket = '1-3';
+  else if (weight <= 6.0) bracket = '3-6';
+  else if (weight <= 9.0) bracket = '6-9';
+  else if (weight <= 12.0) bracket = '9-12';
+  else if (weight <= 15.0) bracket = '12-15';
+  else bracket = '15-18';
+
+  // Si elige Sucursal
+  if (shippingType === 'sucursal') {
+    badge.style.background = 'rgba(124, 58, 237, 0.1)';
+    badge.style.color = '#7c3aed';
+    badge.innerHTML = '<i class="ri-building-line"></i> Retiro en Sucursal Autorizada';
+
+    const selectedBranchCourier = document.getElementById('quote-sucursal-courier').value;
+
+    if (!ratesData) {
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; margin-bottom: 0.5rem; text-align: center;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador automático.
+        </div>
+      `;
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    let netPrice = selectedBranchCourier === 'STARKEN' ? bracketRates.starken : bracketRates.chilexpress;
+
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      netPrice += extraKg * 1000;
+    }
+
+    if (!netPrice) {
+      optionsList.innerHTML = `<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600; text-align: center;">El courier ${selectedBranchCourier} no tiene tarifas configuradas para la comuna de ${ratesData.comuna}.</div>`;
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    let html = '';
+    const couriers = [
+      { id: 'STARKEN', name: 'Starken Next Day', price: selectedBranchCourier === 'STARKEN' ? netPrice : (bracketRates.starken + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) },
+      { id: 'CHILEXPRESS', name: 'Chilexpress Aéreo', price: selectedBranchCourier === 'CHILEXPRESS' ? netPrice : (bracketRates.chilexpress + (weight > 18.0 ? Math.ceil(weight - 18.0) * 1000 : 0)) }
+    ];
+
+    couriers.forEach(c => {
+      const isSelected = c.id === selectedBranchCourier;
+      const displayPrice = isSelected ? netPrice : c.price;
+      const displayPriceTotal = displayPrice ? displayPrice * 1.19 : 0;
+      const priceText = displayPrice ? `${window.formatCLP(displayPriceTotal)} c/IVA` : 'No Disponible';
+      const checkedAttr = isSelected ? 'checked' : '';
+      const disabledAttr = isSelected ? '' : 'disabled="true"';
+      const labelOpacity = isSelected ? '1' : '0.5';
+      const labelBorder = isSelected ? 'var(--color-primary)' : 'var(--color-border)';
+
+      let courierIcon = 'ri-truck-line';
+      if (c.id === 'STARKEN') courierIcon = 'ri-send-plane-2-line';
+      else if (c.id === 'CHILEXPRESS') courierIcon = 'ri-plane-line';
+
+      html += `
+        <label class="courier-option-card ${isSelected ? 'selected-courier' : ''}" style="opacity: ${labelOpacity}; cursor: ${isSelected ? 'pointer' : 'not-allowed'}; display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1.5px solid ${labelBorder}; transition: all 0.25s; margin-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="courier-logo-circle" style="width: 42px; height: 42px; border-radius: 50%; background: ${isSelected ? 'rgba(var(--color-primary-rgb), 0.12)' : 'var(--color-bg)'}; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'}; flex-shrink: 0;">
+              <i class="${courierIcon}"></i>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+                <input type="radio" name="quote-courier-option" value="${c.id}" ${checkedAttr} ${disabledAttr} data-net="${displayPrice || 0}" data-tax="${(displayPrice || 0) * 0.19}" style="cursor: pointer; margin-right: 0.25rem;">
+                ${c.name} ${isSelected ? '<span style="font-size: 0.65rem; background: var(--color-success, #22c55e); color: white; padding: 2px 6px; border-radius: 12px; font-weight: 700; margin-left: 0.25rem;">Elegido</span>' : ''}
+              </span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(c.id, ratesData)}
+              </span>
+            </div>
+          </div>
+          <span style="font-weight: 700; color: ${isSelected ? 'var(--color-success, #22c55e)' : 'var(--color-text-main)'}; font-size: 0.95rem;">${priceText}</span>
+        </label>
+      `;
+    });
+
+    optionsList.innerHTML = html;
+
+    const isPorPagar = paymentCondition === 'por_pagar';
+    const finalNet = isPorPagar ? 0 : netPrice;
+    const tax = finalNet * 0.19;
+    const total = finalNet + tax;
+
+    netEl.textContent = window.formatCLP(finalNet);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+
+  } else if (isRm) {
+    // RM Flex Same Day Domicilio
+    badge.style.background = 'rgba(34, 197, 94, 0.1)';
+    badge.style.color = '#22c55e';
+    badge.innerHTML = '<i class="ri-checkbox-circle-line"></i> Cobertura RM Directa (STOCKA Same Day)';
+
+    let net = 3200;
+    const isColina = normalizedCity === 'colina';
+    if (isColina) net = 3490;
+
+    const volumeExceeded = volume > 0.125;
+    const weightExceeded = weight > 10.0;
+
+    if (volumeExceeded || weightExceeded) {
+      net = isColina ? 6980 : 6200;
+    }
+
+    const tax = net * 0.19;
+    const total = net + tax;
+
+    optionsList.innerHTML = `
+      <label class="courier-option-card selected-courier" style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1.5px solid var(--color-primary); transition: all 0.25s;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="courier-logo-circle" style="width: 42px; height: 42px; border-radius: 50%; background: rgba(var(--color-primary-rgb), 0.12); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: var(--color-primary); flex-shrink: 0;">
+            <i class="ri-flashlight-line"></i>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+            <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: var(--color-text-main); font-size: 0.85rem;">
+              <input type="radio" name="quote-courier-option" value="STOCKA" checked data-net="${net}" data-tax="${tax}" style="cursor: pointer; margin-right: 0.25rem;">
+              STOCKA Same Day (Flex) <span style="font-size: 0.65rem; background: var(--color-primary); color: white; padding: 2px 6px; border-radius: 12px; font-weight: 700; margin-left: 0.25rem;">Recomendado</span>
+            </span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-time-line"></i> Plazo estimado: Entrega el mismo día / 24 hrs
+            </span>
+          </div>
+        </div>
+        <span style="font-weight: 700; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(net + tax)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+      </label>
+    `;
+
+    netEl.textContent = window.formatCLP(net);
+    taxEl.textContent = window.formatCLP(tax);
+    totalEl.textContent = window.formatCLP(total);
+
+  } else {
+    // Regiones Domicilio
+    badge.style.background = 'rgba(59, 130, 246, 0.1)';
+    badge.style.color = '#3b82f6';
+    badge.innerHTML = '<i class="ri-road-map-line"></i> Envío a Regiones / Zona Rural';
+
+    if (!ratesData) {
+      optionsList.innerHTML = `
+        <div style="font-size: 0.82rem; color: #ef4444; font-weight: 600; text-align: center; padding: 1rem 0;">
+          <i class="ri-alert-line"></i> Comuna no encontrada en el cotizador.
+        </div>
+      `;
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    const bracketRates = ratesData.rates[bracket] || {};
+    let starkenNet = bracketRates.starken;
+    let bluexpressNet = bracketRates.bluexpress;
+    let chilexpressNet = bracketRates.chilexpress;
+
+    if (weight > 18.0) {
+      const extraKg = Math.ceil(weight - 18.0);
+      const surcharge = extraKg * 1000;
+      if (starkenNet) starkenNet += surcharge;
+      if (bluexpressNet) bluexpressNet += surcharge;
+      if (chilexpressNet) chilexpressNet += surcharge;
+    }
+
+    const validOptions = [];
+    if (starkenNet) validOptions.push({ courier: 'STARKEN', net: starkenNet, label: 'Starken Next Day' });
+    if (bluexpressNet) validOptions.push({ courier: 'BLUEXPRESS', net: bluexpressNet, label: 'Bluexpress Standard' });
+    if (chilexpressNet) validOptions.push({ courier: 'CHILEXPRESS', net: chilexpressNet, label: 'Chilexpress Aéreo' });
+
+    if (validOptions.length === 0) {
+      optionsList.innerHTML = '<div style="font-size: 0.85rem; color: #ef4444; font-weight: 600; text-align: center; padding: 1rem 0;">No hay tarifas configuradas para esta comuna.</div>';
+      netEl.textContent = '$0';
+      taxEl.textContent = '$0';
+      totalEl.textContent = '$0';
+      return;
+    }
+
+    // Ordenar opciones por precio
+    validOptions.sort((a, b) => a.net - b.net);
+
+    let html = '';
+    validOptions.forEach((opt, idx) => {
+      const isSelected = idx === 0;
+      const recommendedText = isSelected ? ' <span style="font-size: 0.65rem; background: #22c55e; color: white; padding: 2px 6px; border-radius: 12px; font-weight: 700; margin-left: 0.25rem;">Recomendado</span>' : '';
+      const checked = isSelected ? 'checked' : '';
+      const optTotal = opt.net * 1.19;
+
+      let courierIcon = 'ri-truck-line';
+      if (opt.courier === 'STARKEN') courierIcon = 'ri-send-plane-2-line';
+      else if (opt.courier === 'CHILEXPRESS') courierIcon = 'ri-plane-line';
+
+      html = `
+        <label class="courier-option-card ${isSelected ? 'selected-courier' : ''}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.9rem 1.1rem; border-radius: var(--radius-md); border: 1.5px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}; cursor: pointer; transition: all 0.25s; margin-bottom: 0.75rem;" onmouseover="this.style.borderColor='var(--color-primary)'" onmouseout="this.style.borderColor='${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}'">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="courier-logo-circle" style="width: 42px; height: 42px; border-radius: 50%; background: ${isSelected ? 'rgba(var(--color-primary-rgb), 0.12)' : 'var(--color-bg)'}; display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-muted)'}; flex-shrink: 0; transition: all 0.25s;">
+              <i class="${courierIcon}"></i>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.2rem; text-align: left;">
+              <span style="display: flex; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+                <input type="radio" name="quote-courier-option" value="${opt.courier}" ${checked} data-net="${opt.net}" data-tax="${opt.net * 0.19}">
+                ${opt.label} ${recommendedText}
+              </span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-time-line"></i> Plazo estimado: ${window.getTransitTimeText(opt.courier, ratesData)}
+              </span>
+            </div>
+          </div>
+          <span style="font-weight: 700; color: ${isSelected ? 'var(--color-primary)' : 'var(--color-text-main)'}; font-size: 0.95rem;">${window.formatCLP(optTotal)} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">c/IVA</span></span>
+        </label>
+      ` + html;
+    });
+
+    optionsList.innerHTML = html;
+
+    const radios = optionsList.querySelectorAll('input[name="quote-courier-option"]');
+    const updatePrices = () => {
+      const selectedRadio = optionsList.querySelector('input[name="quote-courier-option"]:checked');
+      if (!selectedRadio) return;
+
+      const netPrice = parseFloat(selectedRadio.getAttribute('data-net') || '0');
+      const isPorPagar = paymentCondition === 'por_pagar';
+
+      const finalNet = isPorPagar ? 0 : netPrice;
+      const tax = finalNet * 0.19;
+      const total = finalNet + tax;
+
+      netEl.textContent = window.formatCLP(finalNet);
+      taxEl.textContent = window.formatCLP(tax);
+      totalEl.textContent = window.formatCLP(total);
+    };
+
+    radios.forEach(r => {
+      r.onchange = updatePrices;
+    });
+
+    updatePrices();
+  }
+};
+
 
 
 

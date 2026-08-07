@@ -169,7 +169,7 @@ serve(async (req) => {
       .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'onboarding_contract_received'].includes(emailType);
+    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'onboarding_contract_received', 'onboarding_catalog_ready'].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
     let recipientEmails: string[] = []
@@ -725,6 +725,34 @@ serve(async (req) => {
               <strong>Envía:</strong> Descarga el comprobante en PDF generado por el portal, pégalo de forma visible en las cajas o bultos de tu despacho y coordina el envío de los productos a nuestra bodega.
             </li>
           </ol>
+        </div>
+
+        <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
+          <a href="https://stocka-wms.netlify.app" target="_blank" style="display: inline-block; background-color: #5e17eb; color: #ffffff; text-decoration: none; padding: 12px 30px; font-size: 14px; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.25);">
+            Ingresar al Portal WMS
+          </a>
+        </div>
+      `;
+    }
+    else if (emailType === 'onboarding_catalog_ready') {
+      emailSubject = `¡Tu catálogo ha sido configurado! - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #4f46e5, #3b82f6)';
+      emailTitle = 'Catálogo Configurado';
+
+      emailBodyHtml = `
+        <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Estimado equipo de <strong>${commerceName}</strong>,<br><br>
+          ¡Nos complace informarte que <strong>el equipo de Stocka ha finalizado la configuración inicial de tu catálogo de productos</strong>!
+        </div>
+        
+        <div style="background-color: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 14px; color: #0369a1; line-weight: 1.5; font-weight: 600; text-align: center;">
+          CATÁLOGO CONFIGURADO Y HABILITADO
+        </div>
+        
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 25px;">
+          Tu catálogo ha sido cargado con éxito en el sistema. A partir de este momento puedes proceder a realizar los siguientes pasos de tu flujo de inicio en el portal:<br><br>
+          1. **Declarar tu primer ingreso de stock (D.I.)** indicando qué mercancía vas a despachar a nuestra bodega.<br>
+          2. **Revisar la Guía de SKU y pautas de embalaje** para asegurar que el inventario sea recibido sin problemas ni demoras.
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">

@@ -45,6 +45,13 @@ async function run() {
   console.log(`[${new Date().toISOString()}] Iniciando sincronización bidireccional WMS <-> Picker...`);
 
   try {
+    // 0. Obtener comercios con lectura estricta obligatoria
+    const { data: strictComercios } = await wmsClient
+      .from('comercios_adicional_config')
+      .select('comercio')
+      .eq('picking_match_strict', true);
+    const strictComerciosSet = new Set((strictComercios || []).map(c => String(c.comercio).trim().toUpperCase()));
+
     // 1. Obtener todos los pedidos del WMS en estado "En preparación"
     const { data: wmsOrders, error: wmsErr } = await wmsClient
       .from('orders')
@@ -153,12 +160,14 @@ async function run() {
           physicalItems.forEach(oi => {
             const prod = oi.products || {};
             const opt = prod.options || {};
+            const commerceName = String(wmsOrder.comercio || '').trim().toUpperCase();
+            const commerceStrict = strictComerciosSet.has(commerceName);
             payloads.push({
               sucursal: wmsOrder.sucursal_pickeo || 'Sucursal Virtual (Hub)',
               order_number: orderNo,
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
-              sku: (prod.send_barcode_to_picker && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
+              sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
               name: prod.name || 'Producto WMS',
               color: opt.color || null,
               talla: opt.talla || opt.size || null,
@@ -178,7 +187,7 @@ async function run() {
               extra_col_v: prod.image_url || '',
               comercio: wmsOrder.comercio || 'MAGIC MAKEUP',
               created_by: 'Sistema WMS',
-              picking_match_strict: prod.picking_match_strict || false
+              picking_match_strict: commerceStrict || prod.picking_match_strict || false
             });
           });
 

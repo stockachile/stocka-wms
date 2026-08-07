@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     razon_social TEXT,                               -- Razón Social de la empresa asociada
     plat_siglas_config JSONB DEFAULT '{}'::jsonb,    -- Configuración de siglas y prefijos por plataforma
     email_colaborador TEXT,                          -- Correo para cuentas de colaborador en marketplaces
+    enviame_id TEXT,                                 -- ID para integración con Enviame
+    picking_match_strict BOOLEAN NOT NULL DEFAULT false, -- Lectura estricta en el picker
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -20,6 +22,8 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rut TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_social TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_siglas_config JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS enviame_id TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS picking_match_strict BOOLEAN NOT NULL DEFAULT false;
 
 -- 2. Habilitar RLS (Row Level Security)
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;

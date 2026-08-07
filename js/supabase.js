@@ -185,4 +185,31 @@ window.clearDashboardCache = function(key) {
   }
 };
 
+window.loadShippingRatesFromSupabase = async function() {
+  try {
+    const { data, error } = await supabase
+      .from('shipping_rates')
+      .select('rates')
+      .eq('id', 'current')
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Advertencia al cargar tarifas desde Supabase (se usarán tarifas locales):', error);
+      return;
+    }
+
+    if (data && data.rates) {
+      window.shippingRates = data.rates;
+      console.log('Tarifas de despacho actualizadas cargadas correctamente desde Supabase.');
+    } else {
+      console.log('No se encontraron tarifas cargadas en Supabase. Usando tarifas locales integradas.');
+    }
+  } catch (err) {
+    console.error('Error en loadShippingRatesFromSupabase:', err);
+  }
+};
+
+// Cargar tarifas de manera asíncrona no bloqueante
+window.loadShippingRatesFromSupabase();
+
 export default supabase;
