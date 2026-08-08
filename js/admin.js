@@ -24193,9 +24193,34 @@ window.showMerchantCreateModal = function() {
 };
 
 // Modal de Edición de Comercio
-window.showMerchantEditModal = function(comercioName) {
+window.showMerchantEditModal = async function(comercioName) {
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
   if (!commerce) return;
+
+  // Intentar autocompletar desde onboarding_requests si no tiene razón social o rut
+  if (!commerce.razon_social || !commerce.rut) {
+    try {
+      const { data: onbReq } = await supabase
+        .from('onboarding_requests')
+        .select('razon_social, rut_empresa')
+        .eq('nombre_fantasia', comercioName)
+        .eq('status', 'approved')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (onbReq) {
+        if (!commerce.razon_social && onbReq.razon_social) {
+          commerce.razon_social = onbReq.razon_social;
+        }
+        if (!commerce.rut && onbReq.rut_empresa) {
+          commerce.rut = onbReq.rut_empresa;
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching onboarding data for autocomplete:', e);
+    }
+  }
 
   const modalId = 'modal-edit-merchant';
   let modal = document.getElementById(modalId);
@@ -30230,6 +30255,8 @@ function showOnboardingApproveConfigModal(req) {
           comercio: commerceName,
           pedido_trae_sigla: siglaPedido,
           inventario_seguimiento: enableInventory,
+          rut: req.rut_empresa || null,
+          razon_social: req.razon_social || null,
           onboarding_checklist: {
             integrations: false,
             catalog_ready: false,
