@@ -697,34 +697,33 @@ serve(async (req) => {
         </div>
 
         <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-bottom: 25px;">
-          <h3 style="font-size: 14.5px; color: #0f172a; margin-top: 0; margin-bottom: 12px; font-weight: 700;">
-            👉 ¿Cuál es tu próximo paso?
+          <h3 style="font-size: 14.5px; color: #0f172a; margin-top: 0; margin-bottom: 15px; font-weight: 700;">
+            👉 Pasos clave para comenzar a operar:
           </h3>
           
-          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 15px; font-size: 13px; color: #475569; line-height: 1.6;">
-            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">Crear tu primera Declaración de Ingreso de Stock (D.I.)</strong>
-            Para poder recibir tus productos físicamente en nuestra bodega de fulfillment, es obligatorio que declares qué mercancía vas a enviarnos. De esta forma, nuestro equipo de recepción estará preparado para recibir, auditar y almacenar tu inventario sin retrasos.
+          <!-- Paso 1 -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
+              <span style="color: #3b82f6; font-weight: 800;">PASO 1:</span> Realizar Integraciones
+            </strong>
+            Vincula tus canales de venta (como Shopify, WooCommerce o Mercado Libre) en la sección de <strong>Integraciones</strong> de tu portal WMS para que podamos recibir e importar tus ventas de forma automática.
           </div>
 
-          <h4 style="font-size: 13px; color: #0f172a; margin-top: 15px; margin-bottom: 8px; font-weight: 600;">Instrucciones para realizar tu primer ingreso de stock:</h4>
-          
-          <ol style="margin: 0; padding-left: 20px; font-size: 13px; color: #475569; line-height: 1.7;">
-            <li style="margin-bottom: 8px;">
-              <strong>Inicia Sesión:</strong> Entra al portal WMS de Stocka (usa el botón de abajo).
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>Descarga la Planilla:</strong> Dirígete a la sección de <strong>Productos</strong> o <strong>Ingresos / Stock</strong> en el portal y sigue las instrucciones para descargar la planilla modelo en formato Excel.
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>Completa los Datos:</strong> Rellena la planilla Excel con tus SKUs, descripciones y las cantidades de productos correspondientes a tu primer ingreso. (<em>Dado que tu cuenta inicia sin seguimiento activo de stock, la carga masiva por planilla es la opción exclusiva para registrar tu inventario inicial</em>).
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>Sube la Planilla:</strong> Carga el archivo Excel completado en el portal en la sección correspondiente para dar de alta tus productos y stock de forma simultánea.
-            </li>
-            <li style="margin-bottom: 8px;">
-              <strong>Envía:</strong> Descarga el comprobante en PDF generado por el portal, pégalo de forma visible en las cajas o bultos de tu despacho y coordina el envío de los productos a nuestra bodega.
-            </li>
-          </ol>
+          <!-- Paso 2 -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
+              <span style="color: #f59e0b; font-weight: 800;">PASO 2:</span> Configuración de Catálogo (por Stocka)
+            </strong>
+            Una vez realizadas tus integraciones, nuestro equipo de operaciones se encargará de realizar la carga y configuración de tu catálogo inicial de productos. Te avisaremos automáticamente por correo electrónico cuando este proceso esté finalizado.
+          </div>
+
+          <!-- Paso 3 -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
+              <span style="color: #10b981; font-weight: 800;">PASO 3:</span> Declarar tu primer Ingreso de Stock
+            </strong>
+            En cuanto confirmemos que tu catálogo está listo, podrás declarar la mercadería que enviarás a nuestra bodega ingresando al módulo de <strong>Ingresos de Stock</strong>. Esto es indispensable para realizar la recepción y auditoría de tu inventario sin demoras.
+          </div>
         </div>
 
         <div style="text-align: center; margin-top: 25px; margin-bottom: 15px;">
