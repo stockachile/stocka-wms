@@ -2012,35 +2012,7 @@ async function renderDashboard() {
                 </div>
               </div>
 
-              <!-- PASO 3 -->
-              <div class="onboarding-step-row-v2" id="step-row-stock_declared">
-                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
-                  <div style="display: flex; align-items: center; gap: 1rem;">
-                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-stock_declared" ${onboardingChecklist.stock_declared ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('stock_declared', this.checked)">
-                    <div class="onboarding-step-icon" style="background: rgba(16, 185, 129, 0.08); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.15);">
-                      <i class="ri-inbox-archive-fill"></i>
-                    </div>
-                    <div>
-                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">3. Declara tu Primer Ingreso de Stock</strong>
-                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.</span>
-                    </div>
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 0.85rem;">
-                    <span id="onboarding-badge-stock_declared" class="onboarding-badge ${onboardingChecklist.stock_declared ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
-                      ${onboardingChecklist.stock_declared ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
-                    </span>
-                    <i class="ri-arrow-down-s-line" id="arrow-stock_declared" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
-                  </div>
-                </div>
-                <div class="onboarding-step-details" id="details-stock_declared">
-                  <p style="margin: 0 0 0.85rem 0;">Antes de mandar cajas o pallets a nuestra bodega, debes rellenar una Declaración de Ingreso en el sistema, detallando el SKU, nombre del producto y la cantidad física. Esto permite que la recepción y el conteo sean sumamente ágiles.</p>
-                  <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'declarations\\']')?.click();" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
-                    <i class="ri-add-circle-fill"></i> Declarar Ingreso de Stock
-                  </button>
-                </div>
-              </div>
-
-              <!-- PASO 4 -->
+              <!-- PASO 3 (Anteriormente Paso 4) -->
               <div class="onboarding-step-row-v2" id="step-row-sku_guide">
                 <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('sku_guide')">
                   <div style="display: flex; align-items: center; gap: 1rem;">
@@ -2049,7 +2021,7 @@ async function renderDashboard() {
                       <i class="ri-file-text-fill"></i>
                     </div>
                     <div>
-                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">4. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">3. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
                       <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Revisa los requisitos obligatorios de rotulación y etiquetado de tus cajas.</span>
                     </div>
                   </div>
@@ -2065,6 +2037,64 @@ async function renderDashboard() {
                   <a href="${skuGuideUrl}" ${skuGuideUrl === '#' ? `onclick="event.preventDefault(); document.querySelector('[data-view=\\'documentation\\']')?.click();"` : 'target="_blank"'} class="btn btn-primary btn-sm" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; text-decoration: none; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
                     <i class="ri-file-pdf-fill"></i> Descargar Guía de SKU
                   </a>
+                </div>
+              </div>
+
+              <!-- PASO 4 (Anteriormente Paso 3) -->
+              <div class="onboarding-step-row-v2" id="step-row-stock_declared" style="${!onboardingChecklist.catalog_ready ? 'opacity: 0.95;' : ''}">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    ${onboardingChecklist.catalog_ready 
+                      ? `<input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-stock_declared" ${onboardingChecklist.stock_declared ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleOnboardingCheckbox('stock_declared', this.checked)">`
+                      : `<input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-stock_declared" disabled style="cursor: not-allowed; opacity: 0.5;">`
+                    }
+                    <div class="onboarding-step-icon" style="background: rgba(16, 185, 129, 0.08); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.15); ${!onboardingChecklist.catalog_ready ? 'filter: grayscale(1); opacity: 0.7;' : ''}">
+                      <i class="ri-inbox-archive-fill"></i>
+                    </div>
+                    <div>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700; ${!onboardingChecklist.catalog_ready ? 'opacity: 0.8;' : ''}">4. Declara tu Primer Ingreso de Stock</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">
+                        ${onboardingChecklist.catalog_ready
+                          ? 'Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.'
+                          : '<span style="color: var(--color-danger); font-weight: 600;"><i class="ri-lock-2-line"></i> Bloqueado hasta completar el Paso 2 (Catálogo)</span>'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    ${onboardingChecklist.catalog_ready
+                      ? `
+                        <span id="onboarding-badge-stock_declared" class="onboarding-badge ${onboardingChecklist.stock_declared ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                          ${onboardingChecklist.stock_declared ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                        </span>
+                      `
+                      : `
+                        <span id="onboarding-badge-stock_declared" class="onboarding-badge onboarding-badge-pending" style="opacity: 0.7;">
+                          <i class="ri-lock-2-line"></i> Bloqueado
+                        </span>
+                      `
+                    }
+                    <i class="ri-arrow-down-s-line" id="arrow-stock_declared" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  </div>
+                </div>
+                <div class="onboarding-step-details" id="details-stock_declared">
+                  <p style="margin: 0 0 0.85rem 0;">Antes de mandar cajas o pallets a nuestra bodega, debes rellenar una Declaración de Ingreso en el sistema, detallando el SKU, nombre del producto y la cantidad física. Esto permite que la recepción y el conteo sean sumamente ágiles.</p>
+                  
+                  ${onboardingChecklist.catalog_ready
+                    ? `
+                      <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'declarations\\']')?.click();" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
+                        <i class="ri-add-circle-fill"></i> Declarar Ingreso de Stock
+                      </button>
+                    `
+                    : `
+                      <div style="background: rgba(239, 68, 68, 0.06); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 8px; padding: 0.85rem; display: flex; align-items: flex-start; gap: 0.5rem; color: var(--color-danger); font-size: 0.82rem; font-weight: 500; line-height: 1.4; margin-top: 0.5rem;">
+                        <i class="ri-lock-2-line" style="font-size: 1rem; margin-top: 2px; flex-shrink: 0;"></i>
+                        <div>
+                          <strong>Paso Bloqueado:</strong> Para poder declarar tu primer ingreso de stock, primero operaciones de Stocka debe configurar tu catálogo inicial de productos (Paso 2). Te enviaremos una notificación tan pronto esté listo.
+                        </div>
+                      </div>
+                    `
+                  }
                 </div>
               </div>
 
