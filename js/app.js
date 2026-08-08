@@ -946,6 +946,91 @@ window.toggleOnboardingCheckbox = async function(stepName, value) {
   }
 };
 
+window.triggerConfettiCelebration = function() {
+  if (window.confettiTriggeredAlready) return;
+  window.confettiTriggeredAlready = true;
+
+  const container = document.createElement('div');
+  container.style.position = 'fixed';
+  container.style.top = '0';
+  container.style.left = '0';
+  container.style.width = '100vw';
+  container.style.height = '100vh';
+  container.style.pointerEvents = 'none';
+  container.style.zIndex = '999999';
+  document.body.appendChild(container);
+
+  const colors = ['#5e17eb', '#a855f7', '#3b82f6', '#10b981', '#f59e0b', '#ec4899'];
+  const confettiCount = 120;
+
+  for (let i = 0; i < confettiCount; i++) {
+    const confetti = document.createElement('div');
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    
+    confetti.style.position = 'absolute';
+    confetti.style.width = `${Math.random() * 8 + 6}px`;
+    confetti.style.height = `${Math.random() * 8 + 6}px`;
+    confetti.style.backgroundColor = color;
+    confetti.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+    
+    const side = Math.random() > 0.5 ? 'left' : 'right';
+    const initX = side === 'left' 
+      ? Math.random() * (window.innerWidth * 0.25)
+      : window.innerWidth - Math.random() * (window.innerWidth * 0.25);
+    const initY = window.innerHeight + 10;
+    
+    confetti.style.left = `${initX}px`;
+    confetti.style.top = `${initY}px`;
+    container.appendChild(confetti);
+
+    const angle = side === 'left' ? (Math.random() * 45 + 35) : (Math.random() * 45 + 100);
+    const velocity = Math.random() * 28 + 18;
+    const rad = angle * Math.PI / 180;
+    
+    let posX = initX;
+    let posY = initY;
+    let vx = Math.cos(rad) * velocity * 0.55;
+    let vy = -Math.sin(rad) * velocity;
+    const gravity = 0.5;
+    const drag = 0.985;
+    let rotate = Math.random() * 360;
+    const rSpeed = (Math.random() - 0.5) * 12;
+
+    const update = () => {
+      vy += gravity;
+      vx *= drag;
+      vy *= drag;
+      posX += vx;
+      posY += vy;
+      rotate += rSpeed;
+
+      confetti.style.transform = `translate3d(${posX - initX}px, ${posY - initY}px, 0) rotate(${rotate}deg)`;
+
+      if (posY < window.innerHeight + 50 && posX > -50 && posX < window.innerWidth + 50) {
+        requestAnimationFrame(update);
+      } else {
+        confetti.remove();
+      }
+    };
+    
+    requestAnimationFrame(update);
+  }
+
+  setTimeout(() => {
+    Swal.fire({
+      title: '¡Enhorabuena! 🎉',
+      text: 'Has completado todos los pasos clave para la configuración inicial de tu WMS Stocka. ¡Nuestro equipo está listo para recibir tu mercadería!',
+      icon: 'success',
+      confirmButtonText: '¡Comenzar a operar!',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }, 800);
+
+  setTimeout(() => {
+    container.remove();
+  }, 6000);
+};
+
 window.updateOnboardingProgress = function() {
   const cb1 = document.getElementById('onboarding-step-cb-integrations')?.checked || false;
   const cb2 = document.getElementById('onboarding-step-cb-catalog_ready')?.checked || false;
@@ -965,6 +1050,12 @@ window.updateOnboardingProgress = function() {
   
   if (bar) bar.style.width = `${pct}%`;
   if (text) text.textContent = `${pct}%`;
+
+  if (pct === 100) {
+    window.triggerConfettiCelebration();
+  } else {
+    window.confettiTriggeredAlready = false;
+  }
 };
 
 window.dismissOnboardingChecklist = async function() {
