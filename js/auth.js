@@ -88,6 +88,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   };
 
+  // Probar si el servidor de Supabase está activo
+  const checkSupabaseStatus = async () => {
+    const banner = document.getElementById('db-status-banner');
+    if (!banner) return;
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout
+
+      const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/rest/v1/', {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.status >= 500) {
+        banner.style.display = 'flex';
+      } else {
+        banner.style.display = 'none';
+      }
+    } catch (err) {
+      console.warn('Supabase status check: offline/error detected', err);
+      banner.style.display = 'flex';
+    }
+  };
+
+  checkSupabaseStatus();
+  checkSession();
+
   const showResetForm = () => {
     alertContainer.innerHTML = '';
     loginForm.style.display = 'none';
@@ -111,7 +140,101 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  checkSession();
+  // Handle Demo Registration Toggle
+  const demoLoginBtn = document.getElementById('demo-login-btn');
+  const toggleToLoginFromDemo = document.getElementById('toggle-to-login-from-demo');
+  const demoRegisterForm = document.getElementById('demo-register-form');
+  const demoRegNameInput = document.getElementById('demo-reg-name');
+  const demoRegEmailInput = document.getElementById('demo-reg-email');
+  const demoRegPasswordInput = document.getElementById('demo-reg-password');
+  const demoRegisterSubmitBtn = document.getElementById('demo-register-btn');
+
+  if (demoLoginBtn) {
+    demoLoginBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      alertContainer.innerHTML = '';
+      loginForm.style.display = 'none';
+      if (registerForm) registerForm.style.display = 'none';
+      if (forgotForm) forgotForm.style.display = 'none';
+      if (demoRegisterForm) {
+        demoRegisterForm.style.display = 'block';
+        demoRegisterForm.classList.add('auth-fade-in');
+      }
+      authTitle.textContent = 'Solicitar Demo';
+      authSubtitle.textContent = 'Ingresa tus datos para registrar tu cuenta de prueba. Recibirás un enlace de confirmación por correo electrónico.';
+    });
+  }
+
+  // Alternar de Demo a Login
+  if (toggleToLoginFromDemo) {
+    toggleToLoginFromDemo.addEventListener('click', (e) => {
+      e.preventDefault();
+      alertContainer.innerHTML = '';
+      if (demoRegisterForm) demoRegisterForm.style.display = 'none';
+      loginForm.style.display = 'block';
+      loginForm.classList.add('auth-fade-in');
+      authTitle.textContent = 'Bienvenido';
+      authSubtitle.textContent = 'Ingresa tus credenciales para acceder a tu bodega online.';
+    });
+  }
+
+  // Handle Demo Register Submit
+  if (demoRegisterForm) {
+    demoRegisterForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const name = demoRegNameInput.value.trim();
+      const email = demoRegEmailInput.value.trim();
+      const password = demoRegPasswordInput.value.trim();
+
+      if (!name || !email || !password) {
+        showAlert('Por favor, completa todos los campos.');
+        return;
+      }
+
+      if (password.length < 8) {
+        showAlert('La contraseña debe tener al menos 8 caracteres.');
+        return;
+      }
+
+      demoRegisterSubmitBtn.disabled = true;
+      demoRegisterSubmitBtn.textContent = 'Enviando solicitud...';
+
+      try {
+        // Registrar usuario real en Supabase marcado como demo user
+        const { data, error } = await supabase.auth.signUp({
+          email: email,
+          password: password,
+          options: {
+            data: {
+              full_name: name,
+              company_name: 'Demo - ' + name,
+              is_demo_user: true
+            }
+          }
+        });
+
+        if (error) throw error;
+
+        showAlert('¡Registro de demo exitoso! Te hemos enviado un enlace de confirmación a tu correo. Por favor, confírmalo para poder ingresar.', 'success');
+        
+        // Limpiar y volver a login después de unos segundos
+        setTimeout(() => {
+          demoRegisterForm.reset();
+          if (toggleToLoginFromDemo) toggleToLoginFromDemo.click();
+        }, 5000);
+
+      } catch (error) {
+        let msg = error.message;
+        if (typeof msg === 'object') msg = JSON.stringify(msg);
+        if (msg === '{}' || msg === '[object Object]') msg = '';
+        showAlert(msg || 'Error al registrar la demo. Inténtalo de nuevo.');
+      } finally {
+        demoRegisterSubmitBtn.disabled = false;
+        demoRegisterSubmitBtn.textContent = 'Solicitar Acceso Demo';
+      }
+    });
+  }
 
   // Handle Login
   loginForm.addEventListener('submit', async (e) => {
@@ -119,6 +242,45 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const email = emailInput.value.trim();
     const password = passwordInput.value.trim();
+
+    if (email.toLowerCase() === 'demo@stocka.cl') {
+      loginBtn.disabled = true;
+      loginBtn.innerHTML = '<i class="ri-loader-4-line" style="display: inline-block; animation: spin 1s linear infinite; margin-right: 0.35rem;"></i> Ingresando...';
+      
+      // Activar modo demo en sessionStorage
+      sessionStorage.setItem('wms_demo_mode', 'true');
+      
+      // Loader de transición premium a pantalla completa
+      const loader = document.createElement('div');
+      loader.id = 'premium-login-loader';
+      loader.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(15, 23, 42, 0.92); backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        z-index: 9999; opacity: 0; transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        font-family: 'Inter', sans-serif;
+      `;
+      loader.innerHTML = `
+        <div style="position: relative; display: flex; align-items: center; justify-content: center; margin-bottom: 2rem;">
+          <div style="width: 86px; height: 86px; border: 4px solid rgba(94, 23, 235, 0.1); border-top-color: var(--color-accent); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          <div style="position: absolute; width: 60px; height: 60px; background: rgba(94, 23, 235, 0.08); border-radius: 50%; display: flex; align-items: center; justify-content: center; animation: pulse 1.4s ease-in-out infinite;">
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="width: 26px; height: 26px; object-fit: contain;" alt="Logo">
+          </div>
+        </div>
+        <h3 style="color: #fff; font-size: 1.25rem; font-weight: 700; margin: 0 0 0.5rem 0; letter-spacing: -0.01em; text-align: center;">Preparando Entorno Demo</h3>
+        <p style="color: rgba(255, 255, 255, 0.5); font-size: 0.85rem; margin: 0; animation: fadePulse 1.4s ease-in-out infinite; text-align: center;">Cargando base de datos ficticia segura...</p>
+      `;
+      document.body.appendChild(loader);
+      
+      void loader.offsetWidth;
+      loader.style.opacity = '1';
+      
+      setTimeout(() => {
+        window.location.href = 'dashboard.html';
+      }, 1300);
+      return;
+    }
 
     if (!email || !password) {
       showAlert('Por favor, ingresa correo y contraseña.');
@@ -199,8 +361,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (password.length < 6) {
-        showAlert('La contraseña debe tener al menos 6 caracteres.');
+      if (password.length < 8) {
+        showAlert('La contraseña debe tener al menos 8 caracteres.');
         return;
       }
 
@@ -355,8 +517,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (newPassword.length < 6) {
-        showAlert('La contraseña debe tener al menos 6 caracteres.');
+      if (newPassword.length < 8) {
+        showAlert('La contraseña debe tener al menos 8 caracteres.');
         return;
       }
 

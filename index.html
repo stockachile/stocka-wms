@@ -23,8 +23,19 @@
           <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" alt="STOCKA Logo" class="light-logo">
           <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" class="dark-logo">
         </div>
+
+        <!-- Banner de Mantenimiento Técnico Temporal -->
+        <div id="db-status-banner" style="display: none; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md, 8px); padding: 0.85rem 1rem; margin-bottom: 1.25rem; align-items: flex-start; gap: 0.65rem; text-align: left; font-family: 'Inter', sans-serif;">
+          <i class="ri-error-warning-line" style="color: var(--color-danger, #ef4444); font-size: 1.25rem; flex-shrink: 0; margin-top: 0.1rem;"></i>
+          <div>
+            <div style="font-weight: 700; color: var(--color-danger, #ef4444); font-size: 0.85rem; margin-bottom: 0.15rem;">Aviso de Interrupción Temporal</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted, #475569); line-height: 1.4; font-weight: 500;">
+              Estamos experimentando un inconveniente técnico de conexión con nuestro servidor de base de datos. Nuestro equipo técnico está trabajando para resolverlo a la brevedad. Agradecemos tu paciencia.
+            </div>
+          </div>
+        </div>
       
-      <h1 class="auth-title">Bienvenido</h1>
+        <h1 class="auth-title">Bienvenido</h1>
       <p class="auth-subtitle">Ingresa tus credenciales para acceder a tu bodega online.</p>
 
       <div id="alert-container"></div>
@@ -42,6 +53,10 @@
 
         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="login-btn">
           Ingresar
+        </button>
+
+        <button type="button" class="btn btn-outline" style="width: 100%; margin-top: 0.5rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border: 2px dashed var(--color-accent); color: var(--color-accent); font-weight: 700; background: transparent; transition: all 0.2s; cursor: pointer;" id="demo-login-btn" onmouseover="this.style.background='rgba(94, 23, 235, 0.05)'; this.style.borderStyle='solid';" onmouseout="this.style.background='transparent'; this.style.borderStyle='dashed';">
+          <i class="ri-play-circle-line" style="font-size: 1.1rem; color: var(--color-accent);"></i> Probar Demo Gratis
         </button>
 
         <p style="text-align: right; margin-top: 0.75rem;">
@@ -94,7 +109,7 @@
         
         <div class="form-group">
           <label for="reg-password" class="form-label">Contraseña</label>
-          <input type="password" id="reg-password" class="form-input" placeholder="Mínimo 6 caracteres" required minlength="6">
+          <input type="password" id="reg-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
         </div>
 
         <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem;" id="register-btn">
@@ -126,7 +141,7 @@
       <form id="reset-form" style="display: none;">
         <div class="form-group">
           <label for="reset-password" class="form-label">Nueva Contraseña</label>
-          <input type="password" id="reset-password" class="form-input" placeholder="Mínimo 6 caracteres" required>
+          <input type="password" id="reset-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
         </div>
         <div class="form-group" style="margin-top: 1rem;">
           <label for="reset-confirm-password" class="form-label">Confirmar Contraseña</label>
@@ -139,6 +154,32 @@
 
         <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
           <a href="#" id="toggle-to-login-from-reset" style="color: var(--color-accent); font-weight: 600;">← Volver al inicio de sesión</a>
+        </p>
+      </form>
+
+      <!-- Formulario de Registro Demo (Oculto por defecto) -->
+      <form id="demo-register-form" style="display: none;">
+        <div class="form-group">
+          <label for="demo-reg-name" class="form-label">Nombre Completo</label>
+          <input type="text" id="demo-reg-name" class="form-input" placeholder="Juan Pérez" required>
+        </div>
+
+        <div class="form-group">
+          <label for="demo-reg-email" class="form-label">Correo Electrónico</label>
+          <input type="email" id="demo-reg-email" class="form-input" placeholder="ejemplo@empresa.com" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="demo-reg-password" class="form-label">Contraseña</label>
+          <input type="password" id="demo-reg-password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 1rem; background: var(--color-accent); border-color: var(--color-accent);" id="demo-register-btn">
+          Solicitar Acceso Demo
+        </button>
+
+        <p class="auth-toggle-text" style="text-align: center; margin-top: 1.5rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          ¿Ya tienes cuenta? <a href="#" id="toggle-to-login-from-demo" style="color: var(--color-accent); font-weight: 600;">Inicia sesión aquí</a>
         </p>
       </form>
     </div>

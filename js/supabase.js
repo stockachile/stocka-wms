@@ -1,9 +1,424 @@
+import './demo.js';
+
 // URL y Anon Key proporcionadas por el usuario
 const SUPABASE_URL = 'https://ejtjfaucnxbikrwjwwdu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqdGpmYXVjbnhiaWtyd2p3d2R1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzExODUsImV4cCI6MjA5NTQwNzE4NX0.cnuyxOpbqr-182Q3MJFJu0prtFSvwk1RgbiVBhjYUak';
 
-// Inicializar cliente Supabase usando UMD script cargado en el HTML
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Inicializar cliente Supabase real
+const actualSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Clase MockQueryBuilder para emular la base de datos Supabase en memoria/sessionStorage
+class MockQueryBuilder {
+  constructor(tableName, data) {
+    this.tableName = tableName;
+    this.data = data;
+    this.filters = [];
+    this.orderByField = null;
+    this.orderAscending = true;
+    this.limitCount = null;
+    this.offsetCount = null;
+    this.isSingle = false;
+    this.isMaybeSingle = false;
+  }
+
+  select(selectStr) {
+    return this;
+  }
+
+  eq(column, value) {
+    this.filters.push(item => {
+      if (column.includes('.')) {
+        const parts = column.split('.');
+        const val = item[parts[0]] ? item[parts[0]][parts[1]] : undefined;
+        return String(val) === String(value);
+      }
+      return String(item[column]) === String(value);
+    });
+    return this;
+  }
+
+  neq(column, value) {
+    this.filters.push(item => String(item[column]) !== String(value));
+    return this;
+  }
+
+  gte(column, value) {
+    this.filters.push(item => item[column] >= value);
+    return this;
+  }
+
+  lte(column, value) {
+    this.filters.push(item => item[column] <= value);
+    return this;
+  }
+
+  in(column, values) {
+    this.filters.push(item => {
+      if (column.includes('.')) {
+        const parts = column.split('.');
+        const val = item[parts[0]] ? item[parts[0]][parts[1]] : undefined;
+        return values.includes(val);
+      }
+      return values.includes(item[column]);
+    });
+    return this;
+  }
+
+  or(filterStr) {
+    this.filters.push(item => {
+      const clauses = filterStr.split(',');
+      return clauses.some(clause => {
+        const parts = clause.split('.');
+        if (parts.length >= 3) {
+          const col = parts[0];
+          const op = parts[1];
+          const val = parts[2].replace(/"/g, '');
+          if (op === 'eq') return String(item[col]) === String(val);
+        }
+        return false;
+      });
+    });
+    return this;
+  }
+
+  order(column, { ascending = true } = {}) {
+    this.orderByField = column;
+    this.orderAscending = ascending;
+    return this;
+  }
+
+  limit(count) {
+    this.limitCount = count;
+    return this;
+  }
+
+  range(from, to) {
+    this.offsetCount = from;
+    this.limitCount = (to - from) + 1;
+    return this;
+  }
+
+  single() {
+    this.isSingle = true;
+    return this;
+  }
+
+  maybeSingle() {
+    this.isMaybeSingle = true;
+    return this;
+  }
+
+  then(onfulfilled, onrejected) {
+    return Promise.resolve(this.execute()).then(onfulfilled, onrejected);
+  }
+
+  catch(onrejected) {
+    return Promise.resolve(this.execute()).catch(onrejected);
+  }
+
+  execute() {
+    let result = [...this.data];
+
+    // Aplicar filtros
+    for (const filter of this.filters) {
+      result = result.filter(filter);
+    }
+
+    // Resolver relaciones (Joins)
+    if (this.tableName === 'inventory') {
+      const products = window.getMockTable('products');
+      result = result.map(item => {
+        const prod = products.find(p => p.id === item.product_id);
+        return { ...item, products: prod || null };
+      });
+    } else if (this.tableName === 'stock_declarations') {
+      const warehouses = window.getMockTable('warehouses');
+      const profiles = window.getMockTable('profiles');
+      result = result.map(item => {
+        const wh = warehouses.find(w => w.id === item.warehouse_id) || warehouses[0] || { name: 'Bodega Central', location: 'Santiago' };
+        const prof = profiles.find(p => p.id === item.merchant_id) || profiles[0];
+        return {
+          ...item,
+          warehouses: {
+            name: wh.name,
+            address: wh.location || 'Santiago, RM',
+            comuna: 'Santiago',
+            operating_days: 'Lunes a Viernes'
+          },
+          profiles: {
+            full_name: prof?.full_name || 'Usuario Demo',
+            email: prof?.email || 'demo@stocka.cl'
+          }
+        };
+      });
+    } else if (this.tableName === 'pack_items') {
+      const products = window.getMockTable('products');
+      result = result.map(item => {
+        const prod = products.find(p => p.id === item.member_product_id || p.id === item.pack_product_id);
+        return {
+          ...item,
+          products: prod ? { sku: prod.sku, name: prod.name } : null
+        };
+      });
+    } else if (this.tableName === 'v_comercios_volumen_actual') {
+      const products = window.getMockTable('products');
+      const inventory = window.getMockTable('inventory');
+      let totalVolume = 0;
+      inventory.forEach(inv => {
+        const prod = products.find(p => p.id === inv.product_id);
+        if (prod) {
+          totalVolume += (prod.volumen || 0) * (inv.quantity || 0);
+        }
+      });
+      result = [{
+        comercio: 'Empresa Demo S.A.',
+        comercio_id: 'cac-1',
+        volumen_actual: totalVolume
+      }];
+    } else if (this.tableName === 'comercios_volumen_diario') {
+      const products = window.getMockTable('products');
+      const inventory = window.getMockTable('inventory');
+      let currentVolume = 0;
+      inventory.forEach(inv => {
+        const prod = products.find(p => p.id === inv.product_id);
+        if (prod) {
+          currentVolume += (prod.volumen || 0) * (inv.quantity || 0);
+        }
+      });
+      
+      const history = [];
+      for (let i = 30; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        const fluctuation = (Math.sin(i / 2) * 0.15 + (Math.random() - 0.5) * 0.05);
+        const dayVolume = Math.max(0.1, currentVolume * (1 + fluctuation));
+        
+        history.push({
+          id: `vol-${i}`,
+          comercio: 'Empresa Demo S.A.',
+          comercio_id: 'cac-1',
+          fecha: dateStr,
+          volumen: parseFloat(dayVolume.toFixed(4)),
+          created_at: d.toISOString()
+        });
+      }
+      result = history;
+    }
+
+    // Aplicar ordenamiento
+    if (this.orderByField) {
+      result.sort((a, b) => {
+        let valA = a[this.orderByField];
+        let valB = b[this.orderByField];
+        if (valA === undefined || valA === null) return 1;
+        if (valB === undefined || valB === null) return -1;
+        if (typeof valA === 'string') {
+          return this.orderAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return this.orderAscending ? (valA - valB) : (valB - valA);
+      });
+    }
+
+    // Aplicar paginación / límites
+    let offset = this.offsetCount || 0;
+    let limit = this.limitCount !== null ? this.limitCount : result.length;
+    const count = result.length;
+    result = result.slice(offset, offset + limit);
+
+    // Formatear respuestas únicas
+    if (this.isSingle) {
+      if (result.length === 0) {
+        return { data: null, error: { message: "No se encontraron registros" } };
+      }
+      return { data: result[0], error: null };
+    }
+    if (this.isMaybeSingle) {
+      return { data: result.length > 0 ? result[0] : null, error: null };
+    }
+
+    return { data: result, count: count, error: null };
+  }
+
+  // Operaciones de escritura/mutación
+  insert(records) {
+    if (!Array.isArray(records)) records = [records];
+    const newRecords = records.map(r => ({
+      id: r.id || 'mock-' + Math.random().toString(36).substr(2, 9),
+      created_at: new Date().toISOString(),
+      ...r
+    }));
+    this.data.push(...newRecords);
+    window.saveMockTable(this.tableName, this.data);
+    return Promise.resolve({ data: newRecords, error: null });
+  }
+
+  update(updates) {
+    let result = [...this.data];
+    for (const filter of this.filters) {
+      result = result.filter(filter);
+    }
+    result.forEach(item => {
+      Object.assign(item, updates);
+    });
+    window.saveMockTable(this.tableName, this.data);
+    return Promise.resolve({ data: result, error: null });
+  }
+
+  delete() {
+    let toDelete = [...this.data];
+    for (const filter of this.filters) {
+      toDelete = toDelete.filter(filter);
+    }
+    this.data = this.data.filter(item => !toDelete.includes(item));
+    window.saveMockTable(this.tableName, this.data);
+    return Promise.resolve({ data: toDelete, error: null });
+  }
+}
+
+// Configurar Proxy de Auth para Supabase Auth Client
+const authProxy = new Proxy(actualSupabase.auth, {
+  get(target, prop) {
+    if (prop === 'getSession') {
+      return async () => {
+        // Primero verificar sesión real en Supabase
+        const realSessionResult = await actualSupabase.auth.getSession();
+        const session = realSessionResult?.data?.session;
+        
+        if (session) {
+          // Si el usuario real está marcado como demo user en sus metadatos
+          if (session.user?.user_metadata?.is_demo_user === true) {
+            sessionStorage.setItem('wms_demo_mode', 'true');
+            if (sessionStorage.getItem('wms_demo_db_initialized') !== 'true') {
+              window.initializeDemoDB();
+            }
+            return realSessionResult;
+          }
+        }
+        
+        // Si no hay sesión real pero está el flag manual activo
+        if (window.isDemoMode()) {
+          return {
+            data: {
+              session: {
+                access_token: 'mock-demo-token-1234',
+                user: {
+                  id: 'demo-user-uuid-12345',
+                  email: 'demo@stocka.cl',
+                  user_metadata: {
+                    full_name: 'Cliente Invitado Demo',
+                    company_name: 'Empresa Demo S.A.'
+                  }
+                }
+              }
+            },
+            error: null
+          };
+        }
+        return realSessionResult;
+      };
+    }
+    if (prop === 'signInWithPassword') {
+      return async ({ email, password }) => {
+        if (email.toLowerCase() === 'demo@stocka.cl') {
+          sessionStorage.setItem('wms_demo_mode', 'true');
+          window.initializeDemoDB(true);
+          return {
+            data: {
+              session: {
+                access_token: 'mock-demo-token-1234',
+                user: {
+                  id: 'demo-user-uuid-12345',
+                  email: 'demo@stocka.cl',
+                  user_metadata: {
+                    full_name: 'Cliente Invitado Demo',
+                    company_name: 'Empresa Demo S.A.'
+                  }
+                }
+              }
+            },
+            error: null
+          };
+        }
+        
+        const result = await actualSupabase.auth.signInWithPassword({ email, password });
+        const session = result?.data?.session;
+        if (session && session.user?.user_metadata?.is_demo_user === true) {
+          sessionStorage.setItem('wms_demo_mode', 'true');
+          window.initializeDemoDB(true);
+        }
+        return result;
+      };
+    }
+    if (prop === 'onAuthStateChange') {
+      return (callback) => {
+        // Escuchar cambios reales en Supabase Auth
+        return actualSupabase.auth.onAuthStateChange(async (event, session) => {
+          if (session && session.user?.user_metadata?.is_demo_user === true) {
+            sessionStorage.setItem('wms_demo_mode', 'true');
+            if (sessionStorage.getItem('wms_demo_db_initialized') !== 'true') {
+              window.initializeDemoDB();
+            }
+          }
+          callback(event, session);
+        });
+      };
+    }
+    if (prop === 'signOut') {
+      return async () => {
+        if (window.isDemoMode()) {
+          sessionStorage.removeItem('wms_demo_mode');
+          sessionStorage.removeItem('wms_demo_db_initialized');
+        }
+        return actualSupabase.auth.signOut();
+      };
+    }
+    
+    // Delegar al cliente de Supabase Auth original con binding correcto
+    const val = target[prop];
+    if (typeof val === 'function') {
+      return val.bind(target);
+    }
+    return val;
+  }
+});
+
+// Cliente Supabase proxificado con un objeto plano
+const supabaseProxy = {
+  auth: authProxy,
+  from: (tableName) => {
+    if (window.isDemoMode()) {
+      const data = window.getMockTable(tableName);
+      return new MockQueryBuilder(tableName, data);
+    }
+    return actualSupabase.from(tableName);
+  },
+  rpc: (name, args) => {
+    if (window.isDemoMode()) {
+      console.log(`WMS Demo RPC Call: ${name}`, args);
+      if (name === 'get_committed_order_details') {
+        return Promise.resolve({
+          data: [
+            {
+              quantity: 3,
+              order_id: 'o-1003',
+              external_order_number: '1003',
+              external_platform: 'shopify',
+              status: 'packing',
+              created_at: new Date().toISOString(),
+              customer_name: 'Carlos Silva'
+            }
+          ],
+          error: null
+        });
+      }
+      return Promise.resolve({ data: true, error: null });
+    }
+    return actualSupabase.rpc(name, args);
+  }
+};
+
+const supabase = supabaseProxy;
 
 // Función global para escapar caracteres HTML y mitigar ataques XSS
 window.escapeHtml = function(str) {
