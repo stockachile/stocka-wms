@@ -280,6 +280,7 @@ window.updateWmsOrderField = async function(orderId, field, value) {
 
     window.applyWmsFiltersAndRender();
 
+    const orderName = order ? (order.external_order_number || order.id) : '';
     const toast = Swal.mixin({
       toast: true,
       position: 'top-end',
@@ -289,7 +290,8 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     });
     toast.fire({
       icon: 'success',
-      title: 'Campo actualizado'
+      title: 'Campo actualizado',
+      html: orderName ? `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedido: <strong>${orderName}</strong></div>` : ''
     });
   } catch (err) {
     console.error("Error updating order field:", err);
@@ -26909,6 +26911,7 @@ window.changeOrderBillingPeriod = async function(orderId, currentVal) {
       order.periodo_facturacion = val;
     }
     
+    const orderName = order ? (order.external_order_number || order.id) : '';
     const toast = Swal.mixin({
       toast: true,
       position: 'top-end',
@@ -26918,7 +26921,8 @@ window.changeOrderBillingPeriod = async function(orderId, currentVal) {
     });
     toast.fire({
       icon: 'success',
-      title: 'Periodo de facturación actualizado'
+      title: 'Periodo de facturación actualizado',
+      html: orderName ? `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedido: <strong>${orderName}</strong></div>` : ''
     });
     
     applyWmsFiltersAndRender();
@@ -27018,16 +27022,18 @@ window.syncPickerStatusToWms = async function() {
           o.estado_wms = 'Pickeado';
         });
 
+        const orderNames = ordersToUpdate.map(o => o.external_order_number || o.id).slice(0, 3).join(', ') + (ordersToUpdate.length > 3 ? ' y otros' : '');
         const toast = Swal.mixin({
           toast: true,
           position: 'top-end',
           showConfirmButton: false,
-          timer: 4000,
+          timer: 5000,
           timerProgressBar: true
         });
         toast.fire({
           icon: 'success',
-          title: `¡${ordersToUpdate.length} pedido(s) finalizados desde el Picker!`
+          title: `¡${ordersToUpdate.length} pedido(s) finalizados desde el Picker!`,
+          html: `<div style="font-size: 0.825rem; margin-top: 0.25rem; color: var(--color-text-muted);">Pedidos: <strong>${orderNames}</strong></div>`
         });
 
         applyWmsFiltersAndRender();
