@@ -2545,14 +2545,14 @@ Hemos incorporado el logotipo oficial de **Stocka.cap** (`img/stocka.cap.png`) p
 
 ---
 
-## 110. Remoción Total de Fondos Oscuros/Borroso (Backdrops) y Optimización de Notificaciones
+## 110. Remoción de Fondos Oscuros Laterales en Notificaciones (Toasts) y Optimización
 
-Hemos realizado un ajuste integral de estilos y comportamiento en los modales, paneles desplegables y alertas del WMS para optimizar la visibilidad y mejorar la fluidez:
+Hemos realizado un ajuste específico de estilos y comportamiento en las notificaciones flotantes (toasts) y alertas del WMS:
 
-1. **Remoción Completa de Fondos Oscuros y Desenfoques (Backdrops)**:
-   - Modificamos las definiciones de las clases `.modal-overlay` en `css/layout.css` y `.slide-over-overlay` en `css/style.css` para establecer `background: transparent` y `backdrop-filter: none`.
-   - Limpiamos las clases globales de SweetAlert2 (`.swal2-container` y `.swal2-backdrop-show`) para forzar un fondo totalmente transparente y sin desenfoque en cualquier tipo de alerta, confirmación o notificación flotante.
-   - De este modo, los modales de carga, paneles laterales (slide-overs) y popups de SweetAlert se despliegan flotando directamente sobre la interfaz sin oscurecer, bloquear visualmente ni distorsionar el fondo de la pantalla.
+1. **Remoción del Fondo Oscuro Lateral en Notificaciones**:
+   - Modificamos las clases globales de SweetAlert2 (`.swal2-container` y `.swal2-backdrop-show`) en `css/layout.css` para aplicar exclusiones mediante `:not(.swal2-no-backdrop)`.
+   - Esto asegura que las notificaciones flotantes de tipo Toast (que no requieren foco de confirmación ni fondo) ya no muestren la franja oscura lateral ni desenfoquen el fondo de la pantalla.
+   - Los modales regulares de edición/creación (`.modal-overlay`), los paneles de transporte (`.slide-over-overlay`) y los cuadros de confirmación interactiva de SweetAlert conservan correctamente sus fondos oscuros y desenfoques traseros para mantener la jerarquía visual del WMS.
 
 2. **Notificaciones (Toasts) Más Compactas y Detalladas**:
    - Rediseñamos los popups de tipo Toast en SweetAlert2 (`.swal2-popup.swal2-toast`) con un tamaño más ajustado, espaciados reducidos y un esquema premium compatible con temas claro/oscuro.
