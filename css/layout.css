@@ -586,8 +586,8 @@ td.col-group-env {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: transparent;
-  backdrop-filter: none;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -980,13 +980,13 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
   background: var(--color-bg) !important;
 }
 
-/* SweetAlert2 backdrop - completely transparent and non-blurred */
-.swal2-container {
-  backdrop-filter: none !important;
+/* SweetAlert2 backdrop - only for modals, not for toasts */
+.swal2-container:not(.swal2-no-backdrop) {
+  backdrop-filter: blur(4px) !important;
 }
 
-.swal2-container.swal2-backdrop-show {
-  background: transparent !important;
+.swal2-container:not(.swal2-no-backdrop).swal2-backdrop-show {
+  background: rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Custom SweetAlert2 Toast Overrides for compact, premium cards */
