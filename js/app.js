@@ -18586,9 +18586,9 @@ async function loadClientPaymentReports(periodId, resolvedCompanyList) {
           <td style="text-transform: capitalize;">${rep.servicio}</td>
           <td>
             ${rep.comprobante_url ? `
-              <a href="${rep.comprobante_url}" target="_blank" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Comprobante de Pago - ${rep.comercio}', '${rep.comprobante_url}')" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
                 <i class="ri-file-text-line"></i> Ver Comprobante
-              </a>
+              </button>
             ` : '-'}
           </td>
           <td>
@@ -19785,7 +19785,7 @@ function filterAndRenderDocsClient() {
   });
 }
 
-window.openDocPreviewModal = function(name, url) {
+window.openDocPreviewModal = async function(name, url) {
   const modal = document.getElementById('modal-doc-preview');
   const title = document.getElementById('doc-preview-title');
   const body = document.getElementById('doc-preview-body');
@@ -19795,7 +19795,26 @@ window.openDocPreviewModal = function(name, url) {
   if (!modal || !body) return;
   
   title.textContent = name;
-  body.innerHTML = '';
+  body.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size:2rem; margin-right:0.5rem;"></i> Cargando documento...</div>';
+  if (info) info.textContent = 'Obteniendo enlace seguro...';
+  modal.classList.add('active');
+
+  if (url && url.includes('payment_receipts')) {
+    try {
+      const parts = url.split('/payment_receipts/');
+      if (parts.length > 1) {
+        const storagePath = decodeURIComponent(parts[1].split('?')[0]);
+        const { data, error } = await supabase.storage
+          .from('payment_receipts')
+          .createSignedUrl(storagePath, 3600);
+        if (!error && data && data.signedUrl) {
+          url = data.signedUrl;
+        }
+      }
+    } catch (err) {
+      console.error('Error generating signed URL:', err);
+    }
+  }
   
   const knownExtensions = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'txt', 'html', 'htm', 'xlsx', 'xls', 'csv', 'docx', 'doc', 'zip', 'rar', '7z'];
   let ext = '';
