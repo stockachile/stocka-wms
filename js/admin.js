@@ -22767,6 +22767,7 @@ async function renderMerchantsAdmin() {
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
         picking_match_strict: extra.picking_match_strict || false,
+        onboarding_checklist: extra.onboarding_checklist || {},
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -24281,6 +24282,17 @@ window.showMerchantEditModal = function(comercioName) {
             </div>
           </div>
 
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.75rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-catalog-ready" ${commerce.onboarding_checklist && commerce.onboarding_checklist.catalog_ready ? 'checked' : ''}>
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-catalog-ready" style="font-weight: 600; font-size: 0.9rem; cursor: pointer; user-select: none; display: block;">Catálogo Inicial Configurado (Onboarding)</label>
+              <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.4;">Marca esta opción en cuanto el catálogo base de productos haya sido configurado e importado por operaciones de Stocka. Esto enviará un correo automático de notificación al comercio.</p>
+            </div>
+          </div>
+
           <!-- Configuración de Inicio de Inventario por Canal -->
           <div id="merchant-edit-inventory-start-container" style="display: ${commerce.inventario_seguimiento ? 'block' : 'none'}; margin-top: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; background: var(--color-bg);">
             <h4 style="margin: 0 0 0.5rem 0; font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">Pedido Inicial para Descuento de Stock</h4>
@@ -24575,6 +24587,14 @@ window.showMerchantEditModal = function(comercioName) {
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
+    const newCatalogReady = !isMigration && document.getElementById('merchant-edit-catalog-ready')?.checked;
+
+    const oldChecklist = commerce.onboarding_checklist || {};
+    const oldCatalogReady = !!oldChecklist.catalog_ready;
+    const updatedChecklist = {
+      ...oldChecklist,
+      catalog_ready: newCatalogReady
+    };
 
     // Obtener configuración de prefijos por plataforma
     const newPlatSiglasConfig = {};
@@ -24640,10 +24660,33 @@ window.showMerchantEditModal = function(comercioName) {
             plat_siglas_config: newPlatSiglasConfig,
             email_colaborador: newEmailColaborador || null,
             enviame_id: newEnviameId || null,
-            picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false
+            picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false,
+            onboarding_checklist: updatedChecklist
           });
 
         if (configErr) throw configErr;
+
+        // Si cambió de false a true, enviar el correo
+        if (!oldCatalogReady && newCatalogReady) {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`
+                },
+                body: JSON.stringify({
+                  commerceName: commerce.nombre,
+                  emailType: 'onboarding_catalog_ready'
+                })
+              });
+            }
+          } catch (emailErr) {
+            console.error('Error al enviar correo de catálogo listo:', emailErr);
+          }
+        }
 
         // Recalcular dinámicamente el stock comprometido
         try {
@@ -30185,16 +30228,24 @@ function showOnboardingApproveConfigModal(req) {
         .from('comercios_adicional_config')
         .insert([{
           comercio: commerceName,
-          sigla_pedido: siglaPedido,
-          enable_inventory: enableInventory
+          pedido_trae_sigla: siglaPedido,
+          inventario_seguimiento: enableInventory,
+          onboarding_checklist: {
+            integrations: false,
+            catalog_ready: false,
+            stock_declared: false,
+            sku_guide: false,
+            dismissed: false
+          }
         }]);
 
-      // 5. Promover al usuario de 'observer' a 'client' y asociar el comercio
+      // 5. Promover al usuario de 'observer' a 'client' y asociar el comercio con módulos habilitados
       const { error: updateProfileErr } = await supabase
         .from('profiles')
         .update({
           role: 'client',
-          comercio: commerceName
+          comercio: commerceName,
+          allowed_modules: 'all'
         })
         .eq('id', req.user_id);
 
