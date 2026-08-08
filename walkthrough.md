@@ -2543,5 +2543,21 @@ Hemos incorporado el logotipo oficial de **Stocka.cap** (`img/stocka.cap.png`) p
    - Ajustamos la resolución de `platformLower` en las vistas detalladas y modales de pedidos de ambos portales (`js/app.js` y `js/admin.js`).
    - Si la plataforma de origen es `"Manual"`, el resolvedor dinámico lo traduce automáticamente a `"stocka.cap"`, permitiendo que la etiqueta de origen (`originHtml` / `originBadge`) cargue directamente `./img/stocka.cap.png` sin fallar ni recurrir al fallback de texto plano.
 
+---
+
+## 110. Remoción Total de Fondos Oscuros/Borroso (Backdrops) y Optimización de Notificaciones
+
+Hemos realizado un ajuste integral de estilos y comportamiento en los modales, paneles desplegables y alertas del WMS para optimizar la visibilidad y mejorar la fluidez:
+
+1. **Remoción Completa de Fondos Oscuros y Desenfoques (Backdrops)**:
+   - Modificamos las definiciones de las clases `.modal-overlay` en `css/layout.css` y `.slide-over-overlay` en `css/style.css` para establecer `background: transparent` y `backdrop-filter: none`.
+   - Limpiamos las clases globales de SweetAlert2 (`.swal2-container` y `.swal2-backdrop-show`) para forzar un fondo totalmente transparente y sin desenfoque en cualquier tipo de alerta, confirmación o notificación flotante.
+   - De este modo, los modales de carga, paneles laterales (slide-overs) y popups de SweetAlert se despliegan flotando directamente sobre la interfaz sin oscurecer, bloquear visualmente ni distorsionar el fondo de la pantalla.
+
+2. **Notificaciones (Toasts) Más Compactas y Detalladas**:
+   - Rediseñamos los popups de tipo Toast en SweetAlert2 (`.swal2-popup.swal2-toast`) con un tamaño más ajustado, espaciados reducidos y un esquema premium compatible con temas claro/oscuro.
+   - Modificamos los eventos de sincronización del picker y actualización de campos de pedidos en `js/admin.js` para incluir información útil en la notificación, listando qué pedidos específicos fueron finalizados o modificados (ej: *Pedido: **1005***).
+
+
 
 
