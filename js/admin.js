@@ -10647,6 +10647,11 @@ async function renderUsersAdmin() {
         }
       };
     }
+  } catch (err) {
+    console.error("Error loading user administration view:", err);
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar la administración de usuarios: ${err.message}</p>`;
+  }
+}
 
 // Manejo de eventos delegados para cambios de rol y comercios asignados
 document.addEventListener('change', async (e) => {
