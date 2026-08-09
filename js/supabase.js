@@ -229,6 +229,18 @@ class MockQueryBuilder {
           inventory: invsWithWarehouses
         };
       });
+    } else if (this.tableName === 'order_items') {
+      const orders = window.getMockTable('orders');
+      const products = window.getMockTable('products');
+      result = result.map(item => {
+        const orderObj = orders.find(o => o.id === item.order_id);
+        const prodObj = products.find(p => p.id === item.product_id);
+        return {
+          ...item,
+          orders: orderObj || null,
+          products: prodObj || null
+        };
+      });
     } else if (this.tableName === 'v_comercios_volumen_actual') {
       const products = window.getMockTable('products');
       const inventory = window.getMockTable('inventory');
