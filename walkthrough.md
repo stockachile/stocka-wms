@@ -2585,6 +2585,17 @@ Hemos realizado un ajuste específico de estilos y comportamiento en las notific
    - Rediseñamos los popups de tipo Toast en SweetAlert2 (`.swal2-popup.swal2-toast`) con un tamaño más ajustado, espaciados reducidos y un esquema premium compatible con temas claro/oscuro.
    - Modificamos los eventos de sincronización del picker y actualización de campos de pedidos en `js/admin.js` para incluir información útil en la notificación, listando qué pedidos específicos fueron finalizados o modificados (ej: *Pedido: **1005***).
 
+---
+
+## 111. Corrección de Contraste en Botones Primarios del Proyecto
+
+Hemos corregido la accesibilidad y el contraste de legibilidad de los botones principales del sistema (tanto en modo claro como en modo oscuro):
+
+1. **Reemplazo de Color de Texto**:
+   - Localizamos los botones dinámicos en `js/admin.js` y `js/incidencias.js` que tenían el fondo configurado con la variable primaria `var(--color-primary)` (azul rey) pero forzaban el texto a color negro (`color: #000;`).
+   - Modificamos el estilo inline de estos elementos para usar color blanco (`color: #ffffff;`), igualando el comportamiento del estilo nativo de la clase `.btn-primary` definida en las hojas de estilo del proyecto.
+   - Esto incluye botones clave como "+ Crear Comercio", "Guardar Cambios" (comercio), "Editar", "Guardar Regla", "Cargar Documento Manual", "Guardar Documento", "Copiar SQL" y "Guardar Mensaje".
+
 
 
 
