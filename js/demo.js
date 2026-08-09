@@ -170,8 +170,8 @@ const INITIAL_MOCK_DATA = {
       shipping_city: 'Providencia',
       shipping_method: 'Starken',
       payment_status: 'PENDING',
-      total_price: 1200000, 
-      total_value: 1200000,
+      total_price: 6000000, 
+      total_value: 6000000,
       sucursal_pickeo: 'Bodega Central STK',
       agenda: 'Bloque Tarde (14:00 - 18:00)',
       fecha_procesamiento: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -180,7 +180,7 @@ const INITIAL_MOCK_DATA = {
       courier: 'Starken', 
       tracking_number: 'STK-8877665', 
       created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), 
-      items_count: 1, 
+      items_count: 5, 
       label_base64: 'mock_pdf_base64_data' 
     },
     { 
@@ -194,8 +194,8 @@ const INITIAL_MOCK_DATA = {
       shipping_city: 'Santiago Centro',
       shipping_method: 'Blue Express',
       payment_status: 'PAID',
-      total_price: 45000, 
-      total_value: 45000,
+      total_price: 135000, 
+      total_value: 135000,
       sucursal_pickeo: 'Bodega Central STK',
       agenda: 'Bloque Mañana (09:00 - 13:00)',
       fecha_procesamiento: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -204,7 +204,7 @@ const INITIAL_MOCK_DATA = {
       courier: 'Blue Express', 
       tracking_number: 'BX-9988221', 
       created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), 
-      items_count: 1, 
+      items_count: 3, 
       label_base64: 'mock_pdf_base64_data' 
     },
     { 
@@ -229,13 +229,61 @@ const INITIAL_MOCK_DATA = {
       tracking_number: 'STK-CANCELLED', 
       created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), 
       items_count: 1 
+    },
+    {
+      id: 'o-1005',
+      comercio: DEMO_COMMERCE,
+      status: 'pending',
+      customer_name: 'Camila Torres',
+      customer_email: 'camila.torres@gmail.com',
+      customer_phone: '+56977778888',
+      shipping_address: 'Avenida del Mar 200',
+      shipping_city: 'La Serena',
+      shipping_method: 'Chilexpress',
+      payment_status: 'PAID',
+      total_price: 540000,
+      total_value: 540000,
+      sucursal_pickeo: 'Bodega Central STK',
+      agenda: 'Bloque Mañana (09:00 - 13:00)',
+      fecha_procesamiento: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      operador: 'Chilexpress',
+      external_order_number: '1005',
+      courier: 'Chilexpress',
+      tracking_number: '9876543219',
+      created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      items_count: 3
+    },
+    {
+      id: 'o-1006',
+      comercio: DEMO_COMMERCE,
+      status: 'pending',
+      customer_name: 'Juan Herrera',
+      customer_email: 'juan.herrera@gmail.com',
+      customer_phone: '+56944445555',
+      shipping_address: 'Calle Prat 123',
+      shipping_city: 'Valparaíso',
+      shipping_method: 'Starken',
+      payment_status: 'PENDING',
+      total_price: 256000,
+      total_value: 256000,
+      sucursal_pickeo: 'Bodega Central STK',
+      agenda: 'Bloque Tarde (14:00 - 18:00)',
+      fecha_procesamiento: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      operador: 'Starken',
+      external_order_number: '1006',
+      courier: 'Starken',
+      tracking_number: 'STK-9900112',
+      created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      items_count: 8
     }
   ],
   order_items: [
     { id: 'oi-1', order_id: 'o-1001', product_id: 'p-2', quantity: 1, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'oi-2', order_id: 'o-1002', product_id: 'p-1', quantity: 1, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'oi-3', order_id: 'o-1003', product_id: 'p-3', quantity: 1, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'oi-4', order_id: 'o-1004', product_id: 'p-4', quantity: 1, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() }
+    { id: 'oi-2', order_id: 'o-1002', product_id: 'p-1', quantity: 5, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 'oi-3', order_id: 'o-1003', product_id: 'p-3', quantity: 3, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 'oi-4', order_id: 'o-1004', product_id: 'p-4', quantity: 1, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 'oi-5', order_id: 'o-1005', product_id: 'p-2', quantity: 3, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 'oi-6', order_id: 'o-1006', product_id: 'p-4', quantity: 8, warehouse_id: 'wh-central', created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString() }
   ],
   stock_declarations: [
     { id: 'sd-1', title: 'Importación Audífonos Q3', status: 'pending', quantity_declared: 200, volume_declared: 0.4, estimated_arrival_type: 'exact', estimated_arrival_date: '2026-08-20', estimated_arrival_period: 'morning', created_at: new Date('2026-08-05T11:00:00Z').toISOString(), merchant_id: DEMO_USER_ID, comercio: DEMO_COMMERCE },
@@ -364,10 +412,8 @@ window.initializeDemoDB = function(forceReset = false) {
         profiles[0].allowed_modules = 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation';
         sessionStorage.setItem('wms_demo_profiles', JSON.stringify(profiles));
       }
-    } catch(e) {}
-    try {
       // Forzar alineación coherente de pedidos y despachos en la sesión actual
-      if (!sessionStorage.getItem('wms_demo_db_aligned_v3')) {
+      if (!sessionStorage.getItem('wms_demo_db_aligned_v4')) {
         const makeCurrentDate = (offsetDays) => new Date(Date.now() - offsetDays * 24 * 60 * 60 * 1000).toISOString();
         const demoCommerce = sessionStorage.getItem('wms_demo_profiles') ? JSON.parse(sessionStorage.getItem('wms_demo_profiles'))[0]?.comercio || 'Empresa Demo S.A.' : 'Empresa Demo S.A.';
         
@@ -407,8 +453,8 @@ window.initializeDemoDB = function(forceReset = false) {
             shipping_city: 'Providencia',
             shipping_method: 'Starken',
             payment_status: 'PENDING',
-            total_price: 1200000, 
-            total_value: 1200000,
+            total_price: 6000000, 
+            total_value: 6000000,
             sucursal_pickeo: 'Bodega Central STK',
             agenda: 'Bloque Tarde (14:00 - 18:00)',
             fecha_procesamiento: makeCurrentDate(4).split('T')[0],
@@ -417,7 +463,7 @@ window.initializeDemoDB = function(forceReset = false) {
             courier: 'Starken', 
             tracking_number: 'STK-8877665', 
             created_at: makeCurrentDate(4), 
-            items_count: 1, 
+            items_count: 5, 
             label_base64: 'mock_pdf_base64_data' 
           },
           { 
@@ -431,8 +477,8 @@ window.initializeDemoDB = function(forceReset = false) {
             shipping_city: 'Santiago Centro',
             shipping_method: 'Blue Express',
             payment_status: 'PAID',
-            total_price: 45000, 
-            total_value: 45000,
+            total_price: 135000, 
+            total_value: 135000,
             sucursal_pickeo: 'Bodega Central STK',
             agenda: 'Bloque Mañana (09:00 - 13:00)',
             fecha_procesamiento: makeCurrentDate(5).split('T')[0],
@@ -441,7 +487,7 @@ window.initializeDemoDB = function(forceReset = false) {
             courier: 'Blue Express', 
             tracking_number: 'BX-9988221', 
             created_at: makeCurrentDate(5), 
-            items_count: 1, 
+            items_count: 3, 
             label_base64: 'mock_pdf_base64_data' 
           },
           { 
@@ -466,15 +512,63 @@ window.initializeDemoDB = function(forceReset = false) {
             tracking_number: 'STK-CANCELLED', 
             created_at: makeCurrentDate(6), 
             items_count: 1 
+          },
+          {
+            id: 'o-1005',
+            comercio: demoCommerce,
+            status: 'pending',
+            customer_name: 'Camila Torres',
+            customer_email: 'camila.torres@gmail.com',
+            customer_phone: '+56977778888',
+            shipping_address: 'Avenida del Mar 200',
+            shipping_city: 'La Serena',
+            shipping_method: 'Chilexpress',
+            payment_status: 'PAID',
+            total_price: 540000,
+            total_value: 540000,
+            sucursal_pickeo: 'Bodega Central STK',
+            agenda: 'Bloque Mañana (09:00 - 13:00)',
+            fecha_procesamiento: makeCurrentDate(1).split('T')[0],
+            operador: 'Chilexpress',
+            external_order_number: '1005',
+            courier: 'Chilexpress',
+            tracking_number: '9876543219',
+            created_at: makeCurrentDate(1),
+            items_count: 3
+          },
+          {
+            id: 'o-1006',
+            comercio: demoCommerce,
+            status: 'pending',
+            customer_name: 'Juan Herrera',
+            customer_email: 'juan.herrera@gmail.com',
+            customer_phone: '+56944445555',
+            shipping_address: 'Calle Prat 123',
+            shipping_city: 'Valparaíso',
+            shipping_method: 'Starken',
+            payment_status: 'PENDING',
+            total_price: 256000,
+            total_value: 256000,
+            sucursal_pickeo: 'Bodega Central STK',
+            agenda: 'Bloque Tarde (14:00 - 18:00)',
+            fecha_procesamiento: makeCurrentDate(3).split('T')[0],
+            operador: 'Starken',
+            external_order_number: '1006',
+            courier: 'Starken',
+            tracking_number: 'STK-9900112',
+            created_at: makeCurrentDate(3),
+            items_count: 8
           }
         ];
         sessionStorage.setItem('wms_demo_orders', JSON.stringify(alignedOrders));
 
         const alignedOrderItems = [
           { id: 'oi-1', order_id: 'o-1001', product_id: 'p-2', quantity: 1, warehouse_id: 'wh-central', created_at: makeCurrentDate(2) },
-          { id: 'oi-2', order_id: 'o-1002', product_id: 'p-1', quantity: 1, warehouse_id: 'wh-central', created_at: makeCurrentDate(4) },
-          { id: 'oi-3', order_id: 'o-1003', product_id: 'p-3', quantity: 1, warehouse_id: 'wh-central', created_at: makeCurrentDate(5) },
-          { id: 'oi-4', order_id: 'o-1004', product_id: 'p-4', quantity: 1, warehouse_id: 'wh-central', created_at: makeCurrentDate(6) }
+          { id: 'oi-2', order_id: 'o-1002', product_id: 'p-1', quantity: 5, warehouse_id: 'wh-central', created_at: makeCurrentDate(4) },
+          { id: 'oi-3', order_id: 'o-1003', product_id: 'p-3', quantity: 3, warehouse_id: 'wh-central', created_at: makeCurrentDate(5) },
+          { id: 'oi-4', order_id: 'o-1004', product_id: 'p-4', quantity: 1, warehouse_id: 'wh-central', created_at: makeCurrentDate(6) },
+          { id: 'oi-5', order_id: 'o-1005', product_id: 'p-2', quantity: 3, warehouse_id: 'wh-central', created_at: makeCurrentDate(1) },
+          { id: 'oi-6', order_id: 'o-1006', product_id: 'p-4', quantity: 8, warehouse_id: 'wh-central', created_at: makeCurrentDate(3) }
         ];
         sessionStorage.setItem('wms_demo_order_items', JSON.stringify(alignedOrderItems));
 
@@ -550,7 +644,7 @@ window.initializeDemoDB = function(forceReset = false) {
         ];
         const alignedProfiles = [
           {
-            id: demoUserId,
+            id: 'demo-client-uuid-placeholder',
             role: 'client',
             company_name: demoCommerce,
             full_name: 'Cliente Invitado Demo',
