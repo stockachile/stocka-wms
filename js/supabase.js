@@ -7,6 +7,20 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 // Inicializar cliente Supabase real
 const actualSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Obtener el ID del usuario actual de la sesión (real o mock)
+window.getDemoUserId = function() {
+  const mode = sessionStorage.getItem('wms_demo_mode') === 'true';
+  if (!mode) return null;
+  const sessionJson = sessionStorage.getItem('sb-ejtjfaucnxbikrwjwwdu-auth-token');
+  if (sessionJson) {
+    try {
+      const session = JSON.parse(sessionJson);
+      if (session?.user?.id) return session.user.id;
+    } catch(e) {}
+  }
+  return 'demo-user-uuid-12345'; // fallback
+};
+
 // Clase MockQueryBuilder para emular la base de datos Supabase en memoria/sessionStorage
 class MockQueryBuilder {
   constructor(tableName, data) {
@@ -118,13 +132,26 @@ class MockQueryBuilder {
 
   execute() {
     let result = [...this.data];
+    const demoUserId = window.getDemoUserId();
 
-    // Aplicar filtros
-    for (const filter of this.filters) {
-      result = result.filter(filter);
+    // 1. Mapear ID/Merchant_ID al usuario logueado en modo demo para asegurar coincidencia de filtros
+    if (window.isDemoMode() && demoUserId) {
+      if (this.tableName === 'profiles') {
+        result = result.map(p => ({
+          ...p,
+          id: demoUserId,
+          allowed_modules: Array.isArray(p.allowed_modules) ? p.allowed_modules.join(', ') : p.allowed_modules
+        }));
+      } else if (this.tableName === 'stock_declarations') {
+        result = result.map(item => ({ ...item, merchant_id: demoUserId }));
+      } else if (this.tableName === 'merchants_warehouses') {
+        result = result.map(item => ({ ...item, merchant_id: demoUserId }));
+      } else if (this.tableName === 'merchant_integrations') {
+        result = result.map(item => ({ ...item, merchant_id: demoUserId }));
+      }
     }
 
-    // Resolver relaciones (Joins)
+    // 2. Resolver relaciones (Joins) ANTES de aplicar filtros para que filtros sobre relaciones (ej: products.comercio) funcionen
     if (this.tableName === 'inventory') {
       const products = window.getMockTable('products');
       result = result.map(item => {
@@ -204,6 +231,11 @@ class MockQueryBuilder {
         });
       }
       result = history;
+    }
+
+    // 3. Aplicar filtros
+    for (const filter of this.filters) {
+      result = result.filter(filter);
     }
 
     // Aplicar ordenamiento
@@ -316,6 +348,36 @@ const authProxy = new Proxy(actualSupabase.auth, {
           };
         }
         return realSessionResult;
+      };
+    }
+    if (prop === 'getUser') {
+      return async () => {
+        // Primero verificar si hay sesión real
+        const realUserResult = await actualSupabase.auth.getUser();
+        const user = realUserResult?.data?.user;
+        
+        if (user) {
+          if (user.user_metadata?.is_demo_user === true) {
+            return realUserResult;
+          }
+        }
+        
+        if (window.isDemoMode()) {
+          return {
+            data: {
+              user: {
+                id: window.getDemoUserId() || 'demo-user-uuid-12345',
+                email: 'demo@stocka.cl',
+                user_metadata: {
+                  full_name: 'Cliente Invitado Demo',
+                  company_name: 'Empresa Demo S.A.'
+                }
+              }
+            },
+            error: null
+          };
+        }
+        return realUserResult;
       };
     }
     if (prop === 'signInWithPassword') {
