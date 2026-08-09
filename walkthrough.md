@@ -2572,18 +2572,19 @@ Hemos incorporado el logotipo oficial de **Stocka.cap** (`img/stocka.cap.png`) p
 
 ---
 
-## 110. Remoción de Fondos Oscuros Laterales en Notificaciones (Toasts) y Optimización
+## 110. Remoción de Fondos Oscuros Laterales en Notificaciones (Toasts) y Optimización de Colores
 
 Hemos realizado un ajuste específico de estilos y comportamiento en las notificaciones flotantes (toasts) y alertas del WMS:
 
-1. **Remoción del Fondo Oscuro Lateral en Notificaciones**:
-   - Modificamos las clases globales de SweetAlert2 (`.swal2-container` y `.swal2-backdrop-show`) en `css/layout.css` para aplicar exclusiones mediante `:not(.swal2-no-backdrop)`.
-   - Esto asegura que las notificaciones flotantes de tipo Toast (que no requieren foco de confirmación ni fondo) ya no muestren la franja oscura lateral ni desenfoquen el fondo de la pantalla.
-   - Los modales regulares de edición/creación (`.modal-overlay`), los paneles de transporte (`.slide-over-overlay`) y los cuadros de confirmación interactiva de SweetAlert conservan correctamente sus fondos oscuros y desenfoques traseros para mantener la jerarquía visual del WMS.
+1. **Remoción del Fondo Oscuro Lateral y Desenfoque en Notificaciones**:
+   - Modificamos la aplicación de las reglas en `css/layout.css` asociadas a SweetAlert2. Ahora, el fondo oscuro (`rgba(0, 0, 0, 0.5)`) y el desenfoque trasero (`backdrop-filter: blur(4px)`) se aplican de manera exclusiva mediante la clase `.swal2-container.swal2-backdrop-show`.
+   - Con esto, al desplegarse una notificación de tipo Toast (la cual carece de la clase de fondo activo), la pantalla no se oscurece ni se desenfoca lateralmente en absoluto.
+   - Los modales regulares (`.modal-overlay`), paneles laterales (`.slide-over-overlay`) y alertas estándar de confirmación conservan correctamente su fondo difuminado de fondo para resguardar la experiencia de usuario.
 
-2. **Notificaciones (Toasts) Más Compactas y Detalladas**:
-   - Rediseñamos los popups de tipo Toast en SweetAlert2 (`.swal2-popup.swal2-toast`) con un tamaño más ajustado, espaciados reducidos y un esquema premium compatible con temas claro/oscuro.
-   - Modificamos los eventos de sincronización del picker y actualización de campos de pedidos en `js/admin.js` para incluir información útil en la notificación, listando qué pedidos específicos fueron finalizados o modificados (ej: *Pedido: **1005***).
+2. **Resolución de Legibilidad de Notificaciones en Modo Claro**:
+   - Ajustamos la estructura de colores por defecto en `.swal2-popup.swal2-toast` para actuar como fondo blanco y letras oscuras en Modo Claro (que es el tema base por defecto de la aplicación, donde no hay atributo `data-theme` presente en el elemento `html`).
+   - Añadimos la regla con el selector `[data-theme="dark"] .swal2-popup.swal2-toast` para sobreescribir los textos con tonos claros y fondo oscuro cuando el WMS está configurado en Modo Oscuro.
+   - Modificamos las notificaciones del picker en `js/admin.js` para añadir detalles contextuales del pedido modificado.
 
 ---
 
