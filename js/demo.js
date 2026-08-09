@@ -102,10 +102,10 @@ const INITIAL_MOCK_DATA = {
     { id: 'm-4', product_id: 'p-3', warehouse_id: 'wh-central', type: 'in', quantity: 12, reference_doc: 'OC-4514 Recepción Proveedor', date: new Date('2026-08-02T12:00:00Z').toISOString() }
   ],
   orders: [
-    { id: 'o-1001', comercio: DEMO_COMMERCE, status: 'shipped', customer_name: 'María González', total_price: 180000, external_order_number: '1001', courier: 'Starken', tracking_number: 'SK-7731920', created_at: new Date('2026-08-06T09:15:00Z').toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
-    { id: 'o-1002', comercio: DEMO_COMMERCE, status: 'pending', customer_name: 'Juan Pérez', total_price: 1200000, external_order_number: '1002', courier: 'Chilepost', tracking_number: 'CP-9812739', created_at: new Date('2026-08-07T12:00:00Z').toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
-    { id: 'o-1003', comercio: DEMO_COMMERCE, status: 'packing', customer_name: 'Carlos Silva', total_price: 45000, external_order_number: '1003', courier: 'Chilepost', tracking_number: 'CP-9812740', created_at: new Date('2026-08-08T08:30:00Z').toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
-    { id: 'o-1004', comercio: DEMO_COMMERCE, status: 'cancelled', customer_name: 'Ana López', total_price: 32000, external_order_number: '1000', courier: 'Starken', tracking_number: '', created_at: new Date('2026-08-05T14:20:00Z').toISOString(), items_count: 1 }
+    { id: 'o-1001', comercio: DEMO_COMMERCE, status: 'shipped', customer_name: 'María González', total_price: 180000, external_order_number: '1001', courier: 'Chilexpress', tracking_number: '9876543210', created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+    { id: 'o-1002', comercio: DEMO_COMMERCE, status: 'pending', customer_name: 'Catalina Rivas', total_price: 1200000, external_order_number: '1002', courier: 'Starken', tracking_number: 'STK-8877665', created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+    { id: 'o-1003', comercio: DEMO_COMMERCE, status: 'packing', customer_name: 'Andrés Pérez', total_price: 45000, external_order_number: '1003', courier: 'Blue Express', tracking_number: 'BX-9988221', created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+    { id: 'o-1004', comercio: DEMO_COMMERCE, status: 'cancelled', customer_name: 'Ana López', total_price: 32000, external_order_number: '1000', courier: 'Starken', tracking_number: 'STK-CANCELLED', created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(), items_count: 1 }
   ],
   stock_declarations: [
     { id: 'sd-1', title: 'Importación Audífonos Q3', status: 'pending', quantity_declared: 200, volume_declared: 0.4, estimated_arrival_type: 'exact', estimated_arrival_date: '2026-08-20', estimated_arrival_period: 'morning', created_at: new Date('2026-08-05T11:00:00Z').toISOString(), merchant_id: DEMO_USER_ID, comercio: DEMO_COMMERCE },
@@ -153,11 +153,11 @@ const INITIAL_MOCK_DATA = {
   envios_unificados: [
     {
       id: 'ship-1',
-      pedido_referencia: 'REF-1001',
+      pedido_referencia: '1001',
       created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
       updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-      nombre_destinatario: 'Felipe Trujillo',
-      telefono_destino: '+56939247487',
+      nombre_destinatario: 'María González',
+      telefono_destino: '+56911223344',
       comuna_destino: 'Las Condes',
       direccion_destino: 'Av. Apoquindo 4800, Of. 101',
       courier: 'Chilexpress',
@@ -170,7 +170,7 @@ const INITIAL_MOCK_DATA = {
     },
     {
       id: 'ship-2',
-      pedido_referencia: 'REF-1002',
+      pedido_referencia: '1002',
       created_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
       updated_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       nombre_destinatario: 'Catalina Rivas',
@@ -180,41 +180,41 @@ const INITIAL_MOCK_DATA = {
       courier: 'Starken',
       tracking: 'STK-8877665',
       tracking_url: 'https://www.starken.cl',
-      status: 'Listo para despacho',
+      status: 'Creado',
       global_status: 'SIN MOVIMIENTO',
       source_table: 'enviame_shipments',
       empresa_comercio_proveedor: DEMO_COMMERCE
     },
     {
       id: 'ship-3',
-      pedido_referencia: 'REF-1003',
+      pedido_referencia: '1003',
       created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
       updated_at: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
       nombre_destinatario: 'Andrés Pérez',
-      telefono_destino: '+56911223344',
+      telefono_destino: '+56955556666',
       comuna_destino: 'Santiago Centro',
       direccion_destino: 'Alameda 340',
       courier: 'Blue Express',
       tracking: 'BX-9988221',
       tracking_url: 'https://www.blue.cl',
-      status: 'Creado',
+      status: 'Listo para despacho',
       global_status: 'SIN MOVIMIENTO',
       source_table: 'optiroute_envios',
       empresa_comercio_proveedor: DEMO_COMMERCE
     },
     {
       id: 'ship-4',
-      pedido_referencia: 'REF-1004',
-      created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
-      updated_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-      nombre_destinatario: 'Ignacio Soto',
+      pedido_referencia: '1000',
+      created_at: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 5.5 * 24 * 60 * 60 * 1000).toISOString(),
+      nombre_destinatario: 'Ana López',
       telefono_destino: '+56988776655',
       comuna_destino: 'Concepción',
       direccion_destino: 'O\'Higgins 450',
-      courier: 'Chilexpress',
-      tracking: '9876543212',
-      tracking_url: 'https://www.chilexpress.cl',
-      status: 'Alerta',
+      courier: 'Starken',
+      tracking: 'STK-CANCELLED',
+      tracking_url: 'https://www.starken.cl',
+      status: 'No retirado',
       global_status: 'ALERTA',
       source_table: 'lightdata_envios',
       empresa_comercio_proveedor: DEMO_COMMERCE
@@ -236,18 +236,27 @@ window.initializeDemoDB = function(forceReset = false) {
       }
     } catch(e) {}
     try {
-      if (!sessionStorage.getItem('wms_demo_envios_unificados')) {
+      // Forzar alineación coherente de pedidos y despachos en la sesión actual
+      if (!sessionStorage.getItem('wms_demo_db_aligned_v2')) {
         const makeCurrentDate = (offsetDays) => new Date(Date.now() - offsetDays * 24 * 60 * 60 * 1000).toISOString();
         const demoCommerce = sessionStorage.getItem('wms_demo_profiles') ? JSON.parse(sessionStorage.getItem('wms_demo_profiles'))[0]?.comercio || 'Empresa Demo S.A.' : 'Empresa Demo S.A.';
         
+        const alignedOrders = [
+          { id: 'o-1001', comercio: demoCommerce, status: 'shipped', customer_name: 'María González', total_price: 180000, external_order_number: '1001', courier: 'Chilexpress', tracking_number: '9876543210', created_at: makeCurrentDate(2), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+          { id: 'o-1002', comercio: demoCommerce, status: 'pending', customer_name: 'Catalina Rivas', total_price: 1200000, external_order_number: '1002', courier: 'Starken', tracking_number: 'STK-8877665', created_at: makeCurrentDate(4), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+          { id: 'o-1003', comercio: demoCommerce, status: 'packing', customer_name: 'Andrés Pérez', total_price: 45000, external_order_number: '1003', courier: 'Blue Express', tracking_number: 'BX-9988221', created_at: makeCurrentDate(5), items_count: 1, label_base64: 'mock_pdf_base64_data' },
+          { id: 'o-1004', comercio: demoCommerce, status: 'cancelled', customer_name: 'Ana López', total_price: 32000, external_order_number: '1000', courier: 'Starken', tracking_number: 'STK-CANCELLED', created_at: makeCurrentDate(6), items_count: 1 }
+        ];
+        sessionStorage.setItem('wms_demo_orders', JSON.stringify(alignedOrders));
+
         const shipments = [
           {
             id: 'ship-1',
-            pedido_referencia: 'REF-1001',
+            pedido_referencia: '1001',
             created_at: makeCurrentDate(2),
             updated_at: makeCurrentDate(1),
-            nombre_destinatario: 'Felipe Trujillo',
-            telefono_destino: '+56939247487',
+            nombre_destinatario: 'María González',
+            telefono_destino: '+56911223344',
             comuna_destino: 'Las Condes',
             direccion_destino: 'Av. Apoquindo 4800, Of. 101',
             courier: 'Chilexpress',
@@ -260,7 +269,7 @@ window.initializeDemoDB = function(forceReset = false) {
           },
           {
             id: 'ship-2',
-            pedido_referencia: 'REF-1002',
+            pedido_referencia: '1002',
             created_at: makeCurrentDate(4),
             updated_at: makeCurrentDate(3),
             nombre_destinatario: 'Catalina Rivas',
@@ -270,47 +279,48 @@ window.initializeDemoDB = function(forceReset = false) {
             courier: 'Starken',
             tracking: 'STK-8877665',
             tracking_url: 'https://www.starken.cl',
-            status: 'Listo para despacho',
+            status: 'Creado',
             global_status: 'SIN MOVIMIENTO',
             source_table: 'enviame_shipments',
             empresa_comercio_proveedor: demoCommerce
           },
           {
             id: 'ship-3',
-            pedido_referencia: 'REF-1003',
+            pedido_referencia: '1003',
             created_at: makeCurrentDate(5),
             updated_at: makeCurrentDate(4),
             nombre_destinatario: 'Andrés Pérez',
-            telefono_destino: '+56911223344',
+            telefono_destino: '+56955556666',
             comuna_destino: 'Santiago Centro',
             direccion_destino: 'Alameda 340',
             courier: 'Blue Express',
             tracking: 'BX-9988221',
             tracking_url: 'https://www.blue.cl',
-            status: 'Creado',
+            status: 'Listo para despacho',
             global_status: 'SIN MOVIMIENTO',
             source_table: 'optiroute_envios',
             empresa_comercio_proveedor: demoCommerce
           },
           {
             id: 'ship-4',
-            pedido_referencia: 'REF-1004',
-            created_at: makeCurrentDate(1),
-            updated_at: makeCurrentDate(0.5),
-            nombre_destinatario: 'Ignacio Soto',
+            pedido_referencia: '1000',
+            created_at: makeCurrentDate(6),
+            updated_at: makeCurrentDate(5.5),
+            nombre_destinatario: 'Ana López',
             telefono_destino: '+56988776655',
             comuna_destino: 'Concepción',
             direccion_destino: 'O\'Higgins 450',
-            courier: 'Chilexpress',
-            tracking: '9876543212',
-            tracking_url: 'https://www.chilexpress.cl',
-            status: 'Alerta',
+            courier: 'Starken',
+            tracking: 'STK-CANCELLED',
+            tracking_url: 'https://www.starken.cl',
+            status: 'No retirado',
             global_status: 'ALERTA',
             source_table: 'lightdata_envios',
             empresa_comercio_proveedor: demoCommerce
           }
         ];
         sessionStorage.setItem('wms_demo_envios_unificados', JSON.stringify(shipments));
+        sessionStorage.setItem('wms_demo_db_aligned_v2', 'true');
       }
     } catch(e) {}
     try {
