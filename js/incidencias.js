@@ -1192,7 +1192,7 @@ export async function renderIncidenciasAdmin(appContent) {
                     </label>
                     <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
                       <textarea class="admin-comment-textarea form-input" data-id="${inc.id}" rows="2" style="flex: 1; resize: vertical; font-size: 0.85rem; padding: 0.4rem; min-height: 48px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-sm);" placeholder="Escribe un mensaje aclaratorio o actualización para que el cliente lo vea destacado...">${escapeHtml(inc.admin_comment || '')}</textarea>
-                      <button class="btn btn-primary btn-save-admin-comment" data-id="${inc.id}" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; height: auto; background: var(--color-primary); color: #000; font-weight: 600;">
+                      <button class="btn btn-primary btn-save-admin-comment" data-id="${inc.id}" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; height: auto; background: var(--color-primary); color: #ffffff; font-weight: 600;">
                         <i class="ri-save-line"></i> Guardar Mensaje
                       </button>
                     </div>
@@ -1554,7 +1554,7 @@ export async function renderIncidenciasAdmin(appContent) {
           </div>
           <div class="modal-footer-styled">
             <button type="button" id="modal-cancel-btn" class="btn btn-outline">Cancelar</button>
-            <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #000; font-weight: 600;">
+            <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #ffffff; font-weight: 600;">
               ${isEdit ? 'Guardar Cambios' : 'Guardar y Notificar'}
             </button>
           </div>

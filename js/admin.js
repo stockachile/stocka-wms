@@ -8725,7 +8725,7 @@ async function renderConsolidatedShipments() {
                 * Dejar Courier o Estado en "Cualquiera" aplicará la regla a todas las opciones de esa columna.
               </p>
 
-              <button type="submit" class="btn btn-primary" style="width:100%; margin-top: 0.5rem; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer; height: 38px; border-radius: 4px;">
+              <button type="submit" class="btn btn-primary" style="width:100%; margin-top: 0.5rem; background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer; height: 38px; border-radius: 4px;">
                 <i class="ri-eye-off-line"></i> Guardar Regla
               </button>
             </form>
@@ -23588,7 +23588,7 @@ async function renderMerchantsAdmin() {
               <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">${intDisplay}</div>
             </td>
             <td>
-              <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">
+              <button class="btn btn-primary btn-sm" onclick="window.showMerchantEditModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">
                 <i class="ri-edit-line"></i> Editar
               </button>
             </td>
@@ -23609,7 +23609,7 @@ async function renderMerchantsAdmin() {
             </p>
           </div>
           <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-            <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #000; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
+            <button class="btn btn-primary" onclick="window.showMerchantCreateModal()" style="background-color: var(--color-primary); color: #ffffff; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.75rem; border-radius: 4px;">
               <i class="ri-add-line"></i> Crear Comercio
             </button>
             <div style="position: relative; width: 220px;" id="merchant-search-wrapper">
@@ -23965,7 +23965,7 @@ window.renderMerchantContractsTab = async function() {
           </h4>
           <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">Listado de documentos contractuales y anexos aceptados por los comercios.</p>
         </div>
-        <button class="btn btn-primary" onclick="window.showUploadDocumentModal()" style="background-color: var(--color-primary); color: #000; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.85rem; border-radius: 4px;">
+        <button class="btn btn-primary" onclick="window.showUploadDocumentModal()" style="background-color: var(--color-primary); color: #ffffff; font-weight: 600; height: 36px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border: none; cursor: pointer; padding: 0 0.85rem; border-radius: 4px;">
           <i class="ri-upload-cloud-2-line"></i> Cargar Documento Manual
         </button>
       </div>
@@ -24087,7 +24087,7 @@ window.showUploadDocumentModal = function() {
         <!-- Actions -->
         <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1.25rem;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()" style="padding: 0.5rem 1.25rem; font-weight: 500;">Cancelar</button>
-          <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #000; font-weight: 600; padding: 0.5rem 1.25rem;">Guardar Documento</button>
+          <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: #ffffff; font-weight: 600; padding: 0.5rem 1.25rem;">Guardar Documento</button>
         </div>
       </form>
     </div>
@@ -24382,7 +24382,7 @@ GRANT ALL ON public.comercios_adicional_config TO anon, authenticated;</pre>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
-        <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(document.querySelector('#${modalId} pre').innerText); alert('¡Script SQL copiado al portapapeles!');" style="background: var(--color-primary); color: #000; font-weight: 600;">
+        <button type="button" class="btn btn-primary" onclick="navigator.clipboard.writeText(document.querySelector('#${modalId} pre').innerText); alert('¡Script SQL copiado al portapapeles!');" style="background: var(--color-primary); color: #ffffff; font-weight: 600;">
           <i class="ri-file-copy-line"></i> Copiar SQL
         </button>
       </div>
@@ -24651,7 +24651,7 @@ window.showMerchantCreateModal = function() {
         </div>
         <div class="modal-footer" style="padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-merchant-create" style="background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">Crear Comercio</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-merchant-create" style="background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">Crear Comercio</button>
         </div>
       </form>
     </div>
@@ -25042,7 +25042,7 @@ window.showMerchantEditModal = async function(comercioName) {
         </div>
         <div class="modal-footer" style="padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-merchant-edit" style="background: var(--color-primary); color: #000; font-weight: 600; border: none; cursor: pointer;">Guardar Cambios</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-merchant-edit" style="background: var(--color-primary); color: #ffffff; font-weight: 600; border: none; cursor: pointer;">Guardar Cambios</button>
         </div>
       </form>
     </div>
@@ -25227,7 +25227,8 @@ window.showMerchantEditModal = async function(comercioName) {
     const oldCatalogReady = !!oldChecklist.catalog_ready;
     const updatedChecklist = {
       ...oldChecklist,
-      catalog_ready: newCatalogReady
+      catalog_ready: newCatalogReady,
+      shipping_configured: !!newEnviameId
     };
 
     // Obtener configuración de prefijos por plataforma
@@ -30873,6 +30874,7 @@ function showOnboardingApproveConfigModal(req) {
           onboarding_checklist: {
             integrations: false,
             catalog_ready: false,
+            shipping_configured: false,
             stock_declared: false,
             sku_guide: false,
             dismissed: false
