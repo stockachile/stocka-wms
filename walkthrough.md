@@ -1,6 +1,33 @@
-# Walkthrough - Edición de Ingresos, Flujo Guiado Administrativo y Desglose de Bultos
+# Walkthrough - Leads de la Demo, Consola Brevo y Coherencia de Datos Ficticios
 
-Hemos completado el desarrollo e integración de los módulos de edición de declaraciones para el cliente, la restricción y secuenciación guiada de estados para el administrador, y la visualización de desglose en las tablas principales.
+Hemos completado e integrado con éxito el panel de control comercial de Leads de la Demo, la integración con la API de Brevo para envío de correos con plantillas personalizadas, y la coherencia completa de los pedidos, despachos y catálogo de productos del entorno simulado.
+
+## Nuevas Características y Mejoras
+
+### 1. Panel de Gestión de Leads (Administrador)
+- **Estructura de Pestañas**: En la sección de *Gestionar Usuarios*, implementamos dos pestañas interactivas:
+  - *Usuarios y Roles*: Muestra la lista de usuarios operativos (excluyendo leads demo).
+  - *Leads de la Demo*: Lista exclusivamente a los usuarios registrados a través del formulario de la cuenta demo (`is_demo_user: true`).
+- **Tarjetas de Estadísticas**: Añadimos indicadores visuales dinámicos que muestran:
+  - *Total Leads*, *Nuevos*, *Contactados*, *En Seguimiento* y *Convertidos*.
+- **Dropdown de Estado Comercial**: Permite actualizar en tiempo real el estado de cada lead (`nuevo`, `contactado`, `seguimiento`, `convertido`) con colores asociados para máxima claridad.
+- **Notas de Seguimiento**: Los administradores pueden añadir y actualizar notas de texto específicas para cada lead con un botón de edición en línea.
+
+### 2. Envío de Correos vía Brevo
+- **Configuración Segura (API Key)**: Para proteger la clave de API de Brevo, esta se ingresa directamente en la UI del administrador y se almacena en el `localStorage` del navegador, evitando filtraciones en repositorios.
+- **Remitente y Destinatario**: Preconfigurado con el emisor oficial `felipe.tp@stocka.cl`.
+- **Plantillas Predefinidas (Editable)**:
+  1. *Bienvenida a la Demo*: Correo inicial para presentarse, ofrecer soporte y agendar llamada comercial.
+  2. *Seguimiento Comercial*: Consulta de experiencia con la demo e integraciones ecommerce.
+  3. *Propuesta de Fulfillment*: Propuesta comercial formal de cierre.
+- **Historial de Envíos**: Cada envío exitoso registra automáticamente la plantilla, asunto y fecha exacta en la base de datos de Supabase, manteniendo una bitácora detallada accesible en un modal flotante.
+
+### 3. Coherencia de Datos Ficticios (Pedidos y Despachos)
+- Sincronizamos las referencias de pedidos, nombres de destinatarios, couriers y trackings entre el catálogo de productos, la vista de pedidos y los despachos simulados.
+- Añadimos la relación de la tabla `order_items` vinculada a `products` en el resolvedor de base de datos simulada (`MockQueryBuilder`) para que al expandir un pedido se muestre el detalle del artículo con su SKU y nombre real de catálogo.
+
+---
+
 
 ## Cambios Realizados
 
