@@ -10022,20 +10022,26 @@ async function fetchAndRenderAssociatedOrder(pedidoRef) {
 // User Management View Rendering & Logic
 // ==========================================
 
-async function renderUsersAdmin() {
+async function renderUsersAdmin(forceReload = false) {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando usuarios y roles...</p>`;
+  
+  if (forceReload || !window.adminUsersList) {
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem;">Cargando usuarios y roles...</p>`;
+  }
 
   try {
-    // Obtener todos los perfiles de usuarios
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Obtener todos los perfiles de usuarios usando cache si no se fuerza la recarga
+    let profiles = window.adminUsersList;
+    if (forceReload || !profiles) {
+      const { data, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-    if (profilesError) throw profilesError;
-
-    window.adminUsersList = profiles; // Exponer perfiles a nivel global para acceder en el detalle
+      if (profilesError) throw profilesError;
+      profiles = data;
+      window.adminUsersList = profiles;
+    }
 
     // Filtrar operacionales vs leads
     const leads = profiles.filter(p => p.is_demo_user === true);
@@ -10043,6 +10049,33 @@ async function renderUsersAdmin() {
 
     // Obtener la pestaña activa
     window.activeUsersAdminTab = window.activeUsersAdminTab || 'users';
+
+    // Obtener las búsquedas activas
+    window.usersAdminSearchQuery = window.usersAdminSearchQuery || '';
+    window.leadsAdminSearchQuery = window.leadsAdminSearchQuery || '';
+
+    // Filtrar por la búsqueda si existe
+    let filteredOperationalUsers = operationalUsers;
+    if (window.usersAdminSearchQuery) {
+      const q = window.usersAdminSearchQuery.toLowerCase().trim();
+      filteredOperationalUsers = operationalUsers.filter(user => {
+        const name = (user.full_name || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const company = (user.company_name || '').toLowerCase();
+        return name.includes(q) || email.includes(q) || company.includes(q);
+      });
+    }
+
+    let filteredLeads = leads;
+    if (window.leadsAdminSearchQuery) {
+      const q = window.leadsAdminSearchQuery.toLowerCase().trim();
+      filteredLeads = leads.filter(lead => {
+        const name = (lead.full_name || '').toLowerCase();
+        const email = (lead.email || '').toLowerCase();
+        const company = (lead.company_name || '').toLowerCase();
+        return name.includes(q) || email.includes(q) || company.includes(q);
+      });
+    }
 
     // Obtener los comercios configurados desde la vista segura v_comercios_config
     let comercios = [];
@@ -10082,103 +10115,182 @@ async function renderUsersAdmin() {
       renderUsersAdmin();
     };
 
+    // Helper para generar fila de usuario operacional
+    function buildUserRowHtml(user, index) {
+      const dateObj = user.created_at ? new Date(user.created_at) : null;
+      const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+
+      // Determinar si está en línea (últimos 15 minutos)
+      const lastSeenDate = user.last_seen ? new Date(user.last_seen) : null;
+      const isOnline = lastSeenDate && (new Date() - lastSeenDate) < 15 * 60 * 1000;
+      const onlineIndicator = isOnline
+        ? `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-success); border-radius: 50%; margin-left: 0.5rem;" title="En línea ahora"></span>`
+        : `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-text-muted); border-radius: 50%; margin-left: 0.5rem; opacity: 0.4;" title="Desconectado"></span>`;
+
+      // Selector de Roles
+      const roleSelect = `
+        <select class="form-input user-role-select" data-user-id="${user.id}" style="padding: 0.35rem 0.5rem; font-size: 0.875rem; width: auto; min-width: 140px; margin: 0; display: inline-block;">
+          <option value="observer" ${user.role === 'observer' ? 'selected' : ''}>Observador</option>
+          <option value="client" ${user.role === 'client' ? 'selected' : ''}>Cliente</option>
+          <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
+        </select>
+      `;
+
+      // Checkboxes de Comercios (solo editables/visibles para rol cliente)
+      const currentComercios = user.comercio && user.comercio !== 'no asignado'
+        ? user.comercio.split(',').map(c => c.trim())
+        : [];
+
+      window.adminComerciosList = comercios; // Exponer a nivel global para el modal
+      let comerciosHtml = '';
+      if (user.role !== 'client') {
+        comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
+      } else if (comercios.length === 0) {
+        const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
+        comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
+      } else {
+        const assignedCount = currentComercios.length;
+        const assignedDataStr = encodeURIComponent(JSON.stringify(currentComercios));
+        comerciosHtml = `
+          <button class="btn btn-outline btn-sm" onclick="openUserComerciosModal('${user.id}', '${assignedDataStr}')" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            <i class="ri-store-2-line"></i> Gestionar Comercios (${assignedCount})
+          </button>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${assignedCount > 0 ? currentComercios.join(', ') : 'Ninguno asignado'}
+          </div>
+        `;
+      }
+
+      return `
+        <tr>
+          <td><strong>${user.full_name || 'Sin nombre'}</strong>${onlineIndicator}</td>
+          <td>${user.company_name || 'Sin empresa'}</td>
+          <td>${user.email || 'Sin email'}</td>
+          <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
+          <td>${roleSelect}</td>
+          <td>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+              ${comerciosHtml}
+            </div>
+          </td>
+          <td>
+            <div style="display: flex; gap: 0.35rem;">
+              <button class="btn btn-outline btn-user-detail" 
+                      data-user-index="${index}" 
+                      style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                <i class="ri-information-line"></i> Detalle
+              </button>
+              <button class="btn btn-outline btn-manage-modules" 
+                      data-user-id="${user.id}" 
+                      data-user-name="${user.full_name || 'Sin nombre'}" 
+                      data-user-role="${user.role}" 
+                      data-allowed-modules="${user.allowed_modules || 'all'}" 
+                      style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                <i class="ri-settings-5-line"></i> Módulos
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    const getStatusBgColor = (status) => {
+      if (status === 'convertido') return 'rgba(16, 185, 129, 0.15)';
+      if (status === 'seguimiento') return 'rgba(139, 92, 246, 0.15)';
+      if (status === 'contactado') return 'rgba(245, 158, 11, 0.15)';
+      return 'rgba(59, 130, 246, 0.15)';
+    };
+    const getStatusTextColor = (status) => {
+      if (status === 'convertido') return '#10b981';
+      if (status === 'seguimiento') return '#8b5cf6';
+      if (status === 'contactado') return '#f59e0b';
+      return '#3b82f6';
+    };
+
+    window.getLeadStatusBgColor = getStatusBgColor;
+    window.getLeadStatusTextColor = getStatusTextColor;
+
+    // Helper para generar fila de lead de demo
+    function buildLeadRowHtml(lead) {
+      const dateObj = lead.created_at ? new Date(lead.created_at) : null;
+      const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+      const emailHistory = lead.lead_emails_sent || [];
+      
+      const historyBadge = emailHistory.length > 0
+        ? `<span class="badge" style="background-color: var(--color-primary)20; color: var(--color-primary); border: 1px solid var(--color-primary)40; font-size: 0.72rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" onclick="window.viewLeadEmailHistory('${lead.id}')"><i class="ri-mail-check-line"></i> Envíos (${emailHistory.length})</span>`
+        : `<span style="color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">Sin envíos</span>`;
+
+      const leadStatusSelect = `
+        <select class="form-input lead-status-select" data-lead-id="${lead.id}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; width: auto; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin: 0; background-color: ${getStatusBgColor(lead.lead_status)}; color: ${getStatusTextColor(lead.lead_status)}; cursor: pointer; transition: all 0.2s;" onchange="window.updateLeadStatus('${lead.id}', this.value)">
+          <option value="nuevo" ${lead.lead_status === 'nuevo' || !lead.lead_status ? 'selected' : ''}>Nuevo</option>
+          <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>Contactado</option>
+          <option value="seguimiento" ${lead.lead_status === 'seguimiento' ? 'selected' : ''}>Seguimiento</option>
+          <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>Convertido</option>
+        </select>
+      `;
+
+      return `
+        <tr>
+          <td>
+            <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.92rem;">${lead.full_name || 'Sin nombre'}</div>
+            <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.1rem;">${lead.company_name || 'Sin empresa'}</div>
+          </td>
+          <td>
+            <span style="font-family: monospace; font-size: 0.85rem;">${lead.email || 'Sin email'}</span>
+          </td>
+          <td style="font-size: 0.82rem; color: var(--color-text-muted);">${dateStr}</td>
+          <td>${leadStatusSelect}</td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.5rem; max-width: 250px;">
+              <span style="font-size: 0.82rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${lead.lead_notes || ''}">
+                ${lead.lead_notes || '<span style="color: var(--color-text-muted); font-style: italic;">Sin notas</span>'}
+              </span>
+              <button class="btn btn-outline" onclick="window.editLeadNotes('${lead.id}', '${encodeURIComponent(lead.lead_notes || '')}')" style="padding: 0.2rem 0.35rem; border-color: transparent; background: transparent; cursor: pointer; color: var(--color-primary); flex-shrink: 0;" title="Editar Notas">
+                <i class="ri-edit-line" style="font-size: 1rem;"></i>
+              </button>
+            </div>
+          </td>
+          <td>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              ${historyBadge}
+              <button class="btn btn-primary btn-sm" onclick="window.openSendLeadEmailModal('${lead.id}')" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; display: flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 4px;">
+                <i class="ri-send-plane-line" style="font-size: 0.9rem;"></i> Contactar
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
     if (window.activeUsersAdminTab === 'users') {
       // TAB 1: Usuarios y Roles
       let rowsHtml = '';
-      if (!operationalUsers || operationalUsers.length === 0) {
+      if (!filteredOperationalUsers || filteredOperationalUsers.length === 0) {
         rowsHtml = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
       } else {
-        operationalUsers.forEach((user) => {
+        filteredOperationalUsers.forEach((user) => {
           const index = profiles.findIndex(p => p.id === user.id);
-          const dateObj = user.created_at ? new Date(user.created_at) : null;
-          const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
-
-          // Determinar si está en línea (últimos 15 minutos)
-          const lastSeenDate = user.last_seen ? new Date(user.last_seen) : null;
-          const isOnline = lastSeenDate && (new Date() - lastSeenDate) < 15 * 60 * 1000;
-          const onlineIndicator = isOnline
-            ? `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-success); border-radius: 50%; margin-left: 0.5rem;" title="En línea ahora"></span>`
-            : `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-text-muted); border-radius: 50%; margin-left: 0.5rem; opacity: 0.4;" title="Desconectado"></span>`;
-
-          // Selector de Roles
-          const roleSelect = `
-            <select class="form-input user-role-select" data-user-id="${user.id}" style="padding: 0.35rem 0.5rem; font-size: 0.875rem; width: auto; min-width: 140px; margin: 0; display: inline-block;">
-              <option value="observer" ${user.role === 'observer' ? 'selected' : ''}>Observador</option>
-              <option value="client" ${user.role === 'client' ? 'selected' : ''}>Cliente</option>
-              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
-            </select>
-          `;
-
-          // Checkboxes de Comercios (solo editables/visibles para rol cliente)
-          const currentComercios = user.comercio && user.comercio !== 'no asignado'
-            ? user.comercio.split(',').map(c => c.trim())
-            : [];
-
-          window.adminComerciosList = comercios; // Exponer a nivel global para el modal
-          let comerciosHtml = '';
-          if (user.role !== 'client') {
-            comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
-          } else if (comercios.length === 0) {
-            const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
-            comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
-          } else {
-            const assignedCount = currentComercios.length;
-            const assignedDataStr = encodeURIComponent(JSON.stringify(currentComercios));
-            comerciosHtml = `
-              <button class="btn btn-outline btn-sm" onclick="openUserComerciosModal('${user.id}', '${assignedDataStr}')" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-                <i class="ri-store-2-line"></i> Gestionar Comercios (${assignedCount})
-              </button>
-              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                ${assignedCount > 0 ? currentComercios.join(', ') : 'Ninguno asignado'}
-              </div>
-            `;
-          }
-
-          rowsHtml += `
-            <tr>
-              <td><strong>${user.full_name || 'Sin nombre'}</strong>${onlineIndicator}</td>
-              <td>${user.company_name || 'Sin empresa'}</td>
-              <td>${user.email || 'Sin email'}</td>
-              <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
-              <td>${roleSelect}</td>
-              <td>
-                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
-                  ${comerciosHtml}
-                </div>
-              </td>
-              <td>
-                <div style="display: flex; gap: 0.35rem;">
-                  <button class="btn btn-outline btn-user-detail" 
-                          data-user-index="${index}" 
-                          style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
-                    <i class="ri-information-line"></i> Detalle
-                  </button>
-                  <button class="btn btn-outline btn-manage-modules" 
-                          data-user-id="${user.id}" 
-                          data-user-name="${user.full_name || 'Sin nombre'}" 
-                          data-user-role="${user.role}" 
-                          data-allowed-modules="${user.allowed_modules || 'all'}" 
-                          style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
-                    <i class="ri-settings-5-line"></i> Módulos
-                  </button>
-                </div>
-              </td>
-            </tr>
-          `;
+          rowsHtml += buildUserRowHtml(user, index);
         });
       }
 
       appContent.innerHTML = `
         ${headerTabsHtml}
         <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
               <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
               <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
                 Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' por defecto.
               </p>
             </div>
-            <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">Crear Usuario</button>
+            <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="users-search-input" class="form-input" placeholder="Buscar por nombre, correo, empresa..." style="width: 280px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.usersAdminSearchQuery || ''}">
+              </div>
+              <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; height: 38px;">Crear Usuario</button>
+            </div>
           </div>
           <div class="card-body table-responsive" style="padding: 0;">
             <table class="data-table">
@@ -10193,7 +10305,7 @@ async function renderUsersAdmin() {
                   <th>Acciones</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="users-admin-tbody">
                 ${rowsHtml}
               </tbody>
             </table>
@@ -10201,24 +10313,38 @@ async function renderUsersAdmin() {
         </div>
       `;
 
+      // Registrar listener para búsqueda en usuarios
+      const usersSearchInput = document.getElementById('users-search-input');
+      if (usersSearchInput) {
+        usersSearchInput.addEventListener('input', (e) => {
+          window.usersAdminSearchQuery = e.target.value;
+          const q = window.usersAdminSearchQuery.toLowerCase().trim();
+          
+          const filtered = operationalUsers.filter(user => {
+            const name = (user.full_name || '').toLowerCase();
+            const email = (user.email || '').toLowerCase();
+            const company = (user.company_name || '').toLowerCase();
+            return name.includes(q) || email.includes(q) || company.includes(q);
+          });
+
+          const tbody = document.getElementById('users-admin-tbody');
+          if (tbody) {
+            let html = '';
+            if (filtered.length === 0) {
+              html = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios que coincidan con la búsqueda.</td></tr>`;
+            } else {
+              filtered.forEach((user) => {
+                const index = profiles.findIndex(p => p.id === user.id);
+                html += buildUserRowHtml(user, index);
+              });
+            }
+            tbody.innerHTML = html;
+          }
+        });
+      }
+
     } else {
       // TAB 2: Leads de la Demo
-      
-      const getStatusBgColor = (status) => {
-        if (status === 'convertido') return 'rgba(16, 185, 129, 0.15)';
-        if (status === 'seguimiento') return 'rgba(139, 92, 246, 0.15)';
-        if (status === 'contactado') return 'rgba(245, 158, 11, 0.15)';
-        return 'rgba(59, 130, 246, 0.15)';
-      };
-      const getStatusTextColor = (status) => {
-        if (status === 'convertido') return '#10b981';
-        if (status === 'seguimiento') return '#8b5cf6';
-        if (status === 'contactado') return '#f59e0b';
-        return '#3b82f6';
-      };
-
-      window.getLeadStatusBgColor = getStatusBgColor;
-      window.getLeadStatusTextColor = getStatusTextColor;
 
       // Calcular estadísticas de leads
       const statsTotal = leads.length;
@@ -10228,58 +10354,11 @@ async function renderUsersAdmin() {
       const statsConvertido = leads.filter(l => l.lead_status === 'convertido').length;
 
       let leadsRowsHtml = '';
-      if (!leads || leads.length === 0) {
+      if (!filteredLeads || filteredLeads.length === 0) {
         leadsRowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No hay registros de leads demo en el sistema.</td></tr>`;
       } else {
-        leads.forEach((lead) => {
-          const dateObj = lead.created_at ? new Date(lead.created_at) : null;
-          const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
-          const emailHistory = lead.lead_emails_sent || [];
-          
-          const historyBadge = emailHistory.length > 0
-            ? `<span class="badge" style="background-color: var(--color-primary)20; color: var(--color-primary); border: 1px solid var(--color-primary)40; font-size: 0.72rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" onclick="window.viewLeadEmailHistory('${lead.id}')"><i class="ri-mail-check-line"></i> Envíos (${emailHistory.length})</span>`
-            : `<span style="color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">Sin envíos</span>`;
-
-          const leadStatusSelect = `
-            <select class="form-input lead-status-select" data-lead-id="${lead.id}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; width: auto; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin: 0; background-color: ${getStatusBgColor(lead.lead_status)}; color: ${getStatusTextColor(lead.lead_status)}; cursor: pointer; transition: all 0.2s;" onchange="window.updateLeadStatus('${lead.id}', this.value)">
-              <option value="nuevo" ${lead.lead_status === 'nuevo' || !lead.lead_status ? 'selected' : ''}>Nuevo</option>
-              <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>Contactado</option>
-              <option value="seguimiento" ${lead.lead_status === 'seguimiento' ? 'selected' : ''}>Seguimiento</option>
-              <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>Convertido</option>
-            </select>
-          `;
-
-          leadsRowsHtml += `
-            <tr>
-              <td>
-                <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.92rem;">${lead.full_name || 'Sin nombre'}</div>
-                <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.1rem;">${lead.company_name || 'Sin empresa'}</div>
-              </td>
-              <td>
-                <span style="font-family: monospace; font-size: 0.85rem;">${lead.email || 'Sin email'}</span>
-              </td>
-              <td style="font-size: 0.82rem; color: var(--color-text-muted);">${dateStr}</td>
-              <td>${leadStatusSelect}</td>
-              <td>
-                <div style="display: flex; align-items: center; gap: 0.5rem; max-width: 250px;">
-                  <span style="font-size: 0.82rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${lead.lead_notes || ''}">
-                    ${lead.lead_notes || '<span style="color: var(--color-text-muted); font-style: italic;">Sin notas</span>'}
-                  </span>
-                  <button class="btn btn-outline" onclick="window.editLeadNotes('${lead.id}', '${encodeURIComponent(lead.lead_notes || '')}')" style="padding: 0.2rem 0.35rem; border-color: transparent; background: transparent; cursor: pointer; color: var(--color-primary); flex-shrink: 0;" title="Editar Notas">
-                    <i class="ri-edit-line" style="font-size: 1rem;"></i>
-                  </button>
-                </div>
-              </td>
-              <td>
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  ${historyBadge}
-                  <button class="btn btn-primary btn-sm" onclick="window.openSendLeadEmailModal('${lead.id}')" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; display: flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 4px;">
-                    <i class="ri-send-plane-line" style="font-size: 0.9rem;"></i> Contactar
-                  </button>
-                </div>
-              </td>
-            </tr>
-          `;
+        filteredLeads.forEach((lead) => {
+          leadsRowsHtml += buildLeadRowHtml(lead);
         });
       }
 
@@ -10346,8 +10425,12 @@ async function renderUsersAdmin() {
         </div>
 
         <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <h3 style="margin: 0; font-size: 1.15rem; font-weight:700;">Control y Seguimiento de Leads</h3>
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="leads-search-input" class="form-input" placeholder="Buscar por nombre, correo, empresa..." style="width: 280px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);" value="${window.leadsAdminSearchQuery || ''}">
+            </div>
           </div>
           <div class="card-body table-responsive" style="padding: 0;">
             <table class="data-table">
@@ -10361,13 +10444,43 @@ async function renderUsersAdmin() {
                   <th>Historial / Acciones</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="leads-admin-tbody">
                 ${leadsRowsHtml}
               </tbody>
             </table>
           </div>
         </div>
       `;
+
+      // Registrar listener para búsqueda en leads
+      const leadsSearchInput = document.getElementById('leads-search-input');
+      if (leadsSearchInput) {
+        leadsSearchInput.addEventListener('input', (e) => {
+          window.leadsAdminSearchQuery = e.target.value;
+          const q = window.leadsAdminSearchQuery.toLowerCase().trim();
+          
+          const filtered = leads.filter(lead => {
+            const name = (lead.full_name || '').toLowerCase();
+            const email = (lead.email || '').toLowerCase();
+            const company = (lead.company_name || '').toLowerCase();
+            return name.includes(q) || email.includes(q) || company.includes(q);
+          });
+
+          const tbody = document.getElementById('leads-admin-tbody');
+          if (tbody) {
+            let html = '';
+            if (filtered.length === 0) {
+              html = `<tr><td colspan="6" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No hay leads que coincidan con la búsqueda.</td></tr>`;
+            } else {
+              filtered.forEach((lead) => {
+                html += buildLeadRowHtml(lead);
+              });
+            }
+            tbody.innerHTML = html;
+          }
+        });
+      }
+
 
       window.saveBrevoApiKey = function() {
         const input = document.getElementById('brevo-api-key-input');
@@ -10389,7 +10502,7 @@ async function renderUsersAdmin() {
           if (error) throw error;
           
           console.log('Estado de lead actualizado correctamente.');
-          renderUsersAdmin();
+          renderUsersAdmin(true);
         } catch(err) {
           console.error('Error al actualizar el estado del lead:', err);
           alert('Error al actualizar: ' + err.message);
@@ -10407,7 +10520,7 @@ async function renderUsersAdmin() {
               .eq('id', leadId);
               
             if (error) throw error;
-            renderUsersAdmin();
+            renderUsersAdmin(true);
           } catch(err) {
             console.error('Error al guardar notas:', err);
             alert('Error al guardar notas: ' + err.message);
@@ -10637,7 +10750,7 @@ async function renderUsersAdmin() {
           alert('¡Correo enviado con éxito a través de Brevo y registrado en el historial!');
           document.getElementById('modal-send-email').remove();
 
-          renderUsersAdmin();
+          renderUsersAdmin(true);
 
         } catch (err) {
           console.error('Error al enviar correo vía Brevo:', err);
@@ -10690,7 +10803,7 @@ document.addEventListener('change', async (e) => {
       // Recargar la vista de usuarios para habilitar/deshabilitar checkboxes
       const viewTitle = document.getElementById('view-title');
       if (viewTitle && viewTitle.textContent === 'Gestionar Usuarios') {
-        renderUsersAdmin();
+        renderUsersAdmin(true);
       }
 
       // Redirigir al dashboard si el administrador actual se auto-degradó
@@ -10768,7 +10881,7 @@ window.openUserComerciosModal = function(userId, assignedDataStr) {
       setTimeout(() => modal.remove(), 300);
       
       if (typeof renderUsersAdmin === 'function') {
-        renderUsersAdmin();
+        renderUsersAdmin(true);
       }
     } catch (err) {
       console.error('Error al guardar:', err);
@@ -11173,7 +11286,7 @@ document.addEventListener('submit', async (e) => {
         e.target.reset();
         
         // Recargar la tabla de perfiles
-        renderUsersAdmin();
+        renderUsersAdmin(true);
       }, 1500);
 
     } catch (err) {
@@ -11272,7 +11385,7 @@ document.addEventListener('submit', async (e) => {
         e.target.reset();
         
         // Recargar la tabla de perfiles
-        renderUsersAdmin();
+        renderUsersAdmin(true);
       }, 1500);
 
     } catch (err) {
