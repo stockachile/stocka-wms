@@ -10037,6 +10037,13 @@ async function renderUsersAdmin() {
 
     window.adminUsersList = profiles; // Exponer perfiles a nivel global para acceder en el detalle
 
+    // Filtrar operacionales vs leads
+    const leads = profiles.filter(p => p.is_demo_user === true);
+    const operationalUsers = profiles.filter(p => p.is_demo_user !== true);
+
+    // Obtener la pestaña activa
+    window.activeUsersAdminTab = window.activeUsersAdminTab || 'users';
+
     // Obtener los comercios configurados desde la vista segura v_comercios_config
     let comercios = [];
     let loadErrorMsg = null;
@@ -10057,126 +10064,589 @@ async function renderUsersAdmin() {
       window.lastComerciosError = e;
     }
 
-    let rowsHtml = '';
-    if (!profiles || profiles.length === 0) {
-      rowsHtml = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
-    } else {
-      profiles.forEach((user, index) => {
-        const dateObj = user.created_at ? new Date(user.created_at) : null;
-        const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
-
-        // Determinar si está en línea (últimos 15 minutos)
-        const lastSeenDate = user.last_seen ? new Date(user.last_seen) : null;
-        const isOnline = lastSeenDate && (new Date() - lastSeenDate) < 15 * 60 * 1000;
-        const onlineIndicator = isOnline
-          ? `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-success); border-radius: 50%; margin-left: 0.5rem;" title="En línea ahora"></span>`
-          : `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-text-muted); border-radius: 50%; margin-left: 0.5rem; opacity: 0.4;" title="Desconectado"></span>`;
-
-        // Selector de Roles
-        const roleSelect = `
-          <select class="form-input user-role-select" data-user-id="${user.id}" style="padding: 0.35rem 0.5rem; font-size: 0.875rem; width: auto; min-width: 140px; margin: 0; display: inline-block;">
-            <option value="observer" ${user.role === 'observer' ? 'selected' : ''}>Observador</option>
-            <option value="client" ${user.role === 'client' ? 'selected' : ''}>Cliente</option>
-            <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
-          </select>
-        `;
-
-        // Checkboxes de Comercios (solo editables/visibles para rol cliente)
-        const currentComercios = user.comercio && user.comercio !== 'no asignado'
-          ? user.comercio.split(',').map(c => c.trim())
-          : [];
-
-        window.adminComerciosList = comercios; // Exponer a nivel global para el modal
-        let comerciosHtml = '';
-        if (user.role !== 'client') {
-          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
-        } else if (comercios.length === 0) {
-          const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
-          comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
-        } else {
-          const assignedCount = currentComercios.length;
-          const assignedDataStr = encodeURIComponent(JSON.stringify(currentComercios));
-          comerciosHtml = `
-            <button class="btn btn-outline btn-sm" onclick="openUserComerciosModal('${user.id}', '${assignedDataStr}')" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-              <i class="ri-store-2-line"></i> Gestionar Comercios (${assignedCount})
-            </button>
-            <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${assignedCount > 0 ? currentComercios.join(', ') : 'Ninguno asignado'}
-            </div>
-          `;
-        }
-
-        rowsHtml += `
-          <tr>
-            <td><strong>${user.full_name || 'Sin nombre'}</strong>${onlineIndicator}</td>
-            <td>${user.company_name || 'Sin empresa'}</td>
-            <td>${user.email || 'Sin email'}</td>
-            <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
-            <td>${roleSelect}</td>
-            <td>
-              <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
-                ${comerciosHtml}
-              </div>
-            </td>
-            <td>
-              <div style="display: flex; gap: 0.35rem;">
-                <button class="btn btn-outline btn-user-detail" 
-                        data-user-index="${index}" 
-                        style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
-                  <i class="ri-information-line"></i> Detalle
-                </button>
-                <button class="btn btn-outline btn-manage-modules" 
-                        data-user-id="${user.id}" 
-                        data-user-name="${user.full_name || 'Sin nombre'}" 
-                        data-user-role="${user.role}" 
-                        data-allowed-modules="${user.allowed_modules || 'all'}" 
-                        style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
-                  <i class="ri-settings-5-line"></i> Módulos
-                </button>
-              </div>
-            </td>
-          </tr>
-        `;
-      });
-    }
-
-    appContent.innerHTML = `
-      <div class="card" style="border: none; box-shadow: var(--shadow-md);">
-        <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
-            <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
-              Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' (solo lectura, sin comercio asignado) por defecto.
-            </p>
-          </div>
-          <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">Crear Usuario</button>
-        </div>
-        <div class="card-body table-responsive" style="padding: 0;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Empresa</th>
-                <th>Email</th>
-                <th>Fecha de Registro</th>
-                <th>Rol</th>
-                <th>Comercios Asignados (Solo Clientes)</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml}
-            </tbody>
-          </table>
-        </div>
+    // Cabecera con pestañas
+    let headerTabsHtml = `
+      <div class="leads-tab-bar" style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--color-border); margin-bottom: 1.5rem; padding-bottom: 0.25rem;">
+        <button class="btn-tab" onclick="window.switchUsersAdminTab('users')" style="background: none; border: none; font-size: 0.95rem; font-weight: 600; padding: 0.75rem 1.25rem; cursor: pointer; color: ${window.activeUsersAdminTab === 'users' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeUsersAdminTab === 'users' ? 'var(--color-primary)' : 'transparent'}; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-team-line" style="font-size: 1.1rem;"></i> Usuarios y Roles (${operationalUsers.length})
+        </button>
+        <button class="btn-tab" onclick="window.switchUsersAdminTab('leads')" style="background: none; border: none; font-size: 0.95rem; font-weight: 600; padding: 0.75rem 1.25rem; cursor: pointer; color: ${window.activeUsersAdminTab === 'leads' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeUsersAdminTab === 'leads' ? 'var(--color-primary)' : 'transparent'}; transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-chat-smile-2-line" style="font-size: 1.1rem;"></i> Leads de la Demo (${leads.length})
+        </button>
       </div>
     `;
 
-  } catch (err) {
-    console.error("Error loading user administration view:", err);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar la administración de usuarios: ${err.message}</p>`;
-  }
-}
+    // Guardar cargador de tab en global
+    window.switchUsersAdminTab = function(tabName) {
+      window.activeUsersAdminTab = tabName;
+      renderUsersAdmin();
+    };
+
+    if (window.activeUsersAdminTab === 'users') {
+      // TAB 1: Usuarios y Roles
+      let rowsHtml = '';
+      if (!operationalUsers || operationalUsers.length === 0) {
+        rowsHtml = `<tr><td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay usuarios registrados.</td></tr>`;
+      } else {
+        operationalUsers.forEach((user) => {
+          const index = profiles.findIndex(p => p.id === user.id);
+          const dateObj = user.created_at ? new Date(user.created_at) : null;
+          const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+
+          // Determinar si está en línea (últimos 15 minutos)
+          const lastSeenDate = user.last_seen ? new Date(user.last_seen) : null;
+          const isOnline = lastSeenDate && (new Date() - lastSeenDate) < 15 * 60 * 1000;
+          const onlineIndicator = isOnline
+            ? `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-success); border-radius: 50%; margin-left: 0.5rem;" title="En línea ahora"></span>`
+            : `<span style="display: inline-block; width: 8px; height: 8px; background-color: var(--color-text-muted); border-radius: 50%; margin-left: 0.5rem; opacity: 0.4;" title="Desconectado"></span>`;
+
+          // Selector de Roles
+          const roleSelect = `
+            <select class="form-input user-role-select" data-user-id="${user.id}" style="padding: 0.35rem 0.5rem; font-size: 0.875rem; width: auto; min-width: 140px; margin: 0; display: inline-block;">
+              <option value="observer" ${user.role === 'observer' ? 'selected' : ''}>Observador</option>
+              <option value="client" ${user.role === 'client' ? 'selected' : ''}>Cliente</option>
+              <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
+            </select>
+          `;
+
+          // Checkboxes de Comercios (solo editables/visibles para rol cliente)
+          const currentComercios = user.comercio && user.comercio !== 'no asignado'
+            ? user.comercio.split(',').map(c => c.trim())
+            : [];
+
+          window.adminComerciosList = comercios; // Exponer a nivel global para el modal
+          let comerciosHtml = '';
+          if (user.role !== 'client') {
+            comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">No aplica (Rol: ${user.role === 'admin' ? 'Administrador' : 'Observador'})</span>`;
+          } else if (comercios.length === 0) {
+            const errorDetail = loadErrorMsg ? `<br><small style="color: #ef4444; font-size: 0.8rem;">Detalle del error: ${loadErrorMsg}</small>` : '';
+            comerciosHtml = `<span style="color: var(--color-text-muted); font-size: 0.85rem;">No hay comercios configurados en comercios_config.${errorDetail}</span>`;
+          } else {
+            const assignedCount = currentComercios.length;
+            const assignedDataStr = encodeURIComponent(JSON.stringify(currentComercios));
+            comerciosHtml = `
+              <button class="btn btn-outline btn-sm" onclick="openUserComerciosModal('${user.id}', '${assignedDataStr}')" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                <i class="ri-store-2-line"></i> Gestionar Comercios (${assignedCount})
+              </button>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.35rem; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${assignedCount > 0 ? currentComercios.join(', ') : 'Ninguno asignado'}
+              </div>
+            `;
+          }
+
+          rowsHtml += `
+            <tr>
+              <td><strong>${user.full_name || 'Sin nombre'}</strong>${onlineIndicator}</td>
+              <td>${user.company_name || 'Sin empresa'}</td>
+              <td>${user.email || 'Sin email'}</td>
+              <td style="font-size: 0.85rem; color: var(--color-text-muted);">${dateStr}</td>
+              <td>${roleSelect}</td>
+              <td>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center;">
+                  ${comerciosHtml}
+                </div>
+              </td>
+              <td>
+                <div style="display: flex; gap: 0.35rem;">
+                  <button class="btn btn-outline btn-user-detail" 
+                          data-user-index="${index}" 
+                          style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                    <i class="ri-information-line"></i> Detalle
+                  </button>
+                  <button class="btn btn-outline btn-manage-modules" 
+                          data-user-id="${user.id}" 
+                          data-user-name="${user.full_name || 'Sin nombre'}" 
+                          data-user-role="${user.role}" 
+                          data-allowed-modules="${user.allowed_modules || 'all'}" 
+                          style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
+                    <i class="ri-settings-5-line"></i> Módulos
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      appContent.innerHTML = `
+        ${headerTabsHtml}
+        <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.25rem;">Control de Acceso y Roles de Usuarios</h3>
+              <p style="color: var(--color-text-muted); font-size: 0.9rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
+                Administra el rol de los usuarios y asocia uno o múltiples comercios a los clientes. Los nuevos usuarios se registran como 'observador' por defecto.
+              </p>
+            </div>
+            <button class="btn btn-primary" id="btn-open-create-user-modal" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600;">Crear Usuario</button>
+          </div>
+          <div class="card-body table-responsive" style="padding: 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Empresa</th>
+                  <th>Email</th>
+                  <th>Fecha de Registro</th>
+                  <th>Rol</th>
+                  <th>Comercios Asignados (Solo Clientes)</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+    } else {
+      // TAB 2: Leads de la Demo
+      
+      const getStatusBgColor = (status) => {
+        if (status === 'convertido') return 'rgba(16, 185, 129, 0.15)';
+        if (status === 'seguimiento') return 'rgba(139, 92, 246, 0.15)';
+        if (status === 'contactado') return 'rgba(245, 158, 11, 0.15)';
+        return 'rgba(59, 130, 246, 0.15)';
+      };
+      const getStatusTextColor = (status) => {
+        if (status === 'convertido') return '#10b981';
+        if (status === 'seguimiento') return '#8b5cf6';
+        if (status === 'contactado') return '#f59e0b';
+        return '#3b82f6';
+      };
+
+      window.getLeadStatusBgColor = getStatusBgColor;
+      window.getLeadStatusTextColor = getStatusTextColor;
+
+      // Calcular estadísticas de leads
+      const statsTotal = leads.length;
+      const statsNuevo = leads.filter(l => l.lead_status === 'nuevo' || !l.lead_status).length;
+      const statsContactado = leads.filter(l => l.lead_status === 'contactado').length;
+      const statsSeguimiento = leads.filter(l => l.lead_status === 'seguimiento').length;
+      const statsConvertido = leads.filter(l => l.lead_status === 'convertido').length;
+
+      let leadsRowsHtml = '';
+      if (!leads || leads.length === 0) {
+        leadsRowsHtml = `<tr><td colspan="6" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">No hay registros de leads demo en el sistema.</td></tr>`;
+      } else {
+        leads.forEach((lead) => {
+          const dateObj = lead.created_at ? new Date(lead.created_at) : null;
+          const dateStr = dateObj ? dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A';
+          const emailHistory = lead.lead_emails_sent || [];
+          
+          const historyBadge = emailHistory.length > 0
+            ? `<span class="badge" style="background-color: var(--color-primary)20; color: var(--color-primary); border: 1px solid var(--color-primary)40; font-size: 0.72rem; padding: 0.15rem 0.4rem; border-radius: 4px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;" onclick="window.viewLeadEmailHistory('${lead.id}')"><i class="ri-mail-check-line"></i> Envíos (${emailHistory.length})</span>`
+            : `<span style="color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">Sin envíos</span>`;
+
+          const leadStatusSelect = `
+            <select class="form-input lead-status-select" data-lead-id="${lead.id}" style="padding: 0.35rem 0.5rem; font-size: 0.85rem; width: auto; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin: 0; background-color: ${getStatusBgColor(lead.lead_status)}; color: ${getStatusTextColor(lead.lead_status)}; cursor: pointer; transition: all 0.2s;" onchange="window.updateLeadStatus('${lead.id}', this.value)">
+              <option value="nuevo" ${lead.lead_status === 'nuevo' || !lead.lead_status ? 'selected' : ''}>Nuevo</option>
+              <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>Contactado</option>
+              <option value="seguimiento" ${lead.lead_status === 'seguimiento' ? 'selected' : ''}>Seguimiento</option>
+              <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>Convertido</option>
+            </select>
+          `;
+
+          leadsRowsHtml += `
+            <tr>
+              <td>
+                <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.92rem;">${lead.full_name || 'Sin nombre'}</div>
+                <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-top: 0.1rem;">${lead.company_name || 'Sin empresa'}</div>
+              </td>
+              <td>
+                <span style="font-family: monospace; font-size: 0.85rem;">${lead.email || 'Sin email'}</span>
+              </td>
+              <td style="font-size: 0.82rem; color: var(--color-text-muted);">${dateStr}</td>
+              <td>${leadStatusSelect}</td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 0.5rem; max-width: 250px;">
+                  <span style="font-size: 0.82rem; color: var(--color-text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${lead.lead_notes || ''}">
+                    ${lead.lead_notes || '<span style="color: var(--color-text-muted); font-style: italic;">Sin notas</span>'}
+                  </span>
+                  <button class="btn btn-outline" onclick="window.editLeadNotes('${lead.id}', '${encodeURIComponent(lead.lead_notes || '')}')" style="padding: 0.2rem 0.35rem; border-color: transparent; background: transparent; cursor: pointer; color: var(--color-primary); flex-shrink: 0;" title="Editar Notas">
+                    <i class="ri-edit-line" style="font-size: 1rem;"></i>
+                  </button>
+                </div>
+              </td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  ${historyBadge}
+                  <button class="btn btn-primary btn-sm" onclick="window.openSendLeadEmailModal('${lead.id}')" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; display: flex; align-items: center; gap: 0.25rem; font-size: 0.78rem; padding: 0.35rem 0.75rem; border-radius: 4px;">
+                    <i class="ri-send-plane-line" style="font-size: 0.9rem;"></i> Contactar
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      }
+
+      appContent.innerHTML = `
+        ${headerTabsHtml}
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+          <div class="card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; border: none; box-shadow: var(--shadow-sm);">
+            <div style="background: rgba(75, 85, 99, 0.1); color: var(--color-text-main); font-size: 1.5rem; width: 42px; height: 42px; border-radius: 50%; display: flex; justify-content: center; align-items: center;"><i class="ri-line-chart-line"></i></div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Total Leads</div>
+              <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${statsTotal}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; border: none; box-shadow: var(--shadow-sm);">
+            <div style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; font-size: 1.5rem; width: 42px; height: 42px; border-radius: 50%; display: flex; justify-content: center; align-items: center;"><i class="ri-mail-unread-line"></i></div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Nuevos</div>
+              <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${statsNuevo}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; border: none; box-shadow: var(--shadow-sm);">
+            <div style="background: rgba(245, 158, 11, 0.1); color: #f59e0b; font-size: 1.5rem; width: 42px; height: 42px; border-radius: 50%; display: flex; justify-content: center; align-items: center;"><i class="ri-send-plane-line"></i></div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Contactados</div>
+              <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${statsContactado}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; border: none; box-shadow: var(--shadow-sm);">
+            <div style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; font-size: 1.5rem; width: 42px; height: 42px; border-radius: 50%; display: flex; justify-content: center; align-items: center;"><i class="ri-focus-3-line"></i></div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">En Seguimiento</div>
+              <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${statsSeguimiento}</div>
+            </div>
+          </div>
+          <div class="card" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 1rem; border: none; box-shadow: var(--shadow-sm);">
+            <div style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-size: 1.5rem; width: 42px; height: 42px; border-radius: 50%; display: flex; justify-content: center; align-items: center;"><i class="ri-checkbox-circle-line"></i></div>
+            <div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; text-transform: uppercase;">Convertidos</div>
+              <div style="font-size: 1.35rem; font-weight: 800; color: var(--color-text-main); margin-top: 0.1rem;">${statsConvertido}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 1.5rem;">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h4 style="margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem; font-weight:700;">
+                <i class="ri-key-2-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Configuración de Correo Brevo (felipe.tp@stocka.cl)
+              </h4>
+              <p style="color: var(--color-text-muted); font-size: 0.82rem; margin: 0.25rem 0 0 0; font-weight: normal;">
+                Los correos de contacto comercial y seguimiento se envían a través de la API de Brevo. La clave se almacena localmente de forma segura.
+              </p>
+            </div>
+          </div>
+          <div class="card-body" style="padding: 1.25rem 1.5rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 280px; max-width: 480px;">
+              <input type="password" id="brevo-api-key-input" class="form-input" placeholder="Ingresa tu Brevo API Key (xkeysib-...)" value="${localStorage.getItem('wms_brevo_api_key') || ''}" style="margin: 0; font-family: monospace; font-size: 0.88rem;">
+            </div>
+            <button class="btn btn-primary" onclick="window.saveBrevoApiKey()" style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; padding: 0.55rem 1.25rem; font-size:0.88rem;">
+              Guardar Clave
+            </button>
+          </div>
+        </div>
+
+        <div class="card" style="border: none; box-shadow: var(--shadow-md);">
+          <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem;">
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight:700;">Control y Seguimiento de Leads</h3>
+          </div>
+          <div class="card-body table-responsive" style="padding: 0;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Nombre / Empresa</th>
+                  <th>Email</th>
+                  <th>Fecha de Registro</th>
+                  <th>Estado Lead</th>
+                  <th>Notas Internas</th>
+                  <th>Historial / Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${leadsRowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      window.saveBrevoApiKey = function() {
+        const input = document.getElementById('brevo-api-key-input');
+        if (input) {
+          const key = input.value.trim();
+          localStorage.setItem('wms_brevo_api_key', key);
+          alert('API Key de Brevo guardada correctamente en el navegador.');
+          renderUsersAdmin();
+        }
+      };
+
+      window.updateLeadStatus = async function(leadId, newStatus) {
+        try {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ lead_status: newStatus })
+            .eq('id', leadId);
+            
+          if (error) throw error;
+          
+          console.log('Estado de lead actualizado correctamente.');
+          renderUsersAdmin();
+        } catch(err) {
+          console.error('Error al actualizar el estado del lead:', err);
+          alert('Error al actualizar: ' + err.message);
+        }
+      };
+
+      window.editLeadNotes = async function(leadId, currentNotesEncoded) {
+        const currentNotes = decodeURIComponent(currentNotesEncoded);
+        const newNotes = prompt('Editar Notas de Seguimiento Comercial:', currentNotes);
+        if (newNotes !== null) {
+          try {
+            const { error } = await supabase
+              .from('profiles')
+              .update({ lead_notes: newNotes.trim() })
+              .eq('id', leadId);
+              
+            if (error) throw error;
+            renderUsersAdmin();
+          } catch(err) {
+            console.error('Error al guardar notas:', err);
+            alert('Error al guardar notas: ' + err.message);
+          }
+        }
+      };
+
+      window.viewLeadEmailHistory = function(leadId) {
+        const lead = window.adminUsersList.find(p => p.id === leadId);
+        if (!lead) return;
+        const history = lead.lead_emails_sent || [];
+        
+        let listHtml = '';
+        if (history.length === 0) {
+          listHtml = '<p style="margin: 0; color: var(--color-text-muted); font-style: italic;">No se han enviado correos a este lead aún.</p>';
+        } else {
+          history.forEach(h => {
+            const dateStr = h.sent_at ? new Date(h.sent_at).toLocaleString() : 'Fecha desconocida';
+            listHtml += `
+              <div style="padding: 0.75rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.25rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: 600; color: var(--color-primary); font-size: 0.88rem;">${h.template || 'Correo Personalizado'}</span>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted);">${dateStr}</span>
+                </div>
+                <span style="font-size: 0.82rem; color: var(--color-text-main);"><strong>Asunto:</strong> ${h.subject || 'Sin asunto'}</span>
+              </div>
+            `;
+          });
+        }
+
+        let modal = document.getElementById('modal-email-history');
+        if (modal) modal.remove();
+        
+        modal = document.createElement('div');
+        modal.id = 'modal-email-history';
+        modal.style = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 10000;';
+        modal.innerHTML = `
+          <div style="background: var(--color-surface); width: 100%; max-width: 500px; padding: 1.5rem; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); border: 1px solid var(--color-border);">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; margin-bottom: 1rem;">
+              <h4 style="margin: 0; font-size: 1.1rem; color: var(--color-primary); font-weight: 700; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-history-line"></i> Historial de Envíos - ${lead.full_name}</h4>
+              <button onclick="document.getElementById('modal-email-history').remove()" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--color-text-muted);"><i class="ri-close-line"></i></button>
+            </div>
+            <div style="max-height: 350px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+              ${listHtml}
+            </div>
+            <div style="text-align: right; margin-top: 1.5rem;">
+              <button class="btn btn-outline" onclick="document.getElementById('modal-email-history').remove()" style="padding: 0.45rem 1rem; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface); font-weight: 500;">Cerrar</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(modal);
+      };
+
+      window.openSendLeadEmailModal = function(leadId) {
+        const lead = window.adminUsersList.find(p => p.id === leadId);
+        if (!lead) return;
+        
+        const brevoApiKey = localStorage.getItem('wms_brevo_api_key') || '';
+        
+        let modal = document.getElementById('modal-send-email');
+        if (modal) modal.remove();
+        
+        const templates = {
+          welcome: {
+            label: '1. Carta de Bienvenida a la Demo',
+            subject: `¡Bienvenido a la Demo de WMS Stocka!`,
+            body: `Hola ${lead.full_name},\n\nEspero que estés muy bien.\n\nTe escribo porque vimos tu registro para probar la Demo de nuestro WMS Stocka. Nos alegra mucho tu interés en optimizar la logística de tu ecommerce.\n\nEsta demo incluye todas las secciones operativas del WMS para clientes (Inventarios, Catálogos, Despachos, Historiales de volumen y más). Quisiéramos agendar una breve llamada de 15 minutos para entender tus requerimientos logísticos y ver cómo nuestro servicio de Fulfillment puede ayudarte a escalar.\n\nPuedes reservar un espacio en mi agenda directamente aquí: https://calendly.com/felipe-tp-stocka/15min\n\nQuedo muy atento a tus comentarios.\n\nSaludos cordiales,\n\nFelipe Trujillo\nFulfillment Manager - Stocka\nFelipe.tp@stocka.cl\n+56 9 3924 7487`
+          },
+          followup: {
+            label: '2. Seguimiento Comercial',
+            subject: `¿Cómo va tu experiencia con la Demo de WMS Stocka?`,
+            body: `Hola ${lead.full_name},\n\nTe escribo para saber cómo te ha ido explorando la Demo de WMS Stocka y si has tenido la oportunidad de ver las secciones de pedidos y despachos unificados.\n\n¿Tienes alguna duda sobre nuestras integraciones automáticas con Shopify, Mercado Libre o Jumpseller? Nos encantaría conversar sobre los volúmenes de despacho mensuales de tu tienda y prepararte una simulación tarifaria personalizada de bodegaje y picking.\n\nSi deseas conversar, avísame y agendamos una llamada rápida esta semana.\n\nSaludos cordiales,\n\nFelipe Trujillo\nFulfillment Manager - Stocka\nFelipe.tp@stocka.cl\n+56 9 3924 7487`
+          },
+          closing: {
+            label: '3. Propuesta de Fulfillment a tu medida',
+            subject: `Propuesta de Fulfillment a tu medida - Stocka`,
+            body: `Hola ${lead.full_name},\n\nEspero que estés teniendo una excelente semana.\n\nTe contacto para ver si pudimos alinearnos con tus necesidades de fulfillment. En Stocka nos encargamos de todo el flujo: desde que recibimos tu inventario en bodega central, el picking & packing profesional, hasta la entrega al courier final (Starken, Chilexpress, Blue Express) con tarifas corporativas preferenciales.\n\nSi estás listo para conectar tu tienda real y empezar a despachar con nosotros, avísame para enviarte el contrato y coordinar la primera recepción de tus productos.\n\n¡Trabajemos juntos!\n\nSaludos cordiales,\n\nFelipe Trujillo\nFulfillment Manager - Stocka\nFelipe.tp@stocka.cl\n+56 9 3924 7487`
+          }
+        };
+
+        modal = document.createElement('div');
+        modal.id = 'modal-send-email';
+        modal.style = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 10000;';
+        modal.innerHTML = `
+          <div style="background: var(--color-surface); width: 100%; max-width: 650px; padding: 1.75rem; border-radius: var(--radius-md); box-shadow: var(--shadow-lg); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; margin-bottom: 0.5rem;">
+              <h4 style="margin: 0; font-size: 1.15rem; color: var(--color-primary); font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-mail-send-line" style="font-size: 1.25rem;"></i> Contactar Lead - Brevo Email
+              </h4>
+              <button onclick="document.getElementById('modal-send-email').remove()" style="background: none; border: none; font-size: 1.25rem; cursor: pointer; color: var(--color-text-muted);"><i class="ri-close-line"></i></button>
+            </div>
+
+            ${!brevoApiKey ? `
+              <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #fca5a5; padding: 0.75rem 1rem; border-radius: var(--radius-sm); color: #ef4444; font-size: 0.88rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-alert-line" style="font-size: 1.1rem;"></i>
+                <span><strong>¡Atención!</strong> Debes configurar una API Key de Brevo en la parte superior antes de enviar correos.</span>
+              </div>
+            ` : ''}
+
+            <div style="display: flex; flex-direction: column; gap: 0.85rem; font-size: 0.9rem;">
+              <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600; color: var(--color-text-muted);">De (Remitente):</span>
+                <span style="font-family: monospace; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.85rem;">Felipe Trujillo &lt;felipe.tp@stocka.cl&gt;</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600; color: var(--color-text-muted);">Para (Destinatario):</span>
+                <span style="font-family: monospace; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); font-size: 0.85rem;">${lead.full_name} &lt;${lead.email}&gt;</span>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem;">
+                <span style="font-weight: 600; color: var(--color-text-main);">Seleccionar Plantilla:</span>
+                <select id="email-template-select" class="form-input" style="margin: 0;" onchange="window.selectEmailTemplate(this.value)">
+                  <option value="welcome" selected>${templates.welcome.label}</option>
+                  <option value="followup">${templates.followup.label}</option>
+                  <option value="closing">${templates.closing.label}</option>
+                </select>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                <span style="font-weight: 600; color: var(--color-text-main);">Asunto del Correo:</span>
+                <input type="text" id="email-subject-input" class="form-input" style="margin: 0;" value="${templates.welcome.subject}">
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                <span style="font-weight: 600; color: var(--color-text-main);">Mensaje (Editable):</span>
+                <textarea id="email-body-input" class="form-input" style="margin: 0; height: 180px; font-family: sans-serif; font-size: 0.88rem; line-height: 1.4; padding: 0.75rem;">${templates.welcome.body}</textarea>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 0.5rem;">
+              <button class="btn btn-outline" onclick="document.getElementById('modal-send-email').remove()" style="padding: 0.5rem 1rem; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface); font-weight: 500;">Cancelar</button>
+              <button class="btn btn-primary" id="btn-trigger-send-email" onclick="window.sendBrevoEmail('${lead.id}')" ${!brevoApiKey ? 'disabled' : ''} style="background-color: var(--color-primary); color: var(--color-dark); font-weight: 600; padding: 0.5rem 1.5rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-send-plane-fill"></i> Enviar Ahora
+              </button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(modal);
+
+        window.selectEmailTemplate = function(templateKey) {
+          const t = templates[templateKey];
+          if (t) {
+            document.getElementById('email-subject-input').value = t.subject;
+            document.getElementById('email-body-input').value = t.body;
+          }
+        };
+      };
+
+      window.sendBrevoEmail = async function(leadId) {
+        const lead = window.adminUsersList.find(p => p.id === leadId);
+        if (!lead) return;
+
+        const brevoApiKey = localStorage.getItem('wms_brevo_api_key');
+        if (!brevoApiKey) {
+          alert('Por favor ingresa una API Key de Brevo antes de enviar.');
+          return;
+        }
+
+        const subject = document.getElementById('email-subject-input').value.trim();
+        const textBody = document.getElementById('email-body-input').value.trim();
+        const selectEl = document.getElementById('email-template-select');
+        const templateName = selectEl.options[selectEl.selectedIndex].text;
+
+        if (!subject || !textBody) {
+          alert('El asunto y el cuerpo del mensaje no pueden estar vacíos.');
+          return;
+        }
+
+        const sendBtn = document.getElementById('btn-trigger-send-email');
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'Enviando...';
+
+        try {
+          const htmlBody = textBody.replace(/\n/g, '<br>');
+
+          const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+              'accept': 'application/json',
+              'api-key': brevoApiKey,
+              'content-type': 'application/json'
+            },
+            body: JSON.stringify({
+              sender: {
+                name: 'Felipe Trujillo - Stocka',
+                email: 'felipe.tp@stocka.cl'
+              },
+              to: [
+                {
+                  email: lead.email,
+                  name: lead.full_name
+                }
+              ],
+              subject: subject,
+              htmlContent: `
+                <div style="font-family: sans-serif; font-size: 14px; line-height: 1.5; color: #333;">
+                  ${htmlBody}
+                </div>
+              `
+            })
+          });
+
+          if (!response.ok) {
+            const errDetail = await response.text();
+            throw new Error(`Error de Brevo API (${response.status}): ${errDetail}`);
+          }
+
+          const updatedHistory = lead.lead_emails_sent ? [...lead.lead_emails_sent] : [];
+          updatedHistory.push({
+            template: templateName,
+            sent_at: new Date().toISOString(),
+            subject: subject
+          });
+
+          const updatedStatus = lead.lead_status === 'nuevo' || !lead.lead_status ? 'contactado' : lead.lead_status;
+
+          const { error } = await supabase
+            .from('profiles')
+            .update({
+              lead_emails_sent: updatedHistory,
+              lead_status: updatedStatus
+            })
+            .eq('id', lead.id);
+
+          if (error) throw error;
+
+          alert('¡Correo enviado con éxito a través de Brevo y registrado en el historial!');
+          document.getElementById('modal-send-email').remove();
+
+          renderUsersAdmin();
+
+        } catch (err) {
+          console.error('Error al enviar correo vía Brevo:', err);
+          alert('Error al enviar correo: ' + err.message);
+          sendBtn.disabled = false;
+          sendBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Ahora';
+        }
+      };
+    }
 
 // Manejo de eventos delegados para cambios de rol y comercios asignados
 document.addEventListener('change', async (e) => {

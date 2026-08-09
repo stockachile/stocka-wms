@@ -137,11 +137,19 @@ class MockQueryBuilder {
     // 1. Mapear ID/Merchant_ID al usuario logueado en modo demo para asegurar coincidencia de filtros
     if (window.isDemoMode() && demoUserId) {
       if (this.tableName === 'profiles') {
-        result = result.map(p => ({
-          ...p,
-          id: demoUserId,
-          allowed_modules: Array.isArray(p.allowed_modules) ? p.allowed_modules.join(', ') : p.allowed_modules
-        }));
+        result = result.map(p => {
+          if (p.id === 'demo-client-uuid-placeholder' || p.full_name === 'Cliente Invitado Demo' || p.id === demoUserId) {
+            return {
+              ...p,
+              id: demoUserId,
+              allowed_modules: Array.isArray(p.allowed_modules) ? p.allowed_modules.join(', ') : p.allowed_modules
+            };
+          }
+          return {
+            ...p,
+            allowed_modules: Array.isArray(p.allowed_modules) ? p.allowed_modules.join(', ') : p.allowed_modules
+          };
+        });
       } else if (this.tableName === 'stock_declarations') {
         result = result.map(item => ({ ...item, merchant_id: demoUserId }));
       } else if (this.tableName === 'merchants_warehouses') {

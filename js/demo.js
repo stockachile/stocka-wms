@@ -16,9 +16,42 @@ const INITIAL_MOCK_DATA = {
       role: 'client',
       company_name: DEMO_COMMERCE,
       full_name: 'Cliente Invitado Demo',
+      email: 'demo@stocka.cl',
       comercio: DEMO_COMMERCE,
       allowed_modules: 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation',
+      is_demo_user: false,
+      lead_status: null,
+      lead_notes: '',
+      lead_emails_sent: [],
       created_at: new Date('2026-08-01T00:00:00Z').toISOString()
+    },
+    {
+      id: 'lead-1',
+      role: 'observer',
+      company_name: 'Tienda Deportiva SpA',
+      full_name: 'Rodrigo Cárcamo',
+      email: 'rodrigo.carcamo@gmail.com',
+      comercio: 'no asignado',
+      is_demo_user: true,
+      lead_status: 'nuevo',
+      lead_notes: 'Interesado en fulfillment para calzado deportivo en Santiago.',
+      lead_emails_sent: [],
+      created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: 'lead-2',
+      role: 'observer',
+      company_name: 'Electrónica Express',
+      full_name: 'Valentina Silva',
+      email: 'valentina.silva@outlook.com',
+      comercio: 'no asignado',
+      is_demo_user: true,
+      lead_status: 'contactado',
+      lead_notes: 'Busca bodega en RM con despacho rápido de accesorios.',
+      lead_emails_sent: [
+        { template: 'Bienvenida a la Demo', sent_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), subject: '¡Bienvenido a la Demo de WMS Stocka!' }
+      ],
+      created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
     }
   ],
   warehouses: [
@@ -515,6 +548,51 @@ window.initializeDemoDB = function(forceReset = false) {
             empresa_comercio_proveedor: demoCommerce
           }
         ];
+        const alignedProfiles = [
+          {
+            id: demoUserId,
+            role: 'client',
+            company_name: demoCommerce,
+            full_name: 'Cliente Invitado Demo',
+            email: 'demo@stocka.cl',
+            comercio: demoCommerce,
+            allowed_modules: 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation',
+            is_demo_user: false,
+            lead_status: null,
+            lead_notes: '',
+            lead_emails_sent: [],
+            created_at: makeCurrentDate(10)
+          },
+          {
+            id: 'lead-1',
+            role: 'observer',
+            company_name: 'Tienda Deportiva SpA',
+            full_name: 'Rodrigo Cárcamo',
+            email: 'rodrigo.carcamo@gmail.com',
+            comercio: 'no asignado',
+            is_demo_user: true,
+            lead_status: 'nuevo',
+            lead_notes: 'Interesado en fulfillment para calzado deportivo en Santiago.',
+            lead_emails_sent: [],
+            created_at: makeCurrentDate(3)
+          },
+          {
+            id: 'lead-2',
+            role: 'observer',
+            company_name: 'Electrónica Express',
+            full_name: 'Valentina Silva',
+            email: 'valentina.silva@outlook.com',
+            comercio: 'no asignado',
+            is_demo_user: true,
+            lead_status: 'contactado',
+            lead_notes: 'Busca bodega en RM con despacho rápido de accesorios.',
+            lead_emails_sent: [
+              { template: 'Bienvenida a la Demo', sent_at: makeCurrentDate(1), subject: '¡Bienvenido a la Demo de WMS Stocka!' }
+            ],
+            created_at: makeCurrentDate(1)
+          }
+        ];
+        sessionStorage.setItem('wms_demo_profiles', JSON.stringify(alignedProfiles));
         sessionStorage.setItem('wms_demo_envios_unificados', JSON.stringify(shipments));
         sessionStorage.setItem('wms_demo_db_aligned_v3', 'true');
       }
