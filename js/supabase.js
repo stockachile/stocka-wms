@@ -187,6 +187,23 @@ class MockQueryBuilder {
           products: prod ? { sku: prod.sku, name: prod.name } : null
         };
       });
+    } else if (this.tableName === 'orders') {
+      const orderItems = window.getMockTable('order_items');
+      const products = window.getMockTable('products');
+      result = result.map(order => {
+        const items = orderItems.filter(oi => oi.order_id === order.id);
+        const itemsWithProducts = items.map(oi => {
+          const prod = products.find(p => p.id === oi.product_id);
+          return {
+            ...oi,
+            products: prod || null
+          };
+        });
+        return {
+          ...order,
+          order_items: itemsWithProducts
+        };
+      });
     } else if (this.tableName === 'v_comercios_volumen_actual') {
       const products = window.getMockTable('products');
       const inventory = window.getMockTable('inventory');
