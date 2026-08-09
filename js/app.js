@@ -886,7 +886,7 @@ window.toggleOnboardingStepExpand = function(stepName) {
     const isCurrentlyOpen = details.style.display === 'block';
     
     // Cerrar todas las demás
-    ['integrations', 'catalog_ready', 'stock_declared', 'sku_guide'].forEach(step => {
+    ['integrations', 'catalog_ready', 'shipping_configured', 'sku_guide', 'stock_declared'].forEach(step => {
       const d = document.getElementById(`details-${step}`);
       const a = document.getElementById(`arrow-${step}`);
       const r = document.getElementById(`step-row-${step}`);
@@ -1034,16 +1034,18 @@ window.triggerConfettiCelebration = function() {
 window.updateOnboardingProgress = function() {
   const cb1 = document.getElementById('onboarding-step-cb-integrations')?.checked || false;
   const cb2 = document.getElementById('onboarding-step-cb-catalog_ready')?.checked || false;
-  const cb3 = document.getElementById('onboarding-step-cb-stock_declared')?.checked || false;
+  const cb3 = document.getElementById('onboarding-step-cb-shipping_configured')?.checked || false;
   const cb4 = document.getElementById('onboarding-step-cb-sku_guide')?.checked || false;
+  const cb5 = document.getElementById('onboarding-step-cb-stock_declared')?.checked || false;
 
   let completed = 0;
   if (cb1) completed++;
   if (cb2) completed++;
   if (cb3) completed++;
   if (cb4) completed++;
+  if (cb5) completed++;
 
-  const pct = Math.round((completed / 4) * 100);
+  const pct = Math.round((completed / 5) * 100);
 
   const bar = document.getElementById('onboarding-progress-bar');
   const text = document.getElementById('onboarding-progress-text');
@@ -1157,7 +1159,7 @@ async function renderDashboard() {
         const [cacRes, docRes] = await Promise.all([
           supabase
             .from('comercios_adicional_config')
-            .select('onboarding_checklist')
+            .select('onboarding_checklist, enviame_id')
             .eq('comercio', targetCommerce)
             .maybeSingle(),
           supabase
@@ -1170,6 +1172,7 @@ async function renderDashboard() {
         
         if (cacRes && cacRes.data && cacRes.data.onboarding_checklist) {
           onboardingChecklist = cacRes.data.onboarding_checklist;
+          onboardingChecklist.shipping_configured = !!cacRes.data.enviame_id;
         }
         if (docRes && docRes.data && docRes.data.file_url) {
           skuGuideUrl = docRes.data.file_url;
@@ -2012,7 +2015,42 @@ async function renderDashboard() {
                 </div>
               </div>
 
-              <!-- PASO 3 (Anteriormente Paso 4) -->
+              <!-- PASO 3 -->
+              <div class="onboarding-step-row-v2" id="step-row-shipping_configured">
+                <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('shipping_configured')">
+                  <div style="display: flex; align-items: center; gap: 1rem;">
+                    <input type="checkbox" class="onboarding-cb" id="onboarding-step-cb-shipping_configured" ${onboardingChecklist.shipping_configured ? 'checked' : ''} disabled style="cursor: not-allowed;">
+                    <div class="onboarding-step-icon" style="background: rgba(139, 92, 246, 0.08); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.15);">
+                      <i class="ri-truck-fill"></i>
+                    </div>
+                    <div>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">3. Configuración de Envíos Courier (Enviame)</strong>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">
+                        ${onboardingChecklist.shipping_configured 
+                          ? '<span style="color: #059669; font-weight: 600;"><i class="ri-checkbox-circle-fill"></i> ¡Listo! Tu integración de Envíos Courier ha sido configurada</span>' 
+                          : '<span style="color: #d97706; font-weight: 600;"><i class="ri-time-line"></i> Espera: En cola de configuración por nuestro equipo</span>'
+                        }
+                      </span>
+                    </div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.85rem;">
+                    <span id="onboarding-badge-shipping_configured" class="onboarding-badge ${onboardingChecklist.shipping_configured ? 'onboarding-badge-completed' : 'onboarding-badge-pending'}">
+                      ${onboardingChecklist.shipping_configured ? '<i class="ri-checkbox-circle-fill"></i> Listo' : '<i class="ri-time-line"></i> Pendiente'}
+                    </span>
+                    <i class="ri-arrow-down-s-line" id="arrow-shipping_configured" style="font-size: 1.25rem; color: var(--color-text-muted); transition: transform 0.2s;"></i>
+                  </div>
+                </div>
+                <div class="onboarding-step-details" id="details-shipping_configured">
+                  <p style="margin: 0;">
+                    ${onboardingChecklist.shipping_configured 
+                      ? 'Tu integración con Enviame y Courier ha sido configurada correctamente en el sistema. Tus despachos ya están listos para ser procesados.'
+                      : 'Recibirás un correo de nuestra parte con las instrucciones para la integración de tu canal de venta e-commerce con Enviame. Una vez realizada, nuestro equipo ingresará tu ID de Enviame para activar tus despachos y este paso se marcará como listo automáticamente.'
+                    }
+                  </p>
+                </div>
+              </div>
+
+              <!-- PASO 4 -->
               <div class="onboarding-step-row-v2" id="step-row-sku_guide">
                 <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('sku_guide')">
                   <div style="display: flex; align-items: center; gap: 1rem;">
@@ -2021,7 +2059,7 @@ async function renderDashboard() {
                       <i class="ri-file-text-fill"></i>
                     </div>
                     <div>
-                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">3. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">4. Preparación de Ingreso (Guía SKU y Embalaje)</strong>
                       <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Revisa los requisitos obligatorios de rotulación y etiquetado de tus cajas.</span>
                     </div>
                   </div>
@@ -2040,7 +2078,7 @@ async function renderDashboard() {
                 </div>
               </div>
 
-              <!-- PASO 4 (Anteriormente Paso 3) -->
+              <!-- PASO 5 -->
               <div class="onboarding-step-row-v2" id="step-row-stock_declared" style="${!onboardingChecklist.catalog_ready ? 'opacity: 0.95;' : ''}">
                 <div style="padding: 1.15rem 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; cursor: pointer;" onclick="window.toggleOnboardingStepExpand('stock_declared')">
                   <div style="display: flex; align-items: center; gap: 1rem;">
@@ -2052,7 +2090,7 @@ async function renderDashboard() {
                       <i class="ri-inbox-archive-fill"></i>
                     </div>
                     <div>
-                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700; ${!onboardingChecklist.catalog_ready ? 'opacity: 0.8;' : ''}">4. Declara tu Primer Ingreso de Stock</strong>
+                      <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700; ${!onboardingChecklist.catalog_ready ? 'opacity: 0.8;' : ''}">5. Declara tu Primer Ingreso de Stock</strong>
                       <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">
                         ${onboardingChecklist.catalog_ready
                           ? 'Declara la mercadería que enviarás a nuestra bodega para auditar el inventario inicial.'
@@ -9224,8 +9262,44 @@ async function renderIntegrations() {
     const stockCritico = parseInt(document.getElementById('prod-stock-critico').value, 10) || 0;
 
     try {
-      const { data: userAuth } = await supabase.auth.getUser();
-      const merchantId = userAuth.user.id;
+      const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
+      // Resolver dinámicamente el merchant_id real usando productos del comercio o integraciones (para evitar conflictos de unicidad con colaboradores)
+      let merchantId = null;
+      try {
+        const { data: siblingProd } = await supabase
+          .from('products')
+          .select('merchant_id')
+          .eq('comercio', commerce)
+          .limit(1)
+          .maybeSingle();
+        if (siblingProd && siblingProd.merchant_id) {
+          merchantId = siblingProd.merchant_id;
+        }
+      } catch (err) {
+        console.error('Error al resolver merchant_id desde productos:', err.message);
+      }
+
+      if (!merchantId) {
+        try {
+          const { data: siblingInt } = await supabase
+            .from('merchant_integrations')
+            .select('merchant_id')
+            .eq('comercio', commerce)
+            .limit(1)
+            .maybeSingle();
+          if (siblingInt && siblingInt.merchant_id) {
+            merchantId = siblingInt.merchant_id;
+          }
+        } catch (err) {
+          console.error('Error al resolver merchant_id desde integraciones:', err.message);
+        }
+      }
+
+      if (!merchantId) {
+        const { data: userAuth } = await supabase.auth.getUser();
+        merchantId = userAuth.user.id;
+      }
 
       const isPack = document.getElementById('prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('prod-is-virtual')?.checked || false;
@@ -9235,7 +9309,7 @@ async function renderIntegrations() {
         .from('products')
         .insert([{
           merchant_id: merchantId,
-          comercio: window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA'),
+          comercio: commerce,
           sku: sku,
           name: name,
           description: desc,
@@ -21051,8 +21125,42 @@ function setupCatalogListeners(commerce, mainPlatform) {
             return;
           }
 
-          const { data: userAuth } = await supabase.auth.getUser();
-          const merchantId = userAuth.user.id;
+          // Resolver dinámicamente el merchant_id real usando productos del comercio o integraciones (para evitar conflictos de unicidad con colaboradores)
+          let merchantId = null;
+          try {
+            const { data: siblingProd } = await supabase
+              .from('products')
+              .select('merchant_id')
+              .eq('comercio', commerce)
+              .limit(1)
+              .maybeSingle();
+            if (siblingProd && siblingProd.merchant_id) {
+              merchantId = siblingProd.merchant_id;
+            }
+          } catch (err) {
+            console.error('Error al resolver merchant_id desde productos:', err.message);
+          }
+
+          if (!merchantId) {
+            try {
+              const { data: siblingInt } = await supabase
+                .from('merchant_integrations')
+                .select('merchant_id')
+                .eq('comercio', commerce)
+                .limit(1)
+                .maybeSingle();
+              if (siblingInt && siblingInt.merchant_id) {
+                merchantId = siblingInt.merchant_id;
+              }
+            } catch (err) {
+              console.error('Error al resolver merchant_id desde integraciones:', err.message);
+            }
+          }
+
+          if (!merchantId) {
+            const { data: userAuth } = await supabase.auth.getUser();
+            merchantId = userAuth.user.id;
+          }
 
           const productsToInsert = syncedProds.map(sp => {
             const productRow = {
