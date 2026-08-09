@@ -212,6 +212,23 @@ class MockQueryBuilder {
           order_items: itemsWithProducts
         };
       });
+    } else if (this.tableName === 'products') {
+      const inventory = window.getMockTable('inventory');
+      const warehouses = window.getMockTable('warehouses');
+      result = result.map(prod => {
+        const invs = inventory.filter(i => i.product_id === prod.id);
+        const invsWithWarehouses = invs.map(i => {
+          const wh = warehouses.find(w => w.id === i.warehouse_id);
+          return {
+            ...i,
+            warehouses: wh ? { name: wh.name } : null
+          };
+        });
+        return {
+          ...prod,
+          inventory: invsWithWarehouses
+        };
+      });
     } else if (this.tableName === 'v_comercios_volumen_actual') {
       const products = window.getMockTable('products');
       const inventory = window.getMockTable('inventory');
