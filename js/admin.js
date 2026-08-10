@@ -367,6 +367,49 @@ window.getOriginalPlatformStatus = function(order) {
   return null;
 };
 
+// Función global para descargar la etiqueta de un pedido desde Supabase bajo demanda
+window.downloadOrderLabel = async function(orderId, orderNumber) {
+  try {
+    const btn = document.getElementById(`btn-download-${orderId}`);
+    const originalContent = btn ? btn.innerHTML : '';
+    if (btn) {
+      btn.innerHTML = `<i class="ri-loader-4-line" style="display:inline-block; animation: wms-spin 1s linear infinite;"></i> Descargando...`;
+      btn.disabled = true;
+    }
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('label_base64')
+      .eq('id', orderId)
+      .single();
+
+    if (error) throw error;
+    if (!data || !data.label_base64) {
+      alert("La etiqueta en formato PDF base64 no está disponible para este pedido (puede que requiera descargarse desde la plataforma de origen o no se haya generado correctamente).");
+      if (btn) {
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+      }
+      return;
+    }
+
+    window.downloadBase64Pdf(data.label_base64, `etiqueta_${orderNumber || orderId}.pdf`);
+
+    if (btn) {
+      btn.innerHTML = originalContent;
+      btn.disabled = false;
+    }
+  } catch (err) {
+    console.error("Error al descargar etiqueta:", err);
+    alert("Error al descargar la etiqueta: " + err.message);
+    const btn = document.getElementById(`btn-download-${orderId}`);
+    if (btn) {
+      btn.innerHTML = `<i class="ri-download-2-line"></i> Descargar`;
+      btn.disabled = false;
+    }
+  }
+};
+
 // Función global para descargar archivos en PDF codificados en Base64
 window.downloadBase64Pdf = function(base64, filename) {
   try {
@@ -1375,7 +1418,6 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     item,
     cantidad,
     sku,
-    label_base64,
     total_value,
     customer_name,
     customer_email,
@@ -2515,7 +2557,7 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     let labelBadgeHtml = '';
-    if (order.label_base64 || order.label_url) {
+    if (order.label_url || order.tracking_number) {
       labelBadgeHtml = `<span class="badge" style="background-color: rgba(113, 23, 235, 0.12); color: #7117eb; border: 1px solid rgba(113, 23, 235, 0.25); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.2rem; width: fit-content; margin-top: 0.25rem;" title="Etiqueta Generada"><i class="ri-qr-code-line"></i> Etiqueta</span>`;
     }
 
@@ -2526,10 +2568,10 @@ window.applyWmsFiltersAndRender = function() {
     let trackingHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     let labelHtml = `<span style="color: var(--color-text-muted); font-size: 0.875rem;">-</span>`;
     
-    if (order.label_base64) {
-      labelHtml = `<button onclick="window.downloadBase64Pdf('${order.label_base64}', 'etiqueta_${order.external_order_number || order.id}.pdf')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
-    } else if (order.label_url) {
+    if (order.label_url) {
       labelHtml = `<a href="${order.label_url}" target="_blank" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; width: 100%; height: 100%; text-decoration: none;"><i class="ri-external-link-line"></i> Ver Etiqueta</a>`;
+    } else if (order.tracking_number) {
+      labelHtml = `<button id="btn-download-${order.id}" onclick="window.downloadOrderLabel('${order.id}', '${order.external_order_number || ''}')" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; width: 100%; height: 100%;"><i class="ri-download-2-line"></i> Descargar</button>`;
     } else if (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') {
       labelHtml = `<button onclick="window.generarEtiquetaLightData('${order.id}', this)" class="btn btn-outline" style="padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; cursor: pointer; font-weight: 600; border-color: #7117eb; color: #7117eb; background: rgba(113, 23, 235, 0.05); width: 100%; height: 100%;"><i class="ri-add-circle-line"></i> Crear Etiqueta</button>`;
     }
@@ -3031,7 +3073,7 @@ window.applyWmsFiltersAndRender = function() {
                     <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="flex: 1; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;">
                       <i class="ri-edit-line"></i> Editar Envío
                     </button>
-                    ${order.label_url || order.label_base64 || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
+                    ${order.label_url || order.tracking_number || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
                       <div style="flex: 1; display: flex;">
                         ${labelHtml}
                       </div>
@@ -32150,9 +32192,17 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
             <span>Trasladar todo el stock disponible de la bodega de origen a la de destino ${isInitiallyEmpty ? '(Automático, sin selección previa)' : '(Ignorar selección de tabla)'}</span>
           </label>
         </div>
+        <div class="form-group" style="margin-bottom: 0; width: 100%; box-sizing: border-box;">
+          <div class="alert alert-warning" style="background: rgba(217, 119, 6, 0.1); border: 1px solid #d97706; color: #d97706; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; box-sizing: border-box; width: 100%;">
+            <i class="ri-error-warning-line" style="font-size: 1.1rem; flex-shrink: 0;"></i>
+            <span><strong>Importante:</strong> Dejar un comentario de referencia detallado es fundamental para ayudar a la trazabilidad y auditoría de los traslados de inventario.</span>
+          </div>
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Comentario de Referencia (Obligatorio)</label>
+          <input type="text" id="transfer-comment" class="form-input" placeholder="Ej: Traslado por reordenamiento de estanterías, distribución de stock, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+        </div>
         <div class="form-group" style="margin-bottom: 0;">
           <div id="transfer-qty-section" style="${isInitiallyEmpty ? 'display: none;' : ''}">
-            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Definir Cantidades a Trasladar</label>
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">4. Definir Cantidades a Trasladar</label>
             <div id="transfer-table-container" style="max-height: 450px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
               <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
                 <thead>
@@ -32300,6 +32350,12 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
     if (srcId === destId) {
       alert('La bodega de origen y de destino deben ser diferentes.');
+      return;
+    }
+
+    const comment = document.getElementById('transfer-comment').value.trim();
+    if (!comment) {
+      alert('Por favor, ingresa un comentario de referencia.');
       return;
     }
 
@@ -32461,7 +32517,7 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
             warehouse_id: srcId,
             type: 'out',
             quantity: qty,
-            reference_doc: `Traslado a ${destName}`
+            reference_doc: `Traslado a ${destName}. Nota: ${comment}`
           }]);
         if (movOutErr) throw movOutErr;
 
@@ -32472,7 +32528,7 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
             warehouse_id: destId,
             type: 'in',
             quantity: qty,
-            reference_doc: `Traslado desde ${srcName}`
+            reference_doc: `Traslado desde ${srcName}. Nota: ${comment}`
           }]);
         if (movInErr) throw movInErr;
       }
