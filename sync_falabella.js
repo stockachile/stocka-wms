@@ -478,7 +478,7 @@ async function syncMerchantOrders(integration) {
           let { data: product } = await supabase
             .from('products')
             .select('id, comercio')
-            .eq('merchant_id', integration.merchant_id)
+            .eq('comercio', integration.comercio)
             .eq('sku', sku)
             .maybeSingle();
 

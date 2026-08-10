@@ -324,11 +324,11 @@ async function syncOrders(integration) {
         let hasEquivalence = !!skuMap[cleanSku];
         let searchSku = mappedSku || item.variant_id.toString();
 
-        // Buscar producto en catálogo por merchant_id y sku
+        // Buscar producto en catálogo por comercio y sku
         let query = supabase.from('products')
           .select('id')
           .eq('sku', searchSku)
-          .eq('merchant_id', integration.merchant_id);
+          .eq('comercio', integration.comercio);
 
         const { data: foundProduct } = await query.maybeSingle();
         product = foundProduct;

@@ -660,15 +660,16 @@ async function syncMerchantOrders(integration) {
         // Determinar comercio a asignar basado en el catálogo de productos
         const itemComercios = [];
         for (const sku of Object.keys(itemQuantities)) {
-          let { data: product } = await supabase
+          let { data: products } = await supabase
             .from('products')
             .select('comercio')
             .eq('merchant_id', integration.merchant_id)
-            .eq('sku', sku)
-            .maybeSingle();
+            .eq('sku', sku);
           
-          if (product && product.comercio) {
-            itemComercios.push(product.comercio);
+          if (products && products.length > 0) {
+            products.forEach(p => {
+              if (p.comercio) itemComercios.push(p.comercio);
+            });
           }
         }
 
@@ -726,7 +727,7 @@ async function syncMerchantOrders(integration) {
               .from('products')
               .select('id')
               .eq('sku', sku)
-              .eq('merchant_id', integration.merchant_id)
+              .eq('comercio', resolvedCommerce)
               .maybeSingle();
 
             if (!product) {

@@ -482,12 +482,12 @@ async function syncOrders(integration, storeId, headers, warehouseId) {
       // Registrar ítems en order_items
       if (localOrderId && shouldInsertItems) {
         for (const [sku, qty] of Object.entries(itemQuantities)) {
-          // Buscar producto en la base de datos por merchant_id y sku
+          // Buscar producto en la base de datos por comercio y sku
           let { data: product } = await supabase
             .from('products')
             .select('id')
             .eq('sku', sku)
-            .eq('merchant_id', integration.merchant_id)
+            .eq('comercio', integration.comercio)
             .maybeSingle();
 
           if (!product) {

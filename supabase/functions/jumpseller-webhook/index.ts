@@ -289,7 +289,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       let { data: product } = await supabase
         .from('products')
         .select('id')
-        .eq('merchant_id', merchantId)
+        .eq('comercio', comercio)
         .eq('sku', sku)
         .maybeSingle();
 

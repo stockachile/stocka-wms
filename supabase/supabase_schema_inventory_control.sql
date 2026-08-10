@@ -290,7 +290,7 @@ CREATE OR REPLACE FUNCTION public.recalculate_committed_stock()
 RETURNS VOID AS $$
 BEGIN
   -- 1. Resetear todos los comprometidos a 0
-  UPDATE public.inventory SET committed_quantity = 0;
+  UPDATE public.inventory SET committed_quantity = 0 WHERE id IS NOT NULL;
 
   -- 2. Recalcular e inyectar basándose en ítems de pedidos activos calificados
   UPDATE public.inventory inv

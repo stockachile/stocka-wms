@@ -8072,6 +8072,40 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
+    const missingDimVolProducts = masterProducts.filter(p => {
+      if (p.is_virtual === true) return false;
+      const totalStock = (p.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+      if (totalStock <= 0) return false;
+      const hasDims = p.length > 0 && p.width > 0 && p.height > 0;
+      const hasVol = p.volumen > 0;
+      return !hasDims && !hasVol;
+    });
+
+    let missingDimVolBannerHtml = '';
+    if (missingDimVolProducts.length > 0) {
+      window.adminMissingDimVolProducts = missingDimVolProducts.map(p => ({
+        id: p.id,
+        sku: p.sku,
+        name: p.name,
+        comercio: commerce,
+        quantity: (p.inventory || []).reduce((acc, inv) => acc + (inv.quantity || 0), 0)
+      }));
+      missingDimVolBannerHtml = `
+        <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 0.75rem; box-shadow: var(--shadow-sm);">
+          <i class="ri-alert-line" style="color: var(--color-warning); font-size: 1.5rem; margin-top: 0.1rem; flex-shrink: 0;"></i>
+          <div style="flex: 1;">
+            <strong style="color: var(--color-text-main); display: block; font-size: 0.95rem; margin-bottom: 0.2rem;">Atención: Productos con Stock sin Medidas ni Volumen</strong>
+            <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-bottom: 0.5rem; line-height: 1.4;">
+              Hay <strong>${missingDimVolProducts.length}</strong> producto(s) en este catálogo con stock disponible que no tienen definidas sus dimensiones ni su volumen.
+            </span>
+            <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.75rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.3rem 0.6rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-list-settings-line"></i> Ver y Corregir
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
     workspace.innerHTML = `
       <div style="margin-bottom: 1rem; background: var(--color-surface); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
         <div>
@@ -8117,6 +8151,7 @@ async function renderAdminCatalogWorkspace(commerce) {
       <div class="integration-content">
         <div id="tab-catalog-master" class="catalog-tab-pane" style="display: block;">
           <div id="catalog-bulk-actions-container"></div>
+          ${missingDimVolBannerHtml}
           <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
               <div>
@@ -12251,7 +12286,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       // 1. Construir las consultas de Supabase
       let invPromise = window.fetchAllSupabaseRows(
         'inventory',
-        'quantity, committed_quantity, products!inner(comercio, stock_critico, volumen, sku, name, is_virtual)',
+        'quantity, committed_quantity, products!inner(id, comercio, stock_critico, volumen, sku, name, is_virtual, length, width, height)',
         q => {
           if (selectedCommerce) {
             return q.eq('products.comercio', selectedCommerce);
@@ -12303,6 +12338,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     let totalVolume = 0;
     const lowStockItems = [];
     const productVolumeMap = {};
+    const missingDimVolProducts = [];
 
     if (invRes.data) {
       // Agrupar y sumar stock por SKU (para no evaluar por bodega individual)
@@ -12316,11 +12352,16 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         
         if (!aggregatedProducts[key]) {
           aggregatedProducts[key] = {
+            id: prod.id,
             sku: prod.sku || 'N/A',
             name: prod.name || 'Sin Nombre',
             stock_critico: prod.stock_critico || 0,
             volumen: parseFloat(prod.volumen || 0),
+            length: parseFloat(prod.length || 0),
+            width: parseFloat(prod.width || 0),
+            height: parseFloat(prod.height || 0),
             is_virtual: !!prod.is_virtual,
+            comercio: prod.comercio,
             quantity: 0,
             committed_quantity: 0
           };
@@ -12349,6 +12390,21 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
               critico: p.stock_critico
             });
           }
+
+          // Alerta si tiene stock y no tiene dimensiones ni volumen
+          if (p.quantity > 0) {
+            const hasDims = p.length > 0 && p.width > 0 && p.height > 0;
+            const hasVol = p.volumen > 0;
+            if (!hasDims && !hasVol) {
+              missingDimVolProducts.push({
+                id: p.id,
+                sku: p.sku,
+                name: p.name,
+                comercio: p.comercio,
+                quantity: p.quantity
+              });
+            }
+          }
         }
 
         const totalVol = p.quantity * p.volumen;
@@ -12364,6 +12420,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         productVolumeMap[p.sku].quantity += p.quantity;
         productVolumeMap[p.sku].volumenTotal += totalVol;
       });
+      window.adminMissingDimVolProducts = missingDimVolProducts;
     }
 
     const topVolumeProducts = Object.values(productVolumeMap)
@@ -12618,9 +12675,28 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `).join('');
     }
 
+    let missingDimVolBannerHtml = '';
+    if (missingDimVolProducts.length > 0) {
+      missingDimVolBannerHtml = `
+        <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; box-shadow: var(--shadow-sm);">
+          <i class="ri-alert-line" style="color: var(--color-warning); font-size: 1.75rem; margin-top: 0.15rem; flex-shrink: 0;"></i>
+          <div style="flex: 1;">
+            <strong style="color: var(--color-text-main); display: block; font-size: 1rem; margin-bottom: 0.25rem;">Atención: Productos con Stock sin Medidas ni Volumen</strong>
+            <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; margin-bottom: 0.75rem; line-height: 1.5;">
+              Hay <strong>${missingDimVolProducts.length}</strong> producto(s) con stock mayor a cero que no tienen definidas sus dimensiones ni su volumen.
+            </span>
+            <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-list-settings-line"></i> Ver y Corregir Productos
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
     // 8. Renderizar el HTML completo del dashboard
     if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
+      ${missingDimVolBannerHtml}
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
         <div class="dashboard-main-col" style="display: flex; flex-direction: column; gap: 2rem;">
@@ -25555,6 +25631,7 @@ function calculateVolumeFromDims() {
   }
 }
 
+window.openEditProductModal = openEditProductModal;
 async function openEditProductModal(prodId) {
   try {
     const { data: product, error } = await supabase
@@ -25968,7 +26045,18 @@ function initProductFormListeners() {
         alert('Parámetros del producto actualizados exitosamente!');
         document.getElementById('modal-edit-product').classList.remove('active');
         e.target.reset();
-        renderAdminCatalogWorkspace(commerce);
+        
+        const activeNavItem = document.querySelector('.nav-item.active');
+        const currentView = activeNavItem ? activeNavItem.getAttribute('data-view') : '';
+        if (currentView === 'catalog') {
+          renderAdminCatalogWorkspace(commerce);
+        } else if (currentView === 'dashboard') {
+          const commerceSelect = document.getElementById('admin-dashboard-commerce-select');
+          const val = commerceSelect ? commerceSelect.value : '';
+          fetchAndRenderAdminMetrics(val);
+        } else {
+          renderAdminCatalogWorkspace(commerce);
+        }
       } catch (error) {
         console.error(error);
         alert('Error al actualizar producto: ' + error.message);
@@ -35064,6 +35152,86 @@ window.runQuoteCalculatorAdmin = function() {
 
     updatePrices();
   }
+};
+
+window.showMissingDimensionsModal = function() {
+  const products = window.adminMissingDimVolProducts || [];
+  if (products.length === 0) {
+    Swal.fire({
+      title: 'Información',
+      text: 'No hay productos con stock que requieran dimensiones o volumen.',
+      icon: 'info',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    return;
+  }
+
+  const escapeHtmlLocal = window.escapeHtml || ((str) => {
+    if (!str) return '';
+    return str
+      .toString()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  });
+
+  let rowsHtml = '';
+  products.forEach(p => {
+    let stock = p.quantity;
+    if (stock === undefined && p.inventory) {
+      stock = p.inventory.reduce((acc, inv) => acc + (inv.quantity || 0), 0);
+    }
+    if (stock === undefined) stock = 0;
+
+    const commerceText = p.comercio ? `<span style="font-size: 0.75rem; color: var(--color-text-muted);">(${escapeHtmlLocal(p.comercio)})</span>` : '';
+
+    rowsHtml += `
+      <tr style="border-bottom: 1px solid var(--color-border); font-size: 0.85rem;">
+        <td style="padding: 0.6rem 0.5rem; font-weight: 600; color: var(--color-text-main);">${escapeHtmlLocal(p.sku)}</td>
+        <td style="padding: 0.6rem 0.5rem; color: var(--color-text-main);">${escapeHtmlLocal(p.name)} ${commerceText}</td>
+        <td style="padding: 0.6rem 0.5rem; text-align: center; font-weight: 700; color: var(--color-primary);">${stock}</td>
+        <td style="padding: 0.6rem 0.5rem; text-align: center;">
+          <button class="btn btn-primary" onclick="Swal.close(); window.openEditProductModal('${p.id}');" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; height: auto; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+            <i class="ri-edit-line"></i> Editar
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+
+  const contentHtml = `
+    <div style="max-height: 400px; overflow-y: auto; text-align: left; margin-top: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+      <table class="table" style="width: 100%; border-collapse: collapse; margin: 0;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-surface-hover); color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase;">
+            <th style="padding: 0.5rem; text-align: left;">SKU</th>
+            <th style="padding: 0.5rem; text-align: left;">Producto</th>
+            <th style="padding: 0.5rem; text-align: center;">Stock</th>
+            <th style="padding: 0.5rem; text-align: center;">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  Swal.fire({
+    title: 'Productos sin Medidas ni Volumen',
+    html: contentHtml,
+    width: '650px',
+    showConfirmButton: true,
+    confirmButtonText: 'Cerrar',
+    confirmButtonColor: 'var(--color-primary)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)',
+    customClass: {
+      popup: 'dark-sweet-alert'
+    }
+  });
 };
 
 
