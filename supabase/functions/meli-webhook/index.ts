@@ -292,10 +292,14 @@ async function handleOrderNotification(orderId: string, integration: any, access
 
     for (const order of group.orders) {
       for (const item of order.order_items) {
-        let sku = item.item.seller_sku || item.item.seller_custom_field || 'Sin SKU';
-        if (sku === 'Sin SKU' && item.item.variation_attributes) {
+        let sku = item.item.seller_sku || item.item.seller_custom_field || '';
+        if ((!sku || sku === 'Sin SKU') && item.item.variation_attributes) {
           const vSku = item.item.variation_attributes.find((a: any) => a.id === 'SELLER_SKU');
-          if (vSku) sku = vSku.value_name;
+          if (vSku && vSku.value_name) sku = vSku.value_name;
+        }
+        sku = sku ? sku.trim() : '';
+        if (!sku || sku === 'Sin SKU' || sku === 'SinSKU') {
+          sku = item.item.id || 'Sin SKU';
         }
         sku = sku.trim().replace(/\s+/g, '');
         let mappedSku = skuMap[sku] || sku;
