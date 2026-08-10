@@ -191,19 +191,28 @@ serve(async (req) => {
 
       await registerShopifyWebhooks(shop, accessToken, merchantId);
 
-      // EJECUTAR SINCRONIZACION INICIAL INMEDIATA DE PRODUCTOS Y PEDIDOS
-      try {
-        const integrationObj = {
-          shop_url: shop,
-          access_token: accessToken,
-          merchant_id: merchantId,
-          comercio: comercio
-        };
-        await syncShopifyProducts(integrationObj);
-        await syncShopifyOrders(integrationObj);
-        console.log(`[OAuth Initial Sync] Sincronizados exitosamente productos y pedidos iniciales para ${shop}`);
-      } catch (syncErr) {
-        console.error("Error en sincronización inicial inmediata durante OAuth:", syncErr);
+      // EJECUTAR SINCRONIZACION INICIAL DE PRODUCTOS Y PEDIDOS EN BACKGROUND (SIN BLOQUEAR EL REDIRECT 302)
+      const integrationObj = {
+        shop_url: shop,
+        access_token: accessToken,
+        merchant_id: merchantId,
+        comercio: comercio
+      };
+
+      // @ts-ignore
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(
+          (async () => {
+            try {
+              await syncShopifyProducts(integrationObj);
+              await syncShopifyOrders(integrationObj);
+              console.log(`[OAuth Initial Sync Background] Sincronizados exitosamente productos y pedidos para ${shop}`);
+            } catch (syncErr) {
+              console.error("Error en sincronización inicial en background:", syncErr);
+            }
+          })()
+        );
       }
 
       const responseHeaders = new Headers();
@@ -478,33 +487,35 @@ async function registerShopifyWebhooks(shop: string, accessToken: string, mercha
   ];
   const webhookTargetUrl = `https://${new URL(supabaseUrl).hostname}/functions/v1/shopify-webhook?merchant_id=${merchantId}`;
 
-  for (const topic of webhookTopics) {
-    try {
-      const response = await fetch(`https://${shop}/admin/api/2024-04/webhooks.json`, {
-        method: "POST",
-        headers: {
-          "X-Shopify-Access-Token": accessToken,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          webhook: {
-            topic: topic,
-            address: webhookTargetUrl,
-            format: "json"
-          }
-        })
-      });
+  await Promise.all(
+    webhookTopics.map(async (topic) => {
+      try {
+        const response = await fetch(`https://${shop}/admin/api/2024-04/webhooks.json`, {
+          method: "POST",
+          headers: {
+            "X-Shopify-Access-Token": accessToken,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            webhook: {
+              topic: topic,
+              address: webhookTargetUrl,
+              format: "json"
+            }
+          })
+        });
 
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error(`Error registrando webhook ${topic} para ${shop}:`, errText);
-      } else {
-        console.log(`Webhook registrado con éxito: ${topic} en ${shop}`);
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error(`Error registrando webhook ${topic} para ${shop}:`, errText);
+        } else {
+          console.log(`Webhook registrado con éxito: ${topic} en ${shop}`);
+        }
+      } catch (e) {
+        console.error(`Excepción registrando webhook ${topic}:`, e);
       }
-    } catch (e) {
-      console.error(`Excepción registrando webhook ${topic}:`, e);
-    }
-  }
+    })
+  );
 }
 
 async function getValidShopifyToken(integration: any): Promise<string> {

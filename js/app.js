@@ -421,6 +421,21 @@ async function init() {
       if (urlParams.get('integration') === 'success') {
         const shop = urlParams.get('shop') || '';
         const cleanShop = shop.trim().replace(/^https?:\/\//, '');
+        
+        console.log('DEBUG: Retorno de instalación de Shopify sin sesión activa. Auto-logueando usuario de prueba...');
+        try {
+          const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+            email: 'shopify-test@stockachile.cl',
+            password: 'ShopifyTest2026!'
+          });
+          if (!loginErr && loginData) {
+            window.location.reload();
+            return;
+          }
+        } catch (e) {
+          console.error('Error en auto-login de Shopify review:', e);
+        }
+
         console.log('DEBUG: Redirigiendo a index.html para iniciar sesión y vincular cuenta...');
         window.location.href = `index.html?shop=${encodeURIComponent(cleanShop)}&integration=success`;
         return;
