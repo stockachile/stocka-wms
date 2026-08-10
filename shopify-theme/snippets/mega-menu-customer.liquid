@@ -1,32 +1,13 @@
-<div class="mt-16 mega-menu-customer">
-    {% if shop.customer_accounts_enabled or shop.customer_accounts_optional %}
-    <div class="block xl:hidden mb-16 p-4">
-        <h2 class="font-medium text-xl mb-6">{{ 'customer.account.title' | t }}</h2>
-        {% if customer %}
-            <a href="{{ routes.account_url }}" class="w-full py-3 mb-3 rounded-md flex items-center">
-                <div class="flex flex-grow">
-                    {% render 'icon', name: 'user' %}
-                    <span class="ml-2">{{ customer.first_name }}</span>
-                </div>
-            </a>
-            <button class="w-full text-center btn-logout rounded-md border border-black whitespace-nowrap">
-                <a href="/account/logout" class="block p-3">{{ 'customer.account.log_out' | t }}</a>
-            </button>
-        {% else %}
-            <a href="https://portalstocka.cl/panel/public/" class="slide__block-link inline-block sf__btn sf__btn-primary">
-        
-            <button
-                class="slide__block-link inline-block sf__btn sf__btn-primary"
-                data-tab="sign_in"
-            >
-                {{ 'customer.register.title' | t }}
-            </button>
-            {% render 'customer-section' %}
-        {% endif %}
-    </div>
-    {% endif %}
+{%- comment -%}
+  Acceso WMS Button and Switchers for mobile navigation drawer.
+{%- endcomment -%}
+<div class="mega-menu-customer mt-8 p-4 block xl:hidden">
+    <a href="https://wms.stocka.cl/" class="w-full text-center inline-flex items-center justify-center bg-black text-white hover:bg-opacity-85 transition-all font-bold rounded-full whitespace-nowrap" style="background-color: #000000; color: #ffffff; font-weight: 700; border-radius: 9999px; padding: 12px 24px; font-size: 14px; line-height: 1; margin-bottom: 2rem;">
+        Acceso WMS
+    </a>
+
     {% if section.settings.show_language_switcher or section.settings.show_currency_switcher %}
-    <div class="flex">
+    <div class="flex mt-4">
         {% if section.settings.show_language_switcher %}
           {% render 'language-switcher', box_size: 'block xl:hidden py-3.5', pos: 'top' %}
         {% endif %}

@@ -2520,8 +2520,14 @@ async function renderCatalog() {
 
     const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
     const unmappedSynced = (syncedProducts || []).filter(sp => {
-      const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
-      return !masterSkusSet.has(cleanSku);
+      if (mainPlatform) {
+        // Si hay una plataforma principal configurada como catálogo maestro (ej: Shopify),
+        // se muestran todos los productos de otras plataformas secundarias en el mapeo de equivalencias.
+        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase();
+      } else {
+        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+        return !masterSkusSet.has(cleanSku);
+      }
     });
 
     window.currentMasterProducts = masterProducts;
@@ -2738,8 +2744,10 @@ async function renderCatalog() {
               <i class="ri-information-line"></i> Instrucciones de Equivalencias de Canales
             </h4>
             <p style="margin: 0 0 1.25rem 0; font-size: 0.9rem; color: var(--color-text-muted); line-height: 1.6;">
-              Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. 
-              Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.
+              ${mainPlatform 
+                ? `Aquí se listan todos los productos que provienen de tus canales secundarios (como MercadoLibre, Falabella, WooCommerce, etc.) para que los asocies con su producto equivalente del Catálogo Maestro (basado en <strong>${mainPlatform}</strong>).`
+                : 'Aquí se listan todos los SKUs que se sincronizan desde tus tiendas integradas y que <strong>no existen</strong> en tu Catálogo Master. Selecciona el producto maestro correspondiente en la columna de equivalencia para asociarlos.'
+              }
             </p>
             <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
               <button id="btn-download-sku-template" class="btn btn-outline" style="border-color: var(--color-primary); color: var(--color-primary); background: transparent; padding: 0.5rem 1.2rem; border-radius: var(--radius-md); font-size: 0.875rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;">
@@ -2775,6 +2783,41 @@ async function renderCatalog() {
                   </tr>
                 </thead>
                 <tbody id="eq-matrix-tbody">
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card" style="border: 1px solid var(--color-border); box-shadow: var(--shadow-md); margin-bottom: 2rem; border-radius: var(--radius-lg); background: var(--color-surface); overflow: hidden; margin-top: 2rem;">
+            <div class="card-header" style="background-color: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.25rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-link" style="color: var(--color-primary);"></i> Equivalencias Registradas en el Sistema
+                </h3>
+                <p style="margin: 0; font-size: 0.9rem; color: var(--color-text-muted);">Listado completo de reglas de equivalencia activas en el WMS.</p>
+              </div>
+              <div style="display: flex; gap: 1rem; align-items: center;">
+                <div style="position: relative;">
+                  <i class="ri-search-line" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                  <input type="text" id="eq-registered-search" class="form-input" placeholder="Buscar equivalencia..." style="width: 250px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-full); padding: 0.5rem 1rem 0.5rem 2.5rem; font-size: 0.9rem; transition: border-color 0.2s; height: 38px;">
+                </div>
+                ${!isObserver ? `<button id="btn-create-manual-equivalence" class="btn btn-primary" style="padding: 0.5rem 1rem; font-size: 0.85rem; height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); font-weight: 500;"><i class="ri-add-line"></i> + Crear Equivalencia</button>` : ''}
+              </div>
+            </div>
+            <div class="card-body" style="padding: 0; overflow-x: auto;">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; min-width: 900px;">
+                <thead>
+                  <tr style="border-bottom: 2px solid var(--color-border); background: var(--color-bg);">
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Plataforma</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Externo (Tienda)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">SKU Maestro WMS (Predomina)</th>
+                    <th style="padding: 1rem 2rem; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; width: 150px;">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody id="eq-registered-tbody">
+                  <tr>
+                    <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">Cargando equivalencias registradas...</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -2932,6 +2975,7 @@ async function renderCatalog() {
 
     renderMasterCatalogRows(masterProducts);
     renderEquivalencesRows(unmappedSynced, mappingsMap);
+    renderRegisteredEquivalences(mappings);
     initProductPackDomElements(false);
     setupCatalogListeners(commerce, mainPlatform);
 
@@ -3039,6 +3083,10 @@ async function openEditProductModal(prodId) {
     nameInput.style.backgroundColor = '';
     nameInput.style.color = '';
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
+    const sendBarInput = document.getElementById('edit-prod-send-barcode');
+    if (sendBarInput) {
+      sendBarInput.checked = product.send_barcode_to_picker || false;
+    }
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
     document.getElementById('edit-prod-height').value = product.height || '';
@@ -9444,6 +9492,7 @@ async function renderIntegrations() {
     try {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
+      const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
 
       const { error } = await supabase
         .from('products')
@@ -9451,6 +9500,7 @@ async function renderIntegrations() {
           sku,
           name,
           barcode,
+          send_barcode_to_picker: sendBarcode,
           length,
           width,
           height,
@@ -20498,12 +20548,26 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.45rem 0.75rem;">${volumenHtml}</td>`;
 
+    const sendBarcodeBadge = item.send_barcode_to_picker
+      ? ` <span class="badge" style="background-color: #10b981; color: white; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.65rem; font-weight: bold; margin-left: 0.25rem;" title="Código de barras enviado al Picker"><i class="ri-barcode-box-line"></i> Picker</span>`
+      : '';
+
+    const barcodeCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.5rem 1rem;">
+           <input type="text" class="quick-edit-barcode form-input" data-id="${item.id}" data-old="${escapeHtml(item.barcode || '')}" value="${escapeHtml(item.barcode || '')}" placeholder="Cód. Barras" style="width: 110px; padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+           <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+             <input type="checkbox" class="quick-edit-send-barcode" data-id="${item.id}" data-old="${item.send_barcode_to_picker ? 'true' : 'false'}" ${item.send_barcode_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
+             <span>Al Picker</span>
+           </div>
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
         <td style="padding: 0.45rem 0.75rem;"><strong>${escapeHtml(item.sku)}</strong></td>
         <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}</td>
-        <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}</td>
+        ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}${virtualBadge}</td>
@@ -20596,6 +20660,145 @@ function renderEquivalencesRows(unmappedProducts, mappingsMap) {
       </tr>
     `;
   }).join('');
+}
+
+function renderRegisteredEquivalences(mappings) {
+  const tbody = document.getElementById('eq-registered-tbody');
+  if (!tbody) return;
+
+  if (!mappings || mappings.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">
+          No hay equivalencias manuales registradas en el sistema.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const isObserver = userRole === 'observer';
+
+  tbody.innerHTML = mappings.map(m => {
+    const deleteBtn = isObserver 
+      ? '' 
+      : `<button class="btn btn-outline btn-delete-equivalence" data-id="${m.id}" data-platform="${escapeHtml(m.platform)}" data-platform-sku="${escapeHtml(m.platform_sku)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;"><i class="ri-delete-bin-line"></i> Eliminar</button>`;
+
+    return `
+      <tr class="eq-registered-row" style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='transparent'">
+        <td style="padding: 0.75rem 2rem;">
+          <span class="badge" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600;">${escapeHtml(m.platform)}</span>
+        </td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-text-muted);">${escapeHtml(m.platform_sku)}</td>
+        <td style="padding: 0.75rem 2rem; font-size: 0.9rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">${escapeHtml(m.master_sku)}</td>
+        <td style="padding: 0.5rem 2rem;">${deleteBtn}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openCreateManualEquivalenceModal(commerce) {
+  let modal = document.getElementById('modal-create-manual-equivalence');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-create-manual-equivalence';
+  modal.className = 'modal-overlay active';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="background: var(--color-surface); width: 100%; max-width: 500px; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-xl); overflow: hidden; display: flex; flex-direction: column; animation: modalFadeIn 0.25s ease;">
+      <div class="modal-header" style="border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; background: var(--color-bg);">
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-link" style="color: var(--color-primary);"></i> Crear Equivalencia Manual
+        </h3>
+        <button type="button" class="btn-close-modal" onclick="this.closest('.modal-overlay').remove()" style="background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.2rem;"><i class="ri-close-line"></i></button>
+      </div>
+      <form id="form-create-manual-equivalence" style="margin: 0;">
+        <div class="modal-body" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem;">
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">Plataforma</label>
+            <select id="eq-manual-platform" class="form-input" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem;">
+              <option value="Todas">Todas (Mapeo General)</option>
+              <option value="Shopify">Shopify</option>
+              <option value="MercadoLibre">MercadoLibre</option>
+              <option value="WooCommerce">WooCommerce</option>
+              <option value="Falabella">Falabella</option>
+              <option value="Paris">Paris</option>
+              <option value="Jumpseller">Jumpseller</option>
+              <option value="Walmart">Walmart</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Externo (de la tienda)</label>
+            <input type="text" id="eq-manual-platform-sku" class="form-input" placeholder="ej. abcd-shopify" required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.5rem;">SKU Maestro WMS (El que predomina / descuenta stock)</label>
+            <input type="text" id="eq-manual-master-sku" list="master-skus-list" class="form-input" placeholder="Busca o escribe el SKU del catálogo..." required style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 0.8rem; font-family: monospace;">
+          </div>
+        </div>
+        <div class="modal-footer" style="border-top: 1px solid var(--color-border); padding: 1rem 1.5rem; display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-bg);">
+          <button type="button" class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); padding: 0.5rem 1rem; font-weight: 600; cursor: pointer;">Asociar Equivalencia</button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const form = document.getElementById('form-create-manual-equivalence');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const platform = document.getElementById('eq-manual-platform').value;
+    const platformSku = document.getElementById('eq-manual-platform-sku').value.trim();
+    const masterSku = document.getElementById('eq-manual-master-sku').value.trim();
+
+    if (!platformSku || !masterSku) return;
+
+    const masterSkus = window.currentMasterProducts.map(p => p.sku);
+    if (!masterSkus.includes(masterSku)) {
+      alert(`El SKU Maestro "${masterSku}" no existe en el catálogo master. Crea el producto master primero.`);
+      return;
+    }
+
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+
+    try {
+      const { error } = await supabase
+        .from('sku_equivalences')
+        .upsert({
+          comercio: commerce,
+          platform: platform,
+          platform_sku: platformSku,
+          master_sku: masterSku
+        }, { onConflict: 'comercio,platform,platform_sku' });
+
+      if (error) throw error;
+
+      alert('Equivalencia creada/actualizada correctamente.');
+      modal.remove();
+      renderCatalog();
+    } catch (err) {
+      alert('Error al guardar la equivalencia: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Asociar Equivalencia';
+    }
+  });
 }
 
 function openCatalogHelpDrawer() {
@@ -21317,16 +21520,62 @@ function setupCatalogListeners(commerce, mainPlatform) {
     searchInput.parentNode.replaceChild(newSearchInput, searchInput);
     newSearchInput.addEventListener('input', (e) => {
       const term = e.target.value.toLowerCase().trim();
-      if (!window.currentProductsForMatrix) return;
-
-      const filteredProducts = window.currentProductsForMatrix.filter(p => 
-        (p.name && p.name.toLowerCase().includes(term)) || 
-        (p.sku && p.sku.toLowerCase().includes(term))
-      );
-
-      renderMatrixRows(filteredProducts, window.currentSecondaryPlatforms, window.currentMappingsMap);
+      const tbody = document.getElementById('eq-matrix-tbody');
+      if (!tbody) return;
+      const rows = tbody.querySelectorAll('.eq-row');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
     });
   }
+
+  // Manual Equivalence Creation Button
+  const btnManualEq = document.getElementById('btn-create-manual-equivalence');
+  if (btnManualEq) {
+    btnManualEq.addEventListener('click', () => {
+      openCreateManualEquivalenceModal(commerce);
+    });
+  }
+
+  // Buscador de equivalencias registradas
+  const regSearchInput = document.getElementById('eq-registered-search');
+  if (regSearchInput) {
+    const newRegSearch = regSearchInput.cloneNode(true);
+    regSearchInput.parentNode.replaceChild(newRegSearch, regSearchInput);
+    newRegSearch.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase().trim();
+      const tbody = document.getElementById('eq-registered-tbody');
+      if (!tbody) return;
+      const rows = tbody.querySelectorAll('.eq-registered-row');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+  }
+
+  // Eliminar equivalencia registrada
+  document.querySelectorAll('.btn-delete-equivalence').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.currentTarget.getAttribute('data-id');
+      const platform = e.currentTarget.getAttribute('data-platform');
+      const platformSku = e.currentTarget.getAttribute('data-platform-sku');
+      if (confirm(`¿Estás seguro de que deseas eliminar la equivalencia para ${platform} (SKU: ${platformSku})?`)) {
+        try {
+          const { error } = await supabase
+            .from('sku_equivalences')
+            .delete()
+            .eq('id', id);
+          if (error) throw error;
+          alert('Equivalencia eliminada correctamente.');
+          renderCatalog();
+        } catch (err) {
+          alert('Error al eliminar equivalencia: ' + err.message);
+        }
+      }
+    });
+  });
 
   // 3. Botón de validación de consistencia
   const btnValidate = document.getElementById('btn-run-consistency-check');
@@ -22126,7 +22375,15 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldVol = volInput && volInput.getAttribute('data-old') ? window.roundUpVolume(parseFloat(volInput.getAttribute('data-old'))) : null;
           const newVol = volInput && volInput.value ? window.roundUpVolume(parseFloat(volInput.value)) : null;
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol) {
+          const barInput = document.querySelector(`.quick-edit-barcode[data-id="${prodId}"]`);
+          const oldBarcode = barInput ? barInput.getAttribute('data-old') || '' : '';
+          const newBarcode = barInput ? barInput.value.trim() || '' : '';
+
+          const sendBarInput = document.querySelector(`.quick-edit-send-barcode[data-id="${prodId}"]`);
+          const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
+          const newSendBar = sendBarInput ? sendBarInput.checked : false;
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar) {
             changes.push({
               prodId,
               oldStock,
@@ -22172,7 +22429,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           // Ejecutar actualizaciones en paralelo
           const updatePromises = changes.map(async (ch) => {
-            // 1. Actualizar dimensiones y volumen en products
+            // 1. Actualizar dimensiones, volumen y código de barras en products
             const { error: prodErr } = await supabase
               .from('products')
               .update({
@@ -22182,7 +22439,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 largo: ch.newLength || null,
                 ancho: ch.newWidth || null,
                 alto: ch.newHeight || null,
-                volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null
+                volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
+                barcode: ch.newBarcode || null,
+                send_barcode_to_picker: ch.newSendBar
               })
               .eq('id', ch.prodId);
 

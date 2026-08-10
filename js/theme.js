@@ -113,6 +113,74 @@ document.addEventListener('DOMContentLoaded', () => {
     dayNumEl.textContent  = dayNum;
     dateRestEl.textContent = `${cap(weekday)} ${cap(monthName)} ${year}`;
   }
+
+  // Configuración de menú responsive para móviles
+  const topHeader = document.querySelector('.top-header');
+  const sidebar = document.querySelector('.sidebar');
+  
+  if (topHeader && sidebar) {
+    // 1. Inyectar botón hamburguesa
+    const mobileToggle = document.createElement('button');
+    mobileToggle.id = 'mobile-menu-toggle';
+    mobileToggle.className = 'header-icon-btn mobile-menu-toggle';
+    mobileToggle.setAttribute('aria-label', 'Abrir menú');
+    mobileToggle.innerHTML = '<i class="ri-menu-line"></i>';
+    
+    const headerTitle = topHeader.querySelector('.header-title');
+    if (headerTitle) {
+      topHeader.insertBefore(mobileToggle, headerTitle);
+    } else {
+      topHeader.prepend(mobileToggle);
+    }
+    
+    // 2. Inyectar overlay/backdrop
+    const overlay = document.createElement('div');
+    overlay.id = 'sidebar-overlay';
+    overlay.className = 'sidebar-overlay';
+    
+    const layout = document.querySelector('.dashboard-layout');
+    if (layout) {
+      layout.insertBefore(overlay, sidebar.nextSibling);
+    }
+
+    // Funciones de control
+    const openMenu = () => {
+      sidebar.classList.add('mobile-active');
+      overlay.classList.add('active');
+    };
+
+    const closeMenu = () => {
+      sidebar.classList.remove('mobile-active');
+      overlay.classList.remove('active');
+    };
+
+    // Eventos
+    mobileToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMenu();
+    });
+
+    overlay.addEventListener('click', closeMenu);
+
+    // Cerrar al hacer click en cualquier opción de navegación
+    const navLinks = sidebar.querySelectorAll('.sidebar-nav a.nav-item');
+    navLinks.forEach(link => {
+      link.addEventListener('click', () => {
+        closeMenu();
+      });
+    });
+
+    // Asegurar que el botón colapsar original cierre en móvil
+    const innerCloseBtn = document.getElementById('toggle-sidebar');
+    if (innerCloseBtn) {
+      innerCloseBtn.addEventListener('click', (e) => {
+        if (sidebar.classList.contains('mobile-active')) {
+          e.stopPropagation();
+          closeMenu();
+        }
+      });
+    }
+  }
 });
 
 window.getUfValueForDate = async function(dateStr) {

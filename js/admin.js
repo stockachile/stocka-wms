@@ -7926,8 +7926,14 @@ async function renderAdminCatalogWorkspace(commerce) {
 
     const masterSkusSet = new Set(masterProducts.map(p => p.sku.toLowerCase().trim().replace(/\s+/g, '')));
     const unmappedSynced = (syncedProducts || []).filter(sp => {
-      const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
-      return !masterSkusSet.has(cleanSku);
+      if (mainPlatform) {
+        // Si hay una plataforma principal configurada como catálogo maestro (ej: Shopify),
+        // se muestran todos los productos de otras plataformas secundarias en el mapeo de equivalencias.
+        return sp.platform.toLowerCase() !== mainPlatform.toLowerCase();
+      } else {
+        const cleanSku = sp.sku.toLowerCase().trim().replace(/\s+/g, '');
+        return !masterSkusSet.has(cleanSku);
+      }
     });
 
     window.currentMasterProducts = masterProducts;

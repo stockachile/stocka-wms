@@ -1105,3 +1105,195 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
 .order-row:hover + .order-badges-row td {
   background-color: var(--color-surface-hover) !important;
 }
+
+/* Mobile Hamburger Button (Hidden on Desktop by default) */
+.mobile-menu-toggle {
+  display: none !important;
+}
+
+/* ============================================= */
+/* Mobile Responsive Adjustments (max-width: 768px) */
+/* ============================================= */
+@media (max-width: 768px) {
+  /* Dynamic Hamburger Toggle styling */
+  .mobile-menu-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--color-text-main);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: var(--radius-md);
+    transition: background-color 0.2s ease;
+    margin-right: 0.5rem;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+  
+  .mobile-menu-toggle:hover {
+    background-color: var(--color-surface-hover);
+    color: var(--color-primary);
+  }
+
+  /* Desktop menu collapse button hidden on mobile */
+  .sidebar #toggle-sidebar {
+    display: none;
+  }
+
+  /* Close button on sidebar for mobile */
+  .sidebar.mobile-active #toggle-sidebar {
+    display: flex !important;
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+    z-index: 1100;
+  }
+
+  /* Sidebar drawer layout styling */
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 280px !important;
+    height: 100vh !important;
+    z-index: 1000 !important;
+    transform: translateX(-100%) !important;
+    box-shadow: none !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  .sidebar.mobile-active {
+    transform: translateX(0) !important;
+    box-shadow: 5px 0 25px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  /* Sidebar Overlay backdrop styling */
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .sidebar-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* Top header adjustments */
+  .top-header {
+    height: 55px !important;
+    padding: 0 1rem !important;
+    gap: 0.5rem !important;
+  }
+
+  /* Title optimization to prevent wrap/clipping */
+  .header-title h2 {
+    font-size: 1rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+  }
+
+  /* Hide secondary header widgets on mobile */
+  .uf-chip, 
+  .date-chip, 
+  .header-divider {
+    display: none !important;
+  }
+
+  /* Hide user name text on mobile, showing only the avatar */
+  .header-actions .header-user span {
+    display: none !important;
+  }
+  
+  .header-actions {
+    gap: 0.25rem !important;
+  }
+
+  /* Content area full width */
+  .content-area {
+    padding: 0.75rem !important;
+    width: 100% !important;
+    box-sizing: border-box;
+  }
+
+  /* Cards optimization on mobile */
+  .card {
+    border-radius: var(--radius-md) !important;
+    margin-bottom: 1rem !important;
+  }
+
+  .card-header {
+    padding: 1rem !important;
+  }
+
+  /* Body optimization: prevent wide elements/tables from breaking layout */
+  .card-body {
+    padding: 0.75rem !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+  }
+
+  /* Table responsive scrolling optimization */
+  .table-responsive {
+    max-height: calc(100vh - 200px) !important;
+  }
+
+  /* Filter panels: stack inputs vertically */
+  .shipments-filters-panel,
+  .filters-panel,
+  .filter-row,
+  .search-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 1rem !important;
+    gap: 0.75rem !important;
+  }
+
+  .filter-item, 
+  .filter-item-search,
+  .search-input-group,
+  .filter-select {
+    min-width: 100% !important;
+    width: 100% !important;
+  }
+
+  /* Modal responsive sizing */
+  .modal-content {
+    max-width: 92% !important;
+    margin: 10px auto !important;
+    max-height: 92vh !important;
+  }
+
+  /* Touch targets minimum height for mobile inputs and buttons */
+  .btn, 
+  .form-input, 
+  .form-select,
+  select,
+  input[type="text"],
+  input[type="search"] {
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
