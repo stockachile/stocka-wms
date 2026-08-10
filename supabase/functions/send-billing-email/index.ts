@@ -37,6 +37,29 @@ function addDays(dateStr: string | null, days: number): string {
   }
 }
 
+async function getSignedUrlIfPrivate(url: string | null, supabaseClient: any): Promise<string> {
+  if (!url) return '';
+  if (url.includes('/payment_receipts/')) {
+    try {
+      const parts = url.split('/payment_receipts/');
+      if (parts.length > 1) {
+        const storagePath = decodeURIComponent(parts[1].split('?')[0]);
+        const { data, error } = await supabaseClient.storage
+          .from('payment_receipts')
+          .createSignedUrl(storagePath, 2592000); // 30 dias
+        if (!error && data && data.signedUrl) {
+          return data.signedUrl;
+        } else {
+          console.error('Error generating signed URL in Edge Function:', error);
+        }
+      }
+    } catch (e) {
+      console.error('Error parsing payment_receipts URL in Edge Function:', e);
+    }
+  }
+  return url;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -201,7 +224,10 @@ serve(async (req) => {
 
     if (showFulfillment && record) {
       totalMonto += (record.total_fulfillment || 0);
-      const docLink = record.fulfillment_pdf_url || record.fulfillment_link;
+      let docLink = record.fulfillment_pdf_url || record.fulfillment_link;
+      if (docLink) {
+        docLink = await getSignedUrlIfPrivate(docLink, supabaseClient);
+      }
       const docBtn = docLink 
         ? `<a href="${docLink}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none;">Descargar Desglose Fulfillment</a>` 
         : '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
@@ -235,12 +261,18 @@ serve(async (req) => {
       
       let enviameDocsHtml = '';
       if (record.enviame_pdfs && Array.isArray(record.enviame_pdfs) && record.enviame_pdfs.length > 0) {
-        enviameDocsHtml = record.enviame_pdfs.map((pdf: any, idx: number) => {
+        const resolvedPdfs = await Promise.all(record.enviame_pdfs.map(async (pdf: any) => {
           const url = typeof pdf === 'string' ? pdf : (pdf.url || '');
-          const label = typeof pdf === 'string' ? `Descargar PDF Envíame ${idx + 1}` : (pdf.name || `Descargar PDF Envíame ${idx + 1}`);
-          if (!url) return '';
-          return `<a href="${url}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none; margin: 5px;">${label}</a>`;
-        }).filter((html: string) => html !== '').join(' ');
+          const name = typeof pdf === 'string' ? '' : (pdf.name || '');
+          if (!url) return null;
+          const signedUrl = await getSignedUrlIfPrivate(url, supabaseClient);
+          return { name, url: signedUrl };
+        }));
+        
+        enviameDocsHtml = resolvedPdfs.filter(Boolean).map((pdf: any, idx: number) => {
+          const label = pdf.name || `Descargar PDF Envíame ${idx + 1}`;
+          return `<a href="${pdf.url}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none; margin: 5px;">${label}</a>`;
+        }).join(' ');
       } else {
         enviameDocsHtml = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
       }
@@ -486,10 +518,12 @@ serve(async (req) => {
       let invoiceButtonsHtml = '';
       if (record) {
         if (record.factura_fulfillment_pdf_url) {
-          invoiceButtonsHtml += `<a href="${record.factura_fulfillment_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Fulfillment</a>`;
+          const signedUrl = await getSignedUrlIfPrivate(record.factura_fulfillment_pdf_url, supabaseClient);
+          invoiceButtonsHtml += `<a href="${signedUrl}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Fulfillment</a>`;
         }
         if (record.factura_enviame_pdf_url) {
-          invoiceButtonsHtml += `<a href="${record.factura_enviame_pdf_url}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Envíame</a>`;
+          const signedUrl = await getSignedUrlIfPrivate(record.factura_enviame_pdf_url, supabaseClient);
+          invoiceButtonsHtml += `<a href="${signedUrl}" target="_blank" style="display: inline-block; background-color: #2563eb !important; color: #ffffff !important; padding: 10px 20px; font-size: 14px; font-weight: 600; border-radius: 8px; text-decoration: none; margin: 5px;">Descargar Factura Envíame</a>`;
         }
       }
 
