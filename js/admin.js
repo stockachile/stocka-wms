@@ -35240,5 +35240,227 @@ window.showMissingDimensionsModal = function() {
   });
 };
 
+// ==========================================
+// MONITOR DE EMISIÓN DE ETIQUETAS (GITHUB ACTIONS)
+// ==========================================
+
+const ACK_RUNS_KEY = 'wms_ack_workflow_runs';
+
+window.getAcknowledgedRuns = function() {
+  try {
+    const list = localStorage.getItem(ACK_RUNS_KEY);
+    return list ? JSON.parse(list) : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+window.acknowledgeRun = function(runId) {
+  try {
+    const list = window.getAcknowledgedRuns();
+    if (!list.includes(runId)) {
+      list.push(runId);
+      localStorage.setItem(ACK_RUNS_KEY, JSON.stringify(list));
+    }
+    window.updateWmsMonitorUI();
+  } catch (e) {
+    console.error(e);
+  }
+};
+
+window.toggleWmsMonitorPanel = function() {
+  const panel = document.getElementById('wms-monitor-panel');
+  if (!panel) return;
+  if (panel.style.display === 'none' || !panel.style.display) {
+    panel.style.display = 'flex';
+    window.updateWmsMonitorUI();
+  } else {
+    panel.style.display = 'none';
+  }
+};
+
+window.wmsMonitorState = {
+  lastRuns: [],
+  isPolling: false,
+  pollIntervalId: null
+};
+
+window.startWmsMonitorPolling = function() {
+  if (window.wmsMonitorState.isPolling) return;
+  window.wmsMonitorState.isPolling = true;
+  
+  window.updateWmsMonitorUI();
+  window.wmsMonitorState.pollIntervalId = setInterval(window.updateWmsMonitorUI, 8000); // Consulta cada 8 segundos
+};
+
+window.updateWmsMonitorUI = async function() {
+  const body = document.getElementById('wms-monitor-body');
+  const btn = document.getElementById('wms-monitor-btn');
+  if (!body || !btn) return;
+
+  try {
+    const response = await fetch('https://api.github.com/repos/stockachile/stocka-wms/actions/workflows/create_lightdata_labels.yml/runs?per_page=5', {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'WMS-Monitor'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const runs = data.workflow_runs || [];
+    const prevRuns = window.wmsMonitorState.lastRuns || [];
+    window.wmsMonitorState.lastRuns = runs;
+
+    const ackList = window.getAcknowledgedRuns();
+    
+    // Detectar si alguna tarea pasó de procesando a completado para alertar al usuario
+    runs.forEach(run => {
+      const prev = prevRuns.find(pr => pr.id === run.id);
+      if (prev && prev.status !== 'completed' && run.status === 'completed') {
+        const isSuccess = run.conclusion === 'success';
+        
+        // Notificación emergente flotante
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: true,
+          confirmButtonText: 'Ver',
+          timer: 15000,
+          timerProgressBar: true,
+          icon: isSuccess ? 'success' : 'error',
+          title: isSuccess ? `Etiquetas Listas (#${run.run_number})` : `Fallo en Etiquetas (#${run.run_number})`,
+          text: isSuccess ? 'El proceso se completó y las etiquetas fueron cargadas.' : 'El script de LightData falló durante la ejecución.',
+          didOpen: (toast) => {
+            toast.addEventListener('click', () => {
+              window.toggleWmsMonitorPanel();
+              Swal.close();
+            });
+          }
+        });
+
+        // Refrescar la tabla WMS de forma automática
+        if (isSuccess && typeof window.applyWmsFiltersAndRender === 'function') {
+          window.applyWmsFiltersAndRender();
+        }
+      }
+    });
+
+    let btnClass = '';
+    const hasActiveRun = runs.some(r => r.status === 'queued' || r.status === 'in_progress');
+    const unackFailedRun = runs.find(r => r.status === 'completed' && r.conclusion === 'failure' && !ackList.includes(r.id));
+    const unackSuccessRun = runs.find(r => r.status === 'completed' && r.conclusion === 'success' && !ackList.includes(r.id));
+
+    if (hasActiveRun) {
+      btnClass = 'status-active';
+    } else if (unackFailedRun) {
+      btnClass = 'status-error';
+    } else if (unackSuccessRun) {
+      btnClass = 'status-success';
+    }
+
+    btn.className = `floating-monitor-btn ${btnClass}`;
+
+    if (runs.length === 0) {
+      body.innerHTML = `
+        <div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem;">
+          No se encontraron ejecuciones de etiquetas en GitHub.
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    runs.forEach(run => {
+      const isAck = ackList.includes(run.id);
+      const isCompleted = run.status === 'completed';
+      const isSuccess = run.conclusion === 'success';
+      const isFailed = run.conclusion === 'failure';
+      
+      let statusIcon = '<i class="ri-loader-4-line ri-spin" style="color: #f59e0b; font-size: 1.15rem;"></i>';
+      let statusText = 'En cola / Procesando';
+      let itemBg = 'var(--color-bg)';
+      let borderStyle = '1px solid var(--color-border)';
+
+      if (isCompleted) {
+        if (isSuccess) {
+          statusIcon = '<i class="ri-checkbox-circle-fill" style="color: #10b981; font-size: 1.15rem;"></i>';
+          statusText = 'Exitoso';
+          if (!isAck) {
+            itemBg = 'rgba(16, 185, 129, 0.05)';
+            borderStyle = '1.5px solid #10b981';
+          }
+        } else if (isFailed) {
+          statusIcon = '<i class="ri-error-warning-fill" style="color: #ef4444; font-size: 1.15rem;"></i>';
+          statusText = 'Fallado';
+          if (!isAck) {
+            itemBg = 'rgba(239, 68, 68, 0.05)';
+            borderStyle = '1.5px solid #ef4444';
+          }
+        } else {
+          statusIcon = '<i class="ri-close-circle-fill" style="color: #6b7280; font-size: 1.15rem;"></i>';
+          statusText = `Cancelado / ${run.conclusion || ''}`;
+        }
+      }
+
+      const createdTime = new Date(run.created_at).toLocaleTimeString();
+      const createdDate = new Date(run.created_at).toLocaleDateString();
+
+      let actionHtml = '';
+      if (isCompleted && !isAck) {
+        actionHtml = `
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem; justify-content: flex-end;">
+            <button onclick="window.acknowledgeRun(${run.id})" class="btn btn-outline" style="padding: 0.15rem 0.4rem; font-size: 0.7rem; font-weight: 700; height: auto; border-color: ${isSuccess ? '#10b981' : '#ef4444'}; color: ${isSuccess ? '#10b981' : '#ef4444'}; background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; border-radius: 4px;">
+              <i class="ri-checkbox-line"></i> Aceptar y Cerrar
+            </button>
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="monitor-run-item" style="background: ${itemBg}; border: ${borderStyle}; position: relative;">
+          <div class="monitor-run-item-header">
+            <span style="display: flex; align-items: center; gap: 0.35rem;">
+              ${statusIcon}
+              <span>Ejecución #${run.run_number}</span>
+            </span>
+            <span style="font-size: 0.7rem; font-weight: 600; color: ${isCompleted ? (isSuccess ? '#10b981' : '#ef4444') : '#f59e0b'};">
+              ${statusText}
+            </span>
+          </div>
+          <div class="monitor-run-item-body">
+            <span>Hora: ${createdDate} ${createdTime}</span>
+            <a href="${run.html_url}" target="_blank" style="color: var(--color-primary); font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.15rem;">
+              Ver en GitHub <i class="ri-external-link-line" style="font-size: 0.75rem;"></i>
+            </a>
+          </div>
+          ${actionHtml}
+        </div>
+      `;
+    });
+
+    body.innerHTML = html;
+
+  } catch (err) {
+    console.error('Error fetching workflow runs for monitor:', err);
+    body.innerHTML = `
+      <div style="text-align: center; padding: 2rem; color: var(--color-danger); font-size: 0.8rem;">
+        <i class="ri-error-warning-line" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+        Error al obtener datos de GitHub.<br>${err.message}
+      </div>
+    `;
+  }
+};
+
+// Iniciar monitoreo cuando el DOM esté listo
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => window.startWmsMonitorPolling());
+} else {
+  window.startWmsMonitorPolling();
+}
+
 
 

@@ -25,6 +25,138 @@
     .pulse-warning-dot {
       animation: pulse-warning 1.8s infinite;
     }
+    
+    /* Floating Monitor Button styles */
+    .floating-monitor-btn {
+      position: fixed;
+      bottom: 85px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
+      background-color: var(--color-surface);
+      color: var(--color-text-main);
+      border: 1px solid var(--color-border);
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: var(--shadow-md);
+      cursor: pointer;
+      z-index: 1000;
+      transition: all 0.3s ease;
+      outline: none;
+    }
+    .floating-monitor-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--color-primary);
+    }
+    .floating-monitor-btn i {
+      font-size: 1.35rem;
+    }
+    .floating-monitor-btn .badge-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid var(--color-surface);
+      background-color: #6b7280;
+      transition: background-color 0.3s;
+    }
+    .floating-monitor-btn.status-active .badge-dot {
+      background-color: #f59e0b;
+      animation: pulse-dot-monitor 1.5s infinite;
+    }
+    .floating-monitor-btn.status-success .badge-dot {
+      background-color: #10b981;
+    }
+    .floating-monitor-btn.status-error .badge-dot {
+      background-color: #ef4444;
+      animation: pulse-dot-monitor 1s infinite;
+    }
+    @keyframes pulse-dot-monitor {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 0.8; }
+    }
+    .monitor-panel {
+      position: fixed;
+      bottom: 145px;
+      right: 20px;
+      width: 360px;
+      background-color: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      z-index: 1001;
+      display: none;
+      flex-direction: column;
+      max-height: 480px;
+      overflow: hidden;
+      animation: monitor-slide-up 0.2s ease-out;
+    }
+    @keyframes monitor-slide-up {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .monitor-panel-header {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-bg);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+    }
+    .monitor-panel-header h4 {
+      margin: 0;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--color-text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .monitor-panel-body {
+      padding: 0.75rem;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      max-height: 400px;
+      background-color: var(--color-surface);
+    }
+    .monitor-run-item {
+      padding: 0.75rem;
+      border-radius: var(--radius-sm);
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+    .monitor-run-item:hover {
+      border-color: var(--color-primary-light);
+    }
+    .monitor-run-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
+    }
+    .monitor-run-item-body {
+      color: var(--color-text-muted);
+      font-size: 0.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
   </style>
   <!-- Excel / CSV Parser (SheetJS) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -927,7 +1059,27 @@
   <script type="module" src="./js/supabase.js?v=1.0.1"></script>
   <script src="./js/calendar.js"></script>
   <script src="./js/shipping_rates.js"></script>
-  <script type="module" src="./js/admin.js?v=1.0.12"></script>
+  <script type="module" src="./js/admin.js?v=1.0.13"></script>
+
+  <!-- Floating Monitor Button -->
+  <button class="floating-monitor-btn" id="wms-monitor-btn" title="Monitor de Emisión de Etiquetas" onclick="window.toggleWmsMonitorPanel()" style="display: flex;">
+    <i class="ri-pulse-line"></i>
+    <span class="badge-dot"></span>
+  </button>
+
+  <!-- Monitor Panel -->
+  <div class="monitor-panel" id="wms-monitor-panel">
+    <div class="monitor-panel-header">
+      <h4><i class="ri-qr-code-line"></i> Estado de Etiquetas (GitHub)</h4>
+      <button onclick="window.toggleWmsMonitorPanel()" style="background: transparent; border: none; cursor: pointer; color: var(--color-text-muted); font-size: 1.1rem; display: flex; align-items: center;"><i class="ri-close-line"></i></button>
+    </div>
+    <div class="monitor-panel-body" id="wms-monitor-body">
+      <div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem;">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+        Cargando historial de ejecuciones...
+      </div>
+    </div>
+  </div>
 
   <!-- Floating Support Button -->
   <a href="#" class="floating-support-btn" id="support-chat-btn" title="Soporte y Ayuda">

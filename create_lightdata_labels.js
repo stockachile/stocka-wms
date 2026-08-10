@@ -396,7 +396,15 @@ async function handleIndividualMode(idPedido) {
 
           if (json) {
             if (json.estado) {
-              createdDid = json.dids || json.did || (json.detalle && json.detalle.dids);
+              let innerJson = {};
+              if (json.response && typeof json.response === 'string') {
+                try {
+                  innerJson = JSON.parse(json.response);
+                } catch (e) {
+                  console.error('⚠️ Error al parsear JSON interno de response:', e.message);
+                }
+              }
+              createdDid = json.dids || json.did || innerJson.did || innerJson.idenvio || (json.detalle && json.detalle.dids);
               console.log(`🌐 API altaEnvio respondió con éxito. did/dids capturado: ${createdDid}`);
             } else {
               console.error(`❌ API altaEnvio reportó error interno en JSON:`, json.mensaje || json.error || json);
@@ -471,7 +479,7 @@ async function handleIndividualMode(idPedido) {
         return el ? el.innerText.trim() : null;
       });
       console.log(`💬 Estado final de alerta SweetAlert: [${postSwalTitle}]`);
-      return;
+      process.exit(1);
     }
 
     // Descargar etiqueta usando el did capturado (fetch directo en el navegador)
@@ -804,12 +812,24 @@ async function handleBulkMode(limiteCarga) {
       if (response.url().includes('controlador.php')) {
         try {
           const text = await response.text();
+          console.log(`🌐 Interceptada respuesta de controlador.php masivo. Raw: ${text}`);
           const json = JSON.parse(text);
-          if (json && json.estado && json.dids) {
-            createdDidsStr = json.dids;
-            console.log(`🌐 Controlador masivo respondió con dids: ${createdDidsStr}`);
+          if (json) {
+            let innerJson = {};
+            if (json.response && typeof json.response === 'string') {
+              try {
+                innerJson = JSON.parse(json.response);
+              } catch (e) {}
+            }
+            const dids = json.dids || innerJson.dids || innerJson.did || json.did;
+            if (dids) {
+              createdDidsStr = String(dids);
+              console.log(`🌐 Controlador masivo respondió con dids: ${createdDidsStr}`);
+            }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.error('⚠️ Error al leer/parsear respuesta de controlador.php:', e.message);
+        }
       }
     });
 
@@ -827,7 +847,7 @@ async function handleBulkMode(limiteCarga) {
 
     if (!createdDidsStr) {
       console.error('❌ ERROR: No se pudieron capturar los dids de la respuesta de subida.');
-      return;
+      process.exit(1);
     }
 
     const listDids = createdDidsStr.split(',').filter(Boolean);
