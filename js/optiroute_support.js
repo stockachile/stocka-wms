@@ -786,10 +786,20 @@ export async function renderOptirouteSupport() {
     const summaryContainer = document.getElementById('route-summary');
     summaryContainer.style.display = 'grid';
 
-    const totalStops = allWaypoints.length;
-    const completed = allWaypoints.filter(w => w.status === 'Completado' || w.status === 'Entregado').length;
-    const onroute = allWaypoints.filter(w => w.status === 'En ruta' || w.status === 'En viaje').length;
-    const skipped = allWaypoints.filter(w => w.status === 'Saltado' || w.status === 'Cancelado' || w.status === 'Eliminado').length;
+    const completed = allWaypoints.filter(w => {
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      return st.includes('completado') || st.includes('entregado') || st.includes('exito') || st.includes('delivered') || w.status_code === 3 || w.status === 3;
+    }).length;
+
+    const onroute = allWaypoints.filter(w => {
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      return st.includes('ruta') || st.includes('viaje') || st.includes('onroute') || st.includes('ongoing') || w.status_code === 6 || w.status_code === 2;
+    }).length;
+
+    const skipped = allWaypoints.filter(w => {
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      return st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped') || st.includes('cancelled') || st.includes('deleted') || w.status_code === 5 || w.status_code === -1;
+    }).length;
     
     // Alertas de geocodificación
     // Códigos de advertencia: todo menos 1 (GEOCODED) y 3 (REVERSE_GEOCODED)
@@ -2246,7 +2256,8 @@ export async function renderOptirouteSupport() {
 
   async function checkAndAutoSendDeliveryEmails(waypoints) {
     const delivered = waypoints.filter(w => {
-      const isDelivered = w.status === 'Completado' || w.status === 'Entregado';
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      const isDelivered = st.includes('completado') || st.includes('entregado') || st.includes('exito') || st.includes('delivered') || w.status_code === 3 || w.status === 3;
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.delivery_email_notified;
       return isDelivered && hasEmail && notNotified;
@@ -2268,8 +2279,8 @@ export async function renderOptirouteSupport() {
 
   async function checkAndAutoSendFailedEmails(waypoints) {
     const failedWaypoints = waypoints.filter(w => {
-      const st = (w.status || '').toLowerCase();
-      const isFailed = st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped');
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      const isFailed = st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped') || st.includes('cancelled') || st.includes('deleted') || w.status_code === 5 || w.status === 5;
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.failed_email_notified;
       return isFailed && hasEmail && notNotified;
