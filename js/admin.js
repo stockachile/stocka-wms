@@ -133,6 +133,7 @@ window.fetchInventoryForOrders = async function(orders) {
 
 window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
 window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
+window.retiroKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
 
 window.loadConfigOptions = async function() {
   try {
@@ -142,8 +143,10 @@ window.loadConfigOptions = async function() {
     if (!error && dbOptions) {
       const agendas = dbOptions.filter(o => o.type === 'agenda').map(o => o.value);
       const operadores = dbOptions.filter(o => o.type === 'operador').map(o => o.value);
+      const keywords = dbOptions.filter(o => o.type === 'keyword_retiro').map(o => o.value);
       if (agendas.length > 0) window.agendaOptions = [...new Set(agendas)];
       if (operadores.length > 0) window.operadorOptions = [...new Set(operadores)];
+      if (keywords.length > 0) window.retiroKeywords = [...new Set(keywords)];
     }
   } catch (err) {
     console.warn("Could not load custom options from DB (table wms_config_options might not exist yet):", err.message);
@@ -165,10 +168,17 @@ window.manageWmsConfigOptions = async function() {
     </div>
   `).join('');
 
+  const keywordsListHtml = (window.retiroKeywords || []).map(opt => `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem; font-size:0.9rem; background:var(--color-bg); padding:0.4rem 0.75rem; border-radius:var(--radius-md); border:1px solid var(--color-border); color:var(--color-text-main);">
+      <span>${opt}</span>
+      <button onclick="window.deleteWmsConfigOption('keyword_retiro', '${opt}')" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:0.2rem;" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
+    </div>
+  `).join('');
+
   Swal.fire({
-    title: 'Gestionar Opciones de Agenda y Operador',
+    title: 'Gestionar Opciones de Agenda, Operador y Retiro',
     html: `
-      <div style="text-align: left; max-height: 400px; overflow-y: auto;">
+      <div style="text-align: left; max-height: 450px; overflow-y: auto;">
         <div style="margin-bottom: 1.5rem;">
           <h4 style="margin-bottom: 0.5rem; color: var(--color-primary); font-weight: 600;">Agendas</h4>
           <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
@@ -179,7 +189,7 @@ window.manageWmsConfigOptions = async function() {
             ${agendaListHtml || '<span style="color:var(--color-text-muted);">Sin opciones custom.</span>'}
           </div>
         </div>
-        <div>
+        <div style="margin-bottom: 1.5rem;">
           <h4 style="margin-bottom: 0.5rem; color: var(--color-primary); font-weight: 600;">Operadores</h4>
           <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
             <input id="new-operador-val" class="swal2-input" placeholder="Nuevo operador" style="margin: 0; flex: 1; height: auto; padding: 0.4rem 0.6rem;">
@@ -187,6 +197,16 @@ window.manageWmsConfigOptions = async function() {
           </div>
           <div style="max-height: 120px; overflow-y: auto; border: 1px solid var(--color-border); padding: 0.5rem; border-radius: var(--radius-md); background: var(--color-surface);">
             ${operadorListHtml || '<span style="color:var(--color-text-muted);">Sin opciones custom.</span>'}
+          </div>
+        </div>
+        <div>
+          <h4 style="margin-bottom: 0.5rem; color: var(--color-primary); font-weight: 600;">Palabras Clave de Retiro (Detección automática)</h4>
+          <div style="margin-bottom: 0.5rem; display: flex; gap: 0.5rem;">
+            <input id="new-keyword_retiro-val" class="swal2-input" placeholder="Ej: RETIRO, CENTRO, SUCURSAL" style="margin: 0; flex: 1; height: auto; padding: 0.4rem 0.6rem;">
+            <button onclick="window.addWmsConfigOption('keyword_retiro')" class="swal2-confirm swal2-styled" style="margin: 0; padding: 0.4rem 0.85rem; font-size: 0.9rem;">+ Agregar</button>
+          </div>
+          <div style="max-height: 120px; overflow-y: auto; border: 1px solid var(--color-border); padding: 0.5rem; border-radius: var(--radius-md); background: var(--color-surface);">
+            ${keywordsListHtml || '<span style="color:var(--color-text-muted);">Sin palabras clave custom.</span>'}
           </div>
         </div>
       </div>
@@ -197,7 +217,7 @@ window.manageWmsConfigOptions = async function() {
 };
 
 window.addWmsConfigOption = async function(type) {
-  const inputId = type === 'agenda' ? 'new-agenda-val' : 'new-operador-val';
+  const inputId = type === 'agenda' ? 'new-agenda-val' : (type === 'operador' ? 'new-operador-val' : 'new-keyword_retiro-val');
   const val = document.getElementById(inputId)?.value?.trim()?.toUpperCase();
   if (!val) return;
 
@@ -212,15 +232,17 @@ window.addWmsConfigOption = async function(type) {
 
     if (type === 'agenda') {
       if (!window.agendaOptions.includes(val)) window.agendaOptions.push(val);
-    } else {
+    } else if (type === 'operador') {
       if (!window.operadorOptions.includes(val)) window.operadorOptions.push(val);
+    } else if (type === 'keyword_retiro') {
+      if (!window.retiroKeywords.includes(val)) window.retiroKeywords.push(val);
     }
     
     window.manageWmsConfigOptions();
     applyWmsFiltersAndRender();
   } catch (err) {
     console.error("Error adding option:", err);
-    Swal.fire('Error', 'No se pudo guardar la opción (asegúrate de haber ejecutado la migración de base de datos): ' + err.message, 'error');
+    Swal.fire('Error', 'No se pudo guardar la opción: ' + err.message, 'error');
   }
 };
 
@@ -236,8 +258,10 @@ window.deleteWmsConfigOption = async function(type, val) {
 
     if (type === 'agenda') {
       window.agendaOptions = window.agendaOptions.filter(o => o !== val);
-    } else {
+    } else if (type === 'operador') {
       window.operadorOptions = window.operadorOptions.filter(o => o !== val);
+    } else if (type === 'keyword_retiro') {
+      window.retiroKeywords = window.retiroKeywords.filter(o => o !== val);
     }
 
     window.manageWmsConfigOptions();
@@ -272,7 +296,19 @@ window.updateWmsOrderField = async function(orderId, field, value) {
     const order = window.loadedOrders.find(o => o.id === orderId);
     if (order) {
       order[field] = value;
-      const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number'];
+      
+      // Manejo especial en caliente de cambio de categoría
+      if (field === 'categoria_entrega') {
+        if (value === 'RETIRO') {
+          order.agenda = 'RETIRO';
+          order.operador = 'SUCURSAL ÑUÑOA';
+        } else if (value === 'DISTRIBUCIÓN') {
+          if (order.agenda === 'RETIRO') order.agenda = null;
+          if (order.operador === 'SUCURSAL ÑUÑOA') order.operador = null;
+        }
+      }
+
+      const fieldsToPropagate = ['agenda', 'sucursal_pickeo', 'operador', 'fecha_procesamiento', 'tracking_number', 'categoria_entrega'];
       if (fieldsToPropagate.includes(field) && order.estado_wms === 'En preparación') {
         await window.propagateOrderUpdateToPicker(order);
       }
@@ -1432,6 +1468,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     courier,
     shopify_exported,
     comercio,
+    categoria_entrega,
     agenda,
     operador,
     fecha_procesamiento,
@@ -1780,6 +1817,12 @@ async function renderAdminOrders() {
                 <th>Fecha proc.</th>
                 <th>
                   <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <span>Categoría</span>
+                    <i id="wms-filter-icon-categoria_entrega" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'categoria_entrega', 'Categoría')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
+                  </div>
+                </th>
+                <th>
+                  <div style="display: inline-flex; align-items: center; gap: 0.25rem;">
                     <span>Agenda</span>
                     <i id="wms-filter-icon-agenda" class="ri-filter-3-line" onclick="event.stopPropagation(); window.toggleColumnFilterPopover(event, 'agenda', 'Agenda')" style="cursor: pointer; font-size: 0.85rem; padding: 2px;"></i>
                   </div>
@@ -1970,6 +2013,7 @@ window.applyWmsFiltersAndRender = function() {
     const extNo = (order.external_order_number || '').toLowerCase();
     const tracking = (order.tracking_number || '').toLowerCase();
     const orderIdLower = order.id.toLowerCase();
+    const sucursal = (order.sucursal_pickeo || '').toLowerCase();
 
     const matchesSearch = !searchText || 
       orderIdLower.includes(searchText) || 
@@ -1978,7 +2022,8 @@ window.applyWmsFiltersAndRender = function() {
       nameStr.includes(searchText) || 
       company.includes(searchText) || 
       customer.includes(searchText) ||
-      tracking.includes(searchText);
+      tracking.includes(searchText) ||
+      sucursal.includes(searchText);
 
     const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
@@ -2858,6 +2903,14 @@ window.applyWmsFiltersAndRender = function() {
       tempOperadores.push(currentOperador);
     }
 
+    const currentCategoria = order.categoria_entrega || 'DISTRIBUCIÓN';
+    const categoriaSelectHtml = `
+      <select onchange="window.updateWmsOrderField('${order.id}', 'categoria_entrega', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 95px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
+        <option value="DISTRIBUCIÓN" ${currentCategoria === 'DISTRIBUCIÓN' ? 'selected' : ''}>DISTRIBUCIÓN</option>
+        <option value="RETIRO" ${currentCategoria === 'RETIRO' ? 'selected' : ''}>RETIRO</option>
+      </select>
+    `;
+
     const agendaSelectHtml = `
       <select onchange="window.updateWmsOrderField('${order.id}', 'agenda', this.value)" style="padding: 0.25rem; font-size: 0.8rem; font-weight: 600; border-radius: 4px; border: 1px solid var(--color-border); width: 100%; min-width: 90px; cursor: pointer; background: var(--color-surface); color: var(--color-text-main);">
         <option value="">-</option>
@@ -2913,7 +2966,14 @@ window.applyWmsFiltersAndRender = function() {
           <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
         </td>
         <td>${orderDisplayId}</td>
-        <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></td>
+        <td>
+          <div style="display: flex; flex-direction: column; gap: 0.2rem; align-items: flex-start;">
+            <span><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i><strong>${order.comercio || 'Desconocido'}</strong></span>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.2rem;" title="Sucursal de Destino / Pickeo">
+              <i class="ri-map-pin-line" style="color: var(--color-primary); font-size: 0.85rem;"></i> ${order.sucursal_pickeo || 'Sin Sucursal'}
+            </span>
+          </div>
+        </td>
         <td>${originHtml}</td>
         <td>
           <div style="display:flex; flex-direction:column; gap:0.25rem; font-size:0.8rem; white-space:nowrap; font-weight:500;">
@@ -2950,14 +3010,14 @@ window.applyWmsFiltersAndRender = function() {
         </td>
       </tr>
       <tr id="badges-row-${order.id}" class="order-badges-row" style="transition: background-color 0.2s;">
-        <td colspan="14" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
+        <td colspan="15" style="padding: 0rem 1.25rem 0.65rem 3.4rem; text-align: left;">
           <div style="display:flex; flex-wrap:wrap; gap:0.35rem; align-items:center;">
             ${exportBadgeHtml}${packBadgeHtml}${shipmentBadgeHtml}${stockAlertBadgeHtml}${paymentBadgeHtml}${fulfillmentBadgeHtml}${cancelBadgeHtml}${labelBadgeHtml}
           </div>
         </td>
       </tr>
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
-        <td colspan="14" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
+        <td colspan="15" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
           <div class="order-detail-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
             
             <!-- Fila superior: 3 Columnas de Información -->
