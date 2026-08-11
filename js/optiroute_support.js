@@ -512,6 +512,7 @@ export async function renderOptirouteSupport() {
           renderSummaryDashboard(routeName);
           populateFilterDropdowns();
           applyFilters();
+          checkAndAutoSendDispatchEmails(allWaypoints);
           checkAndAutoSendDeliveryEmails(allWaypoints);
           checkAndAutoSendFailedEmails(allWaypoints);
           
@@ -727,6 +728,7 @@ export async function renderOptirouteSupport() {
       renderSummaryDashboard(planDetail.name || 'Ruta Optiroute');
       populateFilterDropdowns();
       applyFilters();
+      checkAndAutoSendDispatchEmails(allWaypoints);
       checkAndAutoSendDeliveryEmails(allWaypoints);
       checkAndAutoSendFailedEmails(allWaypoints);
 
@@ -786,6 +788,7 @@ export async function renderOptirouteSupport() {
     const summaryContainer = document.getElementById('route-summary');
     summaryContainer.style.display = 'grid';
 
+    const totalStops = allWaypoints.length;
     const completed = allWaypoints.filter(w => {
       const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
       return st.includes('completado') || st.includes('entregado') || st.includes('exito') || st.includes('delivered') || w.status_code === 3 || w.status === 3;
@@ -2252,6 +2255,29 @@ export async function renderOptirouteSupport() {
     }
 
     return resData;
+  }
+
+  async function checkAndAutoSendDispatchEmails(waypoints) {
+    const dispatchWaypoints = waypoints.filter(w => {
+      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
+      const isCancelledOrDeleted = st.includes('cancel') || st.includes('eliminad') || st.includes('deleted');
+      const hasEmail = w.email && w.email.includes('@');
+      const notNotified = !w.dispatch_email_notified;
+      return !isCancelledOrDeleted && hasEmail && notNotified;
+    });
+
+    if (dispatchWaypoints.length === 0) return;
+
+    console.log(`Auto-enviando ${dispatchWaypoints.length} correos de aviso de despacho programado...`);
+    for (const item of dispatchWaypoints) {
+      try {
+        await sendBrevoNotificationEmail(item, 'dispatch');
+        item.dispatch_email_notified = true;
+        console.log(`🚚 Correo de aviso de despacho enviado a ${item.email} para pedido ${item.reference}`);
+      } catch (err) {
+        console.warn(`Error auto-enviando correo de aviso de despacho a ${item.reference}:`, err.message);
+      }
+    }
   }
 
   async function checkAndAutoSendDeliveryEmails(waypoints) {
