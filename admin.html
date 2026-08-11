@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin - WMS STOCKA</title>
+  <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
@@ -189,6 +190,7 @@
           <li class="sidebar-category-header">📥 INVENTARIO Y CATÁLOGO</li>
           <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span></a></li>
           <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo de Productos</span></a></li>
+          <li><a href="#" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
           <li><a href="#" class="nav-item" data-view="declarations_admin"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span> <span id="badge-declarations" class="menu-badge" style="display: none;">0</span></a></li>
 
           <li class="sidebar-category-header">🏢 ADMINISTRACIÓN Y CLIENTES</li>
@@ -1053,6 +1055,9 @@
 
   <!-- SweetAlert2 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- Barcode Generator -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script type="module" src="./js/label_generator.js"></script>
   <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- App Scripts -->

@@ -552,6 +552,7 @@ async function init() {
       if (profile) {
         userRole = profile.role || 'observer';
         currentCompany = profile.comercio || null;
+        window.currentCompany = currentCompany;
         if (currentCompany) {
           checkBillingSuspension(currentCompany);
           if (!window.activeIntegrationCommerce) {
@@ -630,6 +631,9 @@ async function init() {
           } else if (view === 'catalog') {
             viewTitle.textContent = 'Catálogo de Productos';
             renderCatalog();
+          } else if (view === 'label_generator') {
+            viewTitle.textContent = 'Generador de Etiquetas';
+            window.renderLabelGenerator();
           } else if (view === 'orders') {
             viewTitle.textContent = 'Pedidos';
             renderOrders();
@@ -716,7 +720,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'label_generator') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -20505,9 +20509,13 @@ function renderMasterCatalogRows(products) {
       ? '' 
       : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
     
+    const printBtn = isObserver
+      ? ''
+      : `<button class="btn btn-outline btn-print-label" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-primary); color: var(--color-primary); margin-left: 0.5rem;"><i class="ri-printer-line" style="margin-right: 0.25rem;"></i>Etiqueta</button>`;
+
     const actionBtn = isObserver 
       ? '' 
-      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + printBtn + deleteBtn;
 
     let packBadge = '';
     if (item.is_pack) {
@@ -21308,6 +21316,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
       const prodId = e.currentTarget.getAttribute('data-id');
       openEditProductModal(prodId);
       showWmsWarningInModal('form-edit-product');
+    });
+  });
+  document.querySelectorAll('.btn-print-label').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-id');
+      window.openIndividualLabelModal(prodId);
     });
   });
 

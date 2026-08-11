@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Dashboard - WMS STOCKA</title>
+  <meta name="robots" content="noindex, nofollow">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
@@ -28,6 +29,7 @@
           <li><a href="#" class="nav-item active" data-view="dashboard"><i class="ri-dashboard-line"></i> <span class="nav-text">Dashboard</span></a></li>
           <li><a href="#" class="nav-item" data-view="inventory"><i class="ri-box-3-line"></i> <span class="nav-text">Inventario</span></a></li>
           <li><a href="#" class="nav-item" data-view="catalog"><i class="ri-list-check"></i> <span class="nav-text">Catálogo</span></a></li>
+          <li><a href="#" class="nav-item" data-view="label_generator"><i class="ri-printer-line"></i> <span class="nav-text">Etiquetas</span></a></li>
           <li><a href="#" class="nav-item" data-view="volumen_diario"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
           <li><a href="#" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
           <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
@@ -929,6 +931,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <!-- SweetAlert2 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- Barcode Generator -->
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script type="module" src="./js/label_generator.js"></script>
   <!-- App Scripts -->
   <script type="module" src="./js/supabase.js?v=1.0.1"></script>
   <script src="./js/shipping_rates.js"></script>

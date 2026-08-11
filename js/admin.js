@@ -140,13 +140,54 @@ window.loadConfigOptions = async function() {
     const { data: dbOptions, error } = await supabase
       .from('wms_config_options')
       .select('type, value');
-    if (!error && dbOptions) {
-      const agendas = dbOptions.filter(o => o.type === 'agenda').map(o => o.value);
-      const operadores = dbOptions.filter(o => o.type === 'operador').map(o => o.value);
-      const keywords = dbOptions.filter(o => o.type === 'keyword_retiro').map(o => o.value);
-      if (agendas.length > 0) window.agendaOptions = [...new Set(agendas)];
-      if (operadores.length > 0) window.operadorOptions = [...new Set(operadores)];
-      if (keywords.length > 0) window.retiroKeywords = [...new Set(keywords)];
+      
+    if (error) throw error;
+
+    const defaultAgendas = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+    const defaultOperadores = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
+    const defaultKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
+
+    let agendas = [];
+    let operadores = [];
+    let keywords = [];
+
+    if (dbOptions) {
+      agendas = dbOptions.filter(o => o.type === 'agenda').map(o => o.value);
+      operadores = dbOptions.filter(o => o.type === 'operador').map(o => o.value);
+      keywords = dbOptions.filter(o => o.type === 'keyword_retiro').map(o => o.value);
+    }
+
+    // Cargar y poblar Agendas
+    if (agendas.length > 0) {
+      window.agendaOptions = [...new Set(agendas)];
+    } else {
+      window.agendaOptions = defaultAgendas;
+      const inserts = defaultAgendas.map(val => ({ type: 'agenda', value: val }));
+      supabase.from('wms_config_options').insert(inserts).then(({ error }) => {
+        if (error) console.warn("Error auto-populating default agendas:", error.message);
+      });
+    }
+
+    // Cargar y poblar Operadores
+    if (operadores.length > 0) {
+      window.operadorOptions = [...new Set(operadores)];
+    } else {
+      window.operadorOptions = defaultOperadores;
+      const inserts = defaultOperadores.map(val => ({ type: 'operador', value: val }));
+      supabase.from('wms_config_options').insert(inserts).then(({ error }) => {
+        if (error) console.warn("Error auto-populating default operadores:", error.message);
+      });
+    }
+
+    // Cargar y poblar Palabras Clave Retiro
+    if (keywords.length > 0) {
+      window.retiroKeywords = [...new Set(keywords)];
+    } else {
+      window.retiroKeywords = defaultKeywords;
+      const inserts = defaultKeywords.map(val => ({ type: 'keyword_retiro', value: val }));
+      supabase.from('wms_config_options').insert(inserts).then(({ error }) => {
+        if (error) console.warn("Error auto-populating default keywords:", error.message);
+      });
     }
   } catch (err) {
     console.warn("Could not load custom options from DB (table wms_config_options might not exist yet):", err.message);
@@ -874,6 +915,9 @@ async function init() {
           } else if (view === 'catalog') {
             viewTitle.textContent = 'Catálogo & Equivalencias';
             renderAdminCatalog();
+          } else if (view === 'label_generator') {
+            viewTitle.textContent = 'Generador de Etiquetas';
+            window.renderLabelGenerator();
           } else if (view === 'onboarding_admin') {
             viewTitle.textContent = 'Solicitudes de Alta';
             renderOnboardingAdmin();
@@ -934,7 +978,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -1755,6 +1799,14 @@ async function renderAdminOrders() {
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-truck-line"></i> Categoría de Entrega</label>
+            <select id="filter-categoria-entrega" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todas las categorías</option>
+              <option value="DISTRIBUCIÓN">DISTRIBUCIÓN</option>
+              <option value="RETIRO">RETIRO</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
             <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-download-2-line"></i> Exportación Shopify</label>
             <select id="filter-export-status" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
               <option value="">Todos</option>
@@ -1875,6 +1927,7 @@ async function renderAdminOrders() {
     const merchantSelect = document.getElementById('filter-merchant');
     const origenSelect = document.getElementById('filter-origen');
     const statusSelect = document.getElementById('filter-status');
+    const categoriaSelect = document.getElementById('filter-categoria-entrega');
     const exportStatusSelect = document.getElementById('filter-export-status');
     const dateFromInput = document.getElementById('filter-date-from');
     const dateToInput = document.getElementById('filter-date-to');
@@ -1938,6 +1991,7 @@ async function renderAdminOrders() {
     if (merchantSelect) merchantSelect.addEventListener('change', triggerFilterUpdate);
     if (origenSelect) origenSelect.addEventListener('change', triggerFilterUpdate);
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
+    if (categoriaSelect) categoriaSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
     if (dateFromInput) dateFromInput.addEventListener('change', handleDateChange);
     if (dateToInput) dateToInput.addEventListener('change', handleDateChange);
@@ -1959,6 +2013,7 @@ window.applyWmsFiltersAndRender = function() {
   const merchantSelect = document.getElementById('filter-merchant');
   const origenSelect = document.getElementById('filter-origen');
   const statusSelect = document.getElementById('filter-status');
+  const categoriaSelect = document.getElementById('filter-categoria-entrega');
   const exportStatusSelect = document.getElementById('filter-export-status');
   const dateFromInput = document.getElementById('filter-date-from');
   const dateToInput = document.getElementById('filter-date-to');
@@ -1968,6 +2023,7 @@ window.applyWmsFiltersAndRender = function() {
   const selectedMerchant = merchantSelect?.value || '';
   const selectedOrigen = origenSelect?.value || '';
   const selectedStatus = statusSelect?.value || '';
+  const selectedCategoriaEntrega = categoriaSelect?.value || '';
   const selectedExportStatus = exportStatusSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
@@ -2028,6 +2084,7 @@ window.applyWmsFiltersAndRender = function() {
     const matchesMerchant = !selectedMerchant || order.comercio === selectedMerchant;
     const matchesOrigen = !selectedOrigen || platform.toLowerCase() === selectedOrigen.toLowerCase();
     const matchesStatus = !selectedStatus || order.status === selectedStatus;
+    const matchesCategoria = !selectedCategoriaEntrega || (order.categoria_entrega || 'DISTRIBUCIÓN') === selectedCategoriaEntrega;
     
     let matchesExport = true;
     if (selectedExportStatus === 'pending') {
@@ -2050,7 +2107,7 @@ window.applyWmsFiltersAndRender = function() {
       if (dateFrom || dateTo) matchesDate = false;
     }
 
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate;
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria;
   };
 
   // 1. Obtener conteo de pestañas
@@ -2115,6 +2172,7 @@ window.applyWmsFiltersAndRender = function() {
       let val = '';
       if (colKey === 'comercio') val = o.comercio;
       else if (colKey === 'origen') val = o.origen || o.external_platform || 'Manual';
+      else if (colKey === 'categoria_entrega') val = o.categoria_entrega || 'DISTRIBUCIÓN';
       else if (colKey === 'agenda') val = o.agenda;
       else if (colKey === 'operador') val = o.operador || '';
       else if (colKey === 'shipping_method') val = o.shipping_method;
@@ -2140,7 +2198,7 @@ window.applyWmsFiltersAndRender = function() {
   }
 
   // Actualizar estado visual de los iconos de filtros en cabeceras
-  const colKeys = ['comercio', 'origen', 'agenda', 'operador', 'shipping_method', 'periodo_facturacion', 'status', 'estado_wms'];
+  const colKeys = ['comercio', 'origen', 'categoria_entrega', 'agenda', 'operador', 'shipping_method', 'periodo_facturacion', 'status', 'estado_wms'];
   colKeys.forEach(colKey => {
     const iconEl = document.getElementById(`wms-filter-icon-${colKey}`);
     if (iconEl) {
@@ -2982,6 +3040,7 @@ window.applyWmsFiltersAndRender = function() {
           </div>
         </td>
         <td>${fechaProcHtml}</td>
+        <td>${categoriaSelectHtml}</td>
         <td>${agendaSelectHtml}</td>
         <td>${operadorSelectHtml}</td>
         <td>
@@ -3048,6 +3107,7 @@ window.applyWmsFiltersAndRender = function() {
                   </button>
                 </p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Método de Envío:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.shipping_method || 'Por definir'}</span></p>
+                <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Categoría:</strong> <span style="background: var(--badge-info-bg); color: var(--badge-info-text); padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.categoria_entrega || 'DISTRIBUCIÓN'}</span></p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Pago:</strong> <span style="background: ${order.payment_status === 'PAID' ? 'var(--badge-success-bg)' : 'var(--badge-warning-bg)'}; color: ${order.payment_status === 'PAID' ? 'var(--badge-success-text)' : 'var(--badge-warning-text)'}; padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500;">${order.payment_status || 'PENDING'}</span></p>
                 
                 <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.35rem;">
@@ -4899,9 +4959,13 @@ function renderMasterCatalogRows(products) {
       ? '' 
       : `<button class="btn btn-outline btn-delete-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger); margin-left: 0.5rem;"><i class="ri-delete-bin-line" style="margin-right: 0.25rem;"></i>Borrar</button>`;
     
+    const printBtn = isObserver
+      ? ''
+      : `<button class="btn btn-outline btn-print-label" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-primary); color: var(--color-primary); margin-left: 0.5rem;"><i class="ri-printer-line" style="margin-right: 0.25rem;"></i>Etiqueta</button>`;
+
     const actionBtn = isObserver 
       ? '' 
-      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + deleteBtn;
+      : `<button class="btn btn-outline btn-edit-product" data-id="${item.id}" style="padding: 0.35rem 0.75rem; font-size: 0.85rem; border-color: var(--color-border); color: var(--color-text);"><i class="ri-edit-line" style="margin-right: 0.25rem;"></i>Editar</button>` + printBtn + deleteBtn;
 
     const initialStock = window.catalogInitialStockMap?.[item.id] || 0;
 
@@ -5571,6 +5635,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
       const prodId = e.currentTarget.getAttribute('data-id');
       openEditProductModal(prodId);
       showWmsWarningInModal('form-edit-product');
+    });
+  });
+  document.querySelectorAll('.btn-print-label').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const prodId = e.currentTarget.getAttribute('data-id');
+      window.openIndividualLabelModal(prodId);
     });
   });
 
@@ -6379,6 +6449,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
 // ==========================================
 // MÓDULO DE INVENTARIO PARA ADMINISTRACIÓN
 // ==========================================
+window.initSearchableDropdown = initSearchableDropdown;
 function initSearchableDropdown(containerId, options, defaultValue, onChange) {
   const container = document.getElementById(containerId);
   if (!container) return;

@@ -169,6 +169,7 @@ const INITIAL_MOCK_DATA = {
       shipping_address: 'Av. Providencia 1250',
       shipping_city: 'Providencia',
       shipping_method: 'Starken',
+      categoria_entrega: 'RETIRO',
       payment_status: 'PENDING',
       total_price: 6000000, 
       total_value: 6000000,
