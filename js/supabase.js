@@ -502,6 +502,7 @@ const authProxy = new Proxy(actualSupabase.auth, {
 // Cliente Supabase proxificado con un objeto plano
 const supabaseProxy = {
   auth: authProxy,
+  storage: actualSupabase.storage,
   from: (tableName) => {
     if (window.isDemoMode()) {
       const data = window.getMockTable(tableName);
