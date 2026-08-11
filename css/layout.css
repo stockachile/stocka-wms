@@ -481,6 +481,7 @@
   width: 100%;
   overflow: auto;
   max-height: calc(100vh - 240px);
+  padding-bottom: 90px !important;
 }
 
 .data-table th {
