@@ -2597,6 +2597,18 @@ Hemos corregido la accesibilidad y el contraste de legibilidad de los botones pr
    - Modificamos el estilo inline de estos elementos para usar color blanco (`color: #ffffff;`), igualando el comportamiento del estilo nativo de la clase `.btn-primary` definida en las hojas de estilo del proyecto.
    - Esto incluye botones clave como "+ Crear Comercio", "Guardar Cambios" (comercio), "Editar", "Guardar Regla", "Cargar Documento Manual", "Guardar Documento", "Copiar SQL" y "Guardar Mensaje".
 
+---
+
+## 112. Prevención de Recorte de Menú de Acciones en Tablas
+
+Hemos resuelto un problema visual clásico donde los menús desplegables de "Acciones" en las tablas se cortaban o quedaban inaccesibles cuando la tabla tenía pocas filas (o una sola fila, como suele ocurrir al filtrar):
+
+1. **Ajuste de Margen de Desplazamiento (`padding-bottom`)**:
+   - Modificamos la clase `.table-responsive` en `css/layout.css` agregando la regla `padding-bottom: 90px !important;`.
+   - Al forzar esta holgura vertical en los contenedores de tablas responsivas, nos aseguramos de que el menú flotante de acciones tenga espacio suficiente para desplegarse hacia abajo sin ser recortado por el límite del contenedor con desborde (`overflow: auto`).
+   - El uso de `!important` garantiza que el espacio se mantenga libre incluso en vistas que aplican remoción de padding inline (`style="padding: 0;"`), manteniendo a su vez el diseño alineado horizontalmente.
+
+
 
 
 
