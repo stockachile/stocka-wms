@@ -28756,6 +28756,7 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
   const serviceType = document.getElementById('email-service-type').value;
   const emailType = document.getElementById('email-type-select').value;
   const customMessage = document.getElementById('email-custom-message').value || '';
+  const isCorrection = document.getElementById('email-is-correction')?.checked || false;
   
   const btn = document.getElementById('btn-submit-send-email');
   const originalHtml = btn.innerHTML;
@@ -28772,7 +28773,7 @@ window.executeSendBillingEmail = async function(recordId, periodId, e) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${session.access_token}`
       },
-      body: JSON.stringify({ recordId, serviceType, emails, customMessage, emailType })
+      body: JSON.stringify({ recordId, serviceType, emails, customMessage, emailType, isCorrection })
     });
     
     const result = await response.json();
