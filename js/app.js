@@ -18367,145 +18367,189 @@ window.loadClientBillingData = async function(periodId) {
     
     let totalFacturado = 0;
     let totalPagado = 0;
-    let tableRowsFulf = '';
-    let tableRowsEnv = '';
+    let fulfCardsHtml = '';
+    let envCardsHtml = '';
     
     records.forEach(r => {
       const recordTotal = (r.total_fulfillment || 0) + (r.enviame || 0);
       const recordPagado = (r.abono_fulfillment || 0) + (r.abono_enviame || 0);
       const pendingFulfillment = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
       const pendingEnviame = (r.enviame || 0) - (r.abono_enviame || 0);
-      const recordPending = recordTotal - recordPagado;
       
       totalFacturado += recordTotal;
       totalPagado += recordPagado;
       
-      let actionBtn = '';
-      if (recordPending > 0) {
-        actionBtn = `
-          <button class="action-btn-modern" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', ${pendingFulfillment}, ${pendingEnviame})">
+      // Fulfillment action button
+      let actionBtnFulf = '';
+      if (pendingFulfillment > 0) {
+        actionBtnFulf = `
+          <button class="action-btn-modern" style="width: 100%; justify-content: center; padding: 0.5rem 1rem;" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', ${pendingFulfillment}, 0)">
             <i class="ri-upload-cloud-2-line"></i> Informar Pago
           </button>
         `;
       } else {
-        actionBtn = `
-          <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.35rem 0.75rem; border-radius: 50px;">
+        actionBtnFulf = `
+          <span style="display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.4rem 1rem; border-radius: 50px; width: 100%;">
             <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Pagado
           </span>
         `;
       }
-      
-      // Fila para tab Fulfillment
-      tableRowsFulf += `
-        <tr class="billing-record-row-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
-            ${r.comercio}
-          </td>
-          <td style="vertical-align: middle;">
-            <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
+
+      // Fulfillment Factura element
+      let facturaFulfHtml = '';
+      if (r.factura_fulfillment_pdf_url) {
+        facturaFulfHtml = `
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.factura_fulfillment || '-'}</span>
+            <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Fulfillment #${r.num_factura || ''} - ${r.comercio}" data-url="${r.factura_fulfillment_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; height: auto; margin-top: 0.1rem;">
+              <i class="ri-file-pdf-line"></i> #${r.num_factura || ''}
+            </button>
+          </div>
+        `;
+      } else {
+        facturaFulfHtml = `
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.factura_fulfillment || '-'}</span>
+            ${r.num_factura ? `<span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">#${r.num_factura}</span>` : ''}
+          </div>
+        `;
+      }
+
+      // Fulfillment Card
+      fulfCardsHtml += `
+        <div class="service-billing-card service-billing-card-fulf" data-pago-fulf="${r.pago_fulfillment || ''}" data-fact-fulf="${r.factura_fulfillment || ''}">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">${r.comercio}</h4>
+            <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}" style="font-size: 0.65rem; padding: 0.2rem 0.5rem; min-width: auto;">${r.pago_fulfillment || '-'}</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.8rem; margin: 0.25rem 0;">
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Monto Cobrado</span>
+              <strong style="color: var(--color-text-main); font-size: 0.85rem;">${window.formatCLP(r.total_fulfillment)}</strong>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Abono Recibido</span>
+              <strong style="color: var(--color-success); font-size: 0.85rem;">${window.formatCLP(r.abono_fulfillment)}</strong>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Fecha Límite</span>
+              <div style="color: var(--color-text-main); font-weight: 500;">
+                ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
+                <div style="margin-top: 0.15rem; transform: scale(0.95); transform-origin: left center;">
+                  ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
+                </div>
+              </div>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Factura Fulfillment</span>
+              ${facturaFulfHtml}
+            </div>
+          </div>
+
+          <div style="font-size: 0.75rem; display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin: 0.25rem 0;">
+            <span style="color: var(--color-text-muted); font-weight: 500;">Estado de Desglose:</span>
+            <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.desglose_fulfillment || '-'}</span>
+          </div>
+
+          <div style="margin: 0.25rem 0;">
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.4rem;">Documentos Adjuntos</span>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem;">
               ${r.fulfillment_link ? window.getClientDocCardHtml(`Fulfillment - ${r.comercio}`, r.fulfillment_link) : ''}
               ${r.fulfillment_pdf_url ? window.getClientDocCardHtml(`PDF Fulfillment - ${r.comercio}`, r.fulfillment_pdf_url) : ''}
-              ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>' : ''}
+              ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">No hay registros adjuntos.</span>' : ''}
             </div>
-          </td>
-          <td style="vertical-align: middle; color: var(--color-text-muted);">
-            <div>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</div>
-            ${window.getDeadlineBadgeHtml(r.fecha_limite, r.pago_fulfillment)}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}">${r.desglose_fulfillment || '-'}</span>
-          </td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
-            ${window.formatCLP(r.total_fulfillment)}
-          </td>
-          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
-            ${window.formatCLP(r.abono_fulfillment)}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <span class="client-badge ${getClientStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment || '-'}</span>
-            ${r.pago_fulfillment === 'Recibido' && r.fecha_pago_recibido_fulfillment ? `
-              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                Recibido: ${new Date(r.fecha_pago_recibido_fulfillment + 'T00:00:00').toLocaleDateString()}
-              </div>
-            ` : ''}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <span class="client-badge ${getClientStatusClass(r.factura_fulfillment)}">${r.factura_fulfillment || '-'}</span>
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            ${r.factura_fulfillment_pdf_url ? `
-              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Fulfillment #${r.num_factura || ''} - ${r.comercio}" data-url="${r.factura_fulfillment_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
-                <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> #${r.num_factura || ''}
-              </button>
-            ` : `
-              <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">${r.num_factura || '-'}</span>
-            `}
-          </td>
-          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
-            ${window.formatCLP(recordTotal)}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
-              ${actionBtn}
-              ${window.getClientObservationBtnHtml(r, 'fulfillment')}
-            </div>
-          </td>
-        </tr>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: auto; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+            ${actionBtnFulf}
+            ${window.getClientObservationBtnHtml(r, 'fulfillment') ? `<div style="text-align: center;">${window.getClientObservationBtnHtml(r, 'fulfillment')}</div>` : ''}
+          </div>
+        </div>
       `;
 
-      // Fila para tab Envíame
-      tableRowsEnv += `
-        <tr class="billing-record-row-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
-          <td style="font-weight: 600; color: var(--color-text-main); vertical-align: middle;">
-            ${r.comercio}
-          </td>
-          <td style="vertical-align: middle;">
-            <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
+      // Envíame action button
+      let actionBtnEnv = '';
+      if (pendingEnviame > 0) {
+        actionBtnEnv = `
+          <button class="action-btn-modern" style="width: 100%; justify-content: center; padding: 0.5rem 1rem;" onclick="abrirModalInformarPago('${periodId}', '${r.id}', '${r.comercio.replace(/'/g, "\\'")}', 0, ${pendingEnviame})">
+            <i class="ri-upload-cloud-2-line"></i> Informar Pago
+          </button>
+        `;
+      } else {
+        actionBtnEnv = `
+          <span style="display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 700; color: var(--color-success); font-size: 0.8rem; background: rgba(16, 185, 129, 0.1); padding: 0.4rem 1rem; border-radius: 50px; width: 100%;">
+            <i class="ri-checkbox-circle-fill" style="font-size: 1rem;"></i> Pagado
+          </span>
+        `;
+      }
+
+      // Envíame Factura element
+      let facturaEnvHtml = '';
+      if (r.factura_enviame_pdf_url) {
+        facturaEnvHtml = `
+          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+            <span class="client-badge ${getClientStatusClass(r.factura_enviame)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.factura_enviame || '-'}</span>
+            <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Envíame #${r.num_factura_enviame || ''} - ${r.comercio}" data-url="${r.factura_enviame_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; font-weight: 600; height: auto; margin-top: 0.1rem;">
+              <i class="ri-file-pdf-line"></i> #${r.num_factura_enviame || ''}
+            </button>
+          </div>
+        `;
+      } else {
+        facturaEnvHtml = `
+          <div style="display: flex; align-items: center; gap: 0.35rem;">
+            <span class="client-badge ${getClientStatusClass(r.factura_enviame)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.factura_enviame || '-'}</span>
+            ${r.num_factura_enviame ? `<span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">#${r.num_factura_enviame}</span>` : ''}
+          </div>
+        `;
+      }
+
+      // Envíame Card
+      envCardsHtml += `
+        <div class="service-billing-card service-billing-card-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; margin-bottom: 0.25rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">${r.comercio}</h4>
+            <span class="client-badge ${getClientStatusClass(r.pago_enviame)}" style="font-size: 0.65rem; padding: 0.2rem 0.5rem; min-width: auto;">${r.pago_enviame || '-'}</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.8rem; margin: 0.25rem 0;">
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Monto Despacho</span>
+              <strong style="color: var(--color-text-main); font-size: 0.85rem;">${window.formatCLP(r.enviame)}</strong>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Abono Recibido</span>
+              <strong style="color: var(--color-success); font-size: 0.85rem;">${window.formatCLP(r.abono_enviame)}</strong>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Fecha Límite</span>
+              <div style="color: var(--color-text-main); font-weight: 500;">
+                ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
+                <div style="margin-top: 0.15rem; transform: scale(0.95); transform-origin: left center;">
+                  ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
+                </div>
+              </div>
+            </div>
+            <div>
+              <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.15rem;">Factura Envíame</span>
+              ${facturaEnvHtml}
+            </div>
+          </div>
+
+          <div style="margin: 0.25rem 0;">
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.7rem; text-transform: uppercase; font-weight: 600; margin-bottom: 0.4rem;">Documentos Adjuntos</span>
+            <div style="display: flex; flex-direction: column; gap: 0.25rem;">
               ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => {
                 return window.getClientDocCardHtml(pdf.name, pdf.url, idx + 1);
-              }).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>'}
+              }).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">No hay registros adjuntos.</span>'}
             </div>
-          </td>
-          <td style="vertical-align: middle; color: var(--color-text-muted);">
-            <div>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</div>
-            ${window.getDeadlineBadgeHtml(r.fecha_limite_enviame, r.pago_enviame)}
-          </td>
-          <td style="vertical-align: middle; text-align: right; font-weight: 500;">
-            ${window.formatCLP(r.enviame)}
-          </td>
-          <td style="vertical-align: middle; text-align: right; color: var(--color-success); font-weight: 500;">
-            ${window.formatCLP(r.abono_enviame)}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <span class="client-badge ${getClientStatusClass(r.pago_enviame)}">${r.pago_enviame || '-'}</span>
-            ${r.pago_enviame === 'Recibido' && r.fecha_pago_recibido_enviame ? `
-              <div style="font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.15rem;">
-                Recibido: ${new Date(r.fecha_pago_recibido_enviame + 'T00:00:00').toLocaleDateString()}
-              </div>
-            ` : ''}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <span class="client-badge ${getClientStatusClass(r.factura_enviame)}">${r.factura_enviame || '-'}</span>
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            ${r.factura_enviame_pdf_url ? `
-              <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="Factura Envíame #${r.num_factura_enviame || ''} - ${r.comercio}" data-url="${r.factura_enviame_pdf_url}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 600; border-color: var(--color-danger); color: var(--color-danger); background: rgba(239, 68, 68, 0.05); margin: 0 auto; height: auto;">
-                <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> #${r.num_factura_enviame || ''}
-              </button>
-            ` : `
-              <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.8rem;">${r.num_factura_enviame || '-'}</span>
-            `}
-          </td>
-          <td style="font-weight: 700; color: var(--color-text-main); vertical-align: middle; text-align: right;">
-            ${window.formatCLP(recordTotal)}
-          </td>
-          <td style="vertical-align: middle; text-align: center;">
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 0.35rem;">
-              ${actionBtn}
-              ${window.getClientObservationBtnHtml(r, 'enviame')}
-            </div>
-          </td>
-        </tr>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-top: auto; border-top: 1px solid var(--color-border); padding-top: 0.75rem;">
+            ${actionBtnEnv}
+            ${window.getClientObservationBtnHtml(r, 'enviame') ? `<div style="text-align: center;">${window.getClientObservationBtnHtml(r, 'enviame')}</div>` : ''}
+          </div>
+        </div>
       `;
     });
     
@@ -18518,33 +18562,17 @@ window.loadClientBillingData = async function(periodId) {
       });
       btn.classList.add('active');
       
-      const tabFulf = document.getElementById('billing-tab-fulf');
-      const tabEnv = document.getElementById('billing-tab-env');
+      const tabServicios = document.getElementById('billing-tab-servicios');
       const tabExtra = document.getElementById('billing-tab-extra');
-      const filtersFulf = document.getElementById('filters-fulf');
-      const filtersEnv = document.getElementById('filters-env');
       const filtersExtra = document.getElementById('filters-extra');
 
-      if (tabName === 'fulf') {
-        if (tabFulf) tabFulf.style.display = 'block';
-        if (tabEnv) tabEnv.style.display = 'none';
+      if (tabName === 'servicios') {
+        if (tabServicios) tabServicios.style.display = 'grid';
         if (tabExtra) tabExtra.style.display = 'none';
-        if (filtersFulf) filtersFulf.style.display = 'flex';
-        if (filtersEnv) filtersEnv.style.display = 'none';
-        if (filtersExtra) filtersExtra.style.display = 'none';
-      } else if (tabName === 'env') {
-        if (tabFulf) tabFulf.style.display = 'none';
-        if (tabEnv) tabEnv.style.display = 'block';
-        if (tabExtra) tabExtra.style.display = 'none';
-        if (filtersFulf) filtersFulf.style.display = 'none';
-        if (filtersEnv) filtersEnv.style.display = 'flex';
         if (filtersExtra) filtersExtra.style.display = 'none';
       } else {
-        if (tabFulf) tabFulf.style.display = 'none';
-        if (tabEnv) tabEnv.style.display = 'none';
+        if (tabServicios) tabServicios.style.display = 'none';
         if (tabExtra) tabExtra.style.display = 'block';
-        if (filtersFulf) filtersFulf.style.display = 'none';
-        if (filtersEnv) filtersEnv.style.display = 'none';
         if (filtersExtra) filtersExtra.style.display = 'flex';
         window.loadClientExtraCharges(periodId);
       }
@@ -18552,127 +18580,88 @@ window.loadClientBillingData = async function(periodId) {
 
     tableContainer.innerHTML = `
       <!-- Pestañas -->
-      <div class="billing-tabs-container">
-        <button class="billing-tab-btn active" onclick="switchBillingTabClient('fulf', this)">Fulfillment</button>
-        <button class="billing-tab-btn" onclick="switchBillingTabClient('env', this)">Envíame</button>
+      <div class="billing-tabs-container" style="margin-bottom: 1.25rem;">
+        <button class="billing-tab-btn active" onclick="switchBillingTabClient('servicios', this)">Servicios</button>
         <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">Saldos Adicionales</button>
       </div>
 
-      <!-- Filtros Fulf -->
-      <div id="filters-fulf" class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros Fulfillment:</span>
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago:</label>
-          <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientFulf()">
-            <option value="">Todos</option>
-            <option value="Por solicitar">Por solicitar</option>
-            <option value="Recibido">Recibido</option>
-            <option value="En espera">En espera</option>
-            <option value="Atrasado">Atrasado</option>
-            <option value="abono">Abono</option>
-            <option value="aprobado">Aprobado</option>
-            <option value="incobrable">Incobrable</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
+      <!-- Tab Servicios (Grid 2 columnas) -->
+      <div id="billing-tab-servicios" class="services-container-grid">
+        <!-- Columna Fulfillment (Fulfillment 360) -->
+        <div class="services-column">
+          <h3 class="services-column-title"><i class="ri-box-3-line"></i> Fulfillment 360</h3>
+          
+          <!-- Filtros Fulf -->
+          <div id="filters-fulf" class="billing-filters-bar" style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); flex-wrap: wrap; margin-bottom: 0.5rem; box-sizing: border-box;">
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtrar:</span>
+            <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientFulf()">
+              <option value="">Todos los Pagos</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+            <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientFulf()">
+              <option value="">Todas las Facturas</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+
+          <div class="services-cards-list">
+            ${fulfCardsHtml || '<div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No hay registros de Fulfillment.</div>'}
+          </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura:</label>
-          <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientFulf()">
-            <option value="">Todos</option>
-            <option value="Esperando">Esperando</option>
-            <option value="No se factura">No se factura</option>
-            <option value="Emitida">Emitida</option>
-            <option value="Facturar">Facturar</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
+
+        <!-- Columna Envíame (Envíame Despachos) -->
+        <div class="services-column">
+          <h3 class="services-column-title"><i class="ri-truck-line"></i> Envíame Despachos</h3>
+          
+          <!-- Filtros Env -->
+          <div id="filters-env" class="billing-filters-bar" style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem 0.75rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); flex-wrap: wrap; margin-bottom: 0.5rem; box-sizing: border-box;">
+            <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtrar:</span>
+            <select class="form-input filter-pago-env" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientEnv()">
+              <option value="">Todos los Pagos</option>
+              <option value="Por solicitar">Por solicitar</option>
+              <option value="Recibido">Recibido</option>
+              <option value="En espera">En espera</option>
+              <option value="Atrasado">Atrasado</option>
+              <option value="abono">Abono</option>
+              <option value="aprobado">Aprobado</option>
+              <option value="incobrable">Incobrable</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+            <select class="form-input filter-fact-env" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientEnv()">
+              <option value="">Todas las Facturas</option>
+              <option value="Esperando">Esperando</option>
+              <option value="No se factura">No se factura</option>
+              <option value="Emitida">Emitida</option>
+              <option value="Facturar">Facturar</option>
+              <option value="Sin movimientos">Sin movimientos</option>
+            </select>
+          </div>
+
+          <div class="services-cards-list">
+            ${envCardsHtml || '<div style="text-align: center; padding: 2rem; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No hay registros de Envíame.</div>'}
+          </div>
         </div>
       </div>
 
-      <!-- Filtros Env -->
-      <div id="filters-env" class="billing-filters-bar" style="display: none; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtros Envíame:</span>
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Pago:</label>
-          <select class="form-input filter-pago-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientEnv()">
-            <option value="">Todos</option>
-            <option value="Por solicitar">Por solicitar</option>
-            <option value="Recibido">Recibido</option>
-            <option value="En espera">En espera</option>
-            <option value="Atrasado">Atrasado</option>
-            <option value="abono">Abono</option>
-            <option value="aprobado">Aprobado</option>
-            <option value="incobrable">Incobrable</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
-        </div>
-        <div style="display: flex; align-items: center; gap: 0.35rem;">
-          <label style="font-size: 0.75rem; color: var(--color-text-muted);">Factura:</label>
-          <select class="form-input filter-fact-env" style="padding: 0.15rem 0.5rem; font-size: 0.75rem; margin: 0; width: auto;" onchange="filterBillingRowsClientEnv()">
-            <option value="">Todos</option>
-            <option value="Esperando">Esperando</option>
-            <option value="No se factura">No se factura</option>
-            <option value="Emitida">Emitida</option>
-            <option value="Facturar">Facturar</option>
-            <option value="Sin movimientos">Sin movimientos</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Filtros Extra -->
-      <div id="filters-extra" class="billing-filters-bar" style="display: none; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
-        <span style="font-size: 0.8rem; color: var(--color-text-muted);">Historial de cobros extraordinarios que hayan sido registrados por administración.</span>
-      </div>
-
-      <!-- Tabla Fulfillment -->
-      <div id="billing-tab-fulf" class="table-responsive">
-        <table class="data-table" style="min-width: 900px; font-size: 0.8rem; border-collapse: collapse;">
-          <thead>
-            <tr>
-              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Registros</th>
-              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Desglose</th>
-              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Fulf</th>
-              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Fulf</th>
-              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Pago Fulf</th>
-              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Factura Fulf</th>
-              <th style="min-width: 60px; border-bottom: 1px solid var(--color-border);">N°Fact</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
-              <th style="min-width: 110px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsFulf}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Tabla Envíame -->
-      <div id="billing-tab-env" class="table-responsive" style="display: none;">
-        <table class="data-table" style="min-width: 900px; font-size: 0.8rem; border-collapse: collapse;">
-          <thead>
-            <tr>
-              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Registros</th>
-              <th style="min-width: 80px; border-bottom: 1px solid var(--color-border);">Límite</th>
-              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Env</th>
-              <th style="min-width: 80px; text-align: right; border-bottom: 1px solid var(--color-border);">Abono Env</th>
-              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Pago Env</th>
-              <th style="min-width: 90px; border-bottom: 1px solid var(--color-border);">Factura Env</th>
-              <th style="min-width: 60px; border-bottom: 1px solid var(--color-border);">N°Fact Env</th>
-              <th style="min-width: 95px; text-align: right; border-bottom: 1px solid var(--color-border);">Total Mes (F+E)</th>
-              <th style="min-width: 110px; text-align: center; border-bottom: 1px solid var(--color-border);">Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsEnv}
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Tabla Saldos Adicionales -->
+      <!-- Tab Saldos Adicionales (Original intacta) -->
       <div id="billing-tab-extra" class="table-responsive" style="display: none;">
+        <!-- Filtros Extra -->
+        <div id="filters-extra" class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap; margin-bottom: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Historial de cobros extraordinarios que hayan sido registrados por administración.</span>
+        </div>
+
         <table class="data-table" style="min-width: 800px; font-size: 0.85rem; border-collapse: collapse;">
           <thead>
             <tr>
@@ -18813,7 +18802,7 @@ window.filterBillingRowsClientFulf = function() {
   const filterPagoFulf = document.querySelector('.filter-pago-fulf').value;
   const filterFactFulf = document.querySelector('.filter-fact-fulf').value;
   
-  const rows = document.querySelectorAll('.billing-record-row-fulf');
+  const rows = document.querySelectorAll('.service-billing-card-fulf');
   rows.forEach(row => {
     const pagoFulf = row.getAttribute('data-pago-fulf') || '';
     const factFulf = row.getAttribute('data-fact-fulf') || '';
@@ -18833,7 +18822,7 @@ window.filterBillingRowsClientEnv = function() {
   const filterPagoEnv = document.querySelector('.filter-pago-env').value;
   const filterFactEnv = document.querySelector('.filter-fact-env').value;
   
-  const rows = document.querySelectorAll('.billing-record-row-env');
+  const rows = document.querySelectorAll('.service-billing-card-env');
   rows.forEach(row => {
     const pagoEnv = row.getAttribute('data-pago-env') || '';
     const factEnv = row.getAttribute('data-fact-env') || '';
@@ -19338,6 +19327,68 @@ function injectClientBillingStyles() {
     [data-theme="dark"] .client-doc-card-link:hover {
       border-color: #60a5fa !important;
       background: rgba(96, 165, 250, 0.08) !important;
+    }
+
+    /* Grid layout for Servicios tab */
+    .services-container-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-top: 1rem;
+    }
+    @media (max-width: 992px) {
+      .services-container-grid {
+        grid-template-columns: 1fr;
+        gap: 1.25rem;
+      }
+    }
+    
+    .services-column {
+      background: rgba(30, 41, 59, 0.15);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: 500px;
+      box-sizing: border-box;
+    }
+    [data-theme="light"] .services-column {
+      background: rgba(248, 250, 252, 0.8);
+    }
+    
+    .services-column-title {
+      margin: 0 0 0.25rem 0;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--color-primary);
+    }
+    .services-column:nth-child(2) .services-column-title {
+      border-bottom-color: #9c27b0;
+    }
+    
+    .service-billing-card {
+      background: var(--color-surface) !important;
+      border: 1px solid var(--color-border) !important;
+      border-radius: 12px !important;
+      padding: 1.25rem !important;
+      margin-bottom: 1rem !important;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.05) !important;
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      box-sizing: border-box;
+    }
+    .service-billing-card:hover {
+      transform: translateY(-2px) !important;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.1) !important;
     }
   `;
   document.head.appendChild(style);
