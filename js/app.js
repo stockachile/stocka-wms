@@ -18153,17 +18153,17 @@ window.getPremiumPaymentStatusBadgeHtml = function(statusText) {
 window.getFulfillmentSplitDocsHtml = function(r) {
   const col1Html = r.fulfillment_link
     ? window.getClientDocCardHtml(`Excel Desglose - ${r.comercio}`, r.fulfillment_link)
-    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem;"></i> Sin Excel adjunto</div>`;
+    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem; color: #107c41;"></i> Sin Excel adjunto</div>`;
 
   const col2Html = r.fulfillment_pdf_url
     ? window.getClientDocCardHtml(`PDF Fulfillment - ${r.comercio}`, r.fulfillment_pdf_url)
-    : `<div class="doc-empty-card"><i class="ri-file-pdf-line" style="font-size: 1rem;"></i> Sin PDF adjunto</div>`;
+    : `<div class="doc-empty-card"><i class="ri-file-pdf-line" style="font-size: 1rem; color: #ef4444;"></i> Sin PDF adjunto</div>`;
 
   return `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
       <div>
         <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-file-excel-line" style="color: var(--color-primary);"></i> Excel Desglose
+          <i class="ri-file-excel-line" style="color: #107c41;"></i> Excel Desglose
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col1Html}
@@ -18171,7 +18171,7 @@ window.getFulfillmentSplitDocsHtml = function(r) {
       </div>
       <div>
         <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Documento PDF
+          <i class="ri-file-pdf-line" style="color: #ef4444;"></i> Documento PDF
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col2Html}
@@ -18206,17 +18206,17 @@ window.getEnviameSplitDocsHtml = function(r) {
 
   const col1Html = reports.length > 0 
     ? reports.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
-    : `<div class="doc-empty-card"><i class="ri-line-chart-line" style="font-size: 1rem;"></i> Sin Reportes adjuntos</div>`;
+    : `<div class="doc-empty-card"><i class="ri-line-chart-line" style="font-size: 1rem; color: #9c27b0;"></i> Sin Reportes adjuntos</div>`;
 
   const col2Html = excels.length > 0 
     ? excels.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
-    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem;"></i> Sin Excel adjunto</div>`;
+    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem; color: #107c41;"></i> Sin Excel adjunto</div>`;
 
   return `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
       <div>
         <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Reportes / Informativos
+          <i class="ri-line-chart-line" style="color: #9c27b0;"></i> Reportes / Informativos
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col1Html}
@@ -18224,7 +18224,7 @@ window.getEnviameSplitDocsHtml = function(r) {
       </div>
       <div>
         <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
-          <i class="ri-file-excel-line" style="color: var(--color-primary);"></i> Archivos Excel
+          <i class="ri-file-excel-line" style="color: #107c41;"></i> Archivos Excel
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col2Html}
@@ -18241,27 +18241,27 @@ window.getClientDocCardHtml = function(name, url, idx = 1) {
   
   let typeClass = 'client-doc-card-pdf';
   let icon = 'ri-file-pdf-fill';
-  let iconColor = 'var(--color-primary)';
-  let iconBg = 'rgba(37, 99, 235, 0.08)';
+  let iconColor = '#ef4444';
+  let iconBg = 'rgba(239, 68, 68, 0.1)';
   let typeLabel = 'Documento PDF';
   
   if (isExcel) {
     typeClass = 'client-doc-card-excel';
     icon = 'ri-file-excel-2-fill';
-    iconColor = 'var(--color-primary)';
-    iconBg = 'rgba(37, 99, 235, 0.08)';
+    iconColor = '#107c41';
+    iconBg = 'rgba(16, 124, 65, 0.1)';
     typeLabel = 'Detalle Excel';
   } else if (isReport) {
     typeClass = 'client-doc-card-report';
     icon = 'ri-line-chart-fill';
-    iconColor = 'var(--color-primary)';
-    iconBg = 'rgba(37, 99, 235, 0.08)';
+    iconColor = '#9c27b0';
+    iconBg = 'rgba(156, 39, 176, 0.1)';
     typeLabel = 'Reporte Interactivo';
   } else if (!isPdf && url && (url.startsWith('http') || url.includes('/'))) {
     typeClass = 'client-doc-card-link';
     icon = 'ri-external-link-fill';
-    iconColor = 'var(--color-primary)';
-    iconBg = 'rgba(37, 99, 235, 0.08)';
+    iconColor = '#3b82f6';
+    iconBg = 'rgba(59, 130, 246, 0.1)';
     typeLabel = 'Registro Web';
   }
 
