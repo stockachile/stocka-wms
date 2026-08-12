@@ -18162,16 +18162,16 @@ window.getFulfillmentSplitDocsHtml = function(r) {
   return `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
       <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">
-          <i class="ri-file-excel-line" style="color: #107c41;"></i> Excel Desglose
+        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+          <i class="ri-file-excel-line" style="color: var(--color-primary);"></i> Excel Desglose
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col1Html}
         </div>
       </div>
       <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">
-          <i class="ri-file-pdf-line" style="color: #ef4444;"></i> Documento PDF
+        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+          <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Documento PDF
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col2Html}
@@ -18184,44 +18184,47 @@ window.getFulfillmentSplitDocsHtml = function(r) {
 window.getEnviameSplitDocsHtml = function(r) {
   const allDocs = Array.isArray(r.enviame_pdfs) ? r.enviame_pdfs : [];
   
-  const excelOrReports = [];
-  const pdfs = [];
+  const reports = [];
+  const excels = [];
 
   if (r.enviame_link) {
-    excelOrReports.push({ name: `Reporte Interactivo - ${r.comercio}`, url: r.enviame_link });
+    reports.push({ name: `Reporte Interactivo - ${r.comercio}`, url: r.enviame_link });
   }
 
   allDocs.forEach((doc, idx) => {
     const url = doc.url || '';
     const name = doc.name || `Adjunto ${idx + 1}`;
-    if (url.toLowerCase().includes('.pdf')) {
-      pdfs.push({ name, url });
+    const nameLower = name.toLowerCase();
+    const urlLower = url.toLowerCase();
+
+    if (nameLower.includes('excel') || urlLower.includes('.xlsx') || urlLower.includes('.xls') || urlLower.includes('.csv')) {
+      excels.push({ name, url });
     } else {
-      excelOrReports.push({ name, url });
+      reports.push({ name, url });
     }
   });
 
-  const col1Html = excelOrReports.length > 0 
-    ? excelOrReports.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
-    : `<div class="doc-empty-card"><i class="ri-line-chart-line" style="font-size: 1rem;"></i> Sin Reporte Interactivo / Excel</div>`;
+  const col1Html = reports.length > 0 
+    ? reports.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
+    : `<div class="doc-empty-card"><i class="ri-line-chart-line" style="font-size: 1rem;"></i> Sin Reportes adjuntos</div>`;
 
-  const col2Html = pdfs.length > 0 
-    ? pdfs.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
-    : `<div class="doc-empty-card"><i class="ri-file-pdf-line" style="font-size: 1rem;"></i> Sin PDF adjunto</div>`;
+  const col2Html = excels.length > 0 
+    ? excels.map((d, i) => window.getClientDocCardHtml(d.name, d.url, i + 1)).join('')
+    : `<div class="doc-empty-card"><i class="ri-file-excel-line" style="font-size: 1rem;"></i> Sin Excel adjunto</div>`;
 
   return `
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
       <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">
-          <i class="ri-line-chart-line" style="color: #9c27b0;"></i> Excel / Reporte Interactivo
+        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+          <i class="ri-line-chart-line" style="color: var(--color-primary);"></i> Reportes / Informativos
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col1Html}
         </div>
       </div>
       <div>
-        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: block; margin-bottom: 0.35rem;">
-          <i class="ri-file-pdf-line" style="color: #ef4444;"></i> Documento PDF
+        <span style="font-size: 0.65rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.35rem;">
+          <i class="ri-file-excel-line" style="color: var(--color-primary);"></i> Archivos Excel
         </span>
         <div style="display: flex; flex-direction: column; gap: 0.35rem;">
           ${col2Html}
@@ -18232,32 +18235,35 @@ window.getEnviameSplitDocsHtml = function(r) {
 };
 
 window.getClientDocCardHtml = function(name, url, idx = 1) {
-  const isExcel = (name && name.toLowerCase().includes('excel')) || (url && url.toLowerCase().includes('.xlsx'));
+  const isExcel = (name && name.toLowerCase().includes('excel')) || (url && (url.toLowerCase().includes('.xlsx') || url.toLowerCase().includes('.xls') || url.toLowerCase().includes('.csv')));
   const isReport = (name && name.toLowerCase().includes('reporte')) || (url && url.toLowerCase().includes('.json'));
   const isPdf = url && url.toLowerCase().includes('.pdf');
   
   let typeClass = 'client-doc-card-pdf';
   let icon = 'ri-file-pdf-fill';
-  let iconColor = '#ef4444';
-  let iconBg = 'rgba(239, 68, 68, 0.1)';
+  let iconColor = 'var(--color-primary)';
+  let iconBg = 'rgba(37, 99, 235, 0.08)';
   let typeLabel = 'Documento PDF';
   
   if (isExcel) {
     typeClass = 'client-doc-card-excel';
-    icon = 'ri-file-excel-fill';
-    iconColor = '#107c41';
-    iconBg = 'rgba(16, 124, 65, 0.1)';
+    icon = 'ri-file-excel-2-fill';
+    iconColor = 'var(--color-primary)';
+    iconBg = 'rgba(37, 99, 235, 0.08)';
     typeLabel = 'Detalle Excel';
   } else if (isReport) {
     typeClass = 'client-doc-card-report';
     icon = 'ri-line-chart-fill';
-    iconColor = '#9c27b0';
-    iconBg = 'rgba(156, 39, 176, 0.1)';
+    iconColor = 'var(--color-primary)';
+    iconBg = 'rgba(37, 99, 235, 0.08)';
     typeLabel = 'Reporte Interactivo';
   } else if (!isPdf && url && (url.startsWith('http') || url.includes('/'))) {
     typeClass = 'client-doc-card-link';
     icon = 'ri-external-link-fill';
-    iconColor = '#3b82f6';
+    iconColor = 'var(--color-primary)';
+    iconBg = 'rgba(37, 99, 235, 0.08)';
+    typeLabel = 'Registro Web';
+  }
     iconBg = 'rgba(59, 130, 246, 0.1)';
     typeLabel = 'Registro Web';
   }
@@ -18649,7 +18655,7 @@ window.loadClientBillingData = async function(periodId) {
               <!-- Inner Card: Estado de Desglose -->
               <div class="service-inner-card" style="display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0.75rem;">
                 <span class="inner-card-label" style="margin: 0; display: flex; align-items: center; gap: 0.35rem;">
-                  <i class="ri-pie-chart-2-line" style="color: #06b6d4;"></i> Estado de Desglose
+                  <i class="ri-pie-chart-2-line" style="color: var(--color-primary);"></i> Estado de Desglose
                 </span>
                 <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.desglose_fulfillment || '-'}</span>
               </div>
@@ -18672,15 +18678,15 @@ window.loadClientBillingData = async function(periodId) {
             <!-- ENVÍAME CARD -->
             <div class="service-billing-card service-billing-card-env" data-pago-env="${r.pago_enviame || ''}" data-fact-env="${r.factura_enviame || ''}">
               <!-- Header -->
-              <div class="service-card-header" style="border-bottom: 2px solid #9c27b0; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
-                <div class="service-name"><i class="ri-truck-fill" style="color: #9c27b0;"></i> Envíame Despachos</div>
+              <div class="service-card-header" style="border-bottom: 2px solid var(--color-primary); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                <div class="service-name"><i class="ri-truck-fill" style="color: var(--color-primary);"></i> Envíame Despachos</div>
                 ${window.getPremiumPaymentStatusBadgeHtml(r.pago_enviame)}
               </div>
 
               <!-- Tarjetas de Montos Separadas -->
               <div class="amount-cards-grid">
                 <div class="amount-card">
-                  <span class="amount-card-label"><i class="ri-truck-line" style="color: #9c27b0;"></i> Monto Despacho</span>
+                  <span class="amount-card-label"><i class="ri-truck-line" style="color: var(--color-primary);"></i> Monto Despacho</span>
                   <div class="amount-card-value">${window.formatCLP(r.enviame)}</div>
                 </div>
                 <div class="amount-card">
@@ -18693,12 +18699,12 @@ window.loadClientBillingData = async function(periodId) {
               <div class="service-inner-card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; align-items: start;">
                 <div>
                   <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
-                    <i class="ri-wallet-3-line" style="color: #9c27b0;"></i> Estado de Pago
+                    <i class="ri-wallet-3-line" style="color: var(--color-primary);"></i> Estado de Pago
                   </span>
                   ${window.getPremiumPaymentStatusBadgeHtml(r.pago_enviame)}
                   <div style="margin-top: 0.6rem;">
                     <span class="inner-card-label" style="font-size: 0.65rem; margin-bottom: 0.15rem; display: flex; align-items: center; gap: 0.25rem;">
-                      <i class="ri-calendar-event-line" style="color: #eab308;"></i> Límite de Pago
+                      <i class="ri-calendar-event-line" style="color: var(--color-primary);"></i> Límite de Pago
                     </span>
                     <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.78rem; display: block;">
                       ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
@@ -18710,7 +18716,7 @@ window.loadClientBillingData = async function(periodId) {
                 </div>
                 <div style="border-left: 1px solid var(--color-border); padding-left: 0.75rem; height: 100%;">
                   <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
-                    <i class="ri-receipt-line" style="color: #9c27b0;"></i> Factura Envíame
+                    <i class="ri-receipt-line" style="color: var(--color-primary);"></i> Factura Envíame
                   </span>
                   <div style="margin-top: 0.25rem;">
                     ${facturaEnvHtml}
@@ -18722,11 +18728,12 @@ window.loadClientBillingData = async function(periodId) {
               <div class="service-inner-card" style="visibility: hidden; padding: 0.55rem 0.75rem; border: none; background: transparent;">
                 <span class="inner-card-label">&nbsp;</span>
               </div>
+              </div>
 
               <!-- Inner Card: Documentos (2 Columnas por tipo) -->
               <div class="service-inner-card" style="display: block;">
                 <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
-                  <i class="ri-attachment-2" style="color: #9c27b0;"></i> Documentos Adjuntos
+                  <i class="ri-attachment-2" style="color: var(--color-primary);"></i> Documentos Adjuntos
                 </span>
                 ${window.getEnviameSplitDocsHtml(r)}
               </div>
