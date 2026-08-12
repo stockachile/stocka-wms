@@ -18419,11 +18419,20 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
-              ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="${pdf.name || `PDF Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
-                  <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> ${pdf.name || `PDF ${idx + 1}`}
-                </button>
-              `).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>'}
+              ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => {
+                const isExcel = (pdf.name && pdf.name.toLowerCase().includes('excel')) || (pdf.url && pdf.url.toLowerCase().includes('.xlsx'));
+                const isReport = (pdf.name && pdf.name.toLowerCase().includes('reporte')) || (pdf.url && pdf.url.toLowerCase().includes('.json'));
+                const icon = isExcel ? 'ri-file-excel-line' : (isReport ? 'ri-line-chart-line' : 'ri-file-pdf-line');
+                const btnClass = isExcel ? 'btn-billing-excel' : (isReport ? 'btn-billing-report' : 'btn-billing-pdf');
+                const extraStyle = isExcel 
+                  ? 'border-color: #107c41; color: #107c41; background: rgba(16, 124, 65, 0.05);' 
+                  : (isReport ? 'border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.05);' : '');
+                return `
+                  <button class="btn btn-outline btn-sm btn-client-preview-doc ${btnClass}" data-name="${pdf.name || `Documento Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto; ${extraStyle}">
+                    <i class="${icon}" style="font-size: 0.8rem;"></i> ${pdf.name || `Documento ${idx + 1}`}
+                  </button>
+                `;
+              }).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>'}
             </div>
           </td>
           <td style="vertical-align: middle; color: var(--color-text-muted);">
@@ -19929,6 +19938,23 @@ function filterAndRenderDocsClient() {
 }
 
 window.openDocPreviewModal = async function(name, url) {
+  if (url && (url.toLowerCase().includes('.json') || name.toLowerCase().includes('reporte'))) {
+    if (typeof window.openInteractiveEnviameReportModal === 'function') {
+      window.openInteractiveEnviameReportModal(url, name);
+      return;
+    }
+  }
+  if (url && (url.toLowerCase().includes('.xlsx') || name.toLowerCase().includes('excel'))) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+
   const modal = document.getElementById('modal-doc-preview');
   const title = document.getElementById('doc-preview-title');
   const body = document.getElementById('doc-preview-body');

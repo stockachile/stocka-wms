@@ -150,7 +150,8 @@ serve(async (req) => {
       emailType = 'billing_summary', 
       commerceName: payloadCommerceName,
       comercio,
-      onboardingDetails
+      onboardingDetails,
+      isCorrection = false
     } = payload;
 
     // Cargar registro de facturación si se suministra, o buscar el más reciente si solo tenemos commerceName
@@ -261,20 +262,17 @@ serve(async (req) => {
       
       let enviameDocsHtml = '';
       if (record.enviame_pdfs && Array.isArray(record.enviame_pdfs) && record.enviame_pdfs.length > 0) {
-        const resolvedPdfs = await Promise.all(record.enviame_pdfs.map(async (pdf: any) => {
-          const url = typeof pdf === 'string' ? pdf : (pdf.url || '');
-          const name = typeof pdf === 'string' ? '' : (pdf.name || '');
-          if (!url) return null;
-          const signedUrl = await getSignedUrlIfPrivate(url, supabaseClient);
-          return { name, url: signedUrl };
-        }));
-        
-        enviameDocsHtml = resolvedPdfs.filter(Boolean).map((pdf: any, idx: number) => {
-          const label = pdf.name || `Descargar PDF Envíame ${idx + 1}`;
-          return `<a href="${pdf.url}" target="_blank" style="display: inline-block; background-color: #ffffff !important; color: #2563eb !important; border: 1px solid #2563eb; padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; text-decoration: none; margin: 5px;">${label}</a>`;
-        }).join(' ');
+        const portalUrl = "https://wms.stocka.cl";
+        enviameDocsHtml = `
+          <div style="font-size: 13px; color: #475569; line-height: 1.5; margin-bottom: 12px; text-align: center;">
+            El desglose detallado de envíos y el reporte interactivo están disponibles para su revisión y descarga en el panel de facturación.
+          </div>
+          <a href="${portalUrl}" target="_blank" style="display: inline-block; background-color: #5B00E4 !important; color: #ffffff !important; padding: 10px 22px; font-size: 13px; font-weight: 700; border-radius: 6px; text-decoration: none; box-shadow: 0 2px 5px rgba(91, 0, 228, 0.2);">
+            Ingresar al WMS
+          </a>
+        `;
       } else {
-        enviameDocsHtml = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose PDF no adjuntado aún</span>';
+        enviameDocsHtml = '<span style="color:#ef4444; font-size:12px; font-weight:600;">Desglose no adjuntado aún</span>';
       }
 
       servicesHtml += `
@@ -1158,16 +1156,28 @@ serve(async (req) => {
     }
     else {
       if (resolvedServiceType === 'fulfillment') {
-        emailSubject = `[Facturación] Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
+        emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment ${periodName} - ${commerceName}`;
       } else if (resolvedServiceType === 'enviame') {
-        emailSubject = `[Facturación] Desglose de despachos Enviame ${periodName} - ${commerceName}`;
+        emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de despachos Enviame ${periodName} - ${commerceName}`;
       } else {
-        emailSubject = `[Facturación] Desglose de servicios Fulfillment y Envíame ${periodName} - ${commerceName}`;
+        emailSubject = `${isCorrection ? '[CORRECCION]' : '[Facturación]'} Desglose de servicios Fulfillment y Envíame ${periodName} - ${commerceName}`;
       }
       headerGradient = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
       emailTitle = 'Resumen de Facturación';
 
+      let correctionNoticeHtml = '';
+      if (isCorrection) {
+        correctionNoticeHtml = `
+          <div style="background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #991b1b; font-size: 14px; line-height: 1.5;">
+            <div style="font-weight: 700; margin-bottom: 5px; font-size: 15px;">⚠️ CORRECCIÓN DE FACTURACIÓN</div>
+            Estimado cliente, le informamos que el correo enviado anteriormente para este periodo contenía errores en los montos indicados debido a un proceso de migración de nuestros sistemas. 
+            El presente correo contiene el desglose y la información <strong>correcta y definitiva</strong>. Lamentamos profundamente las molestias e inconvenientes que esto pueda ocasionarle.
+          </div>
+        `;
+      }
+
       emailBodyHtml = `
+        ${correctionNoticeHtml}
         <div style="font-size: 16px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Le informamos que el desglose de servicios de facturación correspondiente a <strong>${periodName}</strong> ya se encuentra disponible para su revisión.
         </div>

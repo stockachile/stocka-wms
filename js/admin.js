@@ -939,6 +939,13 @@ async function init() {
           } else if (view === 'billing_admin') {
             viewTitle.textContent = 'Facturación';
             renderBillingAdmin();
+          } else if (view === 'enviame_analytics') {
+            viewTitle.textContent = 'Analítica Envíame';
+            if (window.renderEnviameAnalytics) {
+              window.renderEnviameAnalytics();
+            } else {
+              document.getElementById('app-content').innerHTML = '<div class="alert alert-danger">Error: Módulo de analíticas de Envíame no cargado.</div>';
+            }
           } else if (view === 'volumen_diario_admin') {
             viewTitle.textContent = 'Registro de Volumen Diario';
             renderVolumenDiarioAdmin();
@@ -16902,6 +16909,9 @@ function renderPeriodGroupSection(title, list, groupStatus) {
             <button class="btn btn-outline btn-sm" onclick="exportPeriodToExcel('${p.id}', '${p.name}')" title="Exportar a Excel" style="padding: 0.25rem 0.5rem;">
               <i class="ri-file-excel-line" style="color: #16a34a; font-size: 1.1rem;"></i>
             </button>
+            <button class="btn btn-outline btn-sm" onclick="window.openEnviameImporterModal('${p.id}', '${p.name.replace(/'/g, "\\'")}')" title="Importar Planilla Envíame" style="padding: 0.25rem 0.5rem; border-color: #9c27b0; color: #9c27b0;">
+              <i class="ri-file-upload-line" style="font-size: 1.1rem;"></i>
+            </button>
             <button class="btn btn-outline btn-sm" onclick="openEditPeriodModal('${p.id}', '${p.name.replace(/'/g, "\\'")}', ${p.period_month || 'null'}, ${p.period_year || 'null'}, '${p.status}')" title="Editar Periodo" style="padding: 0.25rem 0.5rem;">
               <i class="ri-edit-line" style="font-size: 1.1rem;"></i>
             </button>
@@ -21763,6 +21773,23 @@ document.addEventListener('submit', async (e) => {
 // =========================================================================
 
 window.openDocPreviewModal = async function(name, url) {
+  if (url && (url.toLowerCase().includes('.json') || name.toLowerCase().includes('reporte'))) {
+    if (typeof window.openInteractiveEnviameReportModal === 'function') {
+      window.openInteractiveEnviameReportModal(url, name);
+      return;
+    }
+  }
+  if (url && (url.toLowerCase().includes('.xlsx') || name.toLowerCase().includes('excel'))) {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+
   const modal = document.getElementById('modal-doc-preview');
   const title = document.getElementById('doc-preview-title');
   const body = document.getElementById('doc-preview-body');
@@ -21931,23 +21958,31 @@ window.openBillingAttachmentsModal = async function(recordId, commerceName, peri
     
     let envPdfsHtml = '';
     if (enviamePdfs && Array.isArray(enviamePdfs) && enviamePdfs.length > 0) {
-      envPdfsHtml = enviamePdfs.map((pdf, idx) => `
-        <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
-            <div style="width: 28px; height: 28px; background: rgba(239, 68, 68, 0.1); color: #ef4444; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-              <i class="ri-file-pdf-line" style="font-size: 1.1rem;"></i>
+      envPdfsHtml = enviamePdfs.map((pdf, idx) => {
+        const isExcel = (pdf.name && pdf.name.toLowerCase().includes('excel')) || (pdf.url && pdf.url.toLowerCase().includes('.xlsx'));
+        const isReport = (pdf.name && pdf.name.toLowerCase().includes('reporte')) || (pdf.url && pdf.url.toLowerCase().includes('.json'));
+        const icon = isExcel ? 'ri-file-excel-line' : (isReport ? 'ri-line-chart-line' : 'ri-file-pdf-line');
+        const color = isExcel ? '#107c41' : (isReport ? '#9c27b0' : '#ef4444');
+        const bg = isExcel ? 'rgba(16, 124, 65, 0.1)' : (isReport ? 'rgba(156, 39, 176, 0.1)' : 'rgba(239, 68, 68, 0.1)');
+        const label = isExcel ? 'Detalle Excel' : (isReport ? 'Reporte Interactivo' : 'Desglose PDF');
+        return `
+          <div class="env-pdf-item" style="display: flex; align-items: center; justify-content: space-between; background: var(--color-bg); padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 0.35rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+              <div style="width: 28px; height: 28px; background: ${bg}; color: ${color}; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <i class="${icon}" style="font-size: 1.1rem;"></i>
+              </div>
+              <div style="text-align: left; overflow: hidden; max-width: 140px;">
+                <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${pdf.name}">${pdf.name || `Archivo ${idx + 1}`}</div>
+                <div style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500;">${label}</div>
+              </div>
             </div>
-            <div style="text-align: left; overflow: hidden; max-width: 140px;">
-              <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${pdf.name}">${pdf.name || `PDF ${idx + 1}`}</div>
-              <div style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500;">Desglose Env</div>
+            <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
             </div>
           </div>
-          <div style="display: flex; gap: 0.2rem; flex-shrink: 0;">
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('${pdf.name}', '${pdf.url}')" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; height: auto;"><i class="ri-eye-line"></i> Ver</button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.deleteBillingAttachmentArray('${recordId}', ${idx}, this)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-color: var(--color-danger); color: var(--color-danger); height: auto; margin-left: 0.25rem;"><i class="ri-delete-bin-line"></i> Quitar</button>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     } else {
       envPdfsHtml = '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0 0 0.5rem 0; font-style: italic;">No hay PDFs cargados en Envíame.</p>';
     }
@@ -23599,11 +23634,19 @@ async function renderMerchantsAdmin() {
     
     if (integrationsErr) console.warn("Error al cargar integraciones:", integrationsErr);
 
+    // 5.1 Cargar contactos de facturación
+    const { data: rawBillingContacts, error: billingContactsErr } = await supabase
+      .from('billing_contacts')
+      .select('*');
+    
+    if (billingContactsErr) console.warn("Error al cargar contactos de facturación:", billingContactsErr);
+
     const configMap = new Map((adicionalConfigs || []).map(c => [c.comercio, c]));
 
-    const comercios = (rawComercios || []).map(c => {
+    // Pass 1: Map all basic parameters for all comercios
+    const basicComercios = (rawComercios || []).map(c => {
       const extra = configMap.get(c.nombre) || {};
-      const alDia = billingMap.has(c.nombre) ? billingMap.get(c.nombre) : true; // Por defecto activo
+      const alDia = billingMap.has(c.nombre) ? billingMap.get(c.nombre) : true;
 
       // Usuarios asociados: filtramos perfiles de rol client donde el comercio incluya este nombre
       const associatedUsers = (profiles || []).filter(p => {
@@ -23625,8 +23668,8 @@ async function renderMerchantsAdmin() {
         inventario_seguimiento: extra.inventario_seguimiento || false,
         pedido_trae_sigla: extra.pedido_trae_sigla || false,
         inventario_inicio_pedidos: extra.inventario_inicio_pedidos || {},
-        rut: extra.rut || '',
-        razon_social: extra.razon_social || '',
+        rut: (extra.rut || '').trim(),
+        razon_social: (extra.razon_social || '').trim(),
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
@@ -23634,6 +23677,49 @@ async function renderMerchantsAdmin() {
         onboarding_checklist: extra.onboarding_checklist || {},
         associatedUsers,
         integrations: assocIntegrations
+      };
+    });
+
+    // Pass 2: Resolve billing contacts with conglomerate inheritance
+    const comercios = basicComercios.map(c => {
+      // Find all names (store names and razon_social) that belong to this conglomerate (same non-empty RUT)
+      const conglomerateNames = new Set();
+      conglomerateNames.add(c.nombre.toUpperCase());
+      if (c.razon_social) {
+        conglomerateNames.add(c.razon_social.toUpperCase());
+      }
+      
+      if (c.rut) {
+        basicComercios.forEach(other => {
+          if (other.rut && other.rut === c.rut) {
+            conglomerateNames.add(other.nombre.toUpperCase());
+            if (other.razon_social) {
+              conglomerateNames.add(other.razon_social.toUpperCase());
+            }
+          }
+        });
+      }
+
+      // Filter contacts that match any name in the conglomerateNames set
+      const assocContacts = (rawBillingContacts || []).filter(bc => {
+        if (!bc.comercio) return false;
+        const bcComerName = bc.comercio.trim().toUpperCase();
+        return conglomerateNames.has(bcComerName);
+      });
+
+      // Dedup contacts by ID
+      const seenIds = new Set();
+      const uniqueContacts = [];
+      assocContacts.forEach(bc => {
+        if (!seenIds.has(bc.id)) {
+          seenIds.add(bc.id);
+          uniqueContacts.push(bc);
+        }
+      });
+
+      return {
+        ...c,
+        billingContacts: uniqueContacts
       };
     });
 
@@ -23792,7 +23878,7 @@ async function renderMerchantsAdmin() {
 
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+        return `<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
       }
       
       return list.map(c => {
@@ -23807,6 +23893,10 @@ async function renderMerchantsAdmin() {
         const siglaBadge = c.pedido_trae_sigla
           ? `<span class="badge-status enabled" style="background: rgba(94, 23, 235, 0.1); color: var(--color-accent);"><i class="ri-key-line"></i> Sí</span>`
           : `<span class="badge-status disabled">No</span>`;
+
+        const strictBadge = c.picking_match_strict
+          ? `<span class="badge-status enabled" style="background: rgba(239, 68, 68, 0.1); color: var(--color-danger);"><i class="ri-lock-line"></i> Estricto</span>`
+          : `<span class="badge-status disabled">Normal</span>`;
 
         const companyInfo = (c.razon_social || c.rut || c.email_colaborador || c.enviame_id)
           ? `<div>
@@ -23831,6 +23921,12 @@ async function renderMerchantsAdmin() {
             <td>${billingBadge}</td>
             <td>${invBadge}</td>
             <td>${siglaBadge}</td>
+            <td>${strictBadge}</td>
+            <td>
+              <button id="btn-contacts-${c.nombre.replace(/[^a-zA-Z0-9]/g, '-')}" class="btn btn-outline btn-sm" onclick="window.showMerchantBillingContactsModal('${c.nombre.replace(/'/g, "\\'")}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                <i class="ri-contacts-book-line"></i> ${c.billingContacts.length} Contactos
+              </button>
+            </td>
             <td>
               <button class="btn btn-outline btn-sm" onclick="window.showMerchantUsersModal('${c.nombre}')" style="font-size: 0.8rem; padding: 0.35rem 0.65rem; border-color: var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
                 <i class="ri-team-line"></i> ${c.associatedUsers.length} Usuarios
@@ -23899,6 +23995,8 @@ async function renderMerchantsAdmin() {
                   <th>Estado Facturación</th>
                   <th>Seguimiento Inventario</th>
                   <th>Pedido trae Sigla</th>
+                  <th>Lectura Estricta</th>
+                  <th>Contactos Facturación</th>
                   <th>Usuarios Asociados</th>
                   <th>Integraciones</th>
                   <th>Acciones</th>
@@ -24760,6 +24858,268 @@ window.showMerchantIntegrationsModal = function(comercioName) {
     </div>
   `;
   document.body.appendChild(modal);
+};
+
+// Modal de Contactos de Facturación
+window.showMerchantBillingContactsModal = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  const modalId = 'modal-merchant-billing-contacts';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 700px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-contacts-book-line" style="color: var(--color-primary);"></i> Contactos de Facturación: ${comercioName}
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+      </div>
+      
+      <!-- Form to add new contact -->
+      <div style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; font-weight: 600; color: var(--color-text-main);">Agregar Nuevo Contacto</h4>
+        <form id="form-merchant-contact-add" onsubmit="window.addMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', event)" style="margin: 0; display: grid; grid-template-columns: 1fr 1.2fr 0.8fr auto; gap: 0.75rem; align-items: flex-end;">
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Nombre *</label>
+            <input type="text" id="m-contact-add-nombre" class="form-input" placeholder="Nombre completo" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);" required>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Email *</label>
+            <input type="email" id="m-contact-add-email" class="form-input" placeholder="correo@comercio.cl" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);" required>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; margin-bottom: 0.25rem; font-size: 0.75rem; font-weight: 600;">Rol</label>
+            <input type="text" id="m-contact-add-rol" class="form-input" placeholder="finanzas" value="finanzas" style="height: 34px; padding: 0 0.5rem; font-size: 0.8rem; width: 100%; border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
+          </div>
+          <div>
+            <button type="submit" class="btn btn-primary" style="height: 34px; padding: 0 1rem; font-size: 0.8rem; font-weight: 600; background: var(--color-primary); color: #000000; border: none; cursor: pointer; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 0.2rem;">
+              <i class="ri-add-line"></i> Agregar
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-body" id="merchant-contacts-list-body" style="padding: 0; overflow-y: auto; flex-grow: 1;">
+        <!-- List will be rendered here dynamically -->
+      </div>
+      
+      <div class="modal-footer" style="padding: 1rem; border-top: 1px solid var(--color-border);">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  window.renderMerchantBillingContactsList(comercioName);
+};
+
+window.renderMerchantBillingContactsList = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  const container = document.getElementById('merchant-contacts-list-body');
+  if (!commerce || !container) return;
+
+  const contacts = commerce.billingContacts || [];
+  
+  if (contacts.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-contacts-book-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.75rem; color: var(--color-border);"></i>
+        <strong>No hay contactos de facturación</strong>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem;">No se han registrado correos de cobranza para este comercio.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = contacts.map(c => {
+    const statusBadge = c.activo
+      ? `<span class="badge-status active" style="cursor: pointer;" onclick="window.toggleMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}', ${c.activo})"><i class="ri-checkbox-circle-line"></i> Activo</span>`
+      : `<span class="badge-status suspended" style="cursor: pointer;" onclick="window.toggleMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}', ${c.activo})"><i class="ri-close-circle-line"></i> Inactivo</span>`;
+
+    // Si el contacto pertenece originalmente a otro comercio del conglomerado
+    const originLabel = c.comercio.toUpperCase() !== comercioName.toUpperCase()
+      ? `<br><span style="font-size: 0.7rem; color: var(--color-text-muted); font-style: italic;"><i class="ri-git-branch-line" style="vertical-align: middle;"></i> Compartido de: ${c.comercio}</span>`
+      : '';
+
+    return `
+      <tr>
+        <td style="padding: 0.75rem 1rem;"><strong>${c.nombre}</strong>${originLabel}</td>
+        <td style="padding: 0.75rem 1rem;"><a href="mailto:${c.email}" style="color: var(--color-accent); text-decoration: none;">${c.email}</a></td>
+        <td style="padding: 0.75rem 1rem;"><span style="text-transform: capitalize;">${c.rol || 'finanzas'}</span></td>
+        <td style="padding: 0.75rem 1rem; text-align: center;">${statusBadge}</td>
+        <td style="padding: 0.75rem 1rem; text-align: center;">
+          <button class="btn btn-outline btn-sm" onclick="window.deleteMerchantBillingContact('${comercioName.replace(/'/g, "\\'")}', '${c.id}')" style="border-color: var(--color-danger); color: var(--color-danger); padding: 0.2rem 0.4rem;" title="Eliminar contacto">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="data-table" style="width: 100%; margin: 0; border: none; border-radius: 0;">
+      <thead>
+        <tr style="background: var(--color-bg);">
+          <th style="padding: 0.75rem 1rem; text-align: left;">Nombre</th>
+          <th style="padding: 0.75rem 1rem; text-align: left;">Email</th>
+          <th style="padding: 0.75rem 1rem; text-align: left;">Rol</th>
+          <th style="padding: 0.75rem 1rem; text-align: center; width: 100px;">Estado</th>
+          <th style="padding: 0.75rem 1rem; text-align: center; width: 80px;">Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+};
+
+window.addMerchantBillingContact = async function(comercioName, e) {
+  if (e) e.preventDefault();
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  const nombreInput = document.getElementById('m-contact-add-nombre');
+  const emailInput = document.getElementById('m-contact-add-email');
+  const rolInput = document.getElementById('m-contact-add-rol');
+  
+  const nombre = nombreInput.value.trim();
+  const email = emailInput.value.trim();
+  const rol = rolInput.value.trim() || 'finanzas';
+  
+  if (!nombre || !email) return;
+
+  const submitBtn = document.querySelector('#form-merchant-contact-add button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const { data, error } = await supabase
+      .from('billing_contacts')
+      .insert({ comercio: comercioName, nombre, email, rol, activo: true })
+      .select();
+
+    if (error) throw error;
+
+    const newContact = data[0];
+
+    // Find all merchants in the same conglomerate (including itself)
+    const targetMerchants = window.cachedAdminMerchants.filter(c => {
+      return c.nombre === commerce.nombre || (commerce.rut && c.rut && c.rut === commerce.rut);
+    });
+
+    targetMerchants.forEach(m => {
+      if (!m.billingContacts) m.billingContacts = [];
+      // Push if not already there (deduplicated by ID)
+      if (!m.billingContacts.some(bc => bc.id === newContact.id)) {
+        m.billingContacts.push(newContact);
+      }
+    });
+
+    // Clear inputs
+    nombreInput.value = '';
+    emailInput.value = '';
+    rolInput.value = 'finanzas';
+
+    // Rerender list
+    window.renderMerchantBillingContactsList(comercioName);
+    
+    // Refresh main table row for all stores in the conglomerate
+    targetMerchants.forEach(m => {
+      window.updateMerchantTableRow(m.nombre);
+    });
+
+  } catch (err) {
+    console.error("Error adding merchant contact:", err);
+    alert('No se pudo agregar el contacto: ' + err.message);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+};
+
+window.deleteMerchantBillingContact = async function(comercioName, contactId) {
+  if (!confirm("¿Está seguro de que desea eliminar este contacto de facturación?")) return;
+
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  try {
+    const { error } = await supabase
+      .from('billing_contacts')
+      .delete()
+      .eq('id', contactId);
+
+    if (error) throw error;
+
+    // Find all merchants in the same conglomerate (including itself)
+    const targetMerchants = window.cachedAdminMerchants.filter(c => {
+      return c.nombre === commerce.nombre || (commerce.rut && c.rut && c.rut === commerce.rut);
+    });
+
+    targetMerchants.forEach(m => {
+      m.billingContacts = (m.billingContacts || []).filter(bc => bc.id !== contactId);
+    });
+
+    // Rerender list
+    window.renderMerchantBillingContactsList(comercioName);
+
+    // Refresh main table row for all stores in the conglomerate
+    targetMerchants.forEach(m => {
+      window.updateMerchantTableRow(m.nombre);
+    });
+
+  } catch (err) {
+    console.error("Error deleting merchant contact:", err);
+    alert('No se pudo eliminar el contacto: ' + err.message);
+  }
+};
+
+window.toggleMerchantBillingContact = async function(comercioName, contactId, currentStatus) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+
+  try {
+    const newStatus = !currentStatus;
+    const { error } = await supabase
+      .from('billing_contacts')
+      .update({ activo: newStatus })
+      .eq('id', contactId);
+
+    if (error) throw error;
+
+    // Find all merchants in the same conglomerate (including itself)
+    const targetMerchants = window.cachedAdminMerchants.filter(c => {
+      return c.nombre === commerce.nombre || (commerce.rut && c.rut && c.rut === commerce.rut);
+    });
+
+    targetMerchants.forEach(m => {
+      const contact = (m.billingContacts || []).find(bc => bc.id === contactId);
+      if (contact) contact.activo = newStatus;
+    });
+
+    // Rerender list
+    window.renderMerchantBillingContactsList(comercioName);
+
+  } catch (err) {
+    console.error("Error toggling merchant contact:", err);
+    alert('No se pudo actualizar el estado: ' + err.message);
+  }
+};
+
+window.updateMerchantTableRow = function(comercioName) {
+  const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
+  if (!commerce) return;
+  
+  const idSafe = comercioName.replace(/[^a-zA-Z0-9]/g, '-');
+  const btn = document.getElementById(`btn-contacts-${idSafe}`);
+  if (btn) {
+    btn.innerHTML = `<i class="ri-contacts-book-line"></i> ${commerce.billingContacts.length} Contactos`;
+  }
 };
 
 // Modal de Creación de Comercio
@@ -28344,6 +28704,12 @@ window.openSendBillingEmailModal = async function(recordId, commerceName, period
             <option value="suspension_warning">Alerta de Corte de Servicio (Aviso de suspensión)</option>
             <option value="service_restored">Confirmación de Re-activación del Servicio</option>
           </select>
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; background: rgba(239, 68, 68, 0.05); border: 1px dashed rgba(239, 68, 68, 0.2); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);">
+            <input type="checkbox" id="email-is-correction" style="width: 16px; height: 16px; margin: 0; accent-color: #ef4444; cursor: pointer;">
+            <label for="email-is-correction" style="font-size: 0.8rem; font-weight: 600; cursor: pointer; color: #b91c1c; margin: 0; user-select: none;">
+               Marcar como CORRECCIÓN (Asunto con [CORRECCION] y fe de erratas)
+            </label>
+          </div>
         </div>
         
         <div class="form-group" style="margin-bottom: 1.25rem;">
