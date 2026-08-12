@@ -726,37 +726,58 @@ serve(async (req) => {
           CUENTA ACTIVA Y OPERATIVA
         </div>
         
-        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 25px;">
+        <div style="font-size: 13.5px; color: #475569; line-height: 1.6; margin-bottom: 20px;">
           Tu comercio ha sido configurado y activado en el WMS de Stocka. A partir de ahora puedes acceder a tu cuenta utilizando tu correo electrónico y la contraseña que definiste al registrarte.
         </div>
 
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          💡 <strong>¡Sigue tu Guía de Inicio interactiva!</strong><br>
+          Al iniciar sesión por primera vez, verás la <strong>Guía de Inicio</strong> interactiva directamente en la pantalla principal de tu dashboard. Esta guía te indicará tu progreso en tiempo real a través de los 5 pasos obligatorios para habilitar tus operaciones.
+        </div>
+        
         <div style="border-top: 1px solid #e2e8f0; padding-top: 20px; margin-bottom: 25px;">
           <h3 style="font-size: 14.5px; color: #0f172a; margin-top: 0; margin-bottom: 15px; font-weight: 700;">
-            👉 Pasos clave para comenzar a operar:
+            📋 Los 5 pasos de tu Guía de Inicio:
           </h3>
           
           <!-- Paso 1 -->
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
             <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
-              <span style="color: #3b82f6; font-weight: 800;">PASO 1:</span> Realizar Integraciones
+              <span style="color: #3b82f6; font-weight: 800;">1.</span> Conectar Integraciones
             </strong>
-            Vincula tus canales de venta (como Shopify, WooCommerce o Mercado Libre) en la sección de <strong>Integraciones</strong> de tu portal WMS para que podamos recibir e importar tus ventas de forma automática.
+            Vincula tus canales de venta (Shopify, WooCommerce, Mercado Libre) desde el módulo de <strong>Integraciones</strong> para recibir tus pedidos de forma automática.
           </div>
-
+ 
           <!-- Paso 2 -->
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
             <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
-              <span style="color: #f59e0b; font-weight: 800;">PASO 2:</span> Configuración de Catálogo (por Stocka)
+              <span style="color: #f59e0b; font-weight: 800;">2.</span> Carga de Catálogo Inicial
             </strong>
-            Una vez realizadas tus integraciones, nuestro equipo de operaciones se encargará de realizar la carga y configuración de tu catálogo inicial de productos. Te avisaremos automáticamente por correo electrónico cuando este proceso esté finalizado.
+            Una vez conectes tus integraciones, nuestro equipo de operaciones configurará tu catálogo base. ¡Este paso lo completamos nosotros y te notificaremos cuando esté listo!
           </div>
-
+ 
           <!-- Paso 3 -->
           <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
             <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
-              <span style="color: #10b981; font-weight: 800;">PASO 3:</span> Declarar tu primer Ingreso de Stock
+              <span style="color: #8b5cf6; font-weight: 800;">3.</span> Configuración de Envíos Courier (Enviame)
             </strong>
-            En cuanto confirmemos que tu catálogo está listo, podrás declarar la mercadería que enviarás a nuestra bodega ingresando al módulo de <strong>Ingresos de Stock</strong>. Esto es indispensable para realizar la recepción y auditoría de tu inventario sin demoras.
+            Integraremos tu cuenta con Enviame para automatizar el despacho Courier de tus pedidos. Nuestro equipo ingresará el ID en el sistema y se marcará como listo de manera automática.
+          </div>
+ 
+          <!-- Paso 4 -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
+              <span style="color: #14b8a6; font-weight: 800;">4.</span> Guía de SKU y Embalaje
+            </strong>
+            Lee y descarga la guía de etiquetado desde la tarjeta correspondiente. Es vital que cada producto cuente con su código de barras (EAN/SKU) legible antes de enviarlo.
+          </div>
+ 
+          <!-- Paso 5 -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px; margin-bottom: 12px; font-size: 13px; color: #475569; line-height: 1.6;">
+            <strong style="color: #0f172a; display: block; margin-bottom: 6px; font-size: 13.5px;">
+              <span style="color: #10b981; font-weight: 800;">5.</span> Declaración de tu Primer Ingreso
+            </strong>
+            Declara la mercadería que enviarás a nuestra bodega mediante una Declaración de Ingreso en el portal (se desbloquea al completarse el Paso 2).
           </div>
         </div>
 
