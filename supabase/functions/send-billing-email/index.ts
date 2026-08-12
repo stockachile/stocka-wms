@@ -1170,7 +1170,7 @@ serve(async (req) => {
         correctionNoticeHtml = `
           <div style="background-color: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #991b1b; font-size: 14px; line-height: 1.5;">
             <div style="font-weight: 700; margin-bottom: 5px; font-size: 15px;">⚠️ CORRECCIÓN DE FACTURACIÓN</div>
-            Estimado cliente, le informamos que el correo enviado anteriormente para este periodo contenía errores en los montos indicados debido a un proceso de migración de nuestros sistemas. 
+            Estimado equipo, le informamos que el correo enviado anteriormente para este periodo contenía errores en los montos indicados debido a un proceso de migración de nuestros sistemas. 
             El presente correo contiene el desglose y la información <strong>correcta y definitiva</strong>. Lamentamos profundamente las molestias e inconvenientes que esto pueda ocasionarle.
           </div>
         `;
