@@ -18264,9 +18264,6 @@ window.getClientDocCardHtml = function(name, url, idx = 1) {
     iconBg = 'rgba(37, 99, 235, 0.08)';
     typeLabel = 'Registro Web';
   }
-    iconBg = 'rgba(59, 130, 246, 0.1)';
-    typeLabel = 'Registro Web';
-  }
 
   const displayName = name || `${typeLabel} ${idx}`;
 
