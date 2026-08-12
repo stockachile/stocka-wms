@@ -18364,24 +18364,12 @@ window.renderBillingClient = async function() {
     <!-- Tabla de Facturación -->
     <div class="card">
       <div class="card-header">
-        <h3 id="client-table-header-title">Detalle de Cobros</h3>
+        <h3 id="client-table-header-title" style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Detalle de Cobros</h3>
       </div>
       <div class="card-body table-responsive" id="client-billing-table-body" style="padding: 0;">
         <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
           Cargando datos...
-        </div>
-      </div>
-    </div>
-
-    <!-- Historial de Avisos de Pago -->
-    <div class="card" style="margin-top: 1.5rem;">
-      <div class="card-header">
-        <h3>Historial de Avisos de Pago</h3>
-      </div>
-      <div class="card-body table-responsive" id="client-reports-table-body" style="padding: 0;">
-        <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
-          Cargando avisos de pago...
         </div>
       </div>
     </div>
@@ -18632,10 +18620,14 @@ window.loadClientBillingData = async function(periodId) {
               <!-- Inner Card: Fechas y Facturación -->
               <div class="service-inner-card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; align-items: start;">
                 <div>
-                  <span class="inner-card-label" style="display: block; margin-bottom: 0.35rem;">Estado de Pago</span>
+                  <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <i class="ri-wallet-3-line" style="color: var(--color-primary);"></i> Estado de Pago
+                  </span>
                   ${window.getPremiumPaymentStatusBadgeHtml(r.pago_fulfillment)}
                   <div style="margin-top: 0.6rem;">
-                    <span class="inner-card-label" style="font-size: 0.65rem; margin-bottom: 0.15rem; display: block;">Límite de Pago</span>
+                    <span class="inner-card-label" style="font-size: 0.65rem; margin-bottom: 0.15rem; display: flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-calendar-event-line" style="color: #eab308;"></i> Límite de Pago
+                    </span>
                     <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.78rem; display: block;">
                       ${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}
                     </span>
@@ -18645,7 +18637,9 @@ window.loadClientBillingData = async function(periodId) {
                   </div>
                 </div>
                 <div style="border-left: 1px solid var(--color-border); padding-left: 0.75rem; height: 100%;">
-                  <span class="inner-card-label" style="display: block; margin-bottom: 0.35rem;">Factura Fulfillment</span>
+                  <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <i class="ri-receipt-line" style="color: var(--color-primary);"></i> Factura Fulfillment
+                  </span>
                   <div style="margin-top: 0.25rem;">
                     ${facturaFulfHtml}
                   </div>
@@ -18654,13 +18648,17 @@ window.loadClientBillingData = async function(periodId) {
 
               <!-- Inner Card: Estado de Desglose -->
               <div class="service-inner-card" style="display: flex; justify-content: space-between; align-items: center; padding: 0.55rem 0.75rem;">
-                <span class="inner-card-label" style="margin: 0;">Estado de Desglose</span>
+                <span class="inner-card-label" style="margin: 0; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-pie-chart-2-line" style="color: #06b6d4;"></i> Estado de Desglose
+                </span>
                 <span class="client-badge ${getClientStatusClass(r.desglose_fulfillment)}" style="font-size: 0.65rem; padding: 0.15rem 0.4rem; min-width: auto;">${r.desglose_fulfillment || '-'}</span>
               </div>
 
               <!-- Inner Card: Documentos (2 Columnas por tipo) -->
               <div class="service-inner-card" style="display: block;">
-                <span class="inner-card-label" style="display: block; margin-bottom: 0.5rem;">Documentos Adjuntos</span>
+                <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                  <i class="ri-attachment-2" style="color: var(--color-primary);"></i> Documentos Adjuntos
+                </span>
                 ${window.getFulfillmentSplitDocsHtml(r)}
               </div>
 
@@ -18694,10 +18692,14 @@ window.loadClientBillingData = async function(periodId) {
               <!-- Inner Card: Fechas y Facturación -->
               <div class="service-inner-card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; align-items: start;">
                 <div>
-                  <span class="inner-card-label" style="display: block; margin-bottom: 0.35rem;">Estado de Pago</span>
+                  <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <i class="ri-wallet-3-line" style="color: #9c27b0;"></i> Estado de Pago
+                  </span>
                   ${window.getPremiumPaymentStatusBadgeHtml(r.pago_enviame)}
                   <div style="margin-top: 0.6rem;">
-                    <span class="inner-card-label" style="font-size: 0.65rem; margin-bottom: 0.15rem; display: block;">Límite de Pago</span>
+                    <span class="inner-card-label" style="font-size: 0.65rem; margin-bottom: 0.15rem; display: flex; align-items: center; gap: 0.25rem;">
+                      <i class="ri-calendar-event-line" style="color: #eab308;"></i> Límite de Pago
+                    </span>
                     <span style="font-weight: 600; color: var(--color-text-main); font-size: 0.78rem; display: block;">
                       ${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}
                     </span>
@@ -18707,7 +18709,9 @@ window.loadClientBillingData = async function(periodId) {
                   </div>
                 </div>
                 <div style="border-left: 1px solid var(--color-border); padding-left: 0.75rem; height: 100%;">
-                  <span class="inner-card-label" style="display: block; margin-bottom: 0.35rem;">Factura Envíame</span>
+                  <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem;">
+                    <i class="ri-receipt-line" style="color: #9c27b0;"></i> Factura Envíame
+                  </span>
                   <div style="margin-top: 0.25rem;">
                     ${facturaEnvHtml}
                   </div>
@@ -18721,7 +18725,9 @@ window.loadClientBillingData = async function(periodId) {
 
               <!-- Inner Card: Documentos (2 Columnas por tipo) -->
               <div class="service-inner-card" style="display: block;">
-                <span class="inner-card-label" style="display: block; margin-bottom: 0.5rem;">Documentos Adjuntos</span>
+                <span class="inner-card-label" style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.5rem;">
+                  <i class="ri-attachment-2" style="color: #9c27b0;"></i> Documentos Adjuntos
+                </span>
                 ${window.getEnviameSplitDocsHtml(r)}
               </div>
 
@@ -18747,25 +18753,40 @@ window.loadClientBillingData = async function(periodId) {
       
       const tabServicios = document.getElementById('billing-tab-servicios');
       const tabExtra = document.getElementById('billing-tab-extra');
+      const tabReports = document.getElementById('billing-tab-reports');
       const filtersExtra = document.getElementById('filters-extra');
 
       if (tabName === 'servicios') {
         if (tabServicios) tabServicios.style.display = 'block';
         if (tabExtra) tabExtra.style.display = 'none';
+        if (tabReports) tabReports.style.display = 'none';
         if (filtersExtra) filtersExtra.style.display = 'none';
-      } else {
+      } else if (tabName === 'extra') {
         if (tabServicios) tabServicios.style.display = 'none';
         if (tabExtra) tabExtra.style.display = 'block';
+        if (tabReports) tabReports.style.display = 'none';
         if (filtersExtra) filtersExtra.style.display = 'flex';
         window.loadClientExtraCharges(periodId);
+      } else if (tabName === 'reports') {
+        if (tabServicios) tabServicios.style.display = 'none';
+        if (tabExtra) tabExtra.style.display = 'none';
+        if (tabReports) tabReports.style.display = 'block';
+        if (filtersExtra) filtersExtra.style.display = 'none';
       }
     };
 
     tableContainer.innerHTML = `
       <!-- Pestañas -->
-      <div class="billing-tabs-container" style="margin-bottom: 1.5rem;">
-        <button class="billing-tab-btn active" onclick="switchBillingTabClient('servicios', this)">Servicios</button>
-        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">Saldos Adicionales</button>
+      <div class="billing-tabs-container" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button class="billing-tab-btn active" onclick="switchBillingTabClient('servicios', this)">
+          <i class="ri-dashboard-3-line"></i> Servicios
+        </button>
+        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">
+          <i class="ri-add-circle-line"></i> Saldos Adicionales
+        </button>
+        <button class="billing-tab-btn" onclick="switchBillingTabClient('reports', this)">
+          <i class="ri-history-line"></i> Historial de Avisos de Pago
+        </button>
       </div>
 
       <!-- Tab Servicios (Lista de Comercios y sus Grid de servicios) -->
@@ -18828,24 +18849,24 @@ window.loadClientBillingData = async function(periodId) {
         </div>
       </div>
 
-      <!-- Tab Saldos Adicionales (Original intacta) -->
+      <!-- Tab Saldos Adicionales -->
       <div id="billing-tab-extra" class="table-responsive" style="display: none;">
         <!-- Filtros Extra -->
         <div id="filters-extra" class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap; margin-bottom: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line" style="color: var(--color-primary);"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
           <span style="font-size: 0.8rem; color: var(--color-text-muted);">Historial de cobros extraordinarios que hayan sido registrados por administración.</span>
         </div>
 
         <table class="data-table" style="min-width: 800px; font-size: 0.85rem; border-collapse: collapse;">
           <thead>
             <tr>
-              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);">Fecha</th>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Comercio</th>
-              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);">Tipo</th>
-              <th style="min-width: 250px; border-bottom: 1px solid var(--color-border);">Detalle</th>
-              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);">Monto</th>
-              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);">Estado</th>
-              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);">Periodo Asignado</th>
+              <th style="min-width: 110px; border-bottom: 1px solid var(--color-border);"><i class="ri-calendar-line"></i> Fecha</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);"><i class="ri-store-line"></i> Comercio</th>
+              <th style="min-width: 100px; border-bottom: 1px solid var(--color-border);"><i class="ri-price-tag-3-line"></i> Tipo</th>
+              <th style="min-width: 250px; border-bottom: 1px solid var(--color-border);"><i class="ri-file-text-line"></i> Detalle</th>
+              <th style="min-width: 120px; text-align: right; border-bottom: 1px solid var(--color-border);"><i class="ri-money-dollar-circle-line"></i> Monto</th>
+              <th style="min-width: 120px; border-bottom: 1px solid var(--color-border);"><i class="ri-shield-check-line"></i> Estado</th>
+              <th style="min-width: 150px; border-bottom: 1px solid var(--color-border);"><i class="ri-calendar-event-line"></i> Periodo Asignado</th>
             </tr>
           </thead>
           <tbody id="client-extra-charges-table-body">
@@ -18857,6 +18878,21 @@ window.loadClientBillingData = async function(periodId) {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <!-- Tab Historial de Avisos de Pago -->
+      <div id="billing-tab-reports" style="display: none;">
+        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap; margin-bottom: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Avisos de Pago:</span>
+          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Registro de comprobantes e informativos de pago enviados para este período.</span>
+        </div>
+
+        <div id="client-reports-table-body" class="table-responsive" style="padding: 0;">
+          <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+            <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
+            Cargando avisos de pago...
+          </div>
+        </div>
       </div>
     `;
     
@@ -18949,12 +18985,12 @@ async function loadClientPaymentReports(periodId, resolvedCompanyList) {
       <table class="data-table" style="font-size: 0.85rem;">
         <thead>
           <tr>
-            <th>Comercio</th>
-            <th>Fecha Pago</th>
-            <th>Monto</th>
-            <th>Servicio</th>
-            <th>Comprobante</th>
-            <th>Estado</th>
+            <th><i class="ri-store-line" style="color: var(--color-primary);"></i> Comercio</th>
+            <th><i class="ri-calendar-line" style="color: var(--color-primary);"></i> Fecha Pago</th>
+            <th><i class="ri-money-dollar-circle-line" style="color: var(--color-primary);"></i> Monto</th>
+            <th><i class="ri-service-line" style="color: var(--color-primary);"></i> Servicio</th>
+            <th><i class="ri-file-text-line" style="color: var(--color-primary);"></i> Comprobante</th>
+            <th><i class="ri-shield-check-line" style="color: var(--color-primary);"></i> Estado</th>
           </tr>
         </thead>
         <tbody>
