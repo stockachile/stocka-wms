@@ -18725,7 +18725,6 @@ window.loadClientBillingData = async function(periodId) {
               <div class="service-inner-card" style="visibility: hidden; padding: 0.55rem 0.75rem; border: none; background: transparent;">
                 <span class="inner-card-label">&nbsp;</span>
               </div>
-              </div>
 
               <!-- Inner Card: Documentos (2 Columnas por tipo) -->
               <div class="service-inner-card" style="display: block;">
