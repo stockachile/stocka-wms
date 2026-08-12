@@ -172,6 +172,7 @@ export async function renderOptirouteSupport() {
   let allWaypoints = []; // Lista unificada de paradas de clientes
   let currentFilteredWaypoints = []; // Lista actualmente filtrada / visible en pantalla
   let currentIntegration = null;
+  let optirouteAutoPollInterval = null;
 
   // Manejo de tabs
   const tabApi = document.getElementById('tab-api');
@@ -519,7 +520,8 @@ export async function renderOptirouteSupport() {
           btnFetchRoute.disabled = false;
           btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
           if (btnForceLive) btnForceLive.disabled = false;
-          return;
+          
+          console.log(`Caché inicial cargada. Sincronizando estados en tiempo real desde la API de Optiroute...`);
         }
       }
 
@@ -735,6 +737,19 @@ export async function renderOptirouteSupport() {
       // Guardar en la caché local atómicamente
       if (detailedOrdersList.length > 0) {
         await saveRouteToCache(detailedOrdersList, currentIntegration?.comercio);
+      }
+
+      // Iniciar polling automático cada 2 minutos en segundo plano si no está activo
+      if (!optirouteAutoPollInterval) {
+        console.log(`⏱️ Iniciando monitoreo automático en tiempo real (cada 2 min) para plan ${routePlanId}`);
+        optirouteAutoPollInterval = setInterval(() => {
+          const selectElem = document.getElementById('select-route-plans');
+          const currentPlan = selectElem ? selectElem.value : routePlanId;
+          if (currentPlan) {
+            console.log(`🔄 Auto-actualizando entregas en vivo para plan ${currentPlan}...`);
+            loadRouteData(currentPlan, true);
+          }
+        }, 120000);
       }
 
     } catch (err) {
