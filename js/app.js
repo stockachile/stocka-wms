@@ -18085,6 +18085,56 @@ window.deleteDeclaration = async function(id) {
 // MÓDULO DE FACTURACIÓN Y COBRANZA - CLIENTE
 // =========================================================================
 
+window.getClientDocCardHtml = function(name, url, idx = 1) {
+  const isExcel = (name && name.toLowerCase().includes('excel')) || (url && url.toLowerCase().includes('.xlsx'));
+  const isReport = (name && name.toLowerCase().includes('reporte')) || (url && url.toLowerCase().includes('.json'));
+  const isPdf = url && url.toLowerCase().includes('.pdf');
+  
+  let typeClass = 'client-doc-card-pdf';
+  let icon = 'ri-file-pdf-fill';
+  let iconColor = '#ef4444';
+  let iconBg = 'rgba(239, 68, 68, 0.1)';
+  let typeLabel = 'Documento PDF';
+  
+  if (isExcel) {
+    typeClass = 'client-doc-card-excel';
+    icon = 'ri-file-excel-fill';
+    iconColor = '#107c41';
+    iconBg = 'rgba(16, 124, 65, 0.1)';
+    typeLabel = 'Detalle Excel';
+  } else if (isReport) {
+    typeClass = 'client-doc-card-report';
+    icon = 'ri-line-chart-fill';
+    iconColor = '#9c27b0';
+    iconBg = 'rgba(156, 39, 176, 0.1)';
+    typeLabel = 'Reporte Interactivo';
+  } else if (!isPdf && url && (url.startsWith('http') || url.includes('/'))) {
+    typeClass = 'client-doc-card-link';
+    icon = 'ri-external-link-fill';
+    iconColor = '#3b82f6';
+    iconBg = 'rgba(59, 130, 246, 0.1)';
+    typeLabel = 'Registro Web';
+  }
+
+  const displayName = name || `${typeLabel} ${idx}`;
+
+  return `
+    <div class="client-doc-card ${typeClass} btn-client-preview-doc" data-name="${displayName.replace(/"/g, '&quot;')}" data-url="${url}">
+      <div class="client-doc-icon-wrapper" style="width: 28px; height: 28px; border-radius: 6px; background: ${iconBg}; color: ${iconColor}; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 1.1rem;">
+        <i class="${icon}"></i>
+      </div>
+      <div style="overflow: hidden; display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.25; text-align: left;">
+        <span style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 175px;" title="${displayName.replace(/"/g, '&quot;')}">
+          ${displayName}
+        </span>
+        <span style="font-size: 0.6rem; font-weight: 500; color: var(--color-text-muted);">
+          ${typeLabel}
+        </span>
+      </div>
+    </div>
+  `;
+};
+
 window.renderBillingClient = async function() {
   const appContent = document.getElementById('app-content');
   if (!appContent) return;
@@ -18353,16 +18403,8 @@ window.loadClientBillingData = async function(periodId) {
           </td>
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
-              ${r.fulfillment_link ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-link" data-name="Enlace Fulfillment - ${r.comercio}" data-url="${r.fulfillment_link}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
-                  <i class="ri-link" style="font-size: 0.8rem;"></i> Revisar registro de facturación
-                </button>
-              ` : ''}
-              ${r.fulfillment_pdf_url ? `
-                <button class="btn btn-outline btn-sm btn-client-preview-doc btn-billing-pdf" data-name="PDF Fulfillment - ${r.comercio}" data-url="${r.fulfillment_pdf_url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto;">
-                  <i class="ri-file-pdf-line" style="font-size: 0.8rem;"></i> Ver Desglose
-                </button>
-              ` : ''}
+              ${r.fulfillment_link ? window.getClientDocCardHtml(`Fulfillment - ${r.comercio}`, r.fulfillment_link) : ''}
+              ${r.fulfillment_pdf_url ? window.getClientDocCardHtml(`PDF Fulfillment - ${r.comercio}`, r.fulfillment_pdf_url) : ''}
               ${(!r.fulfillment_link && !r.fulfillment_pdf_url) ? '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>' : ''}
             </div>
           </td>
@@ -18420,18 +18462,7 @@ window.loadClientBillingData = async function(periodId) {
           <td style="vertical-align: middle;">
             <div style="display: flex; flex-direction: column; gap: 0.35rem; align-items: stretch; max-width: 220px;">
               ${(r.enviame_pdfs && Array.isArray(r.enviame_pdfs) && r.enviame_pdfs.length > 0) ? r.enviame_pdfs.map((pdf, idx) => {
-                const isExcel = (pdf.name && pdf.name.toLowerCase().includes('excel')) || (pdf.url && pdf.url.toLowerCase().includes('.xlsx'));
-                const isReport = (pdf.name && pdf.name.toLowerCase().includes('reporte')) || (pdf.url && pdf.url.toLowerCase().includes('.json'));
-                const icon = isExcel ? 'ri-file-excel-line' : (isReport ? 'ri-line-chart-line' : 'ri-file-pdf-line');
-                const btnClass = isExcel ? 'btn-billing-excel' : (isReport ? 'btn-billing-report' : 'btn-billing-pdf');
-                const extraStyle = isExcel 
-                  ? 'border-color: #107c41; color: #107c41; background: rgba(16, 124, 65, 0.05);' 
-                  : (isReport ? 'border-color: #9c27b0; color: #9c27b0; background: rgba(156, 39, 176, 0.05);' : '');
-                return `
-                  <button class="btn btn-outline btn-sm btn-client-preview-doc ${btnClass}" data-name="${pdf.name || `Documento Envíame ${idx + 1}`}" data-url="${pdf.url}" style="padding: 0.2rem 0.4rem; font-size: 0.72rem; width: 100%; text-align: left; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; height: auto; ${extraStyle}">
-                    <i class="${icon}" style="font-size: 0.8rem;"></i> ${pdf.name || `Documento ${idx + 1}`}
-                  </button>
-                `;
+                return window.getClientDocCardHtml(pdf.name, pdf.url, idx + 1);
               }).join('') : '<span style="color: var(--color-text-muted); font-size: 0.75rem;">-</span>'}
             </div>
           </td>
@@ -19213,6 +19244,100 @@ function injectClientBillingStyles() {
     [data-theme="dark"] .btn-billing-pdf:hover {
       background: rgba(251, 113, 133, 0.15) !important;
       border-color: rgba(251, 113, 133, 0.4) !important;
+    }
+
+    /* Billing Document Cards */
+    .client-doc-card {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--color-border);
+      background: var(--color-surface);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      text-align: left;
+      user-select: none;
+      min-height: 48px;
+      box-sizing: border-box;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+    .client-doc-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+    
+    .client-doc-card-excel {
+      border-color: rgba(16, 124, 65, 0.18) !important;
+      background: rgba(16, 124, 65, 0.02) !important;
+    }
+    .client-doc-card-excel:hover {
+      border-color: #107c41 !important;
+      background: rgba(16, 124, 65, 0.06) !important;
+    }
+    
+    .client-doc-card-report {
+      border-color: rgba(156, 39, 176, 0.18) !important;
+      background: rgba(156, 39, 176, 0.02) !important;
+    }
+    .client-doc-card-report:hover {
+      border-color: #9c27b0 !important;
+      background: rgba(156, 39, 176, 0.06) !important;
+    }
+    
+    .client-doc-card-pdf {
+      border-color: rgba(239, 68, 68, 0.18) !important;
+      background: rgba(239, 68, 68, 0.02) !important;
+    }
+    .client-doc-card-pdf:hover {
+      border-color: #ef4444 !important;
+      background: rgba(239, 68, 68, 0.06) !important;
+    }
+    
+    .client-doc-card-link {
+      border-color: rgba(59, 130, 246, 0.18) !important;
+      background: rgba(59, 130, 246, 0.02) !important;
+    }
+    .client-doc-card-link:hover {
+      border-color: #3b82f6 !important;
+      background: rgba(59, 130, 246, 0.06) !important;
+    }
+
+    [data-theme="dark"] .client-doc-card {
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    }
+    [data-theme="dark"] .client-doc-card-excel {
+      border-color: rgba(52, 211, 153, 0.2) !important;
+      background: rgba(52, 211, 153, 0.04) !important;
+    }
+    [data-theme="dark"] .client-doc-card-excel:hover {
+      border-color: #34d399 !important;
+      background: rgba(52, 211, 153, 0.08) !important;
+    }
+    [data-theme="dark"] .client-doc-card-report {
+      border-color: rgba(192, 132, 252, 0.2) !important;
+      background: rgba(192, 132, 252, 0.04) !important;
+    }
+    [data-theme="dark"] .client-doc-card-report:hover {
+      border-color: #c084fc !important;
+      background: rgba(192, 132, 252, 0.08) !important;
+    }
+    [data-theme="dark"] .client-doc-card-pdf {
+      border-color: rgba(248, 113, 113, 0.2) !important;
+      background: rgba(248, 113, 113, 0.04) !important;
+    }
+    [data-theme="dark"] .client-doc-card-pdf:hover {
+      border-color: #f87171 !important;
+      background: rgba(248, 113, 113, 0.08) !important;
+    }
+    [data-theme="dark"] .client-doc-card-link {
+      border-color: rgba(96, 165, 250, 0.2) !important;
+      background: rgba(96, 165, 250, 0.04) !important;
+    }
+    [data-theme="dark"] .client-doc-card-link:hover {
+      border-color: #60a5fa !important;
+      background: rgba(96, 165, 250, 0.08) !important;
     }
   `;
   document.head.appendChild(style);
