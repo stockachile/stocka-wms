@@ -661,24 +661,40 @@ async function syncMerchantOrders(integration) {
 
         const customerPhone = receiverAddress?.receiver_phone || 'No especificado';
 
-        // Determinar comercio a asignar basado en el catálogo de productos
+        // Determinar comercio a asignar basado en el catálogo de productos a nivel de holding (RUT compartido)
+        let holdingComercios = [integration.comercio];
+        try {
+          const { data: currentCommConfig } = await supabase
+            .from('comercios_adicional_config')
+            .select('rut')
+            .eq('comercio', integration.comercio)
+            .maybeSingle();
+            
+          if (currentCommConfig && currentCommConfig.rut) {
+            const cleanRut = currentCommConfig.rut.trim();
+            if (cleanRut) {
+              const { data: siblingConfigs } = await supabase
+                .from('comercios_adicional_config')
+                .select('comercio')
+                .eq('rut', cleanRut);
+              
+              if (siblingConfigs && siblingConfigs.length > 0) {
+                holdingComercios = siblingConfigs.map(sc => sc.comercio);
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Error al obtener holding para el comercio:", integration.comercio, err.message);
+        }
+
         const itemComercios = [];
         for (const sku of Object.keys(itemQuantities)) {
-          // Intentar primero con el merchant_id de la integración
+          // Buscamos de forma restringida dentro del holding (comercios que comparten RUT)
           let { data: products } = await supabase
             .from('products')
             .select('comercio')
-            .eq('merchant_id', integration.merchant_id)
+            .in('comercio', holdingComercios)
             .eq('sku', sku);
-          
-          // Si no se encuentra en el comercio de la integración, buscar de forma global (ej: cuentas que comparten integración)
-          if (!products || products.length === 0) {
-            const { data: globalProducts } = await supabase
-              .from('products')
-              .select('comercio')
-              .eq('sku', sku);
-            products = globalProducts;
-          }
           
           if (products && products.length > 0) {
             products.forEach(p => {
