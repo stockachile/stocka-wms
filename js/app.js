@@ -1689,6 +1689,8 @@ async function renderDashboard() {
         src = 'img/mercadolibre.png';
       } else if (pLower.includes('paris')) {
         src = 'img/paris.png';
+      } else if (pLower.includes('ripley')) {
+        src = 'img/ripley.png';
       } else if (pLower.includes('woocommerce')) {
         src = 'img/woocommerce.png';
       } else if (pLower.includes('walmart')) {
@@ -2651,6 +2653,7 @@ async function renderCatalog() {
             <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
             <option value="Falabella" ${mainPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
             <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
+            <option value="Ripley" ${mainPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
             <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
             <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
             <option value="Tiendanube" ${mainPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
@@ -4655,6 +4658,7 @@ async function renderMovements() {
               <option value="MercadoLibre" ${window.movementsFilterPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
               <option value="Falabella" ${window.movementsFilterPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
               <option value="Paris" ${window.movementsFilterPlatform === 'Paris' ? 'selected' : ''}>Paris</option>
+              <option value="Ripley" ${window.movementsFilterPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
               <option value="WooCommerce" ${window.movementsFilterPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
               <option value="Jumpseller" ${window.movementsFilterPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
               <option value="Tiendanube" ${window.movementsFilterPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
@@ -4848,6 +4852,8 @@ function applyMovementsFiltersAndSort() {
       originPlat = 'Falabella';
     } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('paris')) {
       originPlat = 'Paris';
+    } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('ripley')) {
+      originPlat = 'Ripley';
     } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('woocommerce')) {
       originPlat = 'WooCommerce';
     } else if (mov.reference_doc && mov.reference_doc.toLowerCase().includes('jumpseller')) {
@@ -4970,7 +4976,7 @@ function renderMovementsTableBody() {
 
     const qtyText = isIngreso ? `+${r.quantity}` : `-${r.quantity}`;
 
-    const platformColor = r.platform === 'Paris' ? '#e11d48' : (r.platform === 'Shopify' ? '#96bf48' : (r.platform === 'Falabella' ? '#84cc16' : (r.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+    const platformColor = r.platform === 'Ripley' ? '#7c3aed' : (r.platform === 'Paris' ? '#e11d48' : (r.platform === 'Shopify' ? '#96bf48' : (r.platform === 'Falabella' ? '#84cc16' : (r.platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
     const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${r.platform}</span>`;
 
     // Obtener número de pedido amigable en lugar de UUID
@@ -5374,6 +5380,7 @@ async function renderOrders() {
       raw_optiroute_data,
       raw_lightdata_data,
       raw_paris_data,
+      raw_ripley_data,
       raw_shopify_data,
       shopify_exported,
       agenda,
@@ -5463,6 +5470,7 @@ async function renderOrders() {
             raw_optiroute_data,
             raw_lightdata_data,
             raw_paris_data,
+            raw_ripley_data,
             raw_shopify_data,
             shopify_exported,
             agenda,
@@ -5572,6 +5580,7 @@ async function renderOrders() {
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
+              <option value="Ripley">Ripley</option>
               <option value="Manual">Manual</option>
             </select>
           </div>
@@ -5614,6 +5623,9 @@ async function renderOrders() {
         <div style="display: flex; gap: 0.75rem; align-items: center;">
           <button id="btn-bulk-export-shopify" class="btn btn-primary" style="background: #96bf48; border: none; color: white; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer;">
             <i class="ri-download-2-line"></i> Exportar Formato Shopify (CSV)
+          </button>
+          <button id="btn-bulk-print-labels" class="btn btn-outline" style="border: 1px solid var(--color-primary); color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; background: transparent;">
+            <i class="ri-printer-line"></i> Imprimir Etiquetas Stocka
           </button>
           <button id="btn-bulk-mark-exported" class="btn btn-outline" style="border: 1px solid var(--color-border); display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 0.85rem; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; color: var(--color-text-main); background: transparent;">
             <i class="ri-check-double-line" style="color: var(--color-success);"></i> Marcar como Exportados
@@ -5685,6 +5697,7 @@ async function renderOrders() {
     // Listeners para acciones por lote (Bulk Actions)
     setTimeout(() => {
       const btnExport = document.getElementById('btn-bulk-export-shopify');
+      const btnPrint = document.getElementById('btn-bulk-print-labels');
       const btnMark = document.getElementById('btn-bulk-mark-exported');
       const btnClear = document.getElementById('btn-bulk-clear-selection');
       
@@ -5692,6 +5705,14 @@ async function renderOrders() {
         const checkboxes = document.querySelectorAll('.order-select-checkbox:checked');
         return Array.from(checkboxes).map(cb => cb.getAttribute('data-order-id'));
       };
+
+      if (btnPrint) {
+        btnPrint.addEventListener('click', () => {
+          const ids = getSelectedIds();
+          if (ids.length === 0) return;
+          window.showBulkShippingLabelModal(ids);
+        });
+      }
       
       if (btnExport) {
         btnExport.addEventListener('click', () => {
@@ -5946,13 +5967,15 @@ window.applyClientWmsFiltersAndRender = function() {
       });
     }
 
-    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella o Paris, simular uno a partir del estado de la orden
+    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris o Ripley, simular uno a partir del estado de la orden
     const isVirtualPlatform = order.origen === 'MercadoLibre' || 
                               order.external_platform === 'MercadoLibre' || 
                               order.origen === 'Falabella' || 
                               order.external_platform === 'Falabella' ||
                               order.origen === 'Paris' || 
-                              order.external_platform === 'Paris';
+                              order.external_platform === 'Paris' ||
+                              order.origen === 'Ripley' || 
+                              order.external_platform === 'Ripley';
 
     if (orderShipments.length === 0 && isVirtualPlatform) {
       let globStatus = 'SIN MOVIMIENTO';
@@ -5983,8 +6006,9 @@ window.applyClientWmsFiltersAndRender = function() {
       
       const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
       const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
-      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : 'MercadoLibre');
-      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : 'mercadolibre');
+      const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
+      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
+      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
       
       orderShipments = [{
         id: `virtual:${order.id}`,
@@ -6067,6 +6091,8 @@ window.applyClientWmsFiltersAndRender = function() {
       checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
     } else if (order.raw_paris_data && order.raw_paris_data.items) {
       checkRawItems(order.raw_paris_data.items, 'paris');
+    } else if (order.raw_ripley_data && order.raw_ripley_data.order_lines) {
+      checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
     } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
       checkRawItems(order.raw_falabella_data.items, 'falabella');
     }
@@ -6136,7 +6162,7 @@ window.applyClientWmsFiltersAndRender = function() {
     }
 
     const platform = order.origen || order.external_platform || 'Manual';
-    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280')));
+    const platformColor = platform === 'Ripley' ? '#7c3aed' : (platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : '#6b7280'))));
     const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
@@ -6410,6 +6436,7 @@ window.applyClientWmsFiltersAndRender = function() {
     else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
     else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
     else if (order.raw_paris_data) rawData = order.raw_paris_data;
+    else if (order.raw_ripley_data) rawData = order.raw_ripley_data;
 
     let rawJsonBtnHtml = '';
     if (rawData) {
@@ -6683,13 +6710,16 @@ window.applyClientWmsFiltersAndRender = function() {
                   <div>${trackingHtml}</div>
                 </div>
 
-                ${(order.label_url || order.label_base64) ? `
-                  <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; align-items: stretch;">
-                    <div style="flex: 1; display: flex;">
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
+                  ${(order.label_url || order.label_base64) ? `
+                    <div style="display: flex;">
                       ${labelHtml}
                     </div>
-                  </div>
-                ` : ''}
+                  ` : ''}
+                  <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline" style="width: 100%; padding: 0.35rem 0.5rem; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; font-weight: 600; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; transition: all 0.2s; border-radius: var(--radius-sm);">
+                    <i class="ri-printer-line"></i> Etiqueta Stocka
+                  </button>
+                </div>
               </div>
 
               <!-- Grupo 3: Auto Track -->
@@ -6898,6 +6928,7 @@ async function renderIntegrations() {
 
     const shopifyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Shopify') : null;
     const parisIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Paris') : null;
+    const ripleyIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Ripley') : null;
     const falabellaIntegration = integrationsList ? integrationsList.find(i => i.platform === 'Falabella') : null;
     const meliIntegration = integrationsList ? integrationsList.find(i => i.platform === 'MercadoLibre') : null;
     const wooIntegration = integrationsList ? integrationsList.find(i => i.platform === 'WooCommerce') : null;
@@ -6915,6 +6946,12 @@ async function renderIntegrations() {
     const parisUrl = hasParis ? parisIntegration.shop_url : 'https://api-developers.ecomm.cencosud.com';
     const parisStatusText = hasParis 
       ? (parisIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
+      : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
+
+    const hasRipley = !!ripleyIntegration;
+    const ripleyUrl = hasRipley ? ripleyIntegration.shop_url : 'https://ripley-prod.mirakl.net';
+    const ripleyStatusText = hasRipley 
+      ? (ripleyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
 
     const hasFalabella = !!falabellaIntegration;
@@ -7024,6 +7061,13 @@ async function renderIntegrations() {
           ? '<button type="submit" class="btn btn-primary" id="btn-save-paris" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar París Marketplace</button>'
           : '<button type="button" class="btn btn-outline" id="btn-disconnect-paris" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar París</button>');
 
+    const ripleyButtonHtml = isObserver 
+      ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
+      : (!hasRipley 
+          ? '<button type="submit" class="btn btn-primary" id="btn-save-ripley" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Ripley Marketplace</button>'
+          : '<button type="button" class="btn btn-outline" id="btn-disconnect-ripley" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Ripley</button>' +
+            '<button type="button" class="btn btn-primary" id="btn-sync-ripley" style="background-color: #7c3aed; border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: white; box-shadow: var(--shadow-sm); transition: all 0.2s; margin-left: 0.5rem;"><i class="ri-refresh-line"></i> Sincronizar Pedidos y Productos</button>');
+
     const falabellaButtonHtml = isObserver 
       ? '<button type="button" class="btn" style="background-color: #e2e8f0; color: #94a3b8; cursor: not-allowed;" disabled>Conexión Deshabilitada (Solo Lectura)</button>'
       : (!hasFalabella 
@@ -7098,6 +7142,7 @@ async function renderIntegrations() {
         <button class="integration-tab active" data-tab="tab-summary"><i class="ri-dashboard-line"></i> Resumen</button>
         <button class="integration-tab" data-tab="tab-shopify"><i class="ri-shopping-bag-3-line"></i> Shopify</button>
         <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
+        <button class="integration-tab" data-tab="tab-ripley"><i class="ri-store-2-line"></i> Ripley</button>
         <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
         <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
         <button class="integration-tab" data-tab="tab-walmart"><i class="ri-store-2-line"></i> Walmart</button>
@@ -7114,13 +7159,14 @@ async function renderIntegrations() {
           <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
             ${hasShopify ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-3-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Shopify</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + shopUrl + '</span></div></div>' + shopifyStatusText + '</div></div>' : ''}
             ${hasParis ? '<div class="card" style="border: 1px solid rgba(16, 185, 129, 0.2); background: rgba(16, 185, 129, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #10b981;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">París</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + parisStatusText + '</div></div>' : ''}
+            ${hasRipley ? '<div class="card" style="border: 1px solid rgba(124, 58, 237, 0.2); background: rgba(124, 58, 237, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #7c3aed;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Ripley</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Activa</span></div></div>' + ripleyStatusText + '</div></div>' : ''}
             ${hasFalabella ? '<div class="card" style="border: 1px solid rgba(132, 204, 22, 0.2); background: rgba(132, 204, 22, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #84cc16;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Falabella</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + falabellaUser + '</span></div></div>' + falabellaStatusText + '</div></div>' : ''}
             ${hasMeli ? '<div class="card" style="border: 1px solid rgba(245, 158, 11, 0.2); background: rgba(245, 158, 11, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #f59e0b;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">MercadoLibre</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + meliStatusText + '</div></div>' : ''}
             ${hasWalmart ? '<div class="card" style="border: 1px solid rgba(0, 113, 206, 0.2); background: rgba(0, 113, 206, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-store-2-line" style="font-size: 2rem; color: #0071ce;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Walmart</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">Conectado</span></div></div>' + walmartStatusText + '</div></div>' : ''}
             ${hasWoo ? '<div class="card" style="border: 1px solid rgba(150, 88, 138, 0.2); background: rgba(150, 88, 138, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-cart-2-line" style="font-size: 2rem; color: #96588a;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">WooCommerce</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + wooUrl + '</span></div></div>' + wooStatusText + '</div></div>' : ''}
             ${hasJumpseller ? '<div class="card" style="border: 1px solid rgba(2, 132, 199, 0.2); background: rgba(2, 132, 199, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-shopping-bag-2-line" style="font-size: 2rem; color: #0284c7;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Jumpseller</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + jumpsellerUrl + '</span></div></div>' + jumpsellerStatusText + '</div></div>' : ''}
             ${hasTiendanube ? '<div class="card" style="border: 1px solid rgba(6, 182, 212, 0.2); background: rgba(6, 182, 212, 0.05); margin: 0;"><div class="card-body" style="padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;"><div style="display: flex; align-items: center; gap: 1rem;"><i class="ri-cloud-fill" style="font-size: 2rem; color: #06b6d4;"></i><div><h4 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Tiendanube</h4><span style="font-size: 0.85rem; color: var(--color-text-muted);">' + tiendanubeUrl + '</span></div></div>' + tiendanubeStatusText + '</div></div>' : ''}
-            ${!hasShopify && !hasParis && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller && !hasWalmart && !hasTiendanube ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
+            ${!hasShopify && !hasParis && !hasRipley && !hasFalabella && !hasMeli && !hasWoo && !hasJumpseller && !hasWalmart && !hasTiendanube ? '<div style="grid-column: 1 / -1; text-align: center; padding: 3rem; background: var(--color-surface); border-radius: 0.5rem; border: 1px dashed var(--color-border);"><i class="ri-plug-line" style="font-size: 3rem; color: var(--color-text-muted); margin-bottom: 1rem; display: block;"></i><h3 style="color: var(--color-text-main); margin-bottom: 0.5rem;">No hay integraciones activas</h3><p style="color: var(--color-text-muted);">Selecciona una plataforma en las pestañas superiores para comenzar.</p></div>' : ''}
           </div>
         </div>
 
@@ -7298,6 +7344,66 @@ async function renderIntegrations() {
                   <li>
                     <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de París coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: Ripley -->
+        <div id="tab-ripley" class="integration-tab-pane" style="display: none;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1.5rem; align-items: start;">
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ri-store-2-line"></i> Ripley Marketplace (Mirakl)</h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background-color: ${hasRipley ? 'rgba(124, 58, 237, 0.1)' : 'var(--color-bg)'}; padding: 1rem; border-radius: 0.5rem; border: 1px solid ${hasRipley ? 'rgba(124, 58, 237, 0.2)' : 'var(--color-border)'};">
+                   <div style="display: flex; align-items: center; gap: 1rem;">
+                      <div>
+                         <h4 style="margin: 0; font-size: 1.1rem; color: ${hasRipley ? '#7c3aed' : 'var(--color-text-main)'};">Ripley Store (Mirakl)</h4>
+                         <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-muted);">Sincronización y aceptación automática de pedidos.</p>
+                      </div>
+                   </div>
+                   <div>
+                      ${ripleyStatusText}
+                   </div>
+                </div>
+                <form id="form-ripley-integration">
+                  <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label class="form-label" style="font-weight: 600;">URL de la API (Ripley)</label>
+                    <input type="text" id="ripley-url" class="form-input" placeholder="ej. https://ripley-prod.mirakl.net" value="${ripleyUrl}" ${hasRipley ? 'readonly' : 'required'} ${disabledAttr} style="background-color: ${hasRipley || isObserver ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 1.25rem; ${hasRipley ? 'display:none;' : ''}">
+                    <label class="form-label" style="font-weight: 600;">API Key del Vendedor</label>
+                    <input type="password" id="ripley-token" class="form-input" placeholder="Ingresa tu API Key de Ripley" ${hasRipley ? '' : 'required'} ${disabledAttr} style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  </div>
+                  <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                    ${ripleyButtonHtml}
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div class="card" style="border: none; box-shadow: var(--shadow-md); background-color: var(--color-surface); margin:0;">
+              <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.5rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <span><i class="ri-store-2-line" style="color: var(--color-primary);"></i></span> Guía de Integración Ripley
+                </h3>
+              </div>
+              <div class="card-body" style="padding: 1.5rem;">
+                <ol style="margin: 0; padding-left: 1.25rem; color: var(--color-text-main); font-size: 0.95rem; display: flex; flex-direction: column; gap: 1.25rem;">
+                  <li>
+                    <strong style="color: var(--color-text-main);">Entrar al Seller Center:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Inicia sesión en tu portal de vendedor de Ripley (Mirakl) y navega a tu perfil / API Key.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Obtener la API Key:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Copia la <strong style="color: var(--color-text-main);">API Key</strong> generada y pégala en el formulario de la izquierda.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Mapeo de SKUs:</strong>
+                    <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Asegúrate de que los SKUs configurados en tus ofertas de Ripley coincidan exactamente con los SKUs registrados en WMS STOCKA para la correcta asignación de productos en las órdenes.</p>
                   </li>
                 </ol>
               </div>
@@ -8266,6 +8372,107 @@ async function renderIntegrations() {
              console.error(err);
              alert('Error al desconectar: ' + err.message);
           }
+        }
+      });
+    }
+
+    // Ripley Submit / Disconnect / Sync Listeners
+    if(!hasRipley) {
+      document.getElementById('form-ripley-integration').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        const btn = document.getElementById('btn-save-ripley');
+        btn.disabled = true;
+        btn.textContent = 'Conectando...';
+
+        const ripley_url = document.getElementById('ripley-url').value.trim();
+        const token = document.getElementById('ripley-token').value.trim();
+
+        try {
+          const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+            merchant_id: merchantId,
+            platform: 'Ripley',
+            shop_url: ripley_url,
+            access_token: token,
+            is_active: true,
+            comercio: window.activeIntegrationCommerce
+          }]);
+          if(insErr) throw insErr;
+          
+          alert('Integración con Ripley Marketplace guardada correctamente.');
+          renderIntegrations(); // Recargar vista
+        } catch(err) {
+          console.error(err);
+          alert('Error al guardar la integración: ' + err.message);
+          btn.disabled = false;
+          btn.textContent = 'Conectar Ripley Marketplace';
+        }
+      });
+    } else {
+      document.getElementById('btn-disconnect-ripley').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        if(confirm('¿Estás seguro que deseas desconectar tu cuenta de Ripley Marketplace?')) {
+          try {
+            const { error: delErr } = await supabase.from('merchant_integrations')
+              .delete()
+              .eq('comercio', window.activeIntegrationCommerce)
+              .eq('platform', 'Ripley');
+            if(delErr) throw delErr;
+            alert('Conexión con Ripley eliminada.');
+            renderIntegrations();
+          } catch(err) {
+             console.error(err);
+             alert('Error al desconectar: ' + err.message);
+          }
+        }
+      });
+
+      document.getElementById('btn-sync-ripley').addEventListener('click', async () => {
+        if (userRole === 'observer') {
+          alert('Acceso denegado: El rol de Observador no permite realizar esta acción.');
+          return;
+        }
+        
+        const btnSync = document.getElementById('btn-sync-ripley');
+        btnSync.disabled = true;
+        const originalText = btnSync.textContent;
+        btnSync.textContent = 'Sincronizando...';
+
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error("No hay sesión activa");
+
+          const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({
+              platform: 'Ripley',
+              comercio: window.activeIntegrationCommerce
+            })
+          });
+
+          const result = await response.json();
+          
+          if (!response.ok) {
+            throw new Error(result.error || 'Error al sincronizar');
+          }
+
+          alert(`Sincronización de pedidos y productos iniciada exitosamente para ${window.activeIntegrationCommerce}. El WMS se actualizará en unos minutos.`);
+        } catch (err) {
+          console.error(err);
+          alert('Error en la sincronización: ' + err.message);
+        } finally {
+          btnSync.disabled = false;
+          btnSync.textContent = originalText;
         }
       });
     }
@@ -20976,6 +21183,8 @@ function renderMasterCatalogRows(products) {
       platformName = 'Falabella'; platformColor = '#84cc16';
     } else if (item.raw_paris_data) {
       platformName = 'Paris'; platformColor = '#e11d48';
+    } else if (item.raw_ripley_data) {
+      platformName = 'Ripley'; platformColor = '#7c3aed';
     } else if (item.raw_woocommerce_data) {
       platformName = 'WooCommerce'; platformColor = '#96588a';
     } else if (item.raw_jumpseller_data) {
@@ -21889,6 +22098,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
               name: sp.name,
               price: parseFloat(sp.price) || 0,
               image_url: sp.image_url || null,
+              barcode: sp.barcode || null,
               description: `Importado automáticamente de ${mainPlatform}`
             };
 
@@ -21900,6 +22110,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               productRow.raw_falabella_data = {};
             } else if (mainPlatform === 'Paris') {
               productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'Ripley') {
+              productRow.raw_ripley_data = {};
             } else if (mainPlatform === 'WooCommerce') {
               productRow.raw_woocommerce_data = {};
             } else if (mainPlatform === 'Jumpseller') {
@@ -22244,7 +22456,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const validSkus = new Set((validProducts || []).map(p => p.sku));
 
           const previewData = [];
-          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'WooCommerce', 'Jumpseller', 'Walmart'];
+          const allowedPlatforms = ['Todas', 'Shopify', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'WooCommerce', 'Jumpseller', 'Walmart'];
 
           rows.forEach((r) => {
             let platformVal = colPlatform ? r[colPlatform] : 'Todas';

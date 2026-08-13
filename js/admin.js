@@ -131,8 +131,8 @@ window.fetchInventoryForOrders = async function(orders) {
   }
 };
 
-window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
-window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
+window.agendaOptions = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+window.operadorOptions = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE', 'RIPLEY'];
 window.retiroKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
 
 window.loadConfigOptions = async function() {
@@ -143,8 +143,8 @@ window.loadConfigOptions = async function() {
       
     if (error) throw error;
 
-    const defaultAgendas = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
-    const defaultOperadores = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE'];
+    const defaultAgendas = ['RM', 'STK', 'REGION', 'RETIRO', 'FLEX', 'CENTRO DE ENVIOS', 'FALABELLA', 'PARIS', 'RIPLEY', 'WALMART', 'COLINA', 'PENDIENTE', 'CANCELA', 'COMPRA EN BODEGA'];
+    const defaultOperadores = ['STARKEN', 'BLUEXPRESS', 'CHILEXPRESS', 'ENVIAME', 'STOCKA X', 'ALPHA', 'SUCURSAL ÑUÑOA', 'FALABELLA', 'MERCADOLIBRE', 'RIPLEY'];
     const defaultKeywords = ['RETIRO', 'CENTRO', 'SUCURSAL'];
 
     let agendas = [];
@@ -1373,7 +1373,7 @@ window.toggleRawOrderJson = async function(orderId) {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_optiroute_data, raw_lightdata_data, raw_paris_data, raw_walmart_data, raw_tiendanube_data')
+          .select('raw_shopify_data, raw_woocommerce_data, raw_meli_data, raw_falabella_data, raw_jumpseller_data, raw_optiroute_data, raw_lightdata_data, raw_paris_data, raw_ripley_data, raw_walmart_data, raw_tiendanube_data')
           .eq('id', orderId)
           .single();
         
@@ -1389,6 +1389,7 @@ window.toggleRawOrderJson = async function(orderId) {
           else if (data.raw_optiroute_data) rawData = data.raw_optiroute_data;
           else if (data.raw_lightdata_data) rawData = data.raw_lightdata_data;
           else if (data.raw_paris_data) rawData = data.raw_paris_data;
+          else if (data.raw_ripley_data) rawData = data.raw_ripley_data;
           else if (data.raw_walmart_data) rawData = data.raw_walmart_data;
           else if (data.raw_tiendanube_data) rawData = data.raw_tiendanube_data;
         }
@@ -1539,6 +1540,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     meli_status:raw_meli_data->status,
     meli_order_items:raw_meli_data->order_items,
     paris_items:raw_paris_data->items,
+    ripley_items:raw_ripley_data->order_lines,
     order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
   `, q => {
     let query = q;
@@ -1585,6 +1587,11 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
       if (order.paris_items !== undefined) {
         order.raw_paris_data = {
           items: order.paris_items
+        };
+      }
+      if (order.ripley_items !== undefined) {
+        order.raw_ripley_data = {
+          order_lines: order.ripley_items
         };
       }
     });
@@ -1794,6 +1801,7 @@ async function renderAdminOrders() {
               <option value="MercadoLibre">Mercado Libre</option>
               <option value="Falabella">Falabella</option>
               <option value="Paris">Paris</option>
+              <option value="Ripley">Ripley</option>
               <option value="Walmart">Walmart</option>
               <option value="Manual">Manual</option>
             </select>
@@ -1843,6 +1851,9 @@ async function renderAdminOrders() {
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
           <h3 style="margin: 0;">Panel de Control de Pedidos</h3>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button id="wms-bulk-print-labels-btn" onclick="window.showBulkShippingLabelModal()" class="btn btn-primary" style="display: none; padding: 0.25rem 0.5rem; font-size: 0.8rem; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
+              <i class="ri-printer-line"></i> Etiqueta Stocka Masiva (<span id="wms-bulk-labels-count">0</span>)
+            </button>
             <button onclick="window.refreshWmsOrders(this)" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 600; cursor: pointer;">
               <i class="ri-refresh-line"></i> Actualizar
             </button>
@@ -2333,13 +2344,15 @@ window.applyWmsFiltersAndRender = function() {
       });
     }
 
-    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella o Paris, simular uno a partir del estado de la orden
+    // Si no tiene despacho unificado y proviene de MercadoLibre, Falabella, Paris o Ripley, simular uno a partir del estado de la orden
     const isVirtualPlatform = order.origen === 'MercadoLibre' || 
                               order.external_platform === 'MercadoLibre' || 
                               order.origen === 'Falabella' || 
                               order.external_platform === 'Falabella' ||
                               order.origen === 'Paris' || 
-                              order.external_platform === 'Paris';
+                              order.external_platform === 'Paris' ||
+                              order.origen === 'Ripley' || 
+                              order.external_platform === 'Ripley';
 
     if (orderShipments.length === 0 && isVirtualPlatform) {
       let globStatus = 'SIN MOVIMIENTO';
@@ -2369,9 +2382,10 @@ window.applyWmsFiltersAndRender = function() {
       }
       
       const isParis = order.origen === 'Paris' || order.external_platform === 'Paris';
+      const isRipley = order.origen === 'Ripley' || order.external_platform === 'Ripley';
       const isFalabella = order.origen === 'Falabella' || order.external_platform === 'Falabella';
-      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : 'MercadoLibre');
-      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : 'mercadolibre');
+      const defaultCourier = isFalabella ? 'Falabella' : (isParis ? 'Paris' : (isRipley ? 'Ripley' : 'MercadoLibre'));
+      const sourceTable = isFalabella ? 'falabella' : (isParis ? 'paris' : (isRipley ? 'ripley' : 'mercadolibre'));
       
       orderShipments = [{
         id: `virtual:${order.id}`,
@@ -2454,6 +2468,8 @@ window.applyWmsFiltersAndRender = function() {
       checkRawItems(order.raw_jumpseller_data.products, 'jumpseller');
     } else if (order.raw_paris_data && order.raw_paris_data.items) {
       checkRawItems(order.raw_paris_data.items, 'paris');
+    } else if (order.raw_ripley_data && order.raw_ripley_data.order_lines) {
+      checkRawItems(order.raw_ripley_data.order_lines, 'ripley');
     } else if (order.raw_falabella_data && order.raw_falabella_data.items) {
       checkRawItems(order.raw_falabella_data.items, 'falabella');
     }
@@ -2508,7 +2524,7 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const platform = order.origen || order.external_platform || 'Manual';
-    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))));
+    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280'))))))));
     const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
     const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
 
@@ -2936,6 +2952,7 @@ window.applyWmsFiltersAndRender = function() {
     else if (order.raw_optiroute_data) rawData = order.raw_optiroute_data;
     else if (order.raw_lightdata_data) rawData = order.raw_lightdata_data;
     else if (order.raw_paris_data) rawData = order.raw_paris_data;
+    else if (order.raw_ripley_data) rawData = order.raw_ripley_data;
 
     let rawJsonBtnHtml = '';
     if (rawData) {
@@ -3196,15 +3213,20 @@ window.applyWmsFiltersAndRender = function() {
                     <div>${trackingHtml}</div>
                   </div>
 
-                  <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; align-items: stretch;">
-                    <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="flex: 1; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;">
-                      <i class="ri-edit-line"></i> Editar Envío
+                  <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
+                    <div style="display: flex; gap: 0.5rem; align-items: stretch;">
+                      <button onclick="window.editWmsOrderCourierAndTracking('${order.id}')" class="btn btn-outline btn-sm" style="flex: 1; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); transition: all 0.2s;">
+                        <i class="ri-edit-line"></i> Editar Envío
+                      </button>
+                      ${order.label_url || order.tracking_number || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
+                        <div style="flex: 1; display: flex;">
+                          ${labelHtml}
+                        </div>
+                      ` : ''}
+                    </div>
+                    <button onclick="window.showShippingLabelModal('${order.id}')" class="btn btn-outline btn-sm" style="width: 100%; padding: 0.35rem 0.5rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.25rem; border-radius: var(--radius-sm); border-color: var(--color-primary); color: var(--color-primary); transition: all 0.2s;">
+                      <i class="ri-printer-line"></i> Etiqueta Stocka
                     </button>
-                    ${order.label_url || order.tracking_number || (order.courier === 'LIGHTDATA' || order.courier === 'PENDIENTE_LIGHTDATA' || order.operador === 'ALPHA') ? `
-                      <div style="flex: 1; display: flex;">
-                        ${labelHtml}
-                      </div>
-                    ` : ''}
                   </div>
                 </div>
 
@@ -3406,10 +3428,21 @@ function updateSelectAllCheckboxState() {
 }
 
 function renderWmsBulkActionsBar() {
+  const selectedCount = window.wmsSelectedOrderIds.size;
+  const bulkPrintBtn = document.getElementById('wms-bulk-print-labels-btn');
+  const bulkPrintCount = document.getElementById('wms-bulk-labels-count');
+  if (bulkPrintBtn) {
+    if (selectedCount > 0) {
+      bulkPrintBtn.style.display = 'inline-flex';
+      if (bulkPrintCount) bulkPrintCount.textContent = selectedCount;
+    } else {
+      bulkPrintBtn.style.display = 'none';
+    }
+  }
+
   const container = document.getElementById('wms-bulk-actions-container');
   if (!container) return;
   
-  const selectedCount = window.wmsSelectedOrderIds.size;
   if (selectedCount === 0) {
     container.innerHTML = '';
     return;
@@ -4235,7 +4268,7 @@ async function renderIntegrations() {
         const companyName = mi.profiles?.company_name || 'Desconocido';
         const commerceName = mi.comercio || 'No especificado';
         const platform = mi.platform || 'Desconocida';
-        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))));
+        const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280'))))))));
         
         const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
         
@@ -4256,7 +4289,7 @@ async function renderIntegrations() {
           : '<span class="badge badge-warning" style="background-color: #fef3c7; color: #92400e; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600;">Inactiva</span>';
 
         let syncStatusHtml = '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>';
-        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Falabella' || mi.platform === 'Walmart' || mi.platform === 'Tiendanube') {
+        if (mi.platform === 'MercadoLibre' || mi.platform === 'Shopify' || mi.platform === 'WooCommerce' || mi.platform === 'Jumpseller' || mi.platform === 'Paris' || mi.platform === 'Ripley' || mi.platform === 'Falabella' || mi.platform === 'Walmart' || mi.platform === 'Tiendanube') {
           const lastSync = mi.last_sync_at ? new Date(mi.last_sync_at) : null;
           const now = new Date();
           const isDelayed = lastSync ? (now - lastSync) > (60 * 60 * 1000) : true; // Más de 1 hora
@@ -4276,7 +4309,7 @@ async function renderIntegrations() {
           }
 
           // Botón para forzar sincronización manual (disponible en plataformas mapeadas en Edge Function)
-          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
+          const supportManualSync = ['MercadoLibre', 'WooCommerce', 'Falabella', 'Paris', 'Ripley', 'LightData', 'Optiroute', 'Walmart', 'Shopify', 'Tiendanube'].includes(mi.platform);
           if (supportManualSync && mi.is_active) {
             syncStatusHtml += `
               <div style="margin-top: 0.35rem;">
@@ -4934,6 +4967,8 @@ function renderMasterCatalogRows(products) {
       platformName = 'Falabella'; platformColor = '#84cc16';
     } else if (item.raw_paris_data) {
       platformName = 'Paris'; platformColor = '#e11d48';
+    } else if (item.raw_ripley_data) {
+      platformName = 'Ripley'; platformColor = '#7c3aed';
     } else if (item.raw_woocommerce_data) {
       platformName = 'WooCommerce'; platformColor = '#96588a';
     } else if (item.raw_jumpseller_data) {
@@ -5744,6 +5779,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
               name: sp.name,
               price: parseFloat(sp.price) || 0,
               image_url: sp.image_url || null,
+              barcode: sp.barcode || null,
               description: `Importado automáticamente de ${mainPlatform}`
             };
 
@@ -5755,6 +5791,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
               productRow.raw_falabella_data = {};
             } else if (mainPlatform === 'Paris') {
               productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'Ripley') {
+              productRow.raw_ripley_data = {};
             } else if (mainPlatform === 'WooCommerce') {
               productRow.raw_woocommerce_data = {};
             } else if (mainPlatform === 'Jumpseller') {
@@ -8309,6 +8347,7 @@ async function renderAdminCatalogWorkspace(commerce) {
             <option value="MercadoLibre" ${mainPlatform === 'MercadoLibre' ? 'selected' : ''}>MercadoLibre</option>
             <option value="Falabella" ${mainPlatform === 'Falabella' ? 'selected' : ''}>Falabella</option>
             <option value="Paris" ${mainPlatform === 'Paris' ? 'selected' : ''}>París</option>
+            <option value="Ripley" ${mainPlatform === 'Ripley' ? 'selected' : ''}>Ripley</option>
             <option value="WooCommerce" ${mainPlatform === 'WooCommerce' ? 'selected' : ''}>WooCommerce</option>
             <option value="Jumpseller" ${mainPlatform === 'Jumpseller' ? 'selected' : ''}>Jumpseller</option>
             <option value="Tiendanube" ${mainPlatform === 'Tiendanube' ? 'selected' : ''}>Tiendanube</option>
@@ -25228,7 +25267,7 @@ window.showMerchantCreateModal = function() {
                 </thead>
                 <tbody>
                   ${(() => {
-                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Walmart', 'Manual'];
+                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart', 'Manual'];
                     return platformsList.map(plat => {
                       const checked = 'checked'; // default to adding the prefix
                       const disabled = isMigration ? 'disabled' : '';
@@ -25615,7 +25654,7 @@ window.showMerchantEditModal = async function(comercioName) {
                 </thead>
                 <tbody>
                   ${(() => {
-                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Walmart', 'Manual'];
+                    const platformsList = ['Shopify', 'WooCommerce', 'Jumpseller', 'Tiendanube', 'MercadoLibre', 'Falabella', 'Paris', 'Ripley', 'Walmart', 'Manual'];
                     return platformsList.map(plat => {
                       const conf = (commerce.plat_siglas_config || {})[plat] || {
                         agregar_prefijo: !commerce.pedido_trae_sigla,

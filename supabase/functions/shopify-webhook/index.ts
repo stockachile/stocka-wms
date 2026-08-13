@@ -492,7 +492,8 @@ async function handleProductSave(merchantId, comercio, product) {
       name: `${product.title}${variant.title !== "Default Title" ? " - " + variant.title : ""}`,
       image_url: varImageUrl,
       status: product.status,
-      price: parseFloat(variant.price) || 0
+      price: parseFloat(variant.price) || 0,
+      barcode: variant.barcode || null
     };
 
     const { error } = await supabase
