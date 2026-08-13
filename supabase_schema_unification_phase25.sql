@@ -51,8 +51,8 @@ DECLARE
 BEGIN
   -- A) Operación de INSERT
   IF TG_OP = 'INSERT' THEN
-    -- Si no viene especificada la categoría, evaluamos por el método de envío
-    IF NEW.categoria_entrega IS NULL THEN
+    -- Si no viene especificada la categoría, o es 'DISTRIBUCIÓN' por defecto, evaluamos por el método de envío
+    IF NEW.categoria_entrega IS NULL OR NEW.categoria_entrega = 'DISTRIBUCIÓN' THEN
       IF NEW.shipping_method IS NOT NULL AND NEW.shipping_method <> '' THEN
         FOR v_keyword IN 
           SELECT value FROM public.wms_config_options WHERE type = 'keyword_retiro'
@@ -76,7 +76,7 @@ BEGIN
       IF NEW.agenda IS NULL OR NEW.agenda = '' THEN
         NEW.agenda := 'RETIRO';
       END IF;
-      IF NEW.operador IS NULL OR NEW.operador = '' THEN
+      IF NEW.operador IS NULL OR NEW.operador = '' OR NEW.operador = 'STARKEN' THEN
         NEW.operador := 'SUCURSAL ÑUÑOA';
       END IF;
     END IF;
