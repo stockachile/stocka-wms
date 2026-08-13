@@ -513,8 +513,49 @@ window.downloadBase64Pdf = function(base64, filename) {
 
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
-  if (!confirm('¿Estás seguro de generar la etiqueta de envío en LightData para este pedido?')) {
-    return;
+  const order = (window.loadedOrders || []).find(o => o.id === orderId);
+  if (order && (!order.sucursal_pickeo || order.sucursal_pickeo.trim() === '')) {
+    const { value: sucursalSelection, isConfirmed } = await Swal.fire({
+      title: 'Pedido sin sucursal asignada',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p style="margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-main);">Este pedido no tiene una sucursal de destino asignada. Por defecto, llegará a la <strong>Sucursal Virtual (Hub)</strong>.</p>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.35rem; color: var(--color-text-main);">Asignar sucursal para este despacho:</label>
+          <select id="swal-assign-sucursal" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub) (Por Defecto)</option>
+            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina">Sucursal La Reina</option>
+            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
+          </select>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar y Generar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#7117eb',
+      preConfirm: () => {
+        return document.getElementById('swal-assign-sucursal').value;
+      }
+    });
+
+    if (!isConfirmed || !sucursalSelection) return;
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ sucursal_pickeo: sucursalSelection })
+        .eq('id', orderId);
+      
+      if (error) throw error;
+      order.sucursal_pickeo = sucursalSelection;
+      window.applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error("Error al asignar sucursal:", err);
+    }
+  } else {
+    if (!confirm('¿Estás seguro de generar la etiqueta de envío en LightData para este pedido?')) {
+      return;
+    }
   }
   
   const originalHtml = btn.innerHTML;
@@ -569,8 +610,56 @@ window.bulkCreateLightDataLabels = async function(btn) {
     return;
   }
   
-  if (!confirm(`¿Estás seguro de generar las etiquetas de LightData para los ${ids.length} pedidos seleccionados?`)) {
-    return;
+  const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
+  const ordersWithoutSucursal = selectedOrders.filter(o => !o.sucursal_pickeo || o.sucursal_pickeo.trim() === '');
+
+  if (ordersWithoutSucursal.length > 0) {
+    const namesList = ordersWithoutSucursal.map(o => o.external_order_number || o.id.split('-')[0]).join(', ');
+    const { value: sucursalSelection, isConfirmed } = await Swal.fire({
+      title: 'Pedidos sin sucursal asignada',
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p style="margin-bottom: 1rem; line-height: 1.4; color: var(--color-text-main);">Hay <strong>${ordersWithoutSucursal.length}</strong> pedido(s) sin sucursal asignada (${namesList}). Por defecto, llegarán a la <strong>Sucursal Virtual (Hub)</strong>.</p>
+          <label style="font-weight: 700; display: block; margin-bottom: 0.35rem; color: var(--color-text-main);">Asignar sucursal para estos despachos:</label>
+          <select id="swal-assign-sucursal-bulk" class="swal2-select" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border);">
+            <option value="Sucursal Virtual (Hub)">Sucursal Virtual (Hub) (Por Defecto)</option>
+            <option value="Sucursal Ñuñoa">Sucursal Ñuñoa</option>
+            <option value="Sucursal La Reina">Sucursal La Reina</option>
+            <option value="Sucursal Recoleta">Sucursal Recoleta</option>
+          </select>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Confirmar y Generar',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#7117eb',
+      preConfirm: () => {
+        return document.getElementById('swal-assign-sucursal-bulk').value;
+      }
+    });
+
+    if (!isConfirmed || !sucursalSelection) return;
+
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ sucursal_pickeo: sucursalSelection })
+        .in('id', ordersWithoutSucursal.map(o => o.id));
+      
+      if (error) throw error;
+      
+      ordersWithoutSucursal.forEach(o => {
+        o.sucursal_pickeo = sucursalSelection;
+      });
+      
+      window.applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error("Error al asignar sucursal masivamente:", err);
+    }
+  } else {
+    if (!confirm(`¿Estás seguro de generar las etiquetas de LightData para los ${ids.length} pedidos seleccionados?`)) {
+      return;
+    }
   }
   
   const originalHtml = btn.innerHTML;
