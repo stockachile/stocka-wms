@@ -541,14 +541,16 @@ async function syncMerchantOrders(integration) {
         }
       }
 
-      // B. Verificar si el pedido ya existe en el WMS (buscando por comercio en vez de merchant_id para evitar duplicados si cambia la cuenta vinculada)
-      const { data: existingOrder } = await supabase
+      // B. Verificar si el pedido ya existe en el WMS (buscando por comercio y número de pedido base para evitar duplicados por cambios en los prefijos)
+      const cleanMeliId = groupId.replace(/\D/g, "");
+      const { data: existingOrders } = await supabase
         .from('orders')
-        .select('id, status, comercio')
+        .select('id, status, comercio, external_order_number')
         .eq('comercio', integration.comercio)
-        .in('external_order_number', [groupId, finalGroupId])
         .eq('external_platform', 'MercadoLibre')
-        .maybeSingle();
+        .ilike('external_order_number', `%${cleanMeliId}`);
+
+      const existingOrder = (existingOrders && existingOrders.length > 0) ? existingOrders[0] : null;
 
       let localOrderId = null;
       let shouldInsertItems = false;
