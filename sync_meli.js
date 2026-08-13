@@ -664,11 +664,21 @@ async function syncMerchantOrders(integration) {
         // Determinar comercio a asignar basado en el catálogo de productos
         const itemComercios = [];
         for (const sku of Object.keys(itemQuantities)) {
+          // Intentar primero con el merchant_id de la integración
           let { data: products } = await supabase
             .from('products')
             .select('comercio')
             .eq('merchant_id', integration.merchant_id)
             .eq('sku', sku);
+          
+          // Si no se encuentra en el comercio de la integración, buscar de forma global (ej: cuentas que comparten integración)
+          if (!products || products.length === 0) {
+            const { data: globalProducts } = await supabase
+              .from('products')
+              .select('comercio')
+              .eq('sku', sku);
+            products = globalProducts;
+          }
           
           if (products && products.length > 0) {
             products.forEach(p => {
@@ -678,15 +688,27 @@ async function syncMerchantOrders(integration) {
         }
 
         let resolvedCommerce = integration.comercio;
+        let resolvedMerchantId = integration.merchant_id;
         const uniqueComercios = [...new Set(itemComercios)];
+        
         if (uniqueComercios.length === 1) {
           resolvedCommerce = uniqueComercios[0];
+          // Buscar el merchant_id real que posee este comercio
+          const { data: matchedProduct } = await supabase
+            .from('products')
+            .select('merchant_id')
+            .eq('comercio', resolvedCommerce)
+            .limit(1)
+            .maybeSingle();
+          if (matchedProduct && matchedProduct.merchant_id) {
+            resolvedMerchantId = matchedProduct.merchant_id;
+          }
         } else if (uniqueComercios.length > 1) {
           console.log(`⚠️ Pedido mixto detectado. Contiene productos de: ${uniqueComercios.join(', ')}. Asignando a tienda por defecto: ${resolvedCommerce}`);
         }
 
         const orderDataToSave = {
-          merchant_id: integration.merchant_id,
+          merchant_id: resolvedMerchantId,
           comercio: resolvedCommerce,
           external_order_number: finalGroupId,
           external_platform: 'MercadoLibre',
