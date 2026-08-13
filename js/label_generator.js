@@ -1359,4 +1359,1295 @@ import supabase from './supabase.js';
     return text.toString().replace(/[&<>"']/g, function (m) { return map[m]; });
   }
 
+  window.showShippingLabelModal = async function(orderId) {
+    if (typeof Swal === 'undefined') {
+      alert("Error: SweetAlert2 no está cargado.");
+      return;
+    }
+
+    Swal.fire({
+      title: 'Cargando datos del pedido...',
+      text: 'Por favor, espere mientras obtenemos los detalles del pedido.',
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    let order = null;
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items (
+            quantity,
+            products (
+              id,
+              sku,
+              name,
+              price
+            )
+          )
+        `)
+        .eq('id', orderId)
+        .single();
+       
+      if (error) throw error;
+      order = data;
+    } catch (err) {
+      console.error("Error fetching order:", err);
+      Swal.fire('Error', 'No se pudo cargar la información del pedido: ' + err.message, 'error');
+      return;
+    }
+
+    if (!order) {
+      Swal.fire('Error', 'Pedido no encontrado.', 'error');
+      return;
+    }
+
+    // Determine fallback values for customer details
+    let displayName = order.customer_name;
+    if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+      if (order.raw_shopify_data) {
+        const raw = order.raw_shopify_data;
+        const billing = raw.billing_address;
+        const cust = raw.customer;
+        if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+        else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+      }
+      if (!displayName || displayName.trim() === '') displayName = 'No registrado';
+    }
+
+    let displayPhone = order.customer_phone;
+    if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
+      if (order.raw_shopify_data) {
+        const raw = order.raw_shopify_data;
+        displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+      }
+      if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
+    }
+
+    const modalHtml = `
+      <div style="text-align: left; font-family: 'Inter', sans-serif;">
+        <p style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          Genera una etiqueta de despacho personalizada para el pedido <strong>#${order.external_order_number || order.id.split('-')[0]}</strong>.
+        </p>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Formato de Etiqueta:</label>
+          <select id="swal-label-size" class="form-input" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);">
+            <option value="10x15" selected>10 x 15 cm (Recomendado para Courier / Despacho)</option>
+            <option value="5x5">5 x 5 cm (Formato Cuadrado Compacto)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Courier / Operador:</label>
+          <input type="text" id="swal-label-courier" class="form-input" value="${escapeHtml(order.courier || '')}" placeholder="Ej: Starken, Chilexpress, Starken por pagar" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Comentario de Cabecera (Head):</label>
+          <input type="text" id="swal-label-head-comment" class="form-input" placeholder="Ej: ¡FRÁGIL! / ENTREGAR EN CONSERJERÍA" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Comentario de Pie (Footer):</label>
+          <input type="text" id="swal-label-foot-comment" class="form-input" placeholder="Ej: Gracias por su compra / Entregar antes de las 18:00" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+        </div>
+      </div>
+    `;
+
+    Swal.fire({
+      title: '<i class="ri-printer-line" style="color:var(--color-primary); margin-right: 0.5rem;"></i>Etiqueta de Despacho Stocka',
+      html: modalHtml,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-printer-line" style="margin-right:0.25rem;"></i> Imprimir',
+      cancelButtonText: 'Cancelar',
+      customClass: {
+        confirmButton: 'btn btn-primary',
+        cancelButton: 'btn btn-outline'
+      },
+      preConfirm: () => {
+        return {
+          size: document.getElementById('swal-label-size').value,
+          courier: document.getElementById('swal-label-courier').value.trim(),
+          headComment: document.getElementById('swal-label-head-comment').value.trim(),
+          footComment: document.getElementById('swal-label-foot-comment').value.trim()
+        };
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const { size, courier, headComment, footComment } = result.value;
+        window.printCustomShippingLabel(order, displayName, displayPhone, { size, courier, headComment, footComment });
+      }
+    });
+  };
+
+  window.showBulkShippingLabelModal = async function(customIds) {
+    if (typeof Swal === 'undefined') {
+      alert("Error: SweetAlert2 no está cargado.");
+      return;
+    }
+
+    const orderIds = customIds || Array.from(window.wmsSelectedOrderIds || []);
+    if (orderIds.length === 0) {
+      Swal.fire('Atención', 'No hay pedidos seleccionados.', 'warning');
+      return;
+    }
+
+    Swal.fire({
+      title: 'Cargando datos...',
+      text: `Por favor, espere mientras obtenemos los detalles de los ${orderIds.length} pedidos.`,
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    let orders = [];
+    try {
+      const { data, error } = await supabase
+        .from('orders')
+        .select(`
+          *,
+          order_items (
+            quantity,
+            products (
+              id,
+              sku,
+              name,
+              price
+            )
+          )
+        `)
+        .in('id', orderIds);
+       
+      if (error) throw error;
+      orders = data || [];
+    } catch (err) {
+      console.error("Error fetching orders:", err);
+      Swal.fire('Error', 'No se pudieron cargar los pedidos: ' + err.message, 'error');
+      return;
+    }
+
+    if (orders.length === 0) {
+      Swal.fire('Error', 'No se encontraron los pedidos.', 'error');
+      return;
+    }
+
+    const modalHtml = `
+      <div style="text-align: left; font-family: 'Inter', sans-serif;">
+        <p style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-muted);">
+          Genera etiquetas de despacho masivas para los <strong>${orders.length}</strong> pedidos seleccionados con la misma información de comentarios y courier.
+        </p>
+        
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Formato de Etiquetas:</label>
+          <select id="swal-bulk-label-size" class="form-input" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);">
+            <option value="10x15" selected>10 x 15 cm (Recomendado para Courier / Despacho)</option>
+            <option value="5x5">5 x 5 cm (Formato Cuadrado Compacto)</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Courier / Operador (Opcional - Aplica a todos):</label>
+          <input type="text" id="swal-bulk-label-courier" class="form-input" placeholder="Ej: Starken, Chilexpress, Starken por pagar" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+          <span style="font-size: 0.72rem; color: var(--color-text-muted);">Dejar vacío para usar el courier original de cada pedido.</span>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Comentario de Cabecera (Head):</label>
+          <input type="text" id="swal-bulk-label-head-comment" class="form-input" placeholder="Ej: ¡FRÁGIL! / ENTREGAR EN CONSERJERÍA" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+        </div>
+
+        <div class="form-group" style="margin-bottom: 1rem;">
+          <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Comentario de Pie (Footer):</label>
+          <input type="text" id="swal-bulk-label-foot-comment" class="form-input" placeholder="Ej: Gracias por su compra / Entregar antes de las 18:00" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);" />
+        </div>
+      </div>
+    `;
+
+    Swal.fire({
+      title: '<i class="ri-printer-line" style="color:var(--color-primary); margin-right: 0.5rem;"></i>Etiquetas Masivas Stocka',
+      html: modalHtml,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-printer-line" style="margin-right:0.25rem;"></i> Imprimir',
+      cancelButtonText: 'Cancelar',
+      customClass: {
+        confirmButton: 'btn btn-primary',
+        cancelButton: 'btn btn-outline'
+      },
+      preConfirm: () => {
+        return {
+          size: document.getElementById('swal-bulk-label-size').value,
+          courier: document.getElementById('swal-bulk-label-courier').value.trim(),
+          headComment: document.getElementById('swal-bulk-label-head-comment').value.trim(),
+          footComment: document.getElementById('swal-bulk-label-foot-comment').value.trim()
+        };
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        const { size, courier, headComment, footComment } = result.value;
+        window.printBulkCustomShippingLabels(orders, { size, courier, headComment, footComment });
+      }
+    });
+  };
+
+  window.printCustomShippingLabel = function (order, displayName, displayPhone, options) {
+    const selectedSize = options.size || '10x15';
+    
+    // Generate barcode SVG for the external order number (fallback to id)
+    const codeVal = order.external_order_number || order.id;
+    // Generate barcode with JsBarcode
+    const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
+
+    let labelContentHTML = '';
+    const courierVal = options.courier || order.courier || 'POR DEFINIR';
+
+    if (selectedSize === '10x15') {
+      labelContentHTML = `
+        <div class="label-page size-10x15">
+          <!-- Cabecera -->
+          <div class="header-section">
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" class="logo-img" alt="STOCKA">
+            <div class="title-container">
+              <div class="main-title">ETIQUETA DE DESPACHO</div>
+              <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
+            </div>
+          </div>
+
+          ${options.headComment ? `<div class="head-comment-box">${escapeHtml(options.headComment)}</div>` : ''}
+
+          <!-- Datos de Envío / Courier -->
+          <div class="shipping-info-grid">
+            <div class="info-block">
+              <span class="block-title">COURIER / OPERADOR</span>
+              <span class="block-value highlighted-courier">${escapeHtml(courierVal)}</span>
+            </div>
+            <div class="info-block">
+              <span class="block-title">MÉTODO DE ENVÍO</span>
+              <span class="block-value">${escapeHtml(order.shipping_method || 'ESTÁNDAR')}</span>
+            </div>
+          </div>
+
+          <!-- Destinatario -->
+          <div class="destinatario-section">
+            <div class="section-title">DESTINATARIO</div>
+            <div class="dest-name">${escapeHtml(displayName)}</div>
+            <div class="dest-address">${escapeHtml(order.shipping_address || 'Sin dirección')} ${order.shipping_complement ? `, ${escapeHtml(order.shipping_complement)}` : ''}</div>
+            <div class="dest-city-commune">${escapeHtml(order.shipping_city || 'Sin comuna')}</div>
+            <div class="dest-contact">Teléfono: ${escapeHtml(displayPhone)}</div>
+          </div>
+
+          <!-- Remitente y Pedido -->
+          <div class="origin-grid">
+            <div class="info-block">
+              <span class="block-title">REMITENTE (TIENDA)</span>
+              <span class="block-value">${escapeHtml(order.comercio || 'STOCKA CLIENTE')}</span>
+            </div>
+            <div class="info-block">
+              <span class="block-title">REFERENCIA PEDIDO</span>
+              <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+            </div>
+          </div>
+
+          <!-- Barcode de Referencia -->
+          <div class="barcode-wrapper">
+            ${barcodeSVG}
+          </div>
+
+          <!-- Detalle de Productos -->
+          <div class="items-section">
+            <div class="section-title">DETALLE DE PRODUCTOS (PICKING & PACKING)</div>
+            <table class="items-table">
+              <thead>
+                <tr>
+                  <th style="width: 25%; text-align: left;">SKU</th>
+                  <th style="width: 60%; text-align: left;">Producto</th>
+                  <th style="width: 15%; text-align: center;">Cant</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${order.order_items && order.order_items.length > 0 ? order.order_items.map(oi => `
+                  <tr>
+                    <td style="font-family: monospace; font-weight: bold;">${escapeHtml(oi.products?.sku || 'Sin SKU')}</td>
+                    <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(oi.products?.name || 'Sin nombre')}</td>
+                    <td style="text-align: center; font-weight: bold; font-size: 11px;">${oi.quantity || 1}</td>
+                  </tr>
+                `).join('') : `
+                  <tr>
+                    <td style="font-family: monospace; font-weight: bold;">${escapeHtml(order.sku || 'Sin SKU')}</td>
+                    <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(order.item || 'Sin nombre')}</td>
+                    <td style="text-align: center; font-weight: bold; font-size: 11px;">${order.cantidad || 1}</td>
+                  </tr>
+                `}
+              </tbody>
+            </table>
+          </div>
+
+          ${options.footComment ? `<div class="foot-comment-box">${escapeHtml(options.footComment)}</div>` : ''}
+
+          <!-- Pie de Página -->
+          <div class="footer-section">
+            <span>Preparado y despachado desde Centro de Distribución STOCKA</span>
+          </div>
+        </div>
+      `;
+    } else {
+      // 5x5 cm square format
+      labelContentHTML = `
+        <div class="label-page size-5x5">
+          <div class="compact-header">
+            <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="height: 14px; object-fit: contain;">
+            <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
+          </div>
+
+          ${options.headComment ? `<div class="compact-comment">${escapeHtml(options.headComment)}</div>` : ''}
+
+          <div class="compact-destinatario">
+            <div style="font-size: 9px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</div>
+            <div style="font-size: 7px; line-height: 1.1; max-height: 22px; overflow: hidden;">
+              ${escapeHtml(order.shipping_address || 'Sin dir.')}
+            </div>
+            <div style="font-size: 8px; font-weight: bold; margin-top: 1px;">
+              ${escapeHtml(order.shipping_city || 'Sin comuna')}
+            </div>
+            <div style="font-size: 7px;">Tel: ${escapeHtml(displayPhone)}</div>
+          </div>
+
+          <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
+            <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+            <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
+          </div>
+
+          <!-- Barcode de Referencia -->
+          <div class="compact-barcode-wrapper" style="margin: 2px 0;">
+            ${barcodeSVG}
+          </div>
+
+          ${options.footComment ? `<div class="compact-comment foot">${escapeHtml(options.footComment)}</div>` : ''}
+
+          <div class="compact-footer" style="font-size: 6px; text-align: center; color: #555; margin-top: auto;">
+            STOCKA LOGÍSTICA WMS
+          </div>
+        </div>
+      `;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Imprimir Etiqueta Stocka - WMS</title>
+        <style>
+          /* Core Print Styles */
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+          }
+          
+          .label-page {
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            background: #fff;
+            page-break-after: always;
+          }
+
+          .label-page:last-child {
+            page-break-after: avoid;
+          }
+
+          /* Size: 10x15 cm */
+          .size-10x15 {
+            width: 10cm;
+            height: 15cm;
+            padding: 0.4cm 0.4cm;
+            border: 1px solid #000;
+          }
+          
+          @media print {
+            .size-10x15, .size-5x5 {
+              border: none !important;
+            }
+          }
+
+          .size-10x15 .header-section {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #000;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+          }
+
+          .size-10x15 .logo-img {
+            height: 24px;
+            max-width: 100px;
+            object-fit: contain;
+          }
+
+          .size-10x15 .title-container {
+            text-align: right;
+          }
+
+          .size-10x15 .main-title {
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+          }
+
+          .size-10x15 .sub-title {
+            font-size: 9px;
+            color: #444;
+            font-weight: 600;
+          }
+
+          .head-comment-box {
+            background: #000;
+            color: #fff;
+            text-align: center;
+            font-weight: 800;
+            font-size: 11px;
+            padding: 4px;
+            border-radius: 2px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+          }
+
+          .foot-comment-box {
+            border: 2px dashed #000;
+            text-align: center;
+            font-weight: 700;
+            font-size: 10px;
+            padding: 4px;
+            margin-top: 6px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+          }
+
+          .shipping-info-grid, .origin-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid #000;
+            margin-bottom: 8px;
+          }
+
+          .info-block {
+            padding: 4px 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+
+          .info-block:first-child {
+            border-right: 1px solid #000;
+          }
+
+          .block-title {
+            font-size: 7px;
+            font-weight: bold;
+            color: #555;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+          }
+
+          .block-value {
+            font-size: 10px;
+            font-weight: bold;
+          }
+
+          .highlighted-courier {
+            font-size: 13px !important;
+            font-weight: 900 !important;
+          }
+
+          .destinatario-section {
+            border: 2px solid #000;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background: #fdfdfd;
+          }
+
+          .section-title {
+            font-size: 8px;
+            font-weight: bold;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 2px;
+            margin-bottom: 4px;
+            letter-spacing: 0.3px;
+          }
+
+          .dest-name {
+            font-size: 14px;
+            font-weight: 800;
+            margin-bottom: 2px;
+          }
+
+          .dest-address {
+            font-size: 11px;
+            line-height: 1.2;
+            margin-bottom: 2px;
+          }
+
+          .dest-city-commune {
+            font-size: 13px;
+            font-weight: 900;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+          }
+
+          .dest-contact {
+            font-size: 10px;
+            font-weight: 600;
+          }
+
+          .barcode-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px 0;
+            border: 1px solid #000;
+            margin-bottom: 8px;
+          }
+
+          .barcode-wrapper svg {
+            max-width: 100%;
+            height: auto;
+          }
+
+          .items-section {
+            border: 1px solid #000;
+            padding: 6px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+          }
+
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+          }
+
+          .items-table th {
+            font-size: 8px;
+            color: #333;
+            border-bottom: 1px solid #000;
+            padding: 2px 4px;
+          }
+
+          .items-table td {
+            border-bottom: 1px dashed #ccc;
+            padding: 3px 4px;
+            vertical-align: middle;
+          }
+
+          .items-table tr:last-child td {
+            border-bottom: none;
+          }
+
+          .footer-section {
+            border-top: 1px solid #000;
+            padding-top: 4px;
+            margin-top: 8px;
+            font-size: 8px;
+            text-align: center;
+            font-weight: 600;
+            color: #444;
+          }
+
+          /* Size: 5x5 cm */
+          .size-5x5 {
+            width: 5cm;
+            height: 5cm;
+            padding: 0.15cm 0.15cm;
+            border: 1px dashed #000;
+            display: flex;
+            flex-direction: column;
+          }
+
+          .compact-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #000;
+            padding-bottom: 2px;
+            margin-bottom: 2px;
+          }
+
+          .compact-comment {
+            background: #000;
+            color: #fff;
+            text-align: center;
+            font-weight: bold;
+            font-size: 7px;
+            padding: 2px;
+            border-radius: 1px;
+            text-transform: uppercase;
+            margin: 1px 0;
+          }
+
+          .compact-comment.foot {
+            background: transparent;
+            color: #000;
+            border: 1px dashed #000;
+          }
+
+          .compact-destinatario {
+            text-align: left;
+            margin-bottom: 2px;
+          }
+
+          .compact-barcode-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+
+          .compact-barcode-wrapper svg {
+            max-width: 100%;
+            height: auto;
+          }
+
+          /* CSS Page margin and size rules based on selection */
+          @page {
+            size: ${selectedSize === '5x5' ? '5cm 5cm' : '10cm 15cm'};
+            margin: 0;
+          }
+        </style>
+      </head>
+      <body>
+        ${labelContentHTML}
+      </body>
+      </html>
+    `;
+
+    // Deploy hidden print Frame
+    const iframe = document.createElement('iframe');
+    iframe.id = 'wms-print-labels-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    // Ingress content
+    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    // Trigger printing dialog after loaded
+    const printWindow = iframe.contentWindow;
+    const images = printWindow.document.getElementsByTagName('img');
+    let loadedImages = 0;
+    const totalImages = images.length;
+
+    const proceedToPrint = () => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (err) {
+        console.error("Failed to open native print dialog:", err);
+        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo.', 'error');
+      } finally {
+        setTimeout(() => {
+          iframe.remove();
+        }, 1000);
+      }
+    };
+
+    if (totalImages === 0) {
+      setTimeout(proceedToPrint, 500);
+    } else {
+      let printed = false;
+      // Safety timeout of 1.5 seconds in case image fails to load
+      const safetyTimeout = setTimeout(() => {
+        if (!printed) {
+          printed = true;
+          proceedToPrint();
+        }
+      }, 1500);
+
+      Array.from(images).forEach(img => {
+        if (img.complete) {
+          loadedImages++;
+          if (loadedImages === totalImages && !printed) {
+            clearTimeout(safetyTimeout);
+            printed = true;
+            setTimeout(proceedToPrint, 300);
+          }
+        } else {
+          img.onload = img.onerror = () => {
+            loadedImages++;
+            if (loadedImages === totalImages && !printed) {
+              clearTimeout(safetyTimeout);
+              printed = true;
+              setTimeout(proceedToPrint, 300);
+            }
+          };
+        }
+      });
+    }
+  };
+
+  window.printBulkCustomShippingLabels = function (orders, options) {
+    const selectedSize = options.size || '10x15';
+    let labelPagesHTML = '';
+
+    orders.forEach(order => {
+      // Determine fallback values for customer details
+      let displayName = order.customer_name;
+      if (!displayName || displayName === 'No registrado' || displayName.trim() === '') {
+        if (order.raw_shopify_data) {
+          const raw = order.raw_shopify_data;
+          const billing = raw.billing_address;
+          const cust = raw.customer;
+          if (billing) displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+          else if (cust) displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+        }
+        if (!displayName || displayName.trim() === '') displayName = 'No registrado';
+      }
+
+      let displayPhone = order.customer_phone;
+      if (!displayPhone || displayPhone === 'No registrado' || displayPhone.trim() === '') {
+        if (order.raw_shopify_data) {
+          const raw = order.raw_shopify_data;
+          displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+        }
+        if (!displayPhone || displayPhone.trim() === '') displayPhone = 'No registrado';
+      }
+
+      const codeVal = order.external_order_number || order.id;
+      const barcodeSVG = window.generateBarcodeSVG(codeVal, true, selectedSize);
+      const courierVal = options.courier || order.courier || 'POR DEFINIR';
+
+      if (selectedSize === '10x15') {
+        labelPagesHTML += `
+          <div class="label-page size-10x15">
+            <!-- Cabecera -->
+            <div class="header-section">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" class="logo-img" alt="STOCKA">
+              <div class="title-container">
+                <div class="main-title">ETIQUETA DE DESPACHO</div>
+                <div class="sub-title">STOCKA LOGÍSTICA WMS</div>
+              </div>
+            </div>
+
+            ${options.headComment ? `<div class="head-comment-box">${escapeHtml(options.headComment)}</div>` : ''}
+
+            <!-- Datos de Envío / Courier -->
+            <div class="shipping-info-grid">
+              <div class="info-block">
+                <span class="block-title">COURIER / OPERADOR</span>
+                <span class="block-value highlighted-courier">${escapeHtml(courierVal)}</span>
+              </div>
+              <div class="info-block">
+                <span class="block-title">MÉTODO DE ENVÍO</span>
+                <span class="block-value">${escapeHtml(order.shipping_method || 'ESTÁNDAR')}</span>
+              </div>
+            </div>
+
+            <!-- Destinatario -->
+            <div class="destinatario-section">
+              <div class="section-title">DESTINATARIO</div>
+              <div class="dest-name">${escapeHtml(displayName)}</div>
+              <div class="dest-address">${escapeHtml(order.shipping_address || 'Sin dirección')} ${order.shipping_complement ? `, ${escapeHtml(order.shipping_complement)}` : ''}</div>
+              <div class="dest-city-commune">${escapeHtml(order.shipping_city || 'Sin comuna')}</div>
+              <div class="dest-contact">Teléfono: ${escapeHtml(displayPhone)}</div>
+            </div>
+
+            <!-- Remitente y Pedido -->
+            <div class="origin-grid">
+              <div class="info-block">
+                <span class="block-title">REMITENTE (TIENDA)</span>
+                <span class="block-value">${escapeHtml(order.comercio || 'STOCKA CLIENTE')}</span>
+              </div>
+              <div class="info-block">
+                <span class="block-title">REFERENCIA PEDIDO</span>
+                <span class="block-value">#${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+              </div>
+            </div>
+
+            <!-- Barcode de Referencia -->
+            <div class="barcode-wrapper">
+              ${barcodeSVG}
+            </div>
+
+            <!-- Detalle de Productos -->
+            <div class="items-section">
+              <div class="section-title">DETALLE DE PRODUCTOS (PICKING & PACKING)</div>
+              <table class="items-table">
+                <thead>
+                  <tr>
+                    <th style="width: 25%; text-align: left;">SKU</th>
+                    <th style="width: 60%; text-align: left;">Producto</th>
+                    <th style="width: 15%; text-align: center;">Cant</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${order.order_items && order.order_items.length > 0 ? order.order_items.map(oi => `
+                    <tr>
+                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(oi.products?.sku || 'Sin SKU')}</td>
+                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(oi.products?.name || 'Sin nombre')}</td>
+                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${oi.quantity || 1}</td>
+                    </tr>
+                  `).join('') : `
+                    <tr>
+                      <td style="font-family: monospace; font-weight: bold;">${escapeHtml(order.sku || 'Sin SKU')}</td>
+                      <td style="font-size: 9px; line-height: 1.1;">${escapeHtml(order.item || 'Sin nombre')}</td>
+                      <td style="text-align: center; font-weight: bold; font-size: 11px;">${order.cantidad || 1}</td>
+                    </tr>
+                  `}
+                </tbody>
+              </table>
+            </div>
+
+            ${options.footComment ? `<div class="foot-comment-box">${escapeHtml(options.footComment)}</div>` : ''}
+
+            <!-- Pie de Página -->
+            <div class="footer-section">
+              <span>Preparado y despachado desde Centro de Distribución STOCKA</span>
+            </div>
+          </div>
+        `;
+      } else {
+        // 5x5 cm square format
+        labelPagesHTML += `
+          <div class="label-page size-5x5">
+            <div class="compact-header">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093" style="height: 14px; object-fit: contain;">
+              <span style="font-size: 7px; font-weight: 800; color: #000; letter-spacing: 0.3px;">DESPACHO</span>
+            </div>
+
+            ${options.headComment ? `<div class="compact-comment">${escapeHtml(options.headComment)}</div>` : ''}
+
+            <div class="compact-destinatario">
+              <div style="font-size: 9px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</div>
+              <div style="font-size: 7px; line-height: 1.1; max-height: 22px; overflow: hidden;">
+                ${escapeHtml(order.shipping_address || 'Sin dir.')}
+              </div>
+              <div style="font-size: 8px; font-weight: bold; margin-top: 1px;">
+                ${escapeHtml(order.shipping_city || 'Sin comuna')}
+              </div>
+              <div style="font-size: 7px;">Tel: ${escapeHtml(displayPhone)}</div>
+            </div>
+
+            <div class="compact-order-info" style="display: flex; justify-content: space-between; font-size: 7px; border-top: 1px dashed #333; padding-top: 1px; margin-top: 2px;">
+              <span>REF: #${escapeHtml(order.external_order_number || order.id.split('-')[0])}</span>
+              <span style="font-weight: bold;">${escapeHtml(courierVal)}</span>
+            </div>
+
+            <!-- Barcode de Referencia -->
+            <div class="compact-barcode-wrapper" style="margin: 2px 0;">
+              ${barcodeSVG}
+            </div>
+
+            ${options.footComment ? `<div class="compact-comment foot">${escapeHtml(options.footComment)}</div>` : ''}
+
+            <div class="compact-footer" style="font-size: 6px; text-align: center; color: #555; margin-top: auto;">
+              STOCKA LOGÍSTICA WMS
+            </div>
+          </div>
+        `;
+      }
+    });
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Imprimir Etiquetas Stocka - WMS</title>
+        <style>
+          /* Core Print Styles */
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+          }
+          
+          .label-page {
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            background: #fff;
+            page-break-after: always;
+          }
+
+          .label-page:last-child {
+            page-break-after: avoid;
+          }
+
+          /* Size: 10x15 cm */
+          .size-10x15 {
+            width: 10cm;
+            height: 15cm;
+            padding: 0.4cm 0.4cm;
+            border: 1px solid #000;
+          }
+          
+          @media print {
+            .size-10x15, .size-5x5 {
+              border: none !important;
+            }
+          }
+
+          .size-10x15 .header-section {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #000;
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+          }
+
+          .size-10x15 .logo-img {
+            height: 24px;
+            max-width: 100px;
+            object-fit: contain;
+          }
+
+          .size-10x15 .title-container {
+            text-align: right;
+          }
+
+          .size-10x15 .main-title {
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0.5px;
+          }
+
+          .size-10x15 .sub-title {
+            font-size: 9px;
+            color: #444;
+            font-weight: 600;
+          }
+
+          .head-comment-box {
+            background: #000;
+            color: #fff;
+            text-align: center;
+            font-weight: 800;
+            font-size: 11px;
+            padding: 4px;
+            border-radius: 2px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+          }
+
+          .foot-comment-box {
+            border: 2px dashed #000;
+            text-align: center;
+            font-weight: 700;
+            font-size: 10px;
+            padding: 4px;
+            margin-top: 6px;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+          }
+
+          .shipping-info-grid, .origin-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            border: 1px solid #000;
+            margin-bottom: 8px;
+          }
+
+          .info-block {
+            padding: 4px 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+          }
+
+          .info-block:first-child {
+            border-right: 1px solid #000;
+          }
+
+          .block-title {
+            font-size: 7px;
+            font-weight: bold;
+            color: #555;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+          }
+
+          .block-value {
+            font-size: 10px;
+            font-weight: bold;
+          }
+
+          .highlighted-courier {
+            font-size: 13px !important;
+            font-weight: 900 !important;
+          }
+
+          .destinatario-section {
+            border: 2px solid #000;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+            background: #fdfdfd;
+          }
+
+          .section-title {
+            font-size: 8px;
+            font-weight: bold;
+            color: #000;
+            border-bottom: 1px solid #000;
+            padding-bottom: 2px;
+            margin-bottom: 4px;
+            letter-spacing: 0.3px;
+          }
+
+          .dest-name {
+            font-size: 14px;
+            font-weight: 800;
+            margin-bottom: 2px;
+          }
+
+          .dest-address {
+            font-size: 11px;
+            line-height: 1.2;
+            margin-bottom: 2px;
+          }
+
+          .dest-city-commune {
+            font-size: 13px;
+            font-weight: 900;
+            text-transform: uppercase;
+            margin-bottom: 2px;
+          }
+
+          .dest-contact {
+            font-size: 10px;
+            font-weight: 600;
+          }
+
+          .barcode-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 8px 0;
+            border: 1px solid #000;
+            margin-bottom: 8px;
+          }
+
+          .barcode-wrapper svg {
+            max-width: 100%;
+            height: auto;
+          }
+
+          .items-section {
+            border: 1px solid #000;
+            padding: 6px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+          }
+
+          .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+          }
+
+          .items-table th {
+            font-size: 8px;
+            color: #333;
+            border-bottom: 1px solid #000;
+            padding: 2px 4px;
+          }
+
+          .items-table td {
+            border-bottom: 1px dashed #ccc;
+            padding: 3px 4px;
+            vertical-align: middle;
+          }
+
+          .items-table tr:last-child td {
+            border-bottom: none;
+          }
+
+          .footer-section {
+            border-top: 1px solid #000;
+            padding-top: 4px;
+            margin-top: 8px;
+            font-size: 8px;
+            text-align: center;
+            font-weight: 600;
+            color: #444;
+          }
+
+          /* Size: 5x5 cm */
+          .size-5x5 {
+            width: 5cm;
+            height: 5cm;
+            padding: 0.15cm 0.15cm;
+            border: 1px dashed #000;
+            display: flex;
+            flex-direction: column;
+          }
+
+          .compact-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #000;
+            padding-bottom: 2px;
+            margin-bottom: 2px;
+          }
+
+          .compact-comment {
+            background: #000;
+            color: #fff;
+            text-align: center;
+            font-weight: bold;
+            font-size: 7px;
+            padding: 2px;
+            border-radius: 1px;
+            text-transform: uppercase;
+            margin: 1px 0;
+          }
+
+          .compact-comment.foot {
+            background: transparent;
+            color: #000;
+            border: 1px dashed #000;
+          }
+
+          .compact-destinatario {
+            text-align: left;
+            margin-bottom: 2px;
+          }
+
+          .compact-barcode-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+          }
+
+          .compact-barcode-wrapper svg {
+            max-width: 100%;
+            height: auto;
+          }
+
+          /* CSS Page margin and size rules based on selection */
+          @page {
+            size: ${selectedSize === '5x5' ? '5cm 5cm' : '10cm 15cm'};
+            margin: 0;
+          }
+        </style>
+      </head>
+      <body>
+        ${labelPagesHTML}
+      </body>
+      </html>
+    `;
+
+    // Deploy hidden print Frame
+    const iframe = document.createElement('iframe');
+    iframe.id = 'wms-print-labels-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    // Ingress content
+    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    // Trigger printing dialog after loaded
+    const printWindow = iframe.contentWindow;
+    const images = printWindow.document.getElementsByTagName('img');
+    let loadedImages = 0;
+    const totalImages = images.length;
+
+    const proceedToPrint = () => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch (err) {
+        console.error("Failed to open native print dialog:", err);
+        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo.', 'error');
+      } finally {
+        setTimeout(() => {
+          iframe.remove();
+        }, 1000);
+      }
+    };
+
+    if (totalImages === 0) {
+      setTimeout(proceedToPrint, 500);
+    } else {
+      let printed = false;
+      // Safety timeout of 1.5 seconds in case image fails to load
+      const safetyTimeout = setTimeout(() => {
+        if (!printed) {
+          printed = true;
+          proceedToPrint();
+        }
+      }, 1500);
+
+      Array.from(images).forEach(img => {
+        if (img.complete) {
+          loadedImages++;
+          if (loadedImages === totalImages && !printed) {
+            clearTimeout(safetyTimeout);
+            printed = true;
+            setTimeout(proceedToPrint, 300);
+          }
+        } else {
+          img.onload = img.onerror = () => {
+            loadedImages++;
+            if (loadedImages === totalImages && !printed) {
+              clearTimeout(safetyTimeout);
+              printed = true;
+              setTimeout(proceedToPrint, 300);
+            }
+          };
+        }
+      });
+    }
+  };
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.toString().replace(/[&<>"']/g, function (m) { return map[m]; });
+  }
+
 })();

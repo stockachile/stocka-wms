@@ -87,7 +87,8 @@ serve(async (req) => {
       'Optiroute': 'optiroute_sync.yml',
       'Walmart': 'sync_walmart.yml',
       'Shopify': 'sync_shopify.yml',
-      'Tiendanube': 'sync_tiendanube.yml'
+      'Tiendanube': 'sync_tiendanube.yml',
+      'Ripley': 'sync_ripley.yml'
     }
 
     const workflowFile = workflowMap[platform]
