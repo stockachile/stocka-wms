@@ -19719,10 +19719,15 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     titleText = 'Detalle de Montos con Atraso';
     
     filterBarHtml = `
-      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+        </div>
+        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
+        </div>
       </div>
     `;
 
@@ -19740,7 +19745,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     });
     
     tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
         <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -19761,10 +19766,15 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     titleText = 'Detalle de Montos Próximos a Vencer';
     
     filterBarHtml = `
-      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+        </div>
+        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
+        </div>
       </div>
     `;
 
@@ -19782,7 +19792,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     });
     
     tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
         <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -19823,6 +19833,10 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
   }
   
   modal.classList.add('active');
+  
+  if (tableRows && (metricType === 'atrasado' || metricType === 'proximo')) {
+    window.filterModalMetricService('all');
+  }
 };
 
 window.closeDashboardModal = function() {
@@ -23978,15 +23992,20 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
     });
 
     filterBarHtml = `
-      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+        </div>
+        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
+        </div>
       </div>
     `;
 
     tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
         <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(item.amount)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(item.total)}</span></td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -23997,10 +24016,15 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
     titleText = `Detalle de Montos con Atraso Anual (${year})`;
     
     filterBarHtml = `
-      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+        </div>
+        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
+        </div>
       </div>
     `;
 
@@ -24018,7 +24042,7 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
     });
     
     tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
         <td>
           <strong>${item.commerce}</strong><br>
           <span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span>
@@ -24042,10 +24066,15 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
     titleText = `Detalle de Montos Próximos a Vencer Anual (${year})`;
     
     filterBarHtml = `
-      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
-        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin: 0;">
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+          <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+        </div>
+        <div id="modal-metric-total-summary" style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
+          Total: <span id="modal-metric-total-val" style="color: var(--color-primary);">-</span>
+        </div>
       </div>
     `;
 
@@ -24063,7 +24092,7 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
     });
     
     tableRows = list.map(item => `
-      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}" data-amount="${item.amount}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
         <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -24104,6 +24133,10 @@ window.showDashboardAnnualMetricDetail = function(metricType, year) {
   }
   
   modal.classList.add('active');
+  
+  if (tableRows && (metricType === 'atrasado' || metricType === 'proximo' || metricType === 'received')) {
+    window.filterModalMetricService('all');
+  }
 };
 
 // ==========================================
