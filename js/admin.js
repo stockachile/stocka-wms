@@ -1,4 +1,4 @@
-import supabase from './supabase.js';
+import supabase from './supabase.js?v=1.0.3';
 import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
@@ -1633,7 +1633,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     meli_order_items:raw_meli_data->order_items,
     paris_items:raw_paris_data->items,
     ripley_items:raw_ripley_data->order_lines,
-    order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
+    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
   `, q => {
     let query = q;
     if (fromISO) query = query.gte('created_at', fromISO);
@@ -2959,7 +2959,7 @@ window.applyWmsFiltersAndRender = function() {
       shipmentStatusHtml = `<p style="margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--color-text-muted); font-style: italic;">Sin información de despacho unificado</p>`;
     }
 
-    // Items table breakdown (Agrupando repetidos)
+    // Items table breakdown (Agrupando por SKU y Bodega)
     let itemsRowsHtml = '';
     if (order.order_items && order.order_items.length > 0) {
       const grouped = {};
@@ -2967,16 +2967,21 @@ window.applyWmsFiltersAndRender = function() {
         const pSku = oi.products?.sku || order.sku || 'Sin SKU';
         const pName = oi.products?.name || order.item || 'Sin Nombre';
         const pQty = oi.quantity || 0;
+        const pWhId = oi.warehouse_id || 'null';
+        const pWhName = oi.warehouses?.name || 'Bodega Central';
+        const groupKey = pSku + '::' + pWhId;
         
-        if (!grouped[pSku]) {
-          grouped[pSku] = {
+        if (!grouped[groupKey]) {
+          grouped[groupKey] = {
             sku: pSku,
             name: pName,
             quantity: 0,
-            price: Number(oi.products?.price) || 0
+            price: Number(oi.products?.price) || 0,
+            warehouseId: oi.warehouse_id,
+            warehouseName: pWhName
           };
         }
-        grouped[pSku].quantity += pQty;
+        grouped[groupKey].quantity += pQty;
       });
 
       Object.values(grouped).forEach(item => {
@@ -2984,18 +2989,13 @@ window.applyWmsFiltersAndRender = function() {
         const subtotal = item.quantity * pPrice;
 
         // Determinar stock de bodega
-        const origItem = order.order_items.find(oi => oi.products?.sku === item.sku);
+        const origItem = order.order_items.find(oi => (oi.products?.sku || order.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
         if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
-          let available = 0;
           const invMap = window.loadedOrdersInventoryMap || {};
-          Object.keys(invMap).forEach(key => {
-            if (key.startsWith(origItem.product_id + '_')) {
-              available += invMap[key] || 0;
-            }
-          });
+          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
           if (available < item.quantity) {
             rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
             stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
@@ -3011,7 +3011,10 @@ window.applyWmsFiltersAndRender = function() {
         itemsRowsHtml += `
           <tr style="${rowStyle}">
             <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
-            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</td>
+            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${item.name}<br>
+              <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+            </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
@@ -27725,7 +27728,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))')
+        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -29851,6 +29854,14 @@ window.openEditOrderItemsModal = async function(orderId) {
 
     if (itemsErr) throw itemsErr;
 
+    const { data: warehouses, error: whErr } = await supabase
+      .from('warehouses')
+      .select('id, name')
+      .order('name');
+
+    if (whErr) throw whErr;
+    window.tempWarehouses = warehouses || [];
+
     const { data: commerceProducts, error: prodErr } = await supabase
       .from('products')
       .select('id, sku, name, price')
@@ -29893,11 +29904,21 @@ window.renderEditOrderItemsModal = function(orderId, commerce) {
     `;
   } else {
     window.tempEditOrderItems.forEach((item, index) => {
+      const warehouseOptions = (window.tempWarehouses || []).map(w => `
+        <option value="${w.id}" ${item.warehouse_id === w.id ? 'selected' : ''}>${w.name}</option>
+      `).join('');
+
       rowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.5rem; text-align: left;">
             <strong>${item.sku}</strong><br>
-            <span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.name}</span>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.25rem;">${item.name}</span>
+            <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.75rem;">
+              <span style="color: var(--color-text-muted);">Bodega:</span>
+              <select onchange="window.updateTempEditItemWarehouse(${index}, this.value)" style="padding: 0.15rem 0.35rem; font-size: 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); font-weight: 500;">
+                ${warehouseOptions}
+              </select>
+            </div>
           </td>
           <td style="padding: 0.5rem;">
             <input type="number" value="${item.quantity}" min="1" onchange="window.updateTempEditItemQuantity(${index}, this.value)" style="width: 60px; padding: 0.25rem; font-size: 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); text-align: center; background: var(--color-surface); color: var(--color-text-main);" />
@@ -29987,6 +30008,11 @@ window.updateTempEditItemQuantity = function(index, val) {
   window.tempEditOrderItems[index].quantity = qty;
 };
 
+window.updateTempEditItemWarehouse = function(index, val) {
+  if (!window.tempEditOrderItems[index]) return;
+  window.tempEditOrderItems[index].warehouse_id = val || null;
+};
+
 window.removeTempEditItem = function(index, orderId, commerce) {
   window.tempEditOrderItems.splice(index, 1);
   window.renderEditOrderItemsModal(orderId, commerce);
@@ -30020,9 +30046,10 @@ window.addTempEditItem = function(orderId, commerce) {
   if (existingIdx !== -1) {
     window.tempEditOrderItems[existingIdx].quantity += qty;
   } else {
+    const bodegaCentral = (window.tempWarehouses || []).find(w => w.name.toLowerCase().includes('central'));
     const defaultWarehouseId = window.tempEditOrderItems.length > 0 
       ? window.tempEditOrderItems[0].warehouse_id 
-      : null;
+      : (bodegaCentral ? bodegaCentral.id : (window.tempWarehouses && window.tempWarehouses.length > 0 ? window.tempWarehouses[0].id : null));
 
     window.tempEditOrderItems.push({
       id: null,
@@ -30050,8 +30077,13 @@ window.saveEditOrderItems = async function(orderId, comment) {
         changesList.push(`Eliminado SKU ${orig.sku}: ${orig.name} (Cant: ${orig.quantity})`);
       } else {
         const curr = currentMap.get(orig.id);
-        if (curr.quantity !== orig.quantity) {
-          changesList.push(`Cantidad modificada SKU ${orig.sku}: ${orig.name} de ${orig.quantity} a ${curr.quantity}`);
+        if (curr.quantity !== orig.quantity || curr.warehouse_id !== orig.warehouse_id) {
+          const origWhName = (window.tempWarehouses || []).find(w => w.id === orig.warehouse_id)?.name || 'Bodega Central';
+          const currWhName = (window.tempWarehouses || []).find(w => w.id === curr.warehouse_id)?.name || 'Bodega Central';
+          let changeMsg = `Modificado SKU ${orig.sku}: ${orig.name}`;
+          if (curr.quantity !== orig.quantity) changeMsg += ` de cantidad ${orig.quantity} a ${curr.quantity}`;
+          if (curr.warehouse_id !== orig.warehouse_id) changeMsg += ` de bodega "${origWhName}" a "${currWhName}"`;
+          changesList.push(changeMsg);
         }
       }
     }
@@ -30098,10 +30130,13 @@ window.saveEditOrderItems = async function(orderId, comment) {
         if (error) throw error;
       } else {
         const curr = currentMap.get(orig.id);
-        if (curr.quantity !== orig.quantity) {
+        if (curr.quantity !== orig.quantity || curr.warehouse_id !== orig.warehouse_id) {
           const { error } = await supabase
             .from('order_items')
-            .update({ quantity: curr.quantity })
+            .update({ 
+              quantity: curr.quantity,
+              warehouse_id: curr.warehouse_id || defaultWarehouseId
+            })
             .eq('id', orig.id);
           if (error) throw error;
         }
@@ -30162,10 +30197,10 @@ window.saveEditOrderItems = async function(orderId, comment) {
       order.item = orderItemsNames;
       order.total_value = totalValue;
 
-      // Recargar los order_items en memoria con sus productos asociados
+      // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict)')
+        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {

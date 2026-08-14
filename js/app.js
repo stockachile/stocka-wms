@@ -1,4 +1,4 @@
-import supabase from './supabase.js';
+import supabase from './supabase.js?v=1.0.3';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';
@@ -2441,6 +2441,7 @@ window.setupCalendarListeners_app = function() {
 
 // Render general catalog of products
 async function renderCatalog() {
+  window.catalogSelectedProductIds = new Set();
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = getObserverBanner() + `
     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
@@ -2620,7 +2621,7 @@ async function renderCatalog() {
       </div>
     `;
 
-    const datalistOptionsHtml = masterProducts.map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
+    const datalistOptionsHtml = masterProducts.filter(p => p.status !== 'archived').map(p => `<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');
 
     let commerceSelectorHtml = '';
     if (assignedComercios.length > 1) {
@@ -2698,6 +2699,7 @@ async function renderCatalog() {
 
       <div class="integration-content">
         <div id="tab-catalog-master" class="catalog-tab-pane" style="display: block;">
+          <div id="catalog-bulk-actions-container"></div>
           <div class="card" style="margin-bottom: 2rem; border: 1px solid var(--color-border); border-radius: 0.5rem; background-color: var(--color-card-bg); box-shadow: var(--shadow-sm);">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; flex-wrap: wrap; gap: 1rem;">
               <div>
@@ -2719,6 +2721,9 @@ async function renderCatalog() {
               <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; vertical-align: middle;">
                 <thead>
                   <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                    <th style="padding: 0.65rem 0.75rem; width: 40px; text-align: center;">
+                      <input type="checkbox" id="catalog-select-all" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+                    </th>
                     <th style="padding: 0.65rem 0.75rem;">Imagen</th>
                     <th class="sortable-header" data-sort="sku" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por SKU">
                       SKU <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
@@ -2737,6 +2742,9 @@ async function renderCatalog() {
                     </th>
                     <th class="sortable-header" data-sort="origin" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Origen">
                       Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="status" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Estado">
+                      Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
                     <th class="sortable-header" data-sort="medidas" style="padding: 0.65rem 0.75rem; cursor: pointer; user-select: none;" title="Ordenar por Medidas">
                       Medidas <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
@@ -3116,6 +3124,10 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-expiration').value = product.expiration_date || '';
     document.getElementById('edit-prod-lot').value = product.lot_number || '';
     document.getElementById('edit-prod-stock-critico').value = product.stock_critico || 0;
+    const statusInput = document.getElementById('edit-prod-status');
+    if (statusInput) {
+      statusInput.value = product.status || 'active';
+    }
 
     // Set initial volume mode and value
     const hasVolume = product.volumen !== null && product.volumen !== undefined;
@@ -3247,6 +3259,7 @@ async function renderInventory() {
         stock_critico,
         is_virtual,
         is_pack,
+        status,
         inventory (
           warehouse_id,
           quantity,
@@ -3558,7 +3571,7 @@ async function renderInventory() {
 // ----------------------------------------------------
 
 function applyInventoryFiltersAndSort(flat = false) {
-  const products = window.cachedInventoryProducts || [];
+  const products = (window.cachedInventoryProducts || []).filter(p => p.status !== 'archived');
   const search = (window.inventorySearchQuery || '').toLowerCase().trim();
   
   let rows = [];
@@ -5387,7 +5400,7 @@ async function renderOrders() {
       operador,
       fecha_procesamiento,
       sucursal_pickeo,
-      order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+      order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
     `;
 
     const orders = await window.fetchAllSupabaseRows('orders', selectStr, q => {
@@ -5476,7 +5489,7 @@ async function renderOrders() {
             agenda,
             operador,
             fecha_procesamiento,
-            order_items (quantity, product_id, warehouse_id, products(id, sku, name, price, image_url, options, is_virtual))
+            order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual))
           `)
           .lt('created_at', startOfMonth);
 
@@ -6348,7 +6361,7 @@ window.applyClientWmsFiltersAndRender = function() {
       slaHtml = match ? `<span style="font-size:0.75rem; color:var(--color-text-muted);">${slaMap[match]}</span>` : slaHtml;
     }
 
-    // Generar ítems detallados para el desplegable (Agrupando repetidos)
+    // Generar ítems detallados para el desplegable (Agrupando por SKU y Bodega)
     let itemsRowsHtml = '';
     const config = window.clientCommerceConfigsMap ? window.clientCommerceConfigsMap[order.comercio] : null;
     const isStockTrackingActive = !!(config && config.inventario_seguimiento);
@@ -6360,15 +6373,20 @@ window.applyClientWmsFiltersAndRender = function() {
         const pSku = oi.products?.sku || oi.sku || 'Sin SKU';
         const pName = oi.products?.name || oi.item_name || 'Sin Nombre';
         const pQty = Number(oi.quantity) || 1;
+        const pWhId = oi.warehouse_id || 'null';
+        const pWhName = oi.warehouses?.name || 'Bodega Central';
+        const groupKey = pSku + '::' + pWhId;
         
-        if (!grouped[pSku]) {
-          grouped[pSku] = {
+        if (!grouped[groupKey]) {
+          grouped[groupKey] = {
             sku: pSku,
             name: pName,
-            quantity: 0
+            quantity: 0,
+            warehouseId: oi.warehouse_id,
+            warehouseName: pWhName
           };
         }
-        grouped[pSku].quantity += pQty;
+        grouped[groupKey].quantity += pQty;
       });
 
       Object.values(grouped).forEach(item => {
@@ -6376,18 +6394,13 @@ window.applyClientWmsFiltersAndRender = function() {
         const subtotal = item.quantity * pPrice;
 
         // Determinar stock de bodega para el cliente
-        const origItem = order.order_items.find(oi => oi.products?.sku === item.sku);
+        const origItem = order.order_items.find(oi => (oi.products?.sku || oi.sku || 'Sin SKU') === item.sku && oi.warehouse_id === item.warehouseId);
         let stockCellHtml = '';
         let rowStyle = 'border-bottom: 1px solid var(--color-border);';
 
         if (shouldProcessStock && origItem && !origItem.products?.is_virtual) {
-          let available = 0;
           const invMap = window.clientOrdersInventoryMap || {};
-          Object.keys(invMap).forEach(key => {
-            if (key.startsWith(origItem.product_id + '_')) {
-              available += invMap[key] || 0;
-            }
-          });
+          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
           if (available < item.quantity) {
             rowStyle += ' background-color: rgba(239, 68, 68, 0.05);';
             stockCellHtml = `<span style="color: #ef4444; font-weight: 700; font-size: 0.8rem;"><i class="ri-error-warning-line"></i> Insuficiente (${available} disp. / nec. ${item.quantity})</span>`;
@@ -6403,7 +6416,10 @@ window.applyClientWmsFiltersAndRender = function() {
         itemsRowsHtml += `
           <tr style="${rowStyle}">
             <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
-            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${item.name}</td>
+            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${item.name}<br>
+              <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
+            </td>
             <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${item.quantity}</td>
             <td style="padding: 0.5rem; text-align: center;">${stockCellHtml}</td>
             <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
@@ -7137,22 +7153,26 @@ async function renderIntegrations() {
 
       ${selectorHtml}
 
-      <!-- Tabs Navigation -->
-      <div class="integration-tabs">
-        <button class="integration-tab active" data-tab="tab-summary"><i class="ri-dashboard-line"></i> Resumen</button>
-        <button class="integration-tab" data-tab="tab-shopify"><i class="ri-shopping-bag-3-line"></i> Shopify</button>
-        <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
-        <button class="integration-tab" data-tab="tab-ripley"><i class="ri-store-2-line"></i> Ripley</button>
-        <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
-        <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
-        <button class="integration-tab" data-tab="tab-walmart"><i class="ri-store-2-line"></i> Walmart</button>
-        <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
-        <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
-        <button class="integration-tab" data-tab="tab-tiendanube"><i class="ri-cloud-fill"></i> Tiendanube</button>
-      </div>
+      <div class="integrations-wrapper">
+        <div class="integrations-sidebar">
+          <div class="integrations-sidebar-title">Plataformas</div>
+          <div class="integration-tabs">
+            <button class="integration-tab active" data-tab="tab-summary"><i class="ri-dashboard-line"></i> Resumen</button>
+            <button class="integration-tab" data-tab="tab-shopify"><i class="ri-shopping-bag-3-line"></i> Shopify</button>
+            <button class="integration-tab" data-tab="tab-paris"><i class="ri-store-2-line"></i> París</button>
+            <button class="integration-tab" data-tab="tab-ripley"><i class="ri-store-2-line"></i> Ripley</button>
+            <button class="integration-tab" data-tab="tab-falabella"><i class="ri-store-2-line"></i> Falabella</button>
+            <button class="integration-tab" data-tab="tab-meli"><i class="ri-store-2-line"></i> MercadoLibre</button>
+            <button class="integration-tab" data-tab="tab-walmart"><i class="ri-store-2-line"></i> Walmart</button>
+            <button class="integration-tab" data-tab="tab-woo"><i class="ri-shopping-cart-2-line"></i> WooCommerce</button>
+            <button class="integration-tab" data-tab="tab-jumpseller"><i class="ri-shopping-bag-2-line"></i> Jumpseller</button>
+            <button class="integration-tab" data-tab="tab-tiendanube"><i class="ri-cloud-fill"></i> Tiendanube</button>
+          </div>
+        </div>
 
-      <!-- Tab Content Container -->
-      <div class="integration-content">
+        <div class="integrations-main-content">
+          <!-- Tab Content Container -->
+          <div class="integration-content">
 
         <!-- TAB: Resumen -->
         <div id="tab-summary" class="integration-tab-pane" style="display: block;">
@@ -8066,7 +8086,9 @@ async function renderIntegrations() {
             </div>
           </div>
         </div>
-      </div>`;
+      </div>
+    </div>
+  </div>`;
       // JS Tabs Logic
       setTimeout(() => {
         const tabs = document.querySelectorAll('.integration-tab');
@@ -9363,17 +9385,19 @@ async function renderIntegrations() {
     try {
       const { data: userAuth } = await supabase.auth.getUser();
       if (userAuth && userAuth.user) {
-        let query = supabase.from('products').select('id, name, sku, price, volumen, weight').order('name');
+        let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
         if (selectedCommerce) {
           query = query.eq('comercio', selectedCommerce);
         } else {
           query = query.eq('comercio', 'no asignado');
         }
         const { data: products } = await query;
-        const productsList = (products || []).map(p => ({
-          ...p,
-          peso: p.weight
-        }));
+        const productsList = (products || [])
+          .filter(p => p.status !== 'archived')
+          .map(p => ({
+            ...p,
+            peso: p.weight
+          }));
 
         if (productsList.length > 0) {
           const productIds = productsList.map(p => p.id);
@@ -9719,6 +9743,15 @@ async function renderIntegrations() {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
       const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
+      const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
+
+      // Validación para evitar movimientos (actualización de stock inicial) en productos archivados
+      if (statusVal === 'archived' && newInitialStock !== oldInitialStock) {
+        alert('No se puede modificar el stock inicial de un producto archivado/inactivo.');
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Guardar Producto';
+        return;
+      }
 
       const { error } = await supabase
         .from('products')
@@ -9727,6 +9760,7 @@ async function renderIntegrations() {
           name,
           barcode,
           send_barcode_to_picker: sendBarcode,
+          status: statusVal,
           length,
           width,
           height,
@@ -13147,7 +13181,13 @@ window.renderReturns = async function() {
           Revisa las devoluciones y cambios. Filtra, pagina y exporta los datos.
         </p>
       </div>
-      <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-create-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-add-line"></i> Registrar Devolución
+        </button>
+        <button id="btn-create-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-arrow-left-right-line"></i> Registrar Cambio
+        </button>
         <button id="btn-info-export" class="btn" style="background-color: rgba(59, 130, 246, 0.15); color: #2563eb; border: 1px solid rgba(59, 130, 246, 0.3); padding: 0.5rem 1rem; display: flex; align-items: center; gap: 0.4rem; border-radius: 99px; font-weight: 700; transition: all 0.2s; cursor: pointer;" title="¿Cómo exportar?">
           <i class="ri-information-line" style="font-size: 1.15rem;"></i> Info
         </button>
@@ -13199,12 +13239,13 @@ window.renderReturns = async function() {
               <th>Transporte</th>
               <th>Sucursal</th>
               <th>Ref. Transporte</th>
+              <th>Estado</th>
               <th>Cant.</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="returns-tbody">
-            <tr><td colspan="9" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+            <tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -13250,6 +13291,10 @@ window.renderReturns = async function() {
     returnsCurrentPage++;
     fetchAndRenderReturnsData();
   });
+
+  // Listeners nuevo registro
+  document.getElementById('btn-create-return').addEventListener('click', () => window.openReverseLogisticsModal('DEVOLUCION'));
+  document.getElementById('btn-create-exchange').addEventListener('click', () => window.openReverseLogisticsModal('CAMBIO'));
 
   // Listeners Exportación
   document.getElementById('btn-export-csv').addEventListener('click', () => exportReturnsData('csv'));
@@ -13307,7 +13352,7 @@ async function fetchAndRenderReturnsData() {
   const btnNext = document.getElementById('btn-ret-next');
   const info = document.getElementById('returns-pagination-info');
 
-  tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
   btnPrev.disabled = true;
   btnNext.disabled = true;
 
@@ -13325,7 +13370,7 @@ async function fetchAndRenderReturnsData() {
 
     let html = '';
     if (!returns || returns.length === 0) {
-      html = '<tr><td colspan="9" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+      html = '<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
     } else {
       returns.forEach(r => {
         const d = new Date(r.created_at);
@@ -13334,6 +13379,14 @@ async function fetchAndRenderReturnsData() {
         
         let safeData = '{}';
         try { safeData = encodeURIComponent(JSON.stringify(r)); } catch(e){}
+
+        const statusVal = r.status || 'pendiente';
+        let statusBadge = '';
+        if (statusVal === 'pendiente') {
+          statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
+        } else {
+          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+        }
 
         html += `
           <tr style="transition: background-color 0.2s;">
@@ -13344,6 +13397,7 @@ async function fetchAndRenderReturnsData() {
             <td><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</td>
             <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.sucursal || 'N/A'}</td>
             <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
+            <td>${statusBadge}</td>
             <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
             <td>
               <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
@@ -13364,7 +13418,7 @@ async function fetchAndRenderReturnsData() {
 
   } catch (err) {
     console.error('Error:', err);
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
   }
 }
 
@@ -13455,19 +13509,58 @@ window.openReturnsDetail = function(dataStr) {
     const title = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
     const badgeClass = data.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
     
-    let prodHtml = '<ul style="margin: 0; padding-left: 1.2rem; color: var(--color-text-main);">';
-    if (data.productos && Array.isArray(data.productos)) {
+    let prodHtml = `
+      <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+        <thead>
+          <tr>
+            <th style="width: 35%;">Devuelve / Ingresa</th>
+            <th style="width: 35%;">Reemplazo / Sale</th>
+            <th style="width: 15%; text-align: center;">Retorna Stock</th>
+            <th style="width: 15%;">Comentario Item</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    if (data.productos && Array.isArray(data.productos) && data.productos.length > 0) {
       data.productos.forEach(p => {
-        prodHtml += `<li style="margin-bottom: 0.25rem;"><strong>${p.cantidad || 1}x</strong> Devuelve: ${p.producto_devuelto || '-'} &rarr; Reemplazo: ${p.producto_reemplazo || '-'}</li>`;
+        const qtyDev = p.qty_devuelto !== undefined ? p.qty_devuelto : (p.producto_devuelto ? p.cantidad || 1 : 0);
+        const qtyRep = p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.producto_reemplazo ? p.cantidad || 1 : 0);
+        
+        const devText = p.producto_devuelto ? `<strong>${qtyDev}x</strong> ${p.producto_devuelto}` : '<span style="color: var(--color-text-muted);">Ninguno</span>';
+        const repText = p.producto_reemplazo ? `<strong>${qtyRep}x</strong> ${p.producto_reemplazo}` : '<span style="color: var(--color-text-muted);">Ninguno</span>';
+        
+        let stockText = 'N/A';
+        if (p.producto_devuelto) {
+          stockText = p.regresar_a_inventario ? 
+            '<span style="color: #059669; font-weight:600;"><i class="ri-checkbox-circle-line"></i> Sí</span>' : 
+            '<span style="color: #ef4444; font-weight:600;"><i class="ri-close-circle-line"></i> No</span>';
+        }
+        
+        prodHtml += `
+          <tr>
+            <td>${devText}</td>
+            <td>${repText}</td>
+            <td style="text-align: center;">${stockText}</td>
+            <td><span style="font-style: italic; font-size: 0.8rem; color: var(--color-text-muted);">${p.comentario || '-'}</span></td>
+          </tr>
+        `;
       });
     } else {
-      prodHtml += `<li><span style="color: var(--color-text-muted);">Sin detalles de productos</span></li>`;
+      prodHtml += `<tr><td colspan="4" class="text-center" style="color: var(--color-text-muted); padding: 1rem;">Sin detalles de productos</td></tr>`;
     }
-    prodHtml += '</ul>';
+    prodHtml += '</tbody></table>';
+
+    const statusVal = data.status || 'pendiente';
+    let statusBadge = '';
+    if (statusVal === 'pendiente') {
+      statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+    }
 
     let content = `
       <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
           <div>
             <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Referencia Pedido</span>
             <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.referencia_pedido || '-'}</span>
@@ -13475,6 +13568,10 @@ window.openReturnsDetail = function(dataStr) {
           <div>
             <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Tipo Movimiento</span>
             <span class="badge ${badgeClass}">${data.tipo_movimiento || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Estado</span>
+            <div>${statusBadge}</div>
           </div>
           <div>
             <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Transporte / Courier</span>
@@ -13495,7 +13592,7 @@ window.openReturnsDetail = function(dataStr) {
                 <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
               </div>
               <div>
-                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal Destino</span>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal / Dirección</span>
                 <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
               </div>
             </div>
@@ -13541,6 +13638,429 @@ window.openReturnsDetail = function(dataStr) {
     console.error(e);
     alert('Error al abrir detalle');
   }
+}
+
+// ------ LOGICA DE FORMULARIO DE REGISTRO DE LOGISTICA INVERSA ------
+
+const SANTIAGO_COMUNAS = [
+  'Cerrillos', 'Cerro Navia', 'Conchalí', 'El Bosque', 'Estación Central',
+  'Huechuraba', 'Independencia', 'La Cisterna', 'La Florida', 'La Granja',
+  'La Pintana', 'La Reina', 'Las Condes', 'Lo Barnechea', 'Lo Espejo',
+  'Lo Prado', 'Macul', 'Maipú', 'Ñuñoa', 'Pedro Aguirre Cerda',
+  'Peñalolén', 'Providencia', 'Pudahuel', 'Puente Alto', 'Quilicura',
+  'Quinta Normal', 'Recoleta', 'Renca', 'San Bernardo', 'San Joaquín',
+  'San Miguel', 'San Ramón', 'Santiago', 'Vitacura', 'Padre Hurtado',
+  'Colina'
+];
+
+// Listener para Modalidad Comuna
+document.addEventListener('DOMContentLoaded', () => {
+  const modalidadSelect = document.getElementById('rl-modalidad');
+  if (modalidadSelect) {
+    modalidadSelect.addEventListener('change', (e) => {
+      const comunaGroup = document.getElementById('rl-comuna-group');
+      const comunaSelect = document.getElementById('rl-comuna');
+      if (e.target.value === 'despacho_santiago') {
+        comunaGroup.style.display = 'block';
+        comunaSelect.setAttribute('required', 'true');
+      } else {
+        comunaGroup.style.display = 'none';
+        comunaSelect.removeAttribute('required');
+        comunaSelect.value = '';
+      }
+    });
+  }
+
+  // Listener para Modo Manual
+  const manualModeCheckbox = document.getElementById('rl-manual-mode');
+  if (manualModeCheckbox) {
+    manualModeCheckbox.addEventListener('change', () => {
+      const isManual = manualModeCheckbox.checked;
+      document.getElementById('rl-incoming-tbody').innerHTML = '';
+      document.getElementById('rl-outgoing-tbody').innerHTML = '';
+      
+      window.addRlRow('incoming', isManual);
+      if (document.getElementById('rl-type').value === 'CAMBIO') {
+        window.addRlRow('outgoing', isManual);
+      }
+    });
+  }
+
+  // Listeners para añadir filas
+  const btnAddIncoming = document.getElementById('btn-rl-add-incoming');
+  if (btnAddIncoming) {
+    btnAddIncoming.addEventListener('click', () => {
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      window.addRlRow('incoming', isManual);
+    });
+  }
+
+  const btnAddOutgoing = document.getElementById('btn-rl-add-outgoing');
+  if (btnAddOutgoing) {
+    btnAddOutgoing.addEventListener('click', () => {
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      window.addRlRow('outgoing', isManual);
+    });
+  }
+
+  // Formulario Submit
+  const formRl = document.getElementById('form-reverse-logistics');
+  if (formRl) {
+    formRl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      if (window.userRole === 'observer') {
+        Swal.fire({
+          title: 'Acceso Denegado',
+          text: 'El rol de Observador no permite realizar esta acción.',
+          icon: 'error',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return;
+      }
+      
+      const type = document.getElementById('rl-type').value;
+      const refPedido = document.getElementById('rl-ref-pedido').value.trim();
+      const modalidad = document.getElementById('rl-modalidad').value;
+      const comuna = document.getElementById('rl-comuna').value;
+      const courier = document.getElementById('rl-courier').value.trim();
+      const tracking = document.getElementById('rl-tracking').value.trim();
+      const comments = document.getElementById('rl-comments').value.trim();
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+      
+      if (!refPedido) {
+        alert('Debe ingresar la referencia del pedido.');
+        return;
+      }
+      if (modalidad === 'despacho_santiago' && !comuna) {
+        alert('Debe ingresar la comuna para el despacho/retiro en Santiago.');
+        return;
+      }
+
+      const incomingRows = document.querySelectorAll('#rl-incoming-tbody tr');
+      const outgoingRows = document.querySelectorAll('#rl-outgoing-tbody tr');
+      
+      if (incomingRows.length === 0) {
+        alert('Debe ingresar al menos un producto entrante.');
+        return;
+      }
+      if (type === 'CAMBIO' && outgoingRows.length === 0) {
+        alert('Debe ingresar al menos un producto saliente para el cambio.');
+        return;
+      }
+      
+      const btnSave = document.getElementById('btn-save-rl');
+      btnSave.disabled = true;
+      btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
+      
+      try {
+        const incomingProducts = [];
+        incomingRows.forEach(row => {
+          let productId = null;
+          let sku = '';
+          let name = '';
+          if (isManual) {
+            sku = row.querySelector('.rl-prod-sku').value.trim();
+            name = row.querySelector('.rl-prod-name').value.trim();
+          } else {
+            const input = row.querySelector('.rl-prod-input');
+            const val = input ? input.value.trim() : '';
+            const datalist = row.querySelector('datalist');
+            const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+            
+            productId = opt ? opt.getAttribute('data-id') || null : null;
+            if (val.includes(' - ')) {
+              const parts = val.split(' - ');
+              sku = parts[0];
+              name = parts.slice(1).join(' - ');
+            } else {
+              sku = val;
+              name = val;
+            }
+          }
+          
+          const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+          const stockReturn = row.querySelector('.rl-prod-stock-return').checked;
+          const itemComment = row.querySelector('.rl-prod-comment').value.trim();
+          
+          incomingProducts.push({
+            product_id: productId,
+            sku,
+            name,
+            cantidad: qty,
+            regresar_a_inventario: stockReturn,
+            comentario: itemComment
+          });
+        });
+        
+        const outgoingProducts = [];
+        if (type === 'CAMBIO') {
+          outgoingRows.forEach(row => {
+            let productId = null;
+            let sku = '';
+            let name = '';
+            if (isManual) {
+              sku = row.querySelector('.rl-prod-sku').value.trim();
+              name = row.querySelector('.rl-prod-name').value.trim();
+            } else {
+              const input = row.querySelector('.rl-prod-input');
+              const val = input ? input.value.trim() : '';
+              const datalist = row.querySelector('datalist');
+              const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+              
+              productId = opt ? opt.getAttribute('data-id') || null : null;
+              if (val.includes(' - ')) {
+                const parts = val.split(' - ');
+                sku = parts[0];
+                name = parts.slice(1).join(' - ');
+              } else {
+                sku = val;
+                name = val;
+              }
+            }
+            const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+            
+            outgoingProducts.push({
+              product_id: productId,
+              sku,
+              name,
+              cantidad: qty
+            });
+          });
+        }
+        
+        // Emparejar para la columna productos del WMS (para visualización legacy)
+        const productosPayload = [];
+        const maxLen = Math.max(incomingProducts.length, outgoingProducts.length);
+        for (let i = 0; i < maxLen; i++) {
+          const inc = incomingProducts[i] || null;
+          const out = outgoingProducts[i] || null;
+          
+          productosPayload.push({
+            producto_devuelto: inc ? `${inc.sku} - ${inc.name}` : null,
+            producto_reemplazo: out ? `${out.sku} - ${out.name}` : null,
+            cantidad: inc ? inc.cantidad : (out ? out.cantidad : 1),
+            comentario: inc ? inc.comentario : null,
+            regresar_a_inventario: inc ? inc.regresar_a_inventario : false,
+            id_devuelto: inc ? inc.product_id : null,
+            id_reemplazo: out ? out.product_id : null,
+            qty_devuelto: inc ? inc.cantidad : 0,
+            qty_reemplazo: out ? out.cantidad : 0
+          });
+        }
+        
+        const totalQty = incomingProducts.reduce((sum, p) => sum + p.cantidad, 0) + 
+                         outgoingProducts.reduce((sum, p) => sum + p.cantidad, 0);
+                         
+        const modalityText = document.getElementById('rl-modalidad').options[document.getElementById('rl-modalidad').selectedIndex].text;
+        const finalTransporte = courier ? `${modalityText} (${courier})` : modalityText;
+        const finalSucursal = (modalidad === 'despacho_santiago' && comuna) ? comuna : 'Punto Físico Ñuñoa';
+        
+        const newRecord = {
+          tipo_movimiento: type,
+          comercio: commerce,
+          transporte: finalTransporte,
+          referencia_pedido: refPedido,
+          referencia_transporte: tracking || 'N/A',
+          productos: productosPayload,
+          cantidad_total: totalQty,
+          comentarios: comments,
+          sucursal: finalSucursal,
+          creado_por: (window.currentUserProfile && window.currentUserProfile.email) || 'Usuario',
+          status: 'pendiente'
+        };
+        
+        const { error: insertError } = await supabase
+          .from('reverse_logistics')
+          .insert([newRecord]);
+          
+        if (insertError) throw insertError;
+        
+        // Stock comprometido para salidas de Cambios
+        if (type === 'CAMBIO' && !isManual) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+            
+          if (bodegaCentral) {
+            for (const out of outgoingProducts) {
+              if (out.product_id) {
+                const { data: invRecord } = await supabase
+                  .from('inventory')
+                  .select('id, committed_quantity')
+                  .eq('product_id', out.product_id)
+                  .eq('warehouse_id', bodegaCentral.id)
+                  .maybeSingle();
+                  
+                if (invRecord) {
+                  await supabase
+                    .from('inventory')
+                    .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
+                    .eq('id', invRecord.id);
+                } else {
+                  await supabase
+                    .from('inventory')
+                    .insert([{
+                      product_id: out.product_id,
+                      warehouse_id: bodegaCentral.id,
+                      quantity: 0,
+                      committed_quantity: out.cantidad
+                    }]);
+                }
+              }
+            }
+          }
+        }
+        
+        Swal.fire({
+          title: '¡Registrado!',
+          text: 'El movimiento ha sido registrado exitosamente y queda como "Pendiente".',
+          icon: 'success',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        
+        document.getElementById('modal-reverse-logistics').classList.remove('active');
+        
+        if (typeof fetchAndRenderReturnsData === 'function') {
+          await fetchAndRenderReturnsData();
+        }
+        
+      } catch (err) {
+        console.error('Error saving reverse logistics record:', err);
+        Swal.fire({
+          title: 'Error',
+          text: 'No se pudo guardar la solicitud: ' + err.message,
+          icon: 'error',
+          confirmButtonText: 'Cerrar',
+          confirmButtonColor: 'var(--color-danger)'
+        });
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = 'Guardar Registro <i class="ri-check-line"></i>';
+      }
+    });
+  }
+});
+
+window.addRlRow = function(direction, isManual) {
+  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
+  
+  let prodCell = '';
+  if (isManual) {
+    prodCell = `
+      <div style="display: flex; gap: 0.5rem;">
+        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;">
+        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
+      </div>
+    `;
+  } else {
+    const uniqueId = Math.random().toString(36).substr(2, 9);
+    const options = (window.rlCatalogProducts || []).map(p => `<option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>`).join('');
+    prodCell = `
+      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;">
+      <datalist id="rl-datalist-${uniqueId}">
+        ${options}
+      </datalist>
+    `;
+  }
+  
+  if (direction === 'incoming') {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
+      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." style="width: 100%;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  }
+  
+  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.children.length > 1) {
+      tr.remove();
+    } else {
+      Swal.fire({
+        title: 'Atención',
+        text: 'Debes ingresar al menos un producto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    }
+  });
+  
+  tbody.appendChild(tr);
+};
+
+window.openReverseLogisticsModal = async function(type) {
+  const modal = document.getElementById('modal-reverse-logistics');
+  const form = document.getElementById('form-reverse-logistics');
+  if (!modal || !form) return;
+  form.reset();
+  
+  document.getElementById('rl-type').value = type;
+  document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
+    `<i class="ri-arrow-left-right-line" style="color: var(--color-success);"></i> Registrar Cambio` : 
+    `<i class="ri-arrow-go-back-line" style="color: var(--color-danger);"></i> Registrar Devolución`;
+    
+  const comunaSelect = document.getElementById('rl-comuna');
+  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
+    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
+    
+  document.getElementById('rl-comuna-group').style.display = 'none';
+  document.getElementById('rl-manual-mode').checked = false;
+  
+  document.getElementById('rl-incoming-tbody').innerHTML = '';
+  document.getElementById('rl-outgoing-tbody').innerHTML = '';
+  
+  const outgoingSection = document.getElementById('rl-outgoing-section');
+  if (type === 'CAMBIO') {
+    outgoingSection.style.display = 'block';
+  } else {
+    outgoingSection.style.display = 'none';
+  }
+  
+  const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+  window.rlCatalogProducts = [];
+  
+  try {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('id, sku, name, is_pack, is_virtual')
+      .eq('comercio', commerce)
+      .neq('status', 'archived')
+      .order('name');
+    if (error) throw error;
+    window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
+  } catch (err) {
+    console.error('Error fetching catalog products for modal:', err);
+  }
+  
+  window.addRlRow('incoming', false);
+  if (type === 'CAMBIO') {
+    window.addRlRow('outgoing', false);
+  }
+  
+  modal.classList.add('active');
 }
 
 // Modal Genérico de Información
@@ -21136,6 +21656,9 @@ function renderMasterCatalogRows(products) {
     } else if (sortCol === 'venc') {
       valA = (a.expiration_date || '').toString().toLowerCase();
       valB = (b.expiration_date || '').toString().toLowerCase();
+    } else if (sortCol === 'status') {
+      valA = (a.status || 'active').toString().toLowerCase();
+      valB = (b.status || 'active').toString().toLowerCase();
     } else {
       return 0;
     }
@@ -21281,8 +21804,27 @@ function renderMasterCatalogRows(products) {
          </td>`
       : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.barcode) || '<span style="color: var(--color-text-muted); font-size: 0.85rem;">-</span>'}${sendBarcodeBadge}</td>`;
 
+    const statusCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem; text-align: center;">
+           <select class="quick-edit-status form-input" data-id="${item.id}" data-old="${item.status || 'active'}" style="padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-width: 120px; margin: 0 auto;">
+             <option value="active" ${item.status !== 'archived' ? 'selected' : ''}>Activo</option>
+             <option value="archived" ${item.status === 'archived' ? 'selected' : ''}>Archivado</option>
+           </select>
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem; text-align: center;">
+           <span class="badge" style="background-color: ${item.status === 'archived' ? '#fee2e2' : '#d1fae5'}; color: ${item.status === 'archived' ? '#ef4444' : '#10b981'}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600;">
+             ${item.status === 'archived' ? 'Archivado' : 'Activo'}
+           </span>
+         </td>`;
+
+    const isChecked = (window.catalogSelectedProductIds && window.catalogSelectedProductIds.has(item.id)) ? 'checked' : '';
+    const checkboxCell = `<td style="padding: 0.45rem 0.75rem; text-align: center; width: 40px;">
+      <input type="checkbox" class="catalog-row-checkbox" data-id="${item.id}" ${isChecked} style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
+    </td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
+        ${checkboxCell}
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
         <td style="padding: 0.45rem 0.75rem;"><strong>${escapeHtml(item.sku)}</strong></td>
         <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}</td>
@@ -21290,6 +21832,7 @@ function renderMasterCatalogRows(products) {
         ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.45rem 0.75rem;">${originBadge}${packBadge}${virtualBadge}</td>
+        ${statusCell}
         ${dimensionsCell}
         ${volumenCell}
         <td style="padding: 0.45rem 0.75rem;">${weight}</td>
@@ -21309,6 +21852,66 @@ function renderMasterCatalogRows(products) {
       row.style.display = text.includes(q) ? '' : 'none';
     });
   }
+
+  // Manejo de checkboxes de selección masiva
+  const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+  if (!window.catalogSelectedProductIds) {
+    window.catalogSelectedProductIds = new Set();
+  }
+  const cbAll = document.getElementById('catalog-select-all');
+  const rowCheckboxes = tbody.querySelectorAll('.catalog-row-checkbox');
+
+  if (cbAll) {
+    cbAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      rowCheckboxes.forEach(cb => {
+        const row = cb.closest('tr');
+        if (row && row.style.display !== 'none') {
+          cb.checked = checked;
+          const id = cb.getAttribute('data-id');
+          if (checked) {
+            window.catalogSelectedProductIds.add(id);
+          } else {
+            window.catalogSelectedProductIds.delete(id);
+          }
+        }
+      });
+      window.renderCatalogBulkActionsBar(commerce);
+    });
+
+    // Sincronizar select-all inicial
+    const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
+      const row = cb.closest('tr');
+      return row && row.style.display !== 'none';
+    });
+    if (visibleCheckboxes.length > 0) {
+      cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+    } else {
+      cbAll.checked = false;
+    }
+  }
+
+  rowCheckboxes.forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const id = e.target.getAttribute('data-id');
+      if (e.target.checked) {
+        window.catalogSelectedProductIds.add(id);
+      } else {
+        window.catalogSelectedProductIds.delete(id);
+      }
+
+      if (cbAll) {
+        const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
+          const row = cb.closest('tr');
+          return row && row.style.display !== 'none';
+        });
+        cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+      }
+      window.renderCatalogBulkActionsBar(commerce);
+    });
+  });
+
+  window.renderCatalogBulkActionsBar(commerce);
 }
 
 function renderEquivalencesRows(unmappedProducts, mappingsMap) {
@@ -22585,7 +23188,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
           }
 
           // Obtener todos los productos del comercio para mapeo y validación
-          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
+          const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce));
 
           const productMap = {};
           if (dbProducts) {
@@ -22626,6 +23229,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
             } else if (!prod) {
               status = 'error';
               message = 'El SKU no existe en este comercio';
+            } else if (prod.status === 'archived') {
+              status = 'error';
+              message = 'El producto está archivado';
             } else if (isNaN(stockVal) || stockVal < 0 || stockVal !== Number(stockValRaw)) {
               status = 'error';
               message = 'Stock inválido (debe ser un número entero >= 0)';
@@ -23111,7 +23717,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar) {
+          const statusInput = document.querySelector(`.quick-edit-status[data-id="${prodId}"]`);
+          const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
+          const newStatus = statusInput ? statusInput.value : 'active';
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus) {
             changes.push({
               prodId,
               oldStock,
@@ -23123,7 +23733,13 @@ function setupCatalogListeners(commerce, mainPlatform) {
               oldHeight,
               newHeight,
               oldVol,
-              newVol
+              newVol,
+              oldBarcode,
+              newBarcode,
+              oldSendBar,
+              newSendBar,
+              oldStatus,
+              newStatus
             });
           }
         });
@@ -23157,7 +23773,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           // Ejecutar actualizaciones en paralelo
           const updatePromises = changes.map(async (ch) => {
-            // 1. Actualizar dimensiones, volumen y código de barras en products
+            // Validación para evitar movimientos (ajuste de stock) en productos archivados
+            if (ch.newStatus === 'archived' && ch.oldStock !== ch.newStock) {
+              throw new Error(`No se puede modificar el stock del producto ${ch.prodId} porque está o quedará archivado.`);
+            }
+
+            // 1. Actualizar dimensiones, volumen, código de barras, envío a picker y estado en products
             const { error: prodErr } = await supabase
               .from('products')
               .update({
@@ -23169,7 +23790,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 alto: ch.newHeight || null,
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
-                send_barcode_to_picker: ch.newSendBar
+                send_barcode_to_picker: ch.newSendBar,
+                status: ch.newStatus
               })
               .eq('id', ch.prodId);
 
@@ -27019,7 +27641,7 @@ function openBulkStockAssignModal(commerce, onComplete) {
           return;
         }
 
-        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
+        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce));
 
         const productMap = {};
         if (dbProducts) {
@@ -27062,6 +27684,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
           } else if (!prod) {
             status = 'error';
             message = 'El SKU no existe en este comercio';
+          } else if (prod.status === 'archived') {
+            status = 'error';
+            message = 'El producto está archivado';
           } else if (isNaN(stockVal) || stockVal < 0) {
             status = 'error';
             message = 'Stock inválido (debe ser un número entero >= 0)';
@@ -30215,6 +30840,167 @@ window.runQuoteCalculator = function() {
     });
 
     updatePrices();
+  }
+};
+
+window.renderCatalogBulkActionsBar = function(commerce) {
+  const container = document.getElementById('catalog-bulk-actions-container');
+  if (!container) return;
+
+  const selectedCount = window.catalogSelectedProductIds ? window.catalogSelectedProductIds.size : 0;
+  if (selectedCount === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
+        <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} productos seleccionados</span>
+        <button onclick="window.clearCatalogSelection('${commerce}')" class="btn btn-outline" style="border-color: rgba(255,255,255,0.3); color: #ffffff; padding: 0.25rem 0.5rem; font-size: 0.75rem; background: transparent; cursor: pointer;">Limpiar</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <button onclick="window.bulkSetVirtualStatus('${commerce}', true)" class="btn" style="background: #10b981; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-computer-line"></i> Marcar como Virtual
+        </button>
+        <button onclick="window.bulkSetVirtualStatus('${commerce}', false)" class="btn" style="background: #64748b; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-archive-line"></i> Marcar como Físico
+        </button>
+        <button onclick="window.bulkSetProductStatus('${commerce}', 'active')" class="btn" style="background: #3b82f6; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-check-line"></i> Activar Seleccionados
+        </button>
+        <button onclick="window.bulkSetProductStatus('${commerce}', 'archived')" class="btn" style="background: #ef4444; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-close-line"></i> Archivar Seleccionados
+        </button>
+      </div>
+    </div>
+  `;
+};
+
+window.clearCatalogSelection = function(commerce) {
+  if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+  const cbAll = document.getElementById('catalog-select-all');
+  if (cbAll) cbAll.checked = false;
+  document.querySelectorAll('.catalog-row-checkbox').forEach(cb => cb.checked = false);
+  window.renderCatalogBulkActionsBar(commerce);
+};
+
+window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
+  const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
+  if (selectedIds.length === 0) return;
+
+  const actionText = isVirtual ? 'marcar como virtuales' : 'marcar como físicos';
+  const confirmResult = await Swal.fire({
+    title: '¿Confirmar acción masiva?',
+    text: `Vas a ${actionText} ${selectedIds.length} productos seleccionados.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: 'var(--color-primary)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Aplicando cambios...',
+    text: 'Por favor espera...',
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ is_virtual: isVirtual })
+      .in('id', selectedIds);
+
+    if (error) throw error;
+
+    Swal.fire({
+      title: '¡Éxito!',
+      text: 'Los productos se actualizaron correctamente.',
+      icon: 'success',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+
+    // Limpiar selección y recargar catálogo
+    if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+    renderCatalog();
+  } catch (err) {
+    console.error('Error in bulkSetVirtualStatus:', err);
+    Swal.fire({
+      title: 'Error',
+      text: 'Ocurrió un error al actualizar los productos: ' + err.message,
+      icon: 'error',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }
+};
+
+window.bulkSetProductStatus = async function(commerce, status) {
+  const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
+  if (selectedIds.length === 0) return;
+
+  const actionText = status === 'archived' ? 'archivar (marcar como inactivos)' : 'activar (marcar como activos)';
+  const confirmResult = await Swal.fire({
+    title: '¿Confirmar acción masiva?',
+    text: `Vas a ${actionText} ${selectedIds.length} productos seleccionados.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: 'var(--color-primary)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Aplicando cambios...',
+    text: 'Por favor espera...',
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ status: status })
+      .in('id', selectedIds);
+
+    if (error) throw error;
+
+    Swal.fire({
+      title: '¡Éxito!',
+      text: 'Los productos se actualizaron correctamente.',
+      icon: 'success',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+
+    // Limpiar selección y recargar catálogo
+    if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+    renderCatalog();
+  } catch (err) {
+    console.error('Error in bulkSetProductStatus:', err);
+    Swal.fire({
+      title: 'Error',
+      text: 'Ocurrió un error al actualizar los productos: ' + err.message,
+      icon: 'error',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
   }
 };
 

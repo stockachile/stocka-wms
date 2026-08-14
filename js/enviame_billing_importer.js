@@ -1,4 +1,4 @@
-import supabase from './supabase.js';
+import supabase from './supabase.js?v=1.0.3';
 
 // --- CONFIGURACIÓN Y ESTILOS ---
 function injectImporterStyles() {
