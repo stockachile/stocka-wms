@@ -906,6 +906,10 @@ async function init() {
         currentModules.push('inventory_admin');
         updated = true;
       }
+      if (!currentModules.includes('tickets_admin')) {
+        currentModules.push('tickets_admin');
+        updated = true;
+      }
       if (updated) {
         const updatedStr = currentModules.filter(Boolean).join(',');
         console.log('DEBUG: Auto-agregando módulos a la cuenta administrador:', updatedStr);
@@ -1077,7 +1081,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin' || view === 'tickets_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -1188,6 +1192,12 @@ window.updateAdminBadges = async function() {
     if (badgeTickets && ticketsCount !== null) {
       badgeTickets.textContent = ticketsCount;
       badgeTickets.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
+    }
+
+    const badgeTicketsSidebar = document.getElementById('badge-tickets-sidebar');
+    if (badgeTicketsSidebar && ticketsCount !== null) {
+      badgeTicketsSidebar.textContent = ticketsCount;
+      badgeTicketsSidebar.style.display = ticketsCount > 0 ? 'inline-flex' : 'none';
     }
 
     // 2. Billing
@@ -18901,17 +18911,86 @@ async function loadPendingPaymentReports() {
       `;
       return;
     }
+
+    // Obtener los registros de facturación correspondientes para comparar deuda
+    const periodIds = [...new Set(reports.map(r => r.period_id))];
+    const { data: billingRecords, error: billErr } = await supabase
+      .from('billing_records')
+      .select('*')
+      .in('period_id', periodIds);
+
+    if (billErr) {
+      console.warn('Error al cargar billing_records para los reportes de pago:', billErr);
+    }
+
+    const getBillingRecord = (periodId, commerceName) => {
+      if (!billingRecords) return null;
+      return billingRecords.find(br => br.period_id === periodId && (br.comercio || '').toLowerCase() === (commerceName || '').toLowerCase());
+    };
     
     let rows = '';
     reports.forEach(rep => {
       const periodName = rep.billing_periods?.name || 'Desconocido';
+      const br = getBillingRecord(rep.period_id, rep.comercio);
+      
+      let debtInfoHtml = '-';
+      if (br) {
+        const formatCLP = window.formatCLP || (v => '$' + v.toLocaleString('es-CL'));
+        const servLower = (rep.servicio || '').toLowerCase();
+        
+        if (servLower === 'fulfillment') {
+          const total = br.total_fulfillment || 0;
+          const abono = br.abono_fulfillment || 0;
+          const pending = Math.max(0, total - abono);
+          debtInfoHtml = `
+            <div style="font-size: 0.85rem; line-height: 1.3;">
+              <div><strong>Pendiente:</strong> <span style="color: var(--color-danger);">${formatCLP(pending)}</span></div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">Total: ${formatCLP(total)} | Abono: ${formatCLP(abono)}</div>
+            </div>
+          `;
+        } else if (servLower === 'enviame') {
+          const total = br.enviame || 0;
+          const abono = br.abono_enviame || 0;
+          const pending = Math.max(0, total - abono);
+          debtInfoHtml = `
+            <div style="font-size: 0.85rem; line-height: 1.3;">
+              <div><strong>Pendiente:</strong> <span style="color: var(--color-danger);">${formatCLP(pending)}</span></div>
+              <div style="font-size: 0.75rem; color: var(--color-text-muted);">Total: ${formatCLP(total)} | Abono: ${formatCLP(abono)}</div>
+            </div>
+          `;
+        } else {
+          // Ambos u otro
+          const totalFulf = br.total_fulfillment || 0;
+          const abonoFulf = br.abono_fulfillment || 0;
+          const pendingFulf = Math.max(0, totalFulf - abonoFulf);
+          
+          const totalEnv = br.enviame || 0;
+          const abonoEnv = br.abono_enviame || 0;
+          const pendingEnv = Math.max(0, totalEnv - abonoEnv);
+          
+          debtInfoHtml = `
+            <div style="font-size: 0.85rem; line-height: 1.3; display: flex; flex-direction: column; gap: 0.25rem;">
+              <div>
+                <strong>Fulf Pendiente:</strong> <span style="color: var(--color-danger);">${formatCLP(pendingFulf)}</span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted);">(Total: ${formatCLP(totalFulf)})</span>
+              </div>
+              <div>
+                <strong>Env Pendiente:</strong> <span style="color: var(--color-danger);">${formatCLP(pendingEnv)}</span>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted);">(Total: ${formatCLP(totalEnv)})</span>
+              </div>
+            </div>
+          `;
+        }
+      }
+
       rows += `
         <tr>
           <td style="font-weight: 600; color: var(--color-text-main);">${rep.comercio}</td>
           <td>${periodName}</td>
           <td>${new Date(rep.fecha_pago + 'T00:00:00').toLocaleDateString()}</td>
-          <td style="font-weight: 600;">$${rep.monto.toLocaleString('es-CL')}</td>
+          <td style="font-weight: 600; color: var(--color-success);">$${rep.monto.toLocaleString('es-CL')}</td>
           <td style="text-transform: capitalize;">${rep.servicio}</td>
+          <td>${debtInfoHtml}</td>
           <td>
             ${rep.comprobante_url ? `
               <button type="button" class="btn btn-outline btn-sm" onclick="window.openDocPreviewModal('Comprobante de Pago - ${rep.comercio}', '${rep.comprobante_url}')" style="padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
@@ -18940,8 +19019,9 @@ async function loadPendingPaymentReports() {
             <th>Comercio</th>
             <th>Periodo</th>
             <th>Fecha Pago</th>
-            <th>Monto</th>
+            <th>Monto Informado</th>
             <th>Servicio</th>
+            <th>Deuda Pendiente</th>
             <th>Comprobante</th>
             <th>Acciones</th>
           </tr>
