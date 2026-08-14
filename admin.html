@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/style.css?v=1.0.2">
   <link rel="stylesheet" href="./css/layout.css">
   <script src="./js/theme.js"></script>
   <style>
@@ -186,6 +186,7 @@
           <li><a href="#" class="nav-item" data-view="optiroute_support"><i class="ri-customer-service-2-line"></i> <span class="nav-text">Soporte Optiroute</span></a></li>
           <li><a href="#" class="nav-item" data-view="incidencias_admin"><i class="ri-alert-line"></i> <span class="nav-text">Gestión de Incidencias</span> <span id="badge-incidencias-admin" class="menu-badge" style="display: none;">0</span></a></li>
           <li><a href="#" class="nav-item" data-view="volumen_diario_admin"><i class="ri-line-chart-line"></i> <span class="nav-text">Volumen Diario</span></a></li>
+          <li><a href="#" class="nav-item" data-view="returns_admin"><i class="ri-arrow-go-back-line"></i> <span class="nav-text">Logística Inversa</span></a></li>
 
           <li class="sidebar-category-header">📥 INVENTARIO Y CATÁLOGO</li>
           <li><a href="#" class="nav-item" data-view="inventory_admin"><i class="ri-database-2-line"></i> <span class="nav-text">Inventario</span></a></li>
@@ -403,6 +404,13 @@
             <label for="edit-prod-picking-strict" class="form-label" style="margin: 0; cursor: pointer; font-weight: normal;">
               Lectura Estricta en Picker (no permite lectura parcial)
             </label>
+          </div>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label class="form-label">Estado</label>
+            <select id="edit-prod-status" class="form-input" style="background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.6rem 1rem;">
+              <option value="active">Activo</option>
+              <option value="archived">Archivado</option>
+            </select>
           </div>
           <div class="form-group" style="margin-bottom: 0.75rem;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.25rem;">Método para definir Volumen</label>
@@ -1052,6 +1060,193 @@
         </div>
       </div>
     </div>
+    </div>
+  </div>
+
+  <!-- Modal Registrar Logistica Inversa (Admin) -->
+  <div class="modal-overlay" id="modal-reverse-logistics" style="z-index: 1050;">
+    <div class="modal-content" style="max-width: 900px; width: 95%;">
+      <div class="modal-header">
+        <h3 id="rl-modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-arrow-go-back-line" style="color: var(--color-primary);"></i> Registrar Movimiento
+        </h3>
+        <button class="modal-close" data-close="modal-reverse-logistics">&times;</button>
+      </div>
+      <form id="form-reverse-logistics" novalidate>
+        <input type="hidden" id="rl-type" value="DEVOLUCION">
+        <input type="hidden" id="rl-edit-id" value="">
+        
+        <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
+          
+          <!-- Datos Generales -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Comercio <span class="text-danger">*</span></label>
+              <select id="rl-commerce" class="form-input" required>
+                <option value="">Selecciona comercio...</option>
+                <!-- Commerces will be dynamically rendered -->
+              </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Referencia Pedido <span class="text-danger">*</span></label>
+              <input type="text" id="rl-ref-pedido" class="form-input" required placeholder="Ej: PED-1001">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Modalidad <span class="text-danger">*</span></label>
+              <select id="rl-modalidad" class="form-input" required>
+                <option value="presencial">Presencial (Punto físico de Ñuñoa)</option>
+                <option value="despacho_santiago">Despacho/Retiro en Santiago (Comuna)</option>
+                <option value="envio_cliente">Envío por parte del cliente</option>
+                <option value="envio_comercio">Envío por parte del comercio</option>
+                <option value="envio_stocka">Envío por parte de Stocka</option>
+              </select>
+            </div>
+
+            <div class="form-group" id="rl-comuna-group" style="margin-bottom: 0; display: none;">
+              <label class="form-label">Comuna <span class="text-danger">*</span></label>
+              <select id="rl-comuna" class="form-input">
+                <option value="">Selecciona comuna...</option>
+                <!-- Comunas will be dynamically rendered -->
+              </select>
+            </div>
+            
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Courier (Opcional)</label>
+              <input type="text" id="rl-courier" class="form-input" placeholder="Ej: Chilexpress">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Tracking / Código (Opcional)</label>
+              <input type="text" id="rl-tracking" class="form-input" placeholder="Ej: 987654321">
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1.5rem;">
+            <label class="form-label">Observaciones Generales</label>
+            <textarea id="rl-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
+          </div>
+
+          <!-- Checkbox para modo manual -->
+          <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
+            <input type="checkbox" id="rl-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
+            <label for="rl-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
+              Ingreso manual de productos (Comercios sin catálogo configurado)
+            </label>
+          </div>
+
+          <!-- SECCION PRODUCTOS -->
+          <div class="rl-products-container">
+            
+            <!-- Productos que Entran -->
+            <div id="rl-incoming-section" style="margin-bottom: 1.5rem;">
+              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
+              </h4>
+              <div class="table-responsive">
+                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+                  <thead>
+                    <tr>
+                      <th style="width: 45%;">Producto</th>
+                      <th style="width: 12%; text-align: center;">Cantidad</th>
+                      <th style="width: 15%; text-align: center;">Regresar Stock</th>
+                      <th style="width: 23%;">Comentario Item</th>
+                      <th style="width: 5%; text-align: center;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="rl-incoming-tbody">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
+              </div>
+              <button type="button" id="btn-rl-add-incoming" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-add-line"></i> Agregar Producto
+              </button>
+            </div>
+
+            <!-- Productos que Salen -->
+            <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none;">
+              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
+              </h4>
+              <div class="table-responsive">
+                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+                  <thead>
+                    <tr>
+                      <th style="width: 75%;">Producto</th>
+                      <th style="width: 20%; text-align: center;">Cantidad</th>
+                      <th style="width: 5%; text-align: center;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="rl-outgoing-tbody">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
+              </div>
+              <button type="button" id="btn-rl-add-outgoing" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-add-line"></i> Agregar Producto de Salida
+              </button>
+            </div>
+            
+          </div>
+          
+        </div>
+        
+        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" data-close="modal-reverse-logistics">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-rl" style="display: flex; align-items: center; gap: 0.25rem;">
+            Guardar Registro <i class="ri-check-line"></i>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Confirmar Logistica Inversa (Admin) -->
+  <div class="modal-overlay" id="modal-confirm-return" style="z-index: 1060;">
+    <div class="modal-content" style="max-width: 850px; width: 95%;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-checkbox-circle-line" style="color: var(--color-primary);"></i> Procesar y Confirmar Movimiento
+        </h3>
+        <button class="modal-close" data-close="modal-confirm-return">&times;</button>
+      </div>
+      <form id="form-confirm-return" novalidate>
+        <input type="hidden" id="confirm-rl-id">
+        <input type="hidden" id="confirm-rl-type">
+        <input type="hidden" id="confirm-rl-commerce">
+        
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto; padding: 1.5rem;">
+          <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 1.25rem;">
+            Por favor, indica para cada producto la sucursal/bodega de destino (para ingresos) u origen (para salidas) desde la cual se procesará el stock físico.
+          </p>
+          
+          <div class="table-responsive">
+            <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+              <thead>
+                <tr>
+                  <th style="width: 15%;">Flujo</th>
+                  <th style="width: 45%;">Producto</th>
+                  <th style="width: 10%; text-align: center;">Cantidad</th>
+                  <th style="width: 30%;">Sucursal / Bodega</th>
+                </tr>
+              </thead>
+              <tbody id="confirm-products-tbody">
+                <!-- Dynamic Rows with Warehouse Selects -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+        
+        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" data-close="modal-confirm-return">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-confirm-rl" style="display: flex; align-items: center; gap: 0.25rem;">
+            Procesar y Confirmar <i class="ri-check-line"></i>
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <!-- SweetAlert2 CDN -->
@@ -1065,7 +1260,7 @@
   <script type="module" src="./js/supabase.js?v=1.0.2"></script>
   <script src="./js/calendar.js"></script>
   <script src="./js/shipping_rates.js"></script>
-  <script type="module" src="./js/admin.js?v=1.0.14"></script>
+  <script type="module" src="./js/admin.js?v=1.0.15"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
 
   <!-- Floating Monitor Button -->

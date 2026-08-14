@@ -1058,6 +1058,9 @@ async function init() {
           } else if (view === 'cotizador_admin') {
             viewTitle.textContent = 'Cotizador de Envíos';
             renderCotizadorAdmin();
+          } else if (view === 'returns_admin') {
+            viewTitle.textContent = 'Logística Inversa';
+            renderAdminReturns();
           }
         });
       });
@@ -1074,7 +1077,7 @@ async function init() {
         
         navItems.forEach(item => {
           const view = item.getAttribute('data-view');
-          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator') {
+          if (allowedModules.includes(view) || view === 'dashboard' || view === 'profile' || view === 'inbox' || view === 'notifications_admin' || view === 'optiroute_support' || view === 'cotizador_admin' || view === 'label_generator' || view === 'returns_admin') {
             const parentLi = item.closest('li');
             if (parentLi) parentLi.style.display = 'block';
             else item.style.display = 'block';
@@ -5009,6 +5012,9 @@ function renderMasterCatalogRows(products) {
     } else if (sortCol === 'venc') {
       valA = (a.expiration_date || '').toString().toLowerCase();
       valB = (b.expiration_date || '').toString().toLowerCase();
+    } else if (sortCol === 'status') {
+      valA = (a.status || 'active').toString().toLowerCase();
+      valB = (b.status || 'active').toString().toLowerCase();
     } else {
       return 0;
     }
@@ -5165,6 +5171,19 @@ function renderMasterCatalogRows(products) {
       <input type="checkbox" class="catalog-row-checkbox" data-id="${item.id}" ${isChecked} style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
     </td>`;
 
+    const statusCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.5rem 1rem; text-align: center;">
+           <select class="quick-edit-status form-input" data-id="${item.id}" data-old="${item.status || 'active'}" style="padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-width: 120px; margin: 0 auto;">
+             <option value="active" ${item.status !== 'archived' ? 'selected' : ''}>Activo</option>
+             <option value="archived" ${item.status === 'archived' ? 'selected' : ''}>Archivado</option>
+           </select>
+         </td>`
+      : `<td style="padding: 0.75rem 1.5rem; text-align: center;">
+           <span class="badge" style="background-color: ${item.status === 'archived' ? '#fee2e2' : '#d1fae5'}; color: ${item.status === 'archived' ? '#ef4444' : '#10b981'}; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600;">
+             ${item.status === 'archived' ? 'Archivado' : 'Activo'}
+           </span>
+         </td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         ${checkboxCell}
@@ -5175,6 +5194,7 @@ function renderMasterCatalogRows(products) {
         ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
         <td style="padding: 0.75rem 1.5rem;">${originBadge}${packBadge}${virtualBadge}</td>
+        ${statusCell}
         ${dimensionsCell}
         ${volumenCell}
         <td style="padding: 0.75rem 1.5rem;">${weight}</td>
@@ -5277,6 +5297,12 @@ window.renderCatalogBulkActionsBar = function(commerce) {
         <button onclick="window.bulkSetVirtualStatus('${commerce}', false)" class="btn" style="background: #64748b; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
           <i class="ri-archive-line"></i> Marcar como Físico
         </button>
+        <button onclick="window.bulkSetProductStatus('${commerce}', 'active')" class="btn" style="background: #3b82f6; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-check-line"></i> Activar Seleccionados
+        </button>
+        <button onclick="window.bulkSetProductStatus('${commerce}', 'archived')" class="btn" style="background: #ef4444; color: white; border: none; font-weight: 600; padding: 0.45rem 1rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-close-line"></i> Archivar Seleccionados
+        </button>
       </div>
     </div>
   `;
@@ -5288,6 +5314,69 @@ window.clearCatalogSelection = function(commerce) {
   if (cbAll) cbAll.checked = false;
   document.querySelectorAll('.catalog-row-checkbox').forEach(cb => cb.checked = false);
   window.renderCatalogBulkActionsBar(commerce);
+};
+
+window.bulkSetProductStatus = async function(commerce, status) {
+  const selectedIds = window.catalogSelectedProductIds ? Array.from(window.catalogSelectedProductIds) : [];
+  if (selectedIds.length === 0) return;
+
+  const actionText = status === 'archived' ? 'archivar (marcar como inactivos)' : 'activar (marcar como activos)';
+  const confirmResult = await Swal.fire({
+    title: '¿Confirmar acción masiva?',
+    text: `Vas a ${actionText} ${selectedIds.length} productos seleccionados.`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Sí, aplicar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: 'var(--color-primary)',
+    background: 'var(--color-surface)',
+    color: 'var(--color-text-main)'
+  });
+
+  if (!confirmResult.isConfirmed) return;
+
+  Swal.fire({
+    title: 'Aplicando cambios...',
+    text: 'Por favor espera...',
+    allowOutsideClick: false,
+    didOpen: () => {
+      Swal.showLoading();
+    }
+  });
+
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ status: status })
+      .in('id', selectedIds);
+
+    if (error) throw error;
+
+    Swal.fire({
+      title: '¡Éxito!',
+      text: 'Los productos se actualizaron correctamente.',
+      icon: 'success',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+
+    // Limpiar selección y recargar catálogo
+    if (window.catalogSelectedProductIds) window.catalogSelectedProductIds.clear();
+    if (window.renderAdminCatalogWorkspace) {
+      window.renderAdminCatalogWorkspace(commerce);
+    } else if (window.renderCatalog) {
+      window.renderCatalog();
+    }
+  } catch (err) {
+    console.error('Error in bulkSetProductStatus:', err);
+    Swal.fire({
+      title: 'Error',
+      text: 'Ocurrió un error al actualizar los productos: ' + err.message,
+      icon: 'error',
+      confirmButtonText: 'Aceptar',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+  }
 };
 
 window.bulkSetVirtualStatus = async function(commerce, isVirtual) {
@@ -6411,7 +6500,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar) {
+          const statusInput = document.querySelector(`.quick-edit-status[data-id="${prodId}"]`);
+          const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
+          const newStatus = statusInput ? statusInput.value : 'active';
+
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus) {
             changes.push({
               prodId,
               oldStock,
@@ -6427,7 +6520,9 @@ function setupCatalogListeners(commerce, mainPlatform) {
               oldBarcode,
               newBarcode,
               oldSendBar,
-              newSendBar
+              newSendBar,
+              oldStatus,
+              newStatus
             });
           }
         });
@@ -6461,7 +6556,12 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           // Ejecutar actualizaciones en paralelo
           const updatePromises = changes.map(async (ch) => {
-            // 1. Actualizar dimensiones, volumen, código de barras y envío a picker en products
+            // Validación para evitar movimientos (ajuste de stock) en productos archivados
+            if (ch.newStatus === 'archived' && ch.oldStock !== ch.newStock) {
+              throw new Error(`No se puede modificar el stock del producto ${ch.prodId} porque está o quedará archivado.`);
+            }
+
+            // 1. Actualizar dimensiones, volumen, código de barras, envío a picker y estado en products
             const { error: prodErr } = await supabase
               .from('products')
               .update({
@@ -6473,7 +6573,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 alto: ch.newHeight || null,
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
-                send_barcode_to_picker: ch.newSendBar
+                send_barcode_to_picker: ch.newSendBar,
+                status: ch.newStatus
               })
               .eq('id', ch.prodId);
 
@@ -6850,6 +6951,7 @@ async function renderAdminInventoryWorkspace(commerce) {
         stock_critico,
         is_virtual,
         is_pack,
+        status,
         inventory (
           warehouse_id,
           quantity,
@@ -7374,7 +7476,7 @@ function renderAdminInventoryTableBody() {
 }
 
 function applyAdminInventoryFiltersAndSort(flat = false) {
-  const products = window.cachedAdminInventoryProducts || [];
+  const products = (window.cachedAdminInventoryProducts || []).filter(p => p.status !== 'archived');
   const search = (window.adminInventorySearchQuery || '').toLowerCase().trim();
   
   let rows = [];
@@ -8508,6 +8610,9 @@ async function renderAdminCatalogWorkspace(commerce) {
                     </th>
                     <th class="sortable-header" data-sort="origin" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Origen">
                       Origen <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
+                    </th>
+                    <th class="sortable-header" data-sort="status" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Estado">
+                      Estado <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
                     </th>
                     <th class="sortable-header" data-sort="medidas" style="padding: 1rem 1.5rem; cursor: pointer; user-select: none;" title="Ordenar por Medidas">
                       Medidas <i class="sort-icon ri-arrow-up-down-line" style="margin-left: 0.25rem;"></i>
@@ -19566,6 +19671,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
   
   let titleText = '';
   let tableRows = '';
+  let filterBarHtml = '';
   
   if (metricType === 'fulf_fact') {
     titleText = 'Detalle de Facturación Fulfillment';
@@ -19611,6 +19717,15 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     `).join('');
   } else if (metricType === 'atrasado') {
     titleText = 'Detalle de Montos con Atraso';
+    
+    filterBarHtml = `
+      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      </div>
+    `;
+
     const list = [];
     periodRecords.forEach(r => {
       const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
@@ -19625,7 +19740,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     });
     
     tableRows = list.map(item => `
-      <tr>
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
         <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -19644,6 +19759,15 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     `).join('');
   } else if (metricType === 'proximo') {
     titleText = 'Detalle de Montos Próximos a Vencer';
+    
+    filterBarHtml = `
+      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      </div>
+    `;
+
     const list = [];
     periodRecords.forEach(r => {
       const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
@@ -19658,7 +19782,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
     });
     
     tableRows = list.map(item => `
-      <tr>
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
         <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service}</span></td>
         <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
         <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
@@ -19678,6 +19802,7 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
   } else {
     const hasActions = (metricType === 'atrasado');
     modalBody.innerHTML = `
+      ${filterBarHtml}
       <div class="table-responsive">
         <table class="data-table">
           <thead>
@@ -19703,6 +19828,61 @@ window.showDashboardMetricDetail = function(metricType, periodId) {
 window.closeDashboardModal = function() {
   const modal = document.getElementById('dashboard-detail-modal');
   if (modal) modal.classList.remove('active');
+};
+
+window.filterModalMetricService = function(serviceType) {
+  // Actualizar estilos de los botones de pestañas
+  const buttons = document.querySelectorAll('.d-modal-tabs button');
+  buttons.forEach(btn => {
+    const isTarget = btn.getAttribute('onclick').includes(`'${serviceType}'`);
+    if (isTarget) {
+      btn.style.background = 'var(--color-primary)';
+      btn.style.color = 'white';
+      btn.style.borderColor = 'var(--color-primary)';
+    } else {
+      btn.style.background = 'transparent';
+      btn.style.color = 'var(--color-text-main)';
+      btn.style.borderColor = 'var(--color-border)';
+    }
+  });
+
+  // Filtrar filas de la tabla
+  const rows = document.querySelectorAll('.data-table tbody tr.metric-row');
+  let visibleCount = 0;
+  rows.forEach(row => {
+    const rowService = row.getAttribute('data-service');
+    if (serviceType === 'all' || rowService === serviceType) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+
+  // Manejar el estado vacío dentro del filtro
+  let emptyRow = document.getElementById('modal-empty-filter-row');
+  if (visibleCount === 0) {
+    if (!emptyRow) {
+      const tbody = document.querySelector('.data-table tbody');
+      if (tbody) {
+        emptyRow = document.createElement('tr');
+        emptyRow.id = 'modal-empty-filter-row';
+        // Determinar cuántas columnas tiene la tabla
+        const colCount = document.querySelectorAll('.data-table thead th').length || 4;
+        emptyRow.innerHTML = `
+          <td colspan="${colCount}" style="text-align: center; color: var(--color-text-muted); padding: 2.5rem 1rem;">
+            <i class="ri-information-line" style="font-size: 1.5rem; color: var(--color-text-muted); display: block; margin-bottom: 0.5rem;"></i>
+            No hay registros para este tipo de servicio.
+          </td>
+        `;
+        tbody.appendChild(emptyRow);
+      }
+    } else {
+      emptyRow.style.display = '';
+    }
+  } else {
+    if (emptyRow) emptyRow.style.display = 'none';
+  }
 };
 
 window.openCommerceEmailHistoryModal = async function(recordId, commerceName, periodId) {
@@ -23512,6 +23692,8 @@ window.updateDashboardYearView = function() {
   let annualEnvFact = 0;
   let annualFulfRec = 0;
   let annualEnvRec = 0;
+  let annualAtrasado = 0;
+  let annualProximo = 0;
   
   const monthlyData = Array.from({ length: 12 }, () => ({ fulfillment: 0, enviame: 0 }));
   const commerceBillingMap = {};
@@ -23521,11 +23703,29 @@ window.updateDashboardYearView = function() {
     const envFact = r.enviame || 0;
     const fulfRec = r.abono_fulfillment || 0;
     const envRec = r.abono_enviame || 0;
+    const fPending = fulfFact - fulfRec;
+    const ePending = envFact - envRec;
 
     annualFulfFact += fulfFact;
     annualEnvFact += envFact;
     annualFulfRec += fulfRec;
     annualEnvRec += envRec;
+
+    // Calcular montos con atraso anuales
+    if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
+      annualAtrasado += fPending;
+    }
+    if (r.pago_enviame === 'Atrasado' && ePending > 0) {
+      annualAtrasado += ePending;
+    }
+
+    // Calcular montos próximos a vencer anuales
+    if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
+      annualProximo += fPending;
+    }
+    if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
+      annualProximo += ePending;
+    }
 
     const monthVal = periodMonthMap[r.period_id];
     if (monthVal && monthVal >= 1 && monthVal <= 12) {
@@ -23548,30 +23748,40 @@ window.updateDashboardYearView = function() {
   const cardsContainer = document.getElementById('d-year-metrics-cards');
   if (cardsContainer) {
     cardsContainer.innerHTML = `
-      <div class="dashboard-card primary">
+      <div class="dashboard-card primary" onclick="window.showDashboardAnnualMetricDetail('fulf_fact', ${selectedYear})" style="cursor: pointer;">
         <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Fulfillment</div>
         <div class="dashboard-card-value">${window.formatCLP(annualFulfFact)}</div>
-        <div class="dashboard-card-sub">Total facturado en el año</div>
+        <div class="dashboard-card-sub">Total facturado (Hacer clic para ver detalle)</div>
       </div>
-      <div class="dashboard-card primary">
+      <div class="dashboard-card primary" onclick="window.showDashboardAnnualMetricDetail('env_fact', ${selectedYear})" style="cursor: pointer;">
         <div class="dashboard-card-label"><i class="ri-bill-line"></i> Facturación Envíame</div>
         <div class="dashboard-card-value">${window.formatCLP(annualEnvFact)}</div>
-        <div class="dashboard-card-sub">Total facturado en el año</div>
+        <div class="dashboard-card-sub">Total facturado (Hacer clic para ver detalle)</div>
       </div>
       <div class="dashboard-card primary" style="background: rgba(147, 51, 234, 0.05); border-color: rgba(147, 51, 234, 0.2);">
         <div class="dashboard-card-label" style="color: #a855f7;"><i class="ri-calculator-line"></i> Facturación Total Anual</div>
         <div class="dashboard-card-value" style="color: #a855f7;">${window.formatCLP(annualTotalFact)}</div>
         <div class="dashboard-card-sub">Fulfillment + Envíame</div>
       </div>
-      <div class="dashboard-card success">
+      <div class="dashboard-card success" onclick="window.showDashboardAnnualMetricDetail('received', ${selectedYear})" style="cursor: pointer;">
         <div class="dashboard-card-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Pagos Recibidos</div>
         <div class="dashboard-card-value" style="color: var(--color-success);">${window.formatCLP(annualTotalRec)}</div>
-        <div class="dashboard-card-sub">${recPercentage}% recaudado en el año</div>
+        <div class="dashboard-card-sub">${recPercentage}% recaudado (Hacer clic para ver detalle)</div>
       </div>
-      <div class="dashboard-card danger">
-        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Saldo Pendiente Anual</div>
-        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(annualPending)}</div>
-        <div class="dashboard-card-sub">Pendiente de cobro en el año</div>
+      <div class="dashboard-card danger" onclick="window.showDashboardAnnualMetricDetail('atrasado', ${selectedYear})" style="cursor: pointer;">
+        <div class="dashboard-card-label" style="color: var(--color-danger);"><i class="ri-error-warning-line"></i> Montos con Atraso (Anual)</div>
+        <div class="dashboard-card-value" style="color: var(--color-danger);">${window.formatCLP(annualAtrasado)}</div>
+        <div class="dashboard-card-sub">Total vencido (Hacer clic para ver detalle)</div>
+      </div>
+      <div class="dashboard-card warning" onclick="window.showDashboardAnnualMetricDetail('proximo', ${selectedYear})" style="cursor: pointer;">
+        <div class="dashboard-card-label" style="color: var(--color-warning);"><i class="ri-time-line"></i> Próximos a Vencer (Anual)</div>
+        <div class="dashboard-card-value" style="color: var(--color-warning);">${window.formatCLP(annualProximo)}</div>
+        <div class="dashboard-card-sub">Total por vencer (Hacer clic para ver detalle)</div>
+      </div>
+      <div class="dashboard-card primary" style="background: rgba(100, 116, 139, 0.05); border-color: rgba(100, 116, 139, 0.2);">
+        <div class="dashboard-card-label" style="color: #64748b;"><i class="ri-wallet-3-line"></i> Saldo Pendiente Anual</div>
+        <div class="dashboard-card-value" style="color: #64748b;">${window.formatCLP(annualPending)}</div>
+        <div class="dashboard-card-sub">Fulfillment + Envíame por cobrar</div>
       </div>
     `;
   }
@@ -23705,6 +23915,195 @@ window.updateDashboardYearView = function() {
       }
     });
   }
+};
+
+window.showDashboardAnnualMetricDetail = function(metricType, year) {
+  const yearPeriods = cachedDashboardPeriods.filter(p => {
+    let pY = p.period_year;
+    if (!pY) {
+      const parts = (p.name || '').split(' ');
+      pY = parts[1] ? parseInt(parts[1], 10) : 0;
+    }
+    return pY === year;
+  });
+
+  const periodIds = yearPeriods.map(p => p.id);
+  const yearRecords = cachedDashboardRecords.filter(r => periodIds.includes(r.period_id));
+  
+  const modal = document.getElementById('dashboard-detail-modal');
+  const modalTitle = document.getElementById('d-modal-title');
+  const modalBody = document.getElementById('d-modal-body-content');
+  
+  if (!modal || !modalTitle || !modalBody) return;
+  
+  let titleText = '';
+  let tableRows = '';
+  let filterBarHtml = '';
+  
+  const periodNameMap = {};
+  yearPeriods.forEach(p => {
+    periodNameMap[p.id] = p.name;
+  });
+
+  if (metricType === 'fulf_fact') {
+    titleText = `Detalle de Facturación Fulfillment Anual (${year})`;
+    tableRows = yearRecords.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${periodNameMap[r.period_id] || ''}</span></td>
+        <td style="font-weight: 600;">${window.formatCLP(r.total_fulfillment)}</td>
+        <td>${r.fecha_limite ? new Date(r.fecha_limite + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_fulfillment)}">${r.pago_fulfillment}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'env_fact') {
+    titleText = `Detalle de Facturación Envíame Anual (${year})`;
+    tableRows = yearRecords.map(r => `
+      <tr>
+        <td><strong>${r.comercio}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${periodNameMap[r.period_id] || ''}</span></td>
+        <td style="font-weight: 600;">${window.formatCLP(r.enviame)}</td>
+        <td>${r.fecha_limite_enviame ? new Date(r.fecha_limite_enviame + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(r.pago_enviame)}">${r.pago_enviame}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'received') {
+    titleText = `Detalle de Pagos Recibidos Anual (${year})`;
+    const list = [];
+    yearRecords.forEach(r => {
+      if ((r.abono_fulfillment || 0) > 0) {
+        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: r.abono_fulfillment, total: r.total_fulfillment, status: r.pago_fulfillment, dueDate: r.fecha_limite });
+      }
+      if ((r.abono_enviame || 0) > 0) {
+        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: r.abono_enviame, total: r.enviame, status: r.pago_enviame, dueDate: r.fecha_limite_enviame });
+      }
+    });
+
+    filterBarHtml = `
+      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      </div>
+    `;
+
+    tableRows = list.map(item => `
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
+        <td style="font-weight: 600; color: var(--color-success);">${window.formatCLP(item.amount)} <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">de ${window.formatCLP(item.total)}</span></td>
+        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'atrasado') {
+    titleText = `Detalle de Montos con Atraso Anual (${year})`;
+    
+    filterBarHtml = `
+      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      </div>
+    `;
+
+    const list = [];
+    yearRecords.forEach(r => {
+      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      if (r.pago_fulfillment === 'Atrasado' && fPending > 0) {
+        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+      }
+      if (r.pago_enviame === 'Atrasado' && ePending > 0) {
+        list.push({ recordId: r.id, periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+      }
+    });
+    
+    tableRows = list.map(item => `
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+        <td>
+          <strong>${item.commerce}</strong><br>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span>
+        </td>
+        <td style="color: var(--color-danger); font-weight: 600;">${window.formatCLP(item.amount)}</td>
+        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+        <td style="vertical-align: middle; text-align: center;">
+          <div style="display: inline-flex; gap: 0.25rem;">
+            <button class="btn btn-outline btn-sm" onclick="window.openCommerceEmailHistoryModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${item.periodId}')" title="Ver Historial de Correos" style="padding: 0.2rem 0.4rem; height: 28px; line-height: 1;">
+              <i class="ri-history-line" style="font-size: 0.9rem;"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="window.openSendBillingEmailModal('${item.recordId}', '${item.commerce.replace(/'/g, "\\'")}', '${item.periodId}')" title="Enviar Correo Manual" style="padding: 0.2rem 0.4rem; border-color: var(--color-primary); color: var(--color-primary); height: 28px; line-height: 1;">
+              <i class="ri-mail-send-line" style="font-size: 0.9rem;"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } else if (metricType === 'proximo') {
+    titleText = `Detalle de Montos Próximos a Vencer Anual (${year})`;
+    
+    filterBarHtml = `
+      <div class="d-modal-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.75rem;">
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('all')" style="border-radius: var(--radius-sm); border: none; background: var(--color-primary); color: white; padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Todos</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('fulfillment')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Fulfillment</button>
+        <button class="btn btn-sm" onclick="window.filterModalMetricService('enviame')" style="border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: transparent; color: var(--color-text-main); padding: 0.35rem 1rem; font-weight: 600; cursor: pointer; transition: all 0.2s;">Envíame</button>
+      </div>
+    `;
+
+    const list = [];
+    yearRecords.forEach(r => {
+      const fPending = (r.total_fulfillment || 0) - (r.abono_fulfillment || 0);
+      const ePending = (r.enviame || 0) - (r.abono_enviame || 0);
+      
+      if (r.pago_fulfillment !== 'Recibido' && r.pago_fulfillment !== 'abono' && r.pago_fulfillment !== 'aprobado' && r.pago_fulfillment !== 'Sin movimientos' && r.pago_fulfillment !== 'Atrasado' && fPending > 0) {
+        list.push({ periodId: r.period_id, commerce: r.comercio, service: 'Fulfillment', amount: fPending, dueDate: r.fecha_limite, status: r.pago_fulfillment });
+      }
+      if (r.pago_enviame !== 'Recibido' && r.pago_enviame !== 'abono' && r.pago_enviame !== 'aprobado' && r.pago_enviame !== 'Sin movimientos' && r.pago_enviame !== 'Atrasado' && ePending > 0) {
+        list.push({ periodId: r.period_id, commerce: r.comercio, service: 'Envíame', amount: ePending, dueDate: r.fecha_limite_enviame, status: r.pago_enviame });
+      }
+    });
+    
+    tableRows = list.map(item => `
+      <tr class="metric-row" data-service="${item.service === 'Fulfillment' ? 'fulfillment' : 'enviame'}">
+        <td><strong>${item.commerce}</strong><br><span style="font-size: 0.75rem; color: var(--color-text-muted);">${item.service} | ${periodNameMap[item.periodId] || ''}</span></td>
+        <td style="color: var(--color-warning); font-weight: 600;">${window.formatCLP(item.amount)}</td>
+        <td>${item.dueDate ? new Date(item.dueDate + 'T00:00:00').toLocaleDateString() : '-'}</td>
+        <td><span class="client-badge ${getStatusClass(item.status)}">${item.status}</span></td>
+      </tr>
+    `).join('');
+  }
+  
+  modalTitle.textContent = titleText;
+  
+  if (!tableRows) {
+    modalBody.innerHTML = `
+      <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+        No hay registros para esta métrica en este año.
+      </div>
+    `;
+  } else {
+    const hasActions = (metricType === 'atrasado');
+    modalBody.innerHTML = `
+      ${filterBarHtml}
+      <div class="table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Comercio</th>
+              <th>Monto</th>
+              <th>Fecha Vencimiento</th>
+              <th>Estado</th>
+              ${hasActions ? '<th style="text-align: center;">Notificaciones</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+  
+  modal.classList.add('active');
 };
 
 // ==========================================
@@ -26315,6 +26714,10 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
     document.getElementById('edit-prod-send-barcode').checked = product.send_barcode_to_picker || false;
     document.getElementById('edit-prod-picking-strict').checked = product.picking_match_strict || false;
+    const statusInput = document.getElementById('edit-prod-status');
+    if (statusInput) {
+      statusInput.value = product.status || 'active';
+    }
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
     document.getElementById('edit-prod-height').value = product.height || '';
@@ -26584,6 +26987,15 @@ function initProductFormListeners() {
       try {
         const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
         const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
+        const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
+
+        // Validación para evitar movimientos (actualización de stock inicial) en productos archivados
+        if (statusVal === 'archived' && newInitialStock !== oldInitialStock) {
+          alert('No se puede modificar el stock inicial de un producto archivado/inactivo.');
+          btnSubmit.disabled = false;
+          btnSubmit.textContent = 'Guardar Producto';
+          return;
+        }
 
         const { error } = await supabase
           .from('products')
@@ -26604,6 +27016,7 @@ function initProductFormListeners() {
             is_pack: isPack,
             is_virtual: isVirtual,
             send_barcode_to_picker: sendBarcode,
+            status: statusVal,
             picking_match_strict: document.getElementById('edit-prod-picking-strict')?.checked || false
           })
           .eq('id', prodId);
@@ -32445,7 +32858,7 @@ function openBulkStockAssignModal(commerce, onComplete) {
         // Fetch products of commerce
         const { data: dbProducts } = await supabase
           .from('products')
-          .select('id, sku, name')
+          .select('id, sku, name, status')
           .eq('comercio', commerce);
 
         const productMap = {};
@@ -32489,6 +32902,9 @@ function openBulkStockAssignModal(commerce, onComplete) {
           } else if (!prod) {
             status = 'error';
             message = 'El SKU no existe en este comercio';
+          } else if (prod.status === 'archived') {
+            status = 'error';
+            message = 'El producto está archivado';
           } else if (isNaN(stockVal) || stockVal < 0) {
             status = 'error';
             message = 'Stock inválido (debe ser un número entero >= 0)';
@@ -33338,7 +33754,7 @@ function openCatalogBulkStockImportModal(commerce) {
           return;
         }
 
-        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name', q => q.eq('comercio', commerce));
+        const dbProducts = await window.fetchAllSupabaseRows('products', 'id, sku, name, status', q => q.eq('comercio', commerce));
 
         const productMap = {};
         if (dbProducts) {
@@ -33379,6 +33795,9 @@ function openCatalogBulkStockImportModal(commerce) {
           } else if (!prod) {
             status = 'error';
             message = 'El SKU no existe en este comercio';
+          } else if (prod.status === 'archived') {
+            status = 'error';
+            message = 'El producto está archivado';
           } else if (isNaN(stockVal) || stockVal < 0 || stockVal !== Number(stockValRaw)) {
             status = 'error';
             message = 'Stock inválido (debe ser un número entero >= 0)';
@@ -34329,7 +34748,7 @@ window.getTransitTimeText = function(courierId, ratesData) {
 
 window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
   try {
-    let query = supabase.from('products').select('id, name, sku, price, volumen, weight').order('name');
+    let query = supabase.from('products').select('id, name, sku, price, volumen, weight, status').order('name');
     if (selectedCommerce) {
       query = query.eq('comercio', selectedCommerce);
     } else {
@@ -34339,10 +34758,12 @@ window.loadNewOrderProductsAdmin = async function(selectedCommerce) {
     if (error) throw error;
     
     // Map weight column to peso for consistency with calculation helpers
-    window.tempClientProductsList = (products || []).map(p => ({
-      ...p,
-      peso: p.weight
-    }));
+    window.tempClientProductsList = (products || [])
+      .filter(p => p.status !== 'archived')
+      .map(p => ({
+        ...p,
+        peso: p.weight
+      }));
   } catch (err) {
     console.error("Error al cargar productos de cotizador admin:", err.message);
     window.tempClientProductsList = [];
@@ -36143,6 +36564,1516 @@ if (document.readyState === 'loading') {
 } else {
   window.startWmsMonitorPolling();
 }
+
+
+// ====== LOGISTICA INVERSA (ADMINISTRADOR) ======
+let adminReturnsCurrentPage = 1;
+const adminReturnsPageSize = 50;
+window.adminRlCatalogProducts = [];
+window.activeConfirmRlRecord = null;
+
+const SANTIAGO_COMUNAS = [
+  'Cerrillos', 'Cerro Navia', 'Conchalí', 'El Bosque', 'Estación Central',
+  'Huechuraba', 'Independencia', 'La Cisterna', 'La Florida', 'La Granja',
+  'La Pintana', 'La Reina', 'Las Condes', 'Lo Barnechea', 'Lo Espejo',
+  'Lo Prado', 'Macul', 'Maipú', 'Ñuñoa', 'Pedro Aguirre Cerda',
+  'Peñalolén', 'Providencia', 'Pudahuel', 'Puente Alto', 'Quilicura',
+  'Quinta Normal', 'Recoleta', 'Renca', 'San Bernardo', 'San Joaquín',
+  'San Miguel', 'San Ramón', 'Santiago', 'Vitacura', 'Padre Hurtado',
+  'Colina'
+];
+
+window.renderAdminReturns = async function() {
+  const content = document.getElementById('app-content');
+  
+  content.innerHTML = `
+    <div style="margin-bottom: 2rem; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end;">
+      <div>
+        <p style="color: var(--color-text-muted); font-size: 1rem; max-width: 800px; line-height: 1.6; margin: 0;">
+          Gestión centralizada de cambios y devoluciones registrados en el WMS.
+        </p>
+      </div>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-admin-create-return" class="btn btn-primary" style="background-color: var(--color-danger, #ef4444); color: white; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-add-line"></i> Registrar Devolución
+        </button>
+        <button id="btn-admin-create-exchange" class="btn btn-primary" style="background-color: var(--color-success, #10b981); color: white; display: flex; align-items: center; gap: 0.25rem;">
+          <i class="ri-arrow-left-right-line"></i> Registrar Cambio
+        </button>
+        <button id="btn-admin-export-csv" class="btn btn-outline" style="background-color: transparent; color: #10b981; border-color: #10b981;">
+          <i class="ri-file-text-line" style="margin-right: 0.25rem;"></i> CSV
+        </button>
+        <button id="btn-admin-export-excel" class="btn btn-outline" style="background-color: transparent; color: #059669; border-color: #059669;">
+          <i class="ri-file-excel-2-line" style="margin-right: 0.25rem;"></i> Excel
+        </button>
+      </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card" style="margin-bottom: 1.5rem;">
+      <div class="card-body" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;">
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Tipo de Movimiento</label>
+          <select id="filter-ret-type" class="form-input">
+            <option value="">Todos</option>
+            <option value="CAMBIO">Cambio</option>
+            <option value="DEVOLUCION">Devolución</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 150px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Estado</label>
+          <select id="filter-ret-status" class="form-input">
+            <option value="">Todos</option>
+            <option value="pendiente">Pendientes</option>
+            <option value="procesado">Procesados</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 200px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Buscador General</label>
+          <input type="text" id="filter-ret-search" class="form-input" placeholder="Buscar por pedido, comercio, transporte...">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Desde Fecha</label>
+          <input type="date" id="filter-ret-date-from" class="form-input">
+        </div>
+        <div class="form-group" style="flex: 1; min-width: 130px; margin-bottom: 0;">
+          <label class="form-label" style="font-size: 0.8rem;">Hasta Fecha</label>
+          <input type="date" id="filter-ret-date-to" class="form-input">
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="card">
+      <div class="card-body table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Fecha y Hora</th>
+              <th>Tipo</th>
+              <th>Comercio</th>
+              <th>Ref. Pedido</th>
+              <th>Transporte</th>
+              <th>Sucursal</th>
+              <th>Ref. Transporte</th>
+              <th>Estado</th>
+              <th>Cant.</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="admin-returns-tbody">
+            <tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 1rem;">
+        <div id="admin-returns-pagination-info" style="font-size: 0.875rem; color: var(--color-text-muted);">
+          Mostrando 0 registros
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-admin-ret-prev" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Anterior</button>
+          <button id="btn-admin-ret-next" class="btn btn-outline" style="padding: 0.25rem 0.75rem;" disabled>Siguiente</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Listeners de Filtros
+  const filters = ['filter-ret-type', 'filter-ret-status', 'filter-ret-date-from', 'filter-ret-date-to'];
+  filters.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', () => {
+        adminReturnsCurrentPage = 1;
+        fetchAndRenderAdminReturnsData();
+      });
+    }
+  });
+
+  let searchTimeout;
+  const searchInput = document.getElementById('filter-ret-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        adminReturnsCurrentPage = 1;
+        fetchAndRenderAdminReturnsData();
+      }, 400);
+    });
+  }
+
+  // Listeners de paginación
+  const btnPrev = document.getElementById('btn-admin-ret-prev');
+  if (btnPrev) {
+    btnPrev.addEventListener('click', () => {
+      if (adminReturnsCurrentPage > 1) {
+        adminReturnsCurrentPage--;
+        fetchAndRenderAdminReturnsData();
+      }
+    });
+  }
+
+  const btnNext = document.getElementById('btn-admin-ret-next');
+  if (btnNext) {
+    btnNext.addEventListener('click', () => {
+      adminReturnsCurrentPage++;
+      fetchAndRenderAdminReturnsData();
+    });
+  }
+
+  // Botones de Registro
+  document.getElementById('btn-admin-create-return').addEventListener('click', () => window.openAdminReverseLogisticsModal('DEVOLUCION'));
+  document.getElementById('btn-admin-create-exchange').addEventListener('click', () => window.openAdminReverseLogisticsModal('CAMBIO'));
+
+  // Exportar
+  document.getElementById('btn-admin-export-csv').addEventListener('click', () => exportAdminReturnsData('csv'));
+  document.getElementById('btn-admin-export-excel').addEventListener('click', () => exportAdminReturnsData('excel'));
+
+  // Carga Inicial
+  adminReturnsCurrentPage = 1;
+  await fetchAndRenderAdminReturnsData();
+};
+
+function buildAdminReturnsQuery(query) {
+  const fType = document.getElementById('filter-ret-type').value;
+  const fStatus = document.getElementById('filter-ret-status').value;
+  const fSearch = document.getElementById('filter-ret-search').value.trim();
+  const fFrom = document.getElementById('filter-ret-date-from').value;
+  const fTo = document.getElementById('filter-ret-date-to').value;
+
+  if (fType) query = query.eq('tipo_movimiento', fType);
+  if (fStatus) query = query.eq('status', fStatus);
+  if (fSearch) {
+    query = query.or(`referencia_pedido.ilike.%${fSearch}%,comercio.ilike.%${fSearch}%,transporte.ilike.%${fSearch}%,referencia_transporte.ilike.%${fSearch}%,sucursal.ilike.%${fSearch}%`);
+  }
+  if (fFrom) query = query.gte('created_at', fFrom + 'T00:00:00.000Z');
+  if (fTo) query = query.lte('created_at', fTo + 'T23:59:59.999Z');
+
+  return query;
+}
+
+async function fetchAndRenderAdminReturnsData() {
+  const tbody = document.getElementById('admin-returns-tbody');
+  const btnPrev = document.getElementById('btn-admin-ret-prev');
+  const btnNext = document.getElementById('btn-admin-ret-next');
+  const info = document.getElementById('admin-returns-pagination-info');
+
+  if (!tbody) return;
+
+  tbody.innerHTML = '<tr><td colspan="10" class="text-center" style="padding: 2rem;">Cargando...</td></tr>';
+  if (btnPrev) btnPrev.disabled = true;
+  if (btnNext) btnNext.disabled = true;
+
+  try {
+    let query = supabase.from('reverse_logistics').select('*', { count: 'exact' });
+    query = buildAdminReturnsQuery(query);
+
+    const from = (adminReturnsCurrentPage - 1) * adminReturnsPageSize;
+    const to = from + adminReturnsPageSize - 1;
+
+    query = query.order('created_at', { ascending: false }).range(from, to);
+
+    const { data: returns, error, count } = await query;
+    if (error) throw error;
+
+    let html = '';
+    if (!returns || returns.length === 0) {
+      html = '<tr><td colspan="10" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No hay registros encontrados.</td></tr>';
+    } else {
+      returns.forEach(r => {
+        const d = new Date(r.created_at);
+        const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        const badgeClass = r.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
+        
+        let safeData = '{}';
+        try { safeData = encodeURIComponent(JSON.stringify(r)); } catch(e){}
+
+        const statusVal = r.status || 'pendiente';
+        let statusBadge = '';
+        let confirmAction = '';
+        
+        if (statusVal === 'pendiente') {
+          statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
+          confirmAction = `
+            <button class="btn btn-outline" onclick="window.openAdminEditReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-primary); background: var(--color-surface); color: var(--color-primary); display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
+              <i class="ri-edit-line"></i> Editar
+            </button>
+            <button class="btn btn-primary" onclick="window.openConfirmReturnModal('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: var(--color-primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem; font-weight:600;">
+              <i class="ri-checkbox-circle-line"></i> Confirmar
+            </button>
+          `;
+        } else {
+          statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+        }
+
+        html += `
+          <tr style="transition: background-color 0.2s;">
+            <td style="white-space: nowrap;"><i class="ri-calendar-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${dateStr}</td>
+            <td><span class="badge ${badgeClass}">${r.tipo_movimiento}</span></td>
+            <td><i class="ri-store-2-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${r.comercio || 'N/A'}</td>
+            <td><span style="font-family: monospace; font-size: 0.9rem; background: var(--color-bg); padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); letter-spacing: 0.5px;">${r.referencia_pedido}</span></td>
+            <td><i class="ri-truck-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.transporte || 'N/A'}</td>
+            <td><i class="ri-map-pin-line" style="color: var(--color-text-muted); margin-right: 0.25rem;"></i>${r.sucursal || 'N/A'}</td>
+            <td><span style="font-family: monospace; font-size: 0.85rem; color: var(--color-text-muted);">${r.referencia_transporte || 'N/A'}</span></td>
+            <td>${statusBadge}</td>
+            <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${r.cantidad_total}</strong></td>
+            <td>
+              <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <button class="btn btn-outline" onclick="window.openReturnsDetail('${safeData}')" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; border-color: var(--color-border); background: var(--color-surface);"><i class="ri-search-eye-line" style="color: var(--color-primary); margin-right:0.25rem;"></i> Detalle</button>
+                ${confirmAction}
+              </div>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    tbody.innerHTML = html;
+    
+    // Update pagination
+    const currentEnd = Math.min(from + adminReturnsPageSize, count || 0);
+    if (info) info.textContent = `Mostrando ${count === 0 ? 0 : from + 1} a ${currentEnd} de ${count || 0} registros`;
+    
+    if (btnPrev) btnPrev.disabled = adminReturnsCurrentPage <= 1;
+    if (btnNext) btnNext.disabled = currentEnd >= (count || 0);
+
+  } catch (err) {
+    console.error('Error:', err);
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-danger" style="padding: 2rem;">Error: ${err.message}</td></tr>`;
+  }
+}
+
+async function exportAdminReturnsData(format) {
+  try {
+    let query = supabase.from('reverse_logistics').select('*').order('created_at', { ascending: false });
+    query = buildAdminReturnsQuery(query);
+    
+    const { data, error } = await query;
+    if (error) throw error;
+    
+    if (!data || data.length === 0) {
+      alert('No hay datos para exportar con estos filtros.');
+      return;
+    }
+
+    const rows = data.map(r => {
+      const d = new Date(r.created_at);
+      const dateStr = d.toLocaleDateString() + ' ' + d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+      
+      let productosStr = '';
+      if (r.productos && Array.isArray(r.productos)) {
+        productosStr = r.productos.map(p => `Devuelve: ${p.producto_devuelto || '-'} | Reemplaza: ${p.producto_reemplazo || '-'} | Cant: ${p.cantidad || 1}`).join(' || ');
+      }
+
+      return {
+        'ID': r.id,
+        'Fecha y Hora': dateStr,
+        'Tipo': r.tipo_movimiento,
+        'Comercio': r.comercio,
+        'Referencia Pedido': r.referencia_pedido,
+        'Transporte': r.transporte,
+        'Sucursal': r.sucursal,
+        'Tracking': r.referencia_transporte,
+        'Estado': r.status || 'pendiente',
+        'Cantidad': r.cantidad_total,
+        'Creado Por': r.creado_por,
+        'Comentarios': r.comentarios,
+        'Detalle Productos': productosStr
+      };
+    });
+
+    const timestamp = new Date().toISOString().slice(0,10);
+    const filename = `logistica_inversa_admin_${timestamp}`;
+
+    if (format === 'csv') {
+      const headers = Object.keys(rows[0]);
+      const csvRows = rows.map(r => headers.map(h => `"${(r[h] || '').toString().replace(/"/g, '""')}"`).join(','));
+      const csvContent = "\ufeff" + [headers.join(','), ...csvRows].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${filename}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } else if (format === 'excel') {
+      if (typeof XLSX === 'undefined') {
+        alert('Librería de Excel no está cargada. Intenta recargar la página.');
+        return;
+      }
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Logística Inversa");
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+    }
+
+  } catch(e) {
+    console.error('Error Exporting:', e);
+    alert('Error al exportar: ' + e.message);
+  }
+}
+
+// ------ MODAL DE CONFIRMACION Y PROCESAMIENTO (ADMIN) ------
+
+window.openConfirmReturnModal = async function(dataStr) {
+  try {
+    const data = JSON.parse(decodeURIComponent(dataStr));
+    window.activeConfirmRlRecord = data;
+    
+    document.getElementById('confirm-rl-id').value = data.id;
+    document.getElementById('confirm-rl-type').value = data.tipo_movimiento;
+    document.getElementById('confirm-rl-commerce').value = data.comercio;
+    
+    // Fetch active warehouses/bodegas
+    const { data: warehouses, error: wError } = await supabase
+      .from('warehouses')
+      .select('id, name')
+      .order('name');
+    if (wError) throw wError;
+    
+    const activeWarehouses = warehouses || [];
+    
+    // Find default Bodega Central
+    const centralWh = activeWarehouses.find(w => w.name.toLowerCase().includes('central'));
+    const centralWhId = centralWh ? centralWh.id : '';
+    
+    const tbody = document.getElementById('confirm-products-tbody');
+    tbody.innerHTML = '';
+    
+    let rowsHtml = '';
+    
+    if (data.productos && Array.isArray(data.productos)) {
+      data.productos.forEach((p, idx) => {
+        if (p.producto_devuelto) {
+          const qtyDev = p.qty_devuelto !== undefined ? p.qty_devuelto : (p.producto_devuelto ? p.cantidad || 1 : 0);
+          
+          let selectHtml = '';
+          if (p.regresar_a_inventario) {
+            selectHtml = `
+              <select class="form-input confirm-warehouse-select" data-type="in" data-prod-id="${p.id_devuelto || ''}" data-sku="${p.producto_devuelto.split(' - ')[0]}" data-name="${p.producto_devuelto.split(' - ')[1] || ''}" required style="width: 100%;">
+                <option value="">Selecciona Bodega de Entrada...</option>
+                ${activeWarehouses.map(w => `<option value="${w.id}" ${w.id === centralWhId ? 'selected' : ''}>${w.name}</option>`).join('')}
+              </select>
+            `;
+          } else {
+            selectHtml = `<span style="color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">No retorna stock</span>`;
+          }
+          
+          rowsHtml += `
+            <tr>
+              <td><span class="badge" style="background-color: #fee2e2; color: #ef4444;">Ingresa</span></td>
+              <td><strong>${p.producto_devuelto}</strong></td>
+              <td style="text-align: center; font-weight:700;">${qtyDev}</td>
+              <td>${selectHtml}</td>
+            </tr>
+          `;
+        }
+        
+        if (p.producto_reemplazo) {
+          const qtyRep = p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.producto_reemplazo ? p.cantidad || 1 : 0);
+          
+          const selectHtml = `
+            <select class="form-input confirm-warehouse-select" data-type="out" data-prod-id="${p.id_reemplazo || ''}" data-sku="${p.producto_reemplazo.split(' - ')[0]}" data-name="${p.producto_reemplazo.split(' - ')[1] || ''}" required style="width: 100%;">
+              <option value="">Selecciona Bodega de Origen...</option>
+              ${activeWarehouses.map(w => `<option value="${w.id}" ${w.id === centralWhId ? 'selected' : ''}>${w.name}</option>`).join('')}
+            </select>
+          `;
+          
+          rowsHtml += `
+            <tr>
+              <td><span class="badge" style="background-color: #d1fae5; color: #059669;">Sale</span></td>
+              <td><strong>${p.producto_reemplazo}</strong></td>
+              <td style="text-align: center; font-weight:700;">${qtyRep}</td>
+              <td>${selectHtml}</td>
+            </tr>
+          `;
+        }
+      });
+    }
+    
+    if (!rowsHtml) {
+      rowsHtml = `<tr><td colspan="4" class="text-center" style="color: var(--color-text-muted); padding: 1rem;">No hay productos detallados en este registro.</td></tr>`;
+    }
+    
+    tbody.innerHTML = rowsHtml;
+    
+    document.getElementById('modal-confirm-return').classList.add('active');
+    
+  } catch(e) {
+    console.error('Error opening confirmation modal:', e);
+    alert('Error al cargar datos del movimiento: ' + e.message);
+  }
+};
+
+// Formulario de Confirmacion Submit Handler
+document.addEventListener('DOMContentLoaded', () => {
+  const formConfirm = document.getElementById('form-confirm-return');
+  if (formConfirm) {
+    formConfirm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const recordId = document.getElementById('confirm-rl-id').value;
+      const type = document.getElementById('confirm-rl-type').value;
+      const commerce = document.getElementById('confirm-rl-commerce').value;
+      
+      const selects = document.querySelectorAll('.confirm-warehouse-select');
+      
+      let valid = true;
+      selects.forEach(sel => {
+        if (!sel.value) valid = false;
+      });
+      if (!valid) {
+        alert('Debe seleccionar una bodega para cada producto activo.');
+        return;
+      }
+      
+      const btnSave = document.getElementById('btn-save-confirm-rl');
+      btnSave.disabled = true;
+      btnSave.innerHTML = 'Confirmando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
+      
+      try {
+        const { data: centralWh } = await supabase
+          .from('warehouses')
+          .select('id')
+          .ilike('name', '%Central%')
+          .limit(1)
+          .single();
+        const centralWhId = centralWh ? centralWh.id : null;
+        
+        for (const sel of selects) {
+          const flow = sel.getAttribute('data-type');
+          const prodId = sel.getAttribute('data-prod-id') || null;
+          const warehouseId = sel.value;
+          const qty = parseInt(sel.closest('tr').querySelector('td:nth-child(3)').textContent) || 1;
+          
+          if (prodId) {
+            if (flow === 'in') {
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', prodId)
+                .eq('warehouse_id', warehouseId)
+                .maybeSingle();
+                
+              if (invRecord) {
+                await supabase
+                  .from('inventory')
+                  .update({ quantity: (invRecord.quantity || 0) + qty })
+                  .eq('id', invRecord.id);
+              } else {
+                await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: prodId,
+                    warehouse_id: warehouseId,
+                    quantity: qty
+                  }]);
+              }
+              
+              await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: warehouseId,
+                  type: 'in',
+                  quantity: qty,
+                  reference_doc: `${type === 'CAMBIO' ? 'Cambio' : 'Devolución'} [Ped: ${window.activeConfirmRlRecord?.referencia_pedido || 'N/A'}]`
+                }]);
+                
+            } else if (flow === 'out') {
+              if (centralWhId) {
+                const { data: centralInv } = await supabase
+                  .from('inventory')
+                  .select('id, committed_quantity')
+                  .eq('product_id', prodId)
+                  .eq('warehouse_id', centralWhId)
+                  .maybeSingle();
+                  
+                if (centralInv) {
+                  const newCommitted = Math.max(0, (centralInv.committed_quantity || 0) - qty);
+                  await supabase
+                    .from('inventory')
+                    .update({ committed_quantity: newCommitted })
+                    .eq('id', centralInv.id);
+                }
+              }
+              
+              const { data: invRecord } = await supabase
+                .from('inventory')
+                .select('id, quantity')
+                .eq('product_id', prodId)
+                .eq('warehouse_id', warehouseId)
+                .maybeSingle();
+                
+              if (invRecord) {
+                const newQty = Math.max(0, (invRecord.quantity || 0) - qty);
+                await supabase
+                  .from('inventory')
+                  .update({ quantity: newQty })
+                  .eq('id', invRecord.id);
+              } else {
+                await supabase
+                  .from('inventory')
+                  .insert([{
+                    product_id: prodId,
+                    warehouse_id: warehouseId,
+                    quantity: 0
+                  }]);
+              }
+              
+              await supabase
+                .from('movements')
+                .insert([{
+                  product_id: prodId,
+                  warehouse_id: warehouseId,
+                  type: 'out',
+                  quantity: qty,
+                  reference_doc: `Cambio [Ped: ${window.activeConfirmRlRecord?.referencia_pedido || 'N/A'}]`
+                }]);
+            }
+          }
+        }
+        
+        const { error: updateErr } = await supabase
+          .from('reverse_logistics')
+          .update({ status: 'procesado' })
+          .eq('id', recordId);
+          
+        if (updateErr) throw updateErr;
+        
+        Swal.fire({
+          title: '¡Procesado!',
+          text: 'El movimiento ha sido confirmado y procesado en el inventario exitosamente.',
+          icon: 'success',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        
+        document.getElementById('modal-confirm-return').classList.remove('active');
+        await fetchAndRenderAdminReturnsData();
+        
+      } catch (err) {
+        console.error('Error confirming reverse logistics record:', err);
+        Swal.fire({
+          title: 'Error',
+          text: 'No se pudo procesar la confirmación: ' + err.message,
+          icon: 'error',
+          confirmButtonText: 'Cerrar',
+          confirmButtonColor: 'var(--color-danger)'
+        });
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = 'Procesar y Confirmar <i class="ri-check-line"></i>';
+      }
+    });
+  }
+  
+  // Listener para Modalidad Comuna (Admin modal)
+  const modalitySelect = document.getElementById('rl-modalidad');
+  if (modalitySelect) {
+    modalitySelect.addEventListener('change', (e) => {
+      const comunaGroup = document.getElementById('rl-comuna-group');
+      const comunaSelect = document.getElementById('rl-comuna');
+      if (e.target.value === 'despacho_santiago') {
+        comunaGroup.style.display = 'block';
+        comunaSelect.setAttribute('required', 'true');
+      } else {
+        comunaGroup.style.display = 'none';
+        comunaSelect.removeAttribute('required');
+        comunaSelect.value = '';
+      }
+    });
+  }
+
+  // Listener para Modo Manual (Admin modal)
+  const manualModeCheckbox = document.getElementById('rl-manual-mode');
+  if (manualModeCheckbox) {
+    manualModeCheckbox.addEventListener('change', () => {
+      const isManual = manualModeCheckbox.checked;
+      document.getElementById('rl-incoming-tbody').innerHTML = '';
+      document.getElementById('rl-outgoing-tbody').innerHTML = '';
+      
+      window.addRlRow('incoming', isManual);
+      if (document.getElementById('rl-type').value === 'CAMBIO') {
+        window.addRlRow('outgoing', isManual);
+      }
+    });
+  }
+
+  // Listener para Cambio de Comercio en Creación (Admin modal)
+  const commerceSelect = document.getElementById('rl-commerce');
+  if (commerceSelect) {
+    commerceSelect.addEventListener('change', async (e) => {
+      const commerce = e.target.value;
+      window.rlCatalogProducts = [];
+      document.getElementById('rl-incoming-tbody').innerHTML = '';
+      document.getElementById('rl-outgoing-tbody').innerHTML = '';
+      
+      if (commerce) {
+        try {
+          const { data: products, error } = await supabase
+            .from('products')
+            .select('id, sku, name, is_pack, is_virtual')
+            .eq('comercio', commerce)
+            .neq('status', 'archived')
+            .order('name');
+          if (error) throw error;
+          window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
+        } catch (err) {
+          console.error('Error fetching catalog products for commerce change:', err);
+        }
+      }
+      
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      window.addRlRow('incoming', isManual);
+      if (document.getElementById('rl-type').value === 'CAMBIO') {
+        window.addRlRow('outgoing', isManual);
+      }
+    });
+  }
+
+  // Listeners para añadir filas (Admin modal)
+  const btnAddIncoming = document.getElementById('btn-rl-add-incoming');
+  if (btnAddIncoming) {
+    btnAddIncoming.addEventListener('click', () => {
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      window.addRlRow('incoming', isManual);
+    });
+  }
+
+  const btnAddOutgoing = document.getElementById('btn-rl-add-outgoing');
+  if (btnAddOutgoing) {
+    btnAddOutgoing.addEventListener('click', () => {
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      window.addRlRow('outgoing', isManual);
+    });
+  }
+
+  // Formulario Submit (Admin modal)
+  const formRl = document.getElementById('form-reverse-logistics');
+  if (formRl) {
+    formRl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const editId = document.getElementById('rl-edit-id').value;
+      const commerce = document.getElementById('rl-commerce').value;
+      const type = document.getElementById('rl-type').value;
+      const refPedido = document.getElementById('rl-ref-pedido').value.trim();
+      const modalidad = document.getElementById('rl-modalidad').value;
+      const comuna = document.getElementById('rl-comuna').value;
+      const courier = document.getElementById('rl-courier').value.trim();
+      const tracking = document.getElementById('rl-tracking').value.trim();
+      const comments = document.getElementById('rl-comments').value.trim();
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      
+      if (!commerce) {
+        alert('Debe seleccionar el comercio.');
+        return;
+      }
+      if (!refPedido) {
+        alert('Debe ingresar la referencia del pedido.');
+        return;
+      }
+      if (modalidad === 'despacho_santiago' && !comuna) {
+        alert('Debe ingresar la comuna para el despacho/retiro en Santiago.');
+        return;
+      }
+
+      const incomingRows = document.querySelectorAll('#rl-incoming-tbody tr');
+      const outgoingRows = document.querySelectorAll('#rl-outgoing-tbody tr');
+      
+      if (incomingRows.length === 0) {
+        alert('Debe ingresar al menos un producto entrante.');
+        return;
+      }
+      if (type === 'CAMBIO' && outgoingRows.length === 0) {
+        alert('Debe ingresar al menos un producto saliente para el cambio.');
+        return;
+      }
+      
+      const btnSave = document.getElementById('btn-save-rl');
+      btnSave.disabled = true;
+      btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
+      
+      try {
+        // Si estamos editando y el registro original era un CAMBIO, liberamos el stock comprometido anterior primero
+        if (editId) {
+          const { data: origRecord } = await supabase
+            .from('reverse_logistics')
+            .select('*')
+            .eq('id', editId)
+            .single();
+            
+          if (origRecord && origRecord.tipo_movimiento === 'CAMBIO') {
+            const { data: centralWh } = await supabase
+              .from('warehouses')
+              .select('id')
+              .ilike('name', '%Central%')
+              .limit(1)
+              .single();
+              
+            if (centralWh && origRecord.productos) {
+              for (const origProd of origRecord.productos) {
+                if (origProd.id_reemplazo) {
+                  const qtyRep = origProd.qty_reemplazo !== undefined ? origProd.qty_reemplazo : origProd.cantidad || 1;
+                  const { data: invRecord } = await supabase
+                    .from('inventory')
+                    .select('id, committed_quantity')
+                    .eq('product_id', origProd.id_reemplazo)
+                    .eq('warehouse_id', centralWh.id)
+                    .maybeSingle();
+                    
+                  if (invRecord) {
+                    const newCommitted = Math.max(0, (invRecord.committed_quantity || 0) - qtyRep);
+                    await supabase
+                      .from('inventory')
+                      .update({ committed_quantity: newCommitted })
+                      .eq('id', invRecord.id);
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        const incomingProducts = [];
+        incomingRows.forEach(row => {
+          let productId = null;
+          let sku = '';
+          let name = '';
+          if (isManual) {
+            sku = row.querySelector('.rl-prod-sku').value.trim();
+            name = row.querySelector('.rl-prod-name').value.trim();
+          } else {
+            const input = row.querySelector('.rl-prod-input');
+            const val = input ? input.value.trim() : '';
+            const datalist = row.querySelector('datalist');
+            const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+            
+            productId = opt ? opt.getAttribute('data-id') || null : null;
+            if (val.includes(' - ')) {
+              const parts = val.split(' - ');
+              sku = parts[0];
+              name = parts.slice(1).join(' - ');
+            } else {
+              sku = val;
+              name = val;
+            }
+          }
+          
+          const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+          const stockReturn = row.querySelector('.rl-prod-stock-return').checked;
+          const itemComment = row.querySelector('.rl-prod-comment').value.trim();
+          
+          incomingProducts.push({
+            product_id: productId,
+            sku,
+            name,
+            cantidad: qty,
+            regresar_a_inventario: stockReturn,
+            comentario: itemComment
+          });
+        });
+        
+        const outgoingProducts = [];
+        if (type === 'CAMBIO') {
+          outgoingRows.forEach(row => {
+            let productId = null;
+            let sku = '';
+            let name = '';
+            if (isManual) {
+              sku = row.querySelector('.rl-prod-sku').value.trim();
+              name = row.querySelector('.rl-prod-name').value.trim();
+            } else {
+              const input = row.querySelector('.rl-prod-input');
+              const val = input ? input.value.trim() : '';
+              const datalist = row.querySelector('datalist');
+              const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+              
+              productId = opt ? opt.getAttribute('data-id') || null : null;
+              if (val.includes(' - ')) {
+                const parts = val.split(' - ');
+                sku = parts[0];
+                name = parts.slice(1).join(' - ');
+              } else {
+                sku = val;
+                name = val;
+              }
+            }
+            const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+            
+            outgoingProducts.push({
+              product_id: productId,
+              sku,
+              name,
+              cantidad: qty
+            });
+          });
+        }
+        
+        const productosPayload = [];
+        const maxLen = Math.max(incomingProducts.length, outgoingProducts.length);
+        for (let i = 0; i < maxLen; i++) {
+          const inc = incomingProducts[i] || null;
+          const out = outgoingProducts[i] || null;
+          
+          productosPayload.push({
+            producto_devuelto: inc ? `${inc.sku} - ${inc.name}` : null,
+            producto_reemplazo: out ? `${out.sku} - ${out.name}` : null,
+            cantidad: inc ? inc.cantidad : (out ? out.cantidad : 1),
+            comentario: inc ? inc.comentario : null,
+            regresar_a_inventario: inc ? inc.regresar_a_inventario : false,
+            id_devuelto: inc ? inc.product_id : null,
+            id_reemplazo: out ? out.product_id : null,
+            qty_devuelto: inc ? inc.cantidad : 0,
+            qty_reemplazo: out ? out.cantidad : 0
+          });
+        }
+        
+        const totalQty = incomingProducts.reduce((sum, p) => sum + p.cantidad, 0) + 
+                         outgoingProducts.reduce((sum, p) => sum + p.cantidad, 0);
+                         
+        const modalityText = document.getElementById('rl-modalidad').options[document.getElementById('rl-modalidad').selectedIndex].text;
+        const finalTransporte = courier ? `${modalityText} (${courier})` : modalityText;
+        const finalSucursal = (modalidad === 'despacho_santiago' && comuna) ? comuna : 'Punto Físico Ñuñoa';
+        
+        const newRecord = {
+          tipo_movimiento: type,
+          comercio: commerce,
+          transporte: finalTransporte,
+          referencia_pedido: refPedido,
+          referencia_transporte: tracking || 'N/A',
+          productos: productosPayload,
+          cantidad_total: totalQty,
+          comentarios: comments,
+          sucursal: finalSucursal,
+          creado_por: editId ? undefined : 'Administrador', // Mantiene creador original si es edición
+          status: 'pendiente'
+        };
+        
+        let saveError = null;
+        if (editId) {
+          const { error: updateError } = await supabase
+            .from('reverse_logistics')
+            .update(newRecord)
+            .eq('id', editId);
+          saveError = updateError;
+        } else {
+          const { error: insertError } = await supabase
+            .from('reverse_logistics')
+            .insert([newRecord]);
+          saveError = insertError;
+        }
+          
+        if (saveError) throw saveError;
+        
+        // Stock comprometido para salidas de Cambios
+        if (type === 'CAMBIO' && !isManual) {
+          const { data: bodegaCentral } = await supabase
+            .from('warehouses')
+            .select('id')
+            .ilike('name', '%Central%')
+            .limit(1)
+            .single();
+            
+          if (bodegaCentral) {
+            for (const out of outgoingProducts) {
+              if (out.product_id) {
+                const { data: invRecord } = await supabase
+                  .from('inventory')
+                  .select('id, committed_quantity')
+                  .eq('product_id', out.product_id)
+                  .eq('warehouse_id', bodegaCentral.id)
+                  .maybeSingle();
+                  
+                if (invRecord) {
+                  await supabase
+                    .from('inventory')
+                    .update({ committed_quantity: (invRecord.committed_quantity || 0) + out.cantidad })
+                    .eq('id', invRecord.id);
+                } else {
+                  await supabase
+                    .from('inventory')
+                    .insert([{
+                      product_id: out.product_id,
+                      warehouse_id: bodegaCentral.id,
+                      quantity: 0,
+                      committed_quantity: out.cantidad
+                    }]);
+                }
+              }
+            }
+          }
+        }
+        
+        Swal.fire({
+          title: '¡Guardado!',
+          text: 'El movimiento ha sido guardado exitosamente y queda como "Pendiente".',
+          icon: 'success',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        
+        document.getElementById('modal-reverse-logistics').classList.remove('active');
+        
+        if (typeof fetchAndRenderAdminReturnsData === 'function') {
+          await fetchAndRenderAdminReturnsData();
+        }
+        
+      } catch (err) {
+        console.error('Error saving reverse logistics record:', err);
+        Swal.fire({
+          title: 'Error',
+          text: 'No se pudo guardar la solicitud: ' + err.message,
+          icon: 'error',
+          confirmButtonText: 'Cerrar',
+          confirmButtonColor: 'var(--color-danger)'
+        });
+      } finally {
+        btnSave.disabled = false;
+        btnSave.innerHTML = 'Guardar Registro <i class="ri-check-line"></i>';
+      }
+    });
+  }
+});
+
+window.openAdminReverseLogisticsModal = async function(type) {
+  const modal = document.getElementById('modal-reverse-logistics');
+  const form = document.getElementById('form-reverse-logistics');
+  if (!modal || !form) return;
+  form.reset();
+  
+  document.getElementById('rl-edit-id').value = '';
+  document.getElementById('rl-type').value = type;
+  document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
+    `<i class="ri-arrow-left-right-line" style="color: var(--color-success);"></i> Registrar Cambio` : 
+    `<i class="ri-arrow-go-back-line" style="color: var(--color-danger);"></i> Registrar Devolución`;
+    
+  const comunaSelect = document.getElementById('rl-comuna');
+  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
+    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
+    
+  document.getElementById('rl-comuna-group').style.display = 'none';
+  document.getElementById('rl-manual-mode').checked = false;
+  
+  document.getElementById('rl-incoming-tbody').innerHTML = '';
+  document.getElementById('rl-outgoing-tbody').innerHTML = '';
+  
+  const outgoingSection = document.getElementById('rl-outgoing-section');
+  if (type === 'CAMBIO') {
+    outgoingSection.style.display = 'block';
+  } else {
+    outgoingSection.style.display = 'none';
+  }
+  
+  const commerceSelect = document.getElementById('rl-commerce');
+  commerceSelect.innerHTML = '<option value="">Selecciona comercio...</option>';
+  window.rlCatalogProducts = [];
+  
+  try {
+    const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
+    const commercesSet = new Set();
+    if (profiles) {
+      profiles.forEach(p => {
+        if (p.comercio) {
+          p.comercio.split(',').forEach(c => {
+            const trimmed = c.trim();
+            if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
+              commercesSet.add(trimmed);
+            }
+          });
+        }
+      });
+    }
+    const commercesList = Array.from(commercesSet).sort();
+    commercesList.forEach(c => {
+      commerceSelect.innerHTML += `<option value="${c}">${c}</option>`;
+    });
+  } catch (err) {
+    console.error('Error fetching commerce list for modal:', err);
+  }
+  
+  window.addRlRow('incoming', false);
+  if (type === 'CAMBIO') {
+    window.addRlRow('outgoing', false);
+  }
+  
+  modal.classList.add('active');
+};
+
+window.openAdminEditReturnModal = async function(dataStr) {
+  const modal = document.getElementById('modal-reverse-logistics');
+  const form = document.getElementById('form-reverse-logistics');
+  if (!modal || !form) return;
+  form.reset();
+  
+  const data = JSON.parse(decodeURIComponent(dataStr));
+  document.getElementById('rl-edit-id').value = data.id;
+  
+  const type = data.tipo_movimiento;
+  document.getElementById('rl-type').value = type;
+  document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
+    `<i class="ri-edit-box-line" style="color: var(--color-success);"></i> Editar Cambio` : 
+    `<i class="ri-edit-box-line" style="color: var(--color-danger);"></i> Editar Devolución`;
+    
+  document.getElementById('rl-ref-pedido').value = data.referencia_pedido || '';
+  document.getElementById('rl-comments').value = data.comentarios || '';
+  
+  let modalidad = 'presencial';
+  let courier = '';
+  const transStr = data.transporte || '';
+  if (transStr.includes('Santiago')) {
+    modalidad = 'despacho_santiago';
+  } else if (transStr.includes('cliente')) {
+    modalidad = 'envio_cliente';
+  } else if (transStr.includes('comercio')) {
+    modalidad = 'envio_comercio';
+  } else if (transStr.includes('Stocka')) {
+    modalidad = 'envio_stocka';
+  }
+  
+  const m = transStr.match(/\(([^)]+)\)/);
+  if (m) {
+    courier = m[1];
+  }
+  
+  document.getElementById('rl-modalidad').value = modalidad;
+  document.getElementById('rl-courier').value = courier;
+  document.getElementById('rl-tracking').value = data.referencia_transporte === 'N/A' ? '' : (data.referencia_transporte || '');
+  
+  const comunaSelect = document.getElementById('rl-comuna');
+  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
+    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
+    
+  const comunaGroup = document.getElementById('rl-comuna-group');
+  if (modalidad === 'despacho_santiago') {
+    comunaGroup.style.display = 'block';
+    comunaSelect.value = data.sucursal || '';
+    comunaSelect.setAttribute('required', 'true');
+  } else {
+    comunaGroup.style.display = 'none';
+    comunaSelect.value = '';
+    comunaSelect.removeAttribute('required');
+  }
+  
+  document.getElementById('rl-incoming-tbody').innerHTML = '';
+  document.getElementById('rl-outgoing-tbody').innerHTML = '';
+  
+  const outgoingSection = document.getElementById('rl-outgoing-section');
+  if (type === 'CAMBIO') {
+    outgoingSection.style.display = 'block';
+  } else {
+    outgoingSection.style.display = 'none';
+  }
+  
+  const commerceSelect = document.getElementById('rl-commerce');
+  commerceSelect.innerHTML = '<option value="">Selecciona comercio...</option>';
+  window.rlCatalogProducts = [];
+  
+  try {
+    const { data: profiles } = await supabase.from('profiles').select('comercio').neq('role', 'admin');
+    const commercesSet = new Set();
+    if (profiles) {
+      profiles.forEach(p => {
+        if (p.comercio) {
+          p.comercio.split(',').forEach(c => {
+            const trimmed = c.trim();
+            if (trimmed && trimmed.toLowerCase() !== 'no asignado' && trimmed.toLowerCase() !== 'all') {
+              commercesSet.add(trimmed);
+            }
+          });
+        }
+      });
+    }
+    const commercesList = Array.from(commercesSet).sort();
+    commercesList.forEach(c => {
+      commerceSelect.innerHTML += `<option value="${c}" ${c === data.comercio ? 'selected' : ''}>${c}</option>`;
+    });
+  } catch (err) {
+    console.error('Error fetching commerce list for edit:', err);
+  }
+  
+  if (data.comercio) {
+    try {
+      const { data: products, error } = await supabase
+        .from('products')
+        .select('id, sku, name')
+        .eq('comercio', data.comercio)
+        .order('name');
+      if (error) throw error;
+      window.rlCatalogProducts = products || [];
+    } catch (err) {
+      console.error('Error fetching products for commerce:', err);
+    }
+  }
+  
+  let isManual = false;
+  if (data.productos && Array.isArray(data.productos)) {
+    data.productos.forEach(p => {
+      if ((p.producto_devuelto && !p.id_devuelto) || (p.producto_reemplazo && !p.id_reemplazo)) {
+        isManual = true;
+      }
+    });
+  }
+  document.getElementById('rl-manual-mode').checked = isManual;
+  
+  if (data.productos && Array.isArray(data.productos) && data.productos.length > 0) {
+    const incomingItems = [];
+    const outgoingItems = [];
+    
+    data.productos.forEach(p => {
+      if (p.producto_devuelto) {
+        incomingItems.push({
+          product_id: p.id_devuelto,
+          sku: p.producto_devuelto.split(' - ')[0],
+          name: p.producto_devuelto.split(' - ')[1] || '',
+          cantidad: p.qty_devuelto !== undefined ? p.qty_devuelto : (p.cantidad || 1),
+          regresar_a_inventario: p.regresar_a_inventario || false,
+          comentario: p.comentario || ''
+        });
+      }
+      if (p.producto_reemplazo) {
+        outgoingItems.push({
+          product_id: p.id_reemplazo,
+          sku: p.producto_reemplazo.split(' - ')[0],
+          name: p.producto_reemplazo.split(' - ')[1] || '',
+          cantidad: p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.cantidad || 1)
+        });
+      }
+    });
+    
+    incomingItems.forEach(item => {
+      window.addRlRowWithData('incoming', isManual, item);
+    });
+    
+    if (type === 'CAMBIO') {
+      outgoingItems.forEach(item => {
+        window.addRlRowWithData('outgoing', isManual, item);
+      });
+    }
+  } else {
+    window.addRlRow('incoming', isManual);
+    if (type === 'CAMBIO') {
+      window.addRlRow('outgoing', isManual);
+    }
+  }
+  
+  modal.classList.add('active');
+};
+
+window.addRlRowWithData = function(direction, isManual, itemData) {
+  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
+  
+  let prodCell = '';
+  if (isManual) {
+    prodCell = `
+      <div style="display: flex; gap: 0.5rem;">
+        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;" value="${itemData.sku || ''}">
+        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;" value="${itemData.name || ''}">
+      </div>
+    `;
+  } else {
+    const uniqueId = Math.random().toString(36).substr(2, 9);
+    const options = (window.rlCatalogProducts || []).map(p => `
+      <option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>
+    `).join('');
+    prodCell = `
+      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;" value="${itemData.sku ? itemData.sku + ' - ' + itemData.name : ''}">
+      <datalist id="rl-datalist-${uniqueId}">
+        ${options}
+      </datalist>
+    `;
+  }
+  
+  if (direction === 'incoming') {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" ${itemData.regresar_a_inventario ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;"></td>
+      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." value="${itemData.comentario || ''}" style="width: 100%;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  }
+  
+  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.children.length > 1) {
+      tr.remove();
+    } else {
+      Swal.fire({
+        title: 'Atención',
+        text: 'Debes ingresar al menos un producto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    }
+  });
+  
+  tbody.appendChild(tr);
+};
+
+window.addRlRow = function(direction, isManual) {
+  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
+  
+  let prodCell = '';
+  if (isManual) {
+    prodCell = `
+      <div style="display: flex; gap: 0.5rem;">
+        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;">
+        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;">
+      </div>
+    `;
+  } else {
+    const uniqueId = Math.random().toString(36).substr(2, 9);
+    const options = (window.rlCatalogProducts || []).map(p => `<option data-id="${p.id}" value="${p.sku} - ${p.name}"></option>`).join('');
+    prodCell = `
+      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;">
+      <datalist id="rl-datalist-${uniqueId}">
+        ${options}
+      </datalist>
+    `;
+  }
+  
+  if (direction === 'incoming') {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" checked style="width: 18px; height: 18px; cursor: pointer;"></td>
+      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." style="width: 100%;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="1" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  }
+  
+  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.children.length > 1) {
+      tr.remove();
+    } else {
+      Swal.fire({
+        title: 'Atención',
+        text: 'Debes ingresar al menos un producto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    }
+  });
+  
+  tbody.appendChild(tr);
+};
+
+window.openReturnsDetail = function(dataStr) {
+  try {
+    const data = JSON.parse(decodeURIComponent(dataStr));
+    
+    const title = data.tipo_movimiento === 'CAMBIO' ? 'Detalle de Cambio' : 'Detalle de Devolución';
+    const badgeClass = data.tipo_movimiento === 'CAMBIO' ? 'badge-success' : 'badge-danger';
+    
+    let prodHtml = `
+      <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+        <thead>
+          <tr>
+            <th style="width: 35%;">Devuelve / Ingresa</th>
+            <th style="width: 35%;">Reemplazo / Sale</th>
+            <th style="width: 15%; text-align: center;">Retorna Stock</th>
+            <th style="width: 15%;">Comentario Item</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    if (data.productos && Array.isArray(data.productos) && data.productos.length > 0) {
+      data.productos.forEach(p => {
+        const qtyDev = p.qty_devuelto !== undefined ? p.qty_devuelto : (p.producto_devuelto ? p.cantidad || 1 : 0);
+        const qtyRep = p.qty_reemplazo !== undefined ? p.qty_reemplazo : (p.producto_reemplazo ? p.cantidad || 1 : 0);
+        
+        const devText = p.producto_devuelto ? `<strong>${qtyDev}x</strong> ${p.producto_devuelto}` : '<span style="color: var(--color-text-muted);">Ninguno</span>';
+        const repText = p.producto_reemplazo ? `<strong>${qtyRep}x</strong> ${p.producto_reemplazo}` : '<span style="color: var(--color-text-muted);">Ninguno</span>';
+        
+        let stockText = 'N/A';
+        if (p.producto_devuelto) {
+          stockText = p.regresar_a_inventario ? 
+            '<span style="color: #059669; font-weight:600;"><i class="ri-checkbox-circle-line"></i> Sí</span>' : 
+            '<span style="color: #ef4444; font-weight:600;"><i class="ri-close-circle-line"></i> No</span>';
+        }
+        
+        prodHtml += `
+          <tr>
+            <td>${devText}</td>
+            <td>${repText}</td>
+            <td style="text-align: center;">${stockText}</td>
+            <td><span style="font-style: italic; font-size: 0.8rem; color: var(--color-text-muted);">${p.comentario || '-'}</span></td>
+          </tr>
+        `;
+      });
+    } else {
+      prodHtml += `<tr><td colspan="4" class="text-center" style="color: var(--color-text-muted); padding: 1rem;">Sin detalles de productos</td></tr>`;
+    }
+    prodHtml += '</tbody></table>';
+
+    const statusVal = data.status || 'pendiente';
+    let statusBadge = '';
+    if (statusVal === 'pendiente') {
+      statusBadge = `<span class="badge" style="background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a;">Pendiente</span>`;
+    } else {
+      statusBadge = `<span class="badge" style="background-color: #d1fae5; color: #059669; border: 1px solid #a7f3d0;">Procesado</span>`;
+    }
+
+    let content = `
+      <div style="display: flex; flex-direction: column; gap: 1rem; text-align: left; padding: 0.5rem 0;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem; background: var(--color-surface-hover); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Referencia Pedido</span>
+            <span style="font-family: monospace; font-size: 1.1rem; font-weight: 600; color: var(--color-text-main);">${data.referencia_pedido || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Tipo Movimiento</span>
+            <span class="badge ${badgeClass}">${data.tipo_movimiento || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Estado</span>
+            <div>${statusBadge}</div>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Transporte / Courier</span>
+            <span style="font-size: 0.9rem; font-weight: 500; color: var(--color-text-main);"><i class="ri-truck-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.transporte || '-'}</span>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.25rem;">Tracking / Código</span>
+            <span style="font-family: monospace; font-size: 0.9rem; color: var(--color-text-main);"><i class="ri-qr-code-line" style="color: var(--color-primary); margin-right: 0.25rem;"></i>${data.referencia_transporte || '-'}</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-store-2-line" style="margin-right:0.25rem;"></i> Origen</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Comercio</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.comercio || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Sucursal / Dirección</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.sucursal || '-'}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-user-star-line" style="margin-right:0.25rem;"></i> Gestión Interna</h4>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Registrado Por</span>
+                <strong style="color: var(--color-text-main); font-size: 0.95rem;">${data.creado_por || '-'}</strong>
+              </div>
+              <div>
+                <span style="color: var(--color-text-muted); font-size: 0.8rem; display: block;">Cantidad Total (Artículos)</span>
+                <strong style="color: var(--color-text-main); font-size: 1.1rem;">${data.cantidad_total || 0}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color: var(--color-text-muted); border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem;"><i class="ri-shopping-cart-2-line" style="margin-right:0.25rem;"></i> Productos</h4>
+          <div style="font-size: 0.95rem;">
+            ${prodHtml}
+          </div>
+        </div>
+        
+        ${data.comentarios ? `
+        <div style="background: var(--badge-warning-bg); color: var(--badge-warning-text); padding: 1rem; border-radius: var(--radius-md); border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.9rem;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; display: flex; align-items: center; gap: 0.25rem;"><i class="ri-message-3-line"></i> Observaciones</h4>
+          ${data.comentarios}
+        </div>` : ''}
+      </div>
+    `;
+
+    const div = document.createElement('div');
+    div.innerHTML = content;
+    window.showInfoModal(title, div.firstElementChild);
+    
+  } catch(e) {
+    console.error(e);
+    alert('Error al abrir detalle');
+  }
+};
+
+window.showInfoModal = function(title, contentHtml) {
+  let modal = document.getElementById('modal-generic-info');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-generic-info';
+  modal.className = 'modal-overlay';
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; display: flex; flex-direction: column; max-height: 90vh; padding: 0;">
+      <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+        <h3 style="margin: 0;">${title}</h3>
+        <button class="modal-close" id="btn-close-generic-info">&times;</button>
+      </div>
+      <div class="modal-body" style="font-size: 0.95rem; color: var(--color-text-main); line-height: 1.6; overflow-y: auto; flex: 1; padding: 1.25rem;">
+        ${typeof contentHtml === 'string' ? contentHtml : ''}
+      </div>
+      <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg);">
+        <button class="btn btn-primary" id="btn-ok-generic-info" style="width: 100%;">Entendido</button>
+      </div>
+    </div>
+  `;
+
+  if (typeof contentHtml !== 'string') {
+    modal.querySelector('.modal-body').appendChild(contentHtml);
+  }
+
+  document.body.appendChild(modal);
+
+  setTimeout(() => {
+    modal.classList.add('active');
+  }, 10);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => {
+      modal.remove();
+    }, 300);
+  };
+
+  document.getElementById('btn-close-generic-info').addEventListener('click', closeModal);
+  document.getElementById('btn-ok-generic-info').addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) closeModal();
+  });
+};
 
 
 
