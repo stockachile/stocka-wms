@@ -6416,7 +6416,7 @@ window.applyClientWmsFiltersAndRender = function() {
         itemsRowsHtml += `
           <tr style="${rowStyle}">
             <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${item.sku}</td>
-            <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <td title="${(item.name || '').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">
               ${item.name}<br>
               <small style="color: var(--color-text-muted); font-size: 0.725rem;"><i class="ri-store-2-line"></i> ${item.warehouseName}</small>
             </td>
@@ -6433,7 +6433,7 @@ window.applyClientWmsFiltersAndRender = function() {
       itemsRowsHtml += `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.5rem; font-family: monospace; font-weight: 500;">${order.sku || 'Sin SKU'}</td>
-          <td style="padding: 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${order.item || 'Sin Nombre'}</td>
+          <td title="${(order.item || 'Sin Nombre').replace(/"/g, '&quot;')}" style="padding: 0.5rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help;">${order.item || 'Sin Nombre'}</td>
           <td style="padding: 0.5rem; text-align: center; font-weight: 600;">${pQty}</td>
           <td style="padding: 0.5rem; text-align: center;">-</td>
           <td style="padding: 0.5rem; text-align: right;">${window.formatCLP(pPrice)}</td>
@@ -6641,7 +6641,7 @@ window.applyClientWmsFiltersAndRender = function() {
       <!-- Fila Desplegable de Detalles -->
       <tr id="details-${order.id}" class="order-details-row" style="display: none; background-color: var(--color-bg);">
         <td colspan="12" style="padding: 1.5rem; border-top: none; border-bottom: 2px solid var(--color-border);">
-          <div class="order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+          <div class="order-detail-grid order-detail-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
             
             <!-- Col 1: Datos del Cliente y Despacho -->
             <div style="background: var(--color-surface); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
