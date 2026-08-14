@@ -3262,6 +3262,12 @@ window.applyWmsFiltersAndRender = function() {
                     <tbody>
                       ${itemsRowsHtml}
                     </tbody>
+                    <tfoot>
+                      <tr style="border-top: 2px solid var(--color-border); font-weight: 700;">
+                        <td colspan="5" style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-text-main);">Total Pedido:</td>
+                        <td style="padding: 0.75rem 0.5rem 0.5rem 0.5rem; text-align: right; color: var(--color-primary); font-size: 0.95rem;">${window.formatCLP(order.total_value)}</td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
                 ${originalPacksHtml}
