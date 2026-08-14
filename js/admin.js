@@ -19860,18 +19860,26 @@ window.filterModalMetricService = function(serviceType) {
     }
   });
 
-  // Filtrar filas de la tabla
+  // Filtrar filas de la tabla y calcular total
   const rows = document.querySelectorAll('.data-table tbody tr.metric-row');
   let visibleCount = 0;
+  let total = 0;
   rows.forEach(row => {
     const rowService = row.getAttribute('data-service');
     if (serviceType === 'all' || rowService === serviceType) {
       row.style.display = '';
       visibleCount++;
+      const amt = parseFloat(row.getAttribute('data-amount') || '0');
+      total += amt;
     } else {
       row.style.display = 'none';
     }
   });
+
+  const totalValEl = document.getElementById('modal-metric-total-val');
+  if (totalValEl) {
+    totalValEl.textContent = window.formatCLP(total);
+  }
 
   // Manejar el estado vacío dentro del filtro
   let emptyRow = document.getElementById('modal-empty-filter-row');
