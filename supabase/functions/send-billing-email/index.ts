@@ -175,6 +175,22 @@ serve(async (req) => {
       record = data;
     }
 
+    // Cancelar envío si el tipo es automático y ya no está atrasado
+    if (emailType === 'payment_overdue' && record) {
+      const isFulfOverdue = record.pago_fulfillment === 'Atrasado';
+      const isEnvOverdue = record.pago_enviame === 'Atrasado';
+      const checkFulf = (resolvedServiceType === 'fulfillment' || resolvedServiceType === 'both') && isFulfOverdue;
+      const checkEnv = (resolvedServiceType === 'enviame' || resolvedServiceType === 'both') && isEnvOverdue;
+      
+      if (!checkFulf && !checkEnv) {
+        console.log(`[send-billing-email] El registro ${recordId} para ${record.comercio} ya no tiene deudas atrasadas para el servicio ${resolvedServiceType}. Cancelando envío.`);
+        return new Response(JSON.stringify({ message: 'El cobro ya no está atrasado. Cancelando envío.' }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     const commerceName = record?.comercio || targetCommerce;
 
     if (!commerceName && emailType !== 'stock_inbound_created') {
@@ -347,7 +363,15 @@ serve(async (req) => {
     `;
 
     if (emailType === 'payment_overdue') {
-      emailSubject = `[URGENTE] Plazo de pago vencido - ${commerceName}`;
+      let serviceLabel = '';
+      if (resolvedServiceType === 'fulfillment') {
+        serviceLabel = 'Fulfillment';
+      } else if (resolvedServiceType === 'enviame') {
+        serviceLabel = 'Envíame';
+      } else {
+        serviceLabel = 'Fulfillment y Envíame';
+      }
+      emailSubject = `[URGENTE] Plazo de pago vencido (${serviceLabel}) - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #ea580c, #c2410c)';
       emailTitle = 'Plazo de Pago Vencido';
       
@@ -387,7 +411,15 @@ serve(async (req) => {
       `;
     } 
     else if (emailType === 'payment_overdue_manual') {
-      emailSubject = `[AVISO] Plazo de pago vencido - ${commerceName}`;
+      let serviceLabel = '';
+      if (resolvedServiceType === 'fulfillment') {
+        serviceLabel = 'Fulfillment';
+      } else if (resolvedServiceType === 'enviame') {
+        serviceLabel = 'Envíame';
+      } else {
+        serviceLabel = 'Fulfillment y Envíame';
+      }
+      emailSubject = `[AVISO] Plazo de pago vencido (${serviceLabel}) - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #f97316, #ea580c)';
       emailTitle = 'Plazo de Pago Vencido';
 
