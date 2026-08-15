@@ -431,12 +431,24 @@ export async function renderOptirouteSupport() {
 
   // Función Principal para Cargar la Ruta (Caché o API)
   async function loadRouteData(routePlanId, forceLive = false) {
+    const container = document.getElementById('optiroute-support-container');
+    if (!container) {
+      console.log('Optiroute container not found in DOM. Skipping loadRouteData.');
+      if (optirouteAutoPollInterval) {
+        clearInterval(optirouteAutoPollInterval);
+        optirouteAutoPollInterval = null;
+      }
+      return;
+    }
+
     const btnFetchRoute = document.getElementById('btn-fetch-route');
     const btnForceLive = document.getElementById('btn-force-live-api');
     const dataSourceBadge = document.getElementById('data-source-badge');
 
-    btnFetchRoute.disabled = true;
-    btnFetchRoute.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Cargando...';
+    if (btnFetchRoute) {
+      btnFetchRoute.disabled = true;
+      btnFetchRoute.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Cargando...';
+    }
     if (btnForceLive) btnForceLive.disabled = true;
 
     try {
@@ -517,8 +529,10 @@ export async function renderOptirouteSupport() {
           checkAndAutoSendDeliveryEmails(allWaypoints);
           checkAndAutoSendFailedEmails(allWaypoints);
           
-          btnFetchRoute.disabled = false;
-          btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
+          if (btnFetchRoute) {
+            btnFetchRoute.disabled = false;
+            btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
+          }
           if (btnForceLive) btnForceLive.disabled = false;
           
           console.log(`Caché inicial cargada. Sincronizando estados en tiempo real desde la API de Optiroute...`);
@@ -744,7 +758,13 @@ export async function renderOptirouteSupport() {
         console.log(`⏱️ Iniciando monitoreo automático en tiempo real (cada 2 min) para plan ${routePlanId}`);
         optirouteAutoPollInterval = setInterval(() => {
           const selectElem = document.getElementById('select-route-plans');
-          const currentPlan = selectElem ? selectElem.value : routePlanId;
+          if (!selectElem) {
+            console.log(`⏱️ Deteniendo monitoreo automático porque 'select-route-plans' ya no está en el DOM.`);
+            clearInterval(optirouteAutoPollInterval);
+            optirouteAutoPollInterval = null;
+            return;
+          }
+          const currentPlan = selectElem.value;
           if (currentPlan) {
             console.log(`🔄 Auto-actualizando entregas en vivo para plan ${currentPlan}...`);
             loadRouteData(currentPlan, true);
@@ -756,18 +776,24 @@ export async function renderOptirouteSupport() {
       console.error(err);
       if (window.Swal) Swal.fire('Error', `No se pudieron cargar los detalles: ${err.message}`, 'error');
     } finally {
-      btnFetchRoute.disabled = false;
-      btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
-      if (btnForceLive) btnForceLive.disabled = false;
+      const currentBtnFetchRoute = document.getElementById('btn-fetch-route');
+      const currentBtnForceLive = document.getElementById('btn-force-live-api');
+      if (currentBtnFetchRoute) {
+        currentBtnFetchRoute.disabled = false;
+        currentBtnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
+      }
+      if (currentBtnForceLive) currentBtnForceLive.disabled = false;
     }
   }
 
   // Escuchar botón Cargar Detalles de Ruta
   const btnFetchRoute = document.getElementById('btn-fetch-route');
-  btnFetchRoute.addEventListener('click', () => {
-    const routePlanId = selectRoutePlans.value;
-    loadRouteData(routePlanId, false);
-  });
+  if (btnFetchRoute) {
+    btnFetchRoute.addEventListener('click', () => {
+      const routePlanId = selectRoutePlans ? selectRoutePlans.value : '';
+      if (routePlanId) loadRouteData(routePlanId, false);
+    });
+  }
 
   // Escuchar botón Forzar Actualización en Vivo
   document.addEventListener('click', (e) => {

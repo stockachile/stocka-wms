@@ -256,6 +256,27 @@ import supabase from './supabase.js';
     // Reset local queue
     printQueue = [];
 
+    // Resolve active commerce name
+    const isAdmin = window.location.pathname.includes('admin') || (typeof window.activeAdminComercio !== 'undefined');
+    const assignedComercios = (window.currentCompany || '').split(',').map(c => c.trim()).filter(Boolean);
+    const activeCommerce = isAdmin ? window.activeAdminComercio : (window.activeIntegrationCommerce || assignedComercios[0] || '');
+
+    // Fetch stock declarations/incomes for this commerce
+    let declarations = [];
+    try {
+      const { data, error } = await supabase
+        .from('stock_declarations')
+        .select('*, warehouses (name)')
+        .eq('comercio', activeCommerce)
+        .order('created_at', { ascending: false });
+      
+      if (!error) {
+        declarations = data || [];
+      }
+    } catch (err) {
+      console.error("Error loading declarations for labels:", err);
+    }
+
     // Render layout
     workspace.innerHTML = `
       <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 1rem; align-items: stretch; animation: fadeIn 0.25s ease;">
@@ -359,7 +380,109 @@ import supabase from './supabase.js';
           </div>
         </div>
       </div>
+
+      <!-- New Section: Stock Incomes -->
+      <div class="card" style="margin-top: 1.5rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; animation: fadeIn 0.3s ease;">
+        <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-history-line" style="color: var(--color-primary);"></i> Ingresos de Stock del Comercio
+        </h3>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">
+          Selecciona una declaración de ingreso de stock para cargar automáticamente todos sus productos y cantidades declaradas/confirmadas directamente a la cola de impresión.
+        </p>
+        
+        <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+            <thead>
+              <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                <th style="padding: 0.75rem 1rem;">ID / Código</th>
+                <th style="padding: 0.75rem 1rem;">Título / Descripción</th>
+                <th style="padding: 0.75rem 1rem;">Bodega</th>
+                <th style="padding: 0.75rem 1rem;">Fecha Creación</th>
+                <th style="padding: 0.75rem 1rem; text-align: center;">U. Declaradas</th>
+                <th style="padding: 0.75rem 1rem; text-align: center;">U. Confirmadas</th>
+                <th style="padding: 0.75rem 1rem;">Estado</th>
+                <th style="padding: 0.75rem 1rem; text-align: center; width: 180px;">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="label-declarations-tbody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
     `;
+
+    // Populate declarations list
+    const declTbody = document.getElementById('label-declarations-tbody');
+    if (declTbody) {
+      if (declarations.length === 0) {
+        declTbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+              No se encontraron ingresos de stock para este comercio.
+            </td>
+          </tr>
+        `;
+      } else {
+        declTbody.innerHTML = declarations.map(dec => {
+          const formattedDate = new Date(dec.created_at).toLocaleDateString('es-CL') + ' ' + new Date(dec.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+          let statusBadge = '';
+          switch (dec.status) {
+            case 'Creada':
+              statusBadge = '<span class="badge" style="background-color: var(--badge-neutral-bg); color: var(--badge-neutral-text);">Creada</span>';
+              break;
+            case 'Bodega Asignada':
+              statusBadge = '<span class="badge" style="background-color: rgba(37, 99, 235, 0.1); color: var(--color-primary); border: 1px solid rgba(37, 99, 235, 0.2);">Bodega Asignada</span>';
+              break;
+            case 'En Recepción - Pendiente Conteo':
+              statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-info-bg); color: var(--badge-info-text);">Pendiente Conteo</span>';
+              break;
+            case 'En proceso de conteo/clasificación':
+              statusBadge = '<span class="badge animate-pulse" style="background-color: var(--badge-warning-bg); color: var(--badge-warning-text); border: 1px solid rgba(245, 158, 11, 0.3);">Conteo/Clasificación</span>';
+              break;
+            case 'Recibido Conforme':
+              statusBadge = '<span class="badge" style="background-color: var(--badge-success-bg); color: var(--badge-success-text);">Recibido Conforme</span>';
+              break;
+            case 'Recibido con Incidencias':
+              statusBadge = '<span class="badge" style="background-color: var(--badge-danger-bg); color: var(--badge-danger-text); border: 1px solid rgba(239, 68, 68, 0.3);">Recibido con Incidencias</span>';
+              break;
+            default:
+              statusBadge = `<span class="badge badge-neutral">${dec.status}</span>`;
+          }
+
+          return `
+            <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.2s;">
+              <td style="padding: 0.75rem 1rem; font-family: monospace; font-weight: bold; color: var(--color-primary);">
+                #${dec.id.substring(0, 8).toUpperCase()}
+              </td>
+              <td style="padding: 0.75rem 1rem; font-weight: 500;">
+                ${escapeHtml(dec.title || 'Ingreso sin título')}
+              </td>
+              <td style="padding: 0.75rem 1rem; color: var(--color-text-muted);">
+                ${escapeHtml(dec.warehouses?.name || 'No asignada')}
+              </td>
+              <td style="padding: 0.75rem 1rem; font-size: 0.78rem; color: var(--color-text-muted);">
+                ${formattedDate}
+              </td>
+              <td style="padding: 0.75rem 1rem; text-align: center; font-weight: bold;">
+                ${dec.quantity_declared || 0}
+              </td>
+              <td style="padding: 0.75rem 1rem; text-align: center; font-weight: bold; color: var(--color-success);">
+                ${dec.quantity_received || 0}
+              </td>
+              <td style="padding: 0.75rem 1rem;">
+                ${statusBadge}
+              </td>
+              <td style="padding: 0.75rem 1rem; text-align: center;">
+                <button onclick="window.loadLabelQueueFromDeclaration('${dec.id}')" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; border-color: var(--color-primary); color: var(--color-primary); background: transparent; cursor: pointer; transition: all 0.2s;">
+                  <i class="ri-play-list-add-line"></i> Cargar a Cola
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
 
     // Initialize layout event listeners
     initGeneratorListeners();
@@ -1209,7 +1332,7 @@ import supabase from './supabase.js';
           .size-5x2-5 {
             width: 5cm;
             height: 2.5cm;
-            padding: 0.1cm 0.15cm;
+            padding: 0.2cm 0.25cm;
           }
           .size-5x2-5 .label-name {
             font-size: 7.5px;
@@ -1229,7 +1352,7 @@ import supabase from './supabase.js';
           .size-5x5 {
             width: 5cm;
             height: 5cm;
-            padding: 0.2cm 0.25cm;
+            padding: 0.35cm 0.35cm;
           }
           .size-5x5 .label-name {
             font-size: 10px;
@@ -1249,7 +1372,7 @@ import supabase from './supabase.js';
           .size-10x15 {
             width: 10cm;
             height: 15cm;
-            padding: 0.5cm 0.6cm;
+            padding: 0.7cm 0.8cm;
           }
           .size-10x15 .label-name {
             font-size: 18px;
@@ -1773,7 +1896,7 @@ import supabase from './supabase.js';
           .size-10x15 {
             width: 10cm;
             height: 15cm;
-            padding: 0.4cm 0.4cm;
+            padding: 0.6cm 0.6cm;
             border: 1px solid #000;
           }
           
@@ -1973,7 +2096,7 @@ import supabase from './supabase.js';
           .size-5x5 {
             width: 5cm;
             height: 5cm;
-            padding: 0.15cm 0.15cm;
+            padding: 0.35cm 0.35cm;
             border: 1px dashed #000;
             display: flex;
             flex-direction: column;
@@ -2304,7 +2427,7 @@ import supabase from './supabase.js';
           .size-10x15 {
             width: 10cm;
             height: 15cm;
-            padding: 0.4cm 0.4cm;
+            padding: 0.6cm 0.6cm;
             border: 1px solid #000;
           }
           
@@ -2504,7 +2627,7 @@ import supabase from './supabase.js';
           .size-5x5 {
             width: 5cm;
             height: 5cm;
-            padding: 0.15cm 0.15cm;
+            padding: 0.35cm 0.35cm;
             border: 1px dashed #000;
             display: flex;
             flex-direction: column;
@@ -2635,6 +2758,186 @@ import supabase from './supabase.js';
           };
         }
       });
+    }
+  };
+
+  function getDeclarationProducts(dec) {
+    if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+      return dec.products_list;
+    }
+    if (dec.file_base64 && typeof XLSX !== 'undefined') {
+      try {
+        const binaryString = window.atob(dec.file_base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const workbook = XLSX.read(bytes, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        const parsed = [];
+        if (rows && rows.length > 1) {
+          const headerRow = rows[0];
+          const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+          const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+          const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+          const barcodeIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'codigo de barras');
+          
+          if (skuIdx !== -1 && qtyIdx !== -1) {
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+              const sku = (row[skuIdx] || '').toString().trim();
+              const name = nameIdx !== -1 ? (row[nameIdx] || '').toString().trim() : '';
+              const qty = parseInt(row[qtyIdx], 10) || 0;
+              const barcode = barcodeIdx !== -1 ? (row[barcodeIdx] || '').toString().trim() : '';
+              
+              if (sku) {
+                parsed.push({ sku, name, qty, barcode });
+              }
+            }
+          }
+        }
+        return parsed;
+      } catch (err) {
+        console.error('Error parsing xlsx base64 for label generator:', err);
+      }
+    }
+    return [];
+  }
+
+  window.loadLabelQueueFromDeclaration = async function(decId) {
+    if (typeof Swal === 'undefined') {
+      alert("Error: SweetAlert2 no está cargado.");
+      return;
+    }
+
+    Swal.fire({
+      title: 'Obteniendo declaración...',
+      text: 'Por favor, espere mientras cargamos la lista de productos del ingreso.',
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    try {
+      const { data: dec, error } = await supabase
+        .from('stock_declarations')
+        .select('*')
+        .eq('id', decId)
+        .single();
+
+      if (error) throw error;
+
+      const products = getDeclarationProducts(dec);
+      if (!products || products.length === 0) {
+        Swal.fire('Atención', 'Esta declaración no contiene productos válidos en su registro o planilla.', 'warning');
+        return;
+      }
+
+      // Check if there are confirmed quantities
+      const hasConfirmed = products.some(p => p.qty_confirmed !== undefined && p.qty_confirmed !== null);
+
+      let optionsHtml = '';
+      if (hasConfirmed) {
+        optionsHtml = `
+          <select id="swal-dec-qty-type" class="form-input" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);">
+            <option value="confirmed" selected>Usar Cantidad Confirmada/Recibida (Recomendado)</option>
+            <option value="declared">Usar Cantidad Declarada Inicialmente</option>
+          </select>
+        `;
+      } else {
+        optionsHtml = `
+          <select id="swal-dec-qty-type" class="form-input" style="width: 100%; height: 38px; padding: 0.35rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-main);">
+            <option value="declared" selected>Usar Cantidad Declarada Inicialmente (Única disponible)</option>
+          </select>
+        `;
+      }
+
+      Swal.fire({
+        title: 'Cargar a Cola de Impresión',
+        html: `
+          <div style="text-align: left; font-family: 'Inter', sans-serif;">
+            <p style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--color-text-muted);">
+              Se detectaron <strong>${products.length}</strong> productos en el ingreso <strong>#${decId.substring(0, 8).toUpperCase()}</strong>. Selecciona qué tipo de cantidad deseas cargar a la cola:
+            </p>
+            <div class="form-group" style="margin-bottom: 1rem;">
+              <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem;">Tipo de Cantidad:</label>
+              ${optionsHtml}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+              <input type="checkbox" id="swal-dec-clear-queue" checked style="width: auto; cursor: pointer;">
+              <label for="swal-dec-clear-queue" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main); font-weight: 500;">Limpiar cola de impresión actual antes de cargar</label>
+            </div>
+          </div>
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Cargar Productos',
+        cancelButtonText: 'Cancelar',
+        customClass: {
+          confirmButton: 'btn btn-primary',
+          cancelButton: 'btn btn-outline'
+        },
+        preConfirm: () => {
+          return {
+            qtyType: document.getElementById('swal-dec-qty-type').value,
+            clearQueue: document.getElementById('swal-dec-clear-queue').checked
+          };
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          const { qtyType, clearQueue } = result.value;
+
+          if (clearQueue) {
+            printQueue = [];
+          }
+
+          let addedCount = 0;
+          products.forEach(p => {
+            const rawQty = qtyType === 'confirmed' ? (p.qty_confirmed !== undefined ? p.qty_confirmed : p.qty) : p.qty;
+            const targetQty = parseInt(rawQty, 10) || 0;
+            if (targetQty <= 0) return;
+
+            // Search for barcode or full name in catalog products if missing
+            const catalogProd = localCatalogProducts.find(cp => (cp.sku || '').toUpperCase() === p.sku.toUpperCase());
+            const finalName = p.name || (catalogProd ? catalogProd.name : 'Producto del Ingreso');
+            const finalBarcode = p.barcode || (catalogProd ? catalogProd.barcode : '');
+            const finalId = catalogProd ? catalogProd.id : p.sku;
+
+            const existing = printQueue.find(item => item.sku.toUpperCase() === p.sku.toUpperCase());
+            if (existing) {
+              existing.qty += targetQty;
+            } else {
+              printQueue.push({
+                id: finalId,
+                sku: p.sku,
+                name: finalName,
+                barcode: finalBarcode,
+                qty: targetQty
+              });
+            }
+            addedCount++;
+          });
+
+          updateQueueUI();
+          Swal.fire({
+            title: '¡Cargado con éxito!',
+            text: `Se agregaron ${addedCount} productos a la cola de impresión.`,
+            icon: 'success',
+            timer: 2000,
+            showConfirmButton: false
+          });
+        }
+      });
+
+    } catch (err) {
+      console.error("Error loading declaration items to queue:", err);
+      Swal.fire('Error', 'No se pudieron cargar los productos del ingreso: ' + err.message, 'error');
     }
   };
 

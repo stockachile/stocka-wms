@@ -1080,6 +1080,9 @@ export async function renderTicketsAdmin(appContent) {
         .eq('id', ticketId);
 
       if (error) throw error;
+      if (window.updateAdminBadges) {
+        window.updateAdminBadges();
+      }
     } catch (err) {
       console.error('Error updating ticket field:', err);
       alert('Error al guardar cambio: ' + err.message);

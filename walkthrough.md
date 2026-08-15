@@ -2611,7 +2611,43 @@ Hemos resuelto un problema visual clásico donde los menús desplegables de "Acc
    - Al forzar esta holgura vertical en los contenedores de tablas responsivas, nos aseguramos de que el menú flotante de acciones tenga espacio suficiente para desplegarse hacia abajo sin ser recortado por el límite del contenedor con desborde (`overflow: auto`).
    - El uso de `!important` garantiza que el espacio se mantenga libre incluso en vistas que aplican remoción de padding inline (`style="padding: 0;"`), manteniendo a su vez el diseño alineado horizontalmente.
 
+---
 
+## 113. Control de Estado Activo / Archivado en Productos y Propagación de Filtros
 
+Hemos implementado el sistema de estado para productos (**Activo** y **Archivado**) y propagado el filtro en todos los selectores, formularios, autocompletados, y listados del sistema. Los detalles del desarrollo son los siguientes:
+
+### 1. Interfaz de Usuario para Edición de Estado
+- **Formularios de Edición de Productos**:
+  - En [`dashboard.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/dashboard.html) y [`admin.html`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/admin.html), añadimos un selector de estado `<select>` con opciones **Activo** (`active`) y **Archivado** (`archived`) al modal de edición de productos.
+  - Sincronizamos este nuevo campo en las funciones de guardado en Supabase en [`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) y [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js).
+- **Edición Rápida (Quick Edit)**:
+  - Añadimos la columna **Estado** al grid de edición rápida del catálogo maestro.
+  - Al hacer doble clic en la celda de estado, se despliega un selector interactivo. Los cambios de estado realizados se guardan en Supabase de forma inmediata y reactiva.
+- **Visualización en el Catálogo Maestro**:
+  - Si un producto está archivado, se muestra un badge o etiqueta visual claro **"Archivado"** en rojo tanto en el catálogo de clientes como en el de administración, permitiendo distinguirlos a simple vista sin impedir su edición.
+
+### 2. Propagación del Filtro de Productos Archivados
+- **Dropdowns y Selectores**:
+  - Modificamos las consultas e inicializaciones de listas dinámicas en la creación de pedidos manuales, packs, autocompletados y **devoluciones/cambios (Logística Inversa)** para que los productos con estado `'archived'` queden excluidos.
+  - Específicamente, en el módulo de **Logística Inversa (devoluciones y cambios)**, también excluimos los combos/packs (`is_pack`) y los productos virtuales (`is_virtual`) para exigir que se ingresen los artículos individuales y físicos.
+  - Esto aplica tanto a la vista del cliente/comercio (`js/app.js`) como a la vista administrativa (`js/admin.js`).
+- **Módulos de Inventario y Movimientos**:
+  - Filtramos los productos con estado `'archived'` del listado del workspace de inventario en ambos entornos.
+- **Bloqueo de Movimientos y Ajustes**:
+  - Añadimos validaciones estrictas al guardar cambios en los modales de edición para impedir la edición de stock inicial en productos archivados.
+  - Actualizamos los cargadores masivos de stock mediante planilla Excel para que verifiquen el estado del producto y generen un error explícito si se intenta importar inventario para un SKU archivado.
+
+### 3. Edición Masiva de Estado (Activar y Archivar)
+- **Selección Múltiple en Catálogo (Cliente & Admin)**:
+  - Añadimos checkboxes de selección de fila y un checkbox de selección general "catalog-select-all" en el encabezado de la tabla del Catálogo Master tanto en la vista del comercio/cliente (`js/app.js`) como en la del administrador (`js/admin.js`).
+- **Barra de Acciones Masivas (Bulk Actions Bar)**:
+  - Cuando se selecciona uno o más productos, aparece dinámicamente la barra de acciones masivas `#catalog-bulk-actions-container`.
+  - Añadimos dos botones de acción a la barra: **Activar Seleccionados** (Marcar como Activo) y **Archivar Seleccionados** (Marcar como Archivado).
+- **Procesamiento Masivo y Confirmación**:
+  - Al hacer clic en cualquiera de estas opciones, se despliega una advertencia SweetAlert2 para confirmar la acción en lote.
+  - Al confirmar, se realiza una actualización masiva en la tabla `products` de Supabase usando el operador `.in('id', selectedIds)`. La interfaz se recarga automáticamente y la selección se limpia.
+
+---
 
 
