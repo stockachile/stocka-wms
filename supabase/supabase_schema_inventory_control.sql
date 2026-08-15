@@ -138,8 +138,8 @@ BEGIN
     FOR item IN SELECT * FROM order_items WHERE order_id = NEW.id LOOP
       -- Actualizar Inventario
       UPDATE inventory 
-      SET quantity = quantity - item.quantity,
-          committed_quantity = committed_quantity - item.quantity
+      SET quantity = GREATEST(0, quantity - item.quantity),
+          committed_quantity = GREATEST(0, committed_quantity - item.quantity)
       WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
       
       -- Generar Log de Movimiento
@@ -152,7 +152,7 @@ BEGIN
   IF NEW.status = 'cancelado' AND OLD.status != 'cancelado' AND OLD.status != 'despachado' THEN
     FOR item IN SELECT * FROM order_items WHERE order_id = NEW.id LOOP
       UPDATE inventory 
-      SET committed_quantity = committed_quantity - item.quantity
+      SET committed_quantity = GREATEST(0, committed_quantity - item.quantity)
       WHERE product_id = item.product_id AND warehouse_id = item.warehouse_id;
     END LOOP;
   END IF;

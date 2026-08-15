@@ -28,7 +28,7 @@ BEGIN
     IF NEW.warehouse_id IS NOT NULL THEN
       -- Descontar del stock físico real
       UPDATE public.inventory
-      SET quantity = quantity - NEW.quantity
+      SET quantity = GREATEST(0, quantity - NEW.quantity)
       WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
 
       -- Registrar movimiento de salida
@@ -133,7 +133,7 @@ BEGIN
       -- Descontar stock del nuevo
       IF v_new_process AND NEW.warehouse_id IS NOT NULL AND NOT v_new_is_virtual THEN
         UPDATE public.inventory
-        SET quantity = quantity - NEW.quantity
+        SET quantity = GREATEST(0, quantity - NEW.quantity)
         WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
 
         INSERT INTO public.movements (product_id, warehouse_id, type, quantity, reference_doc)
@@ -148,7 +148,7 @@ BEGIN
         IF v_qty_diff > 0 THEN
           -- Aumentó cantidad: descontar stock adicional
           UPDATE public.inventory
-          SET quantity = quantity - v_qty_diff
+          SET quantity = GREATEST(0, quantity - v_qty_diff)
           WHERE product_id = NEW.product_id AND warehouse_id = NEW.warehouse_id;
 
           INSERT INTO public.movements (product_id, warehouse_id, type, quantity, reference_doc)
