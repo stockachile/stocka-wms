@@ -3,6 +3,7 @@ import { renderTicketsAdmin } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 import { renderOptirouteSupport } from './optiroute_support.js';
+import { renderIdentityQRAdmin } from './identity_qr.js';
 
 window.ALPHA_COBERTURA_36 = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
@@ -1017,6 +1018,9 @@ async function init() {
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
+          } else if (view === 'identity_qr_admin') {
+            viewTitle.textContent = 'Identidad & Códigos QR Dinámicos';
+            renderIdentityQRAdmin();
           } else if (view === 'merchants_admin') {
             viewTitle.textContent = 'Gestionar Comercios';
             renderMerchantsAdmin();
@@ -1643,7 +1647,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     meli_order_items:raw_meli_data->order_items,
     paris_items:raw_paris_data->items,
     ripley_items:raw_ripley_data->order_lines,
-    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
+    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
   `, q => {
     let query = q;
     if (fromISO) query = query.gte('created_at', fromISO);
@@ -5190,6 +5194,23 @@ function renderMasterCatalogRows(products) {
       <input type="checkbox" class="catalog-row-checkbox" data-id="${item.id}" ${isChecked} style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
     </td>`;
 
+    const aliasBadge = (item.send_alias_to_picker && item.alias && item.alias.trim())
+      ? ` <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 600; margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Picker: ${escapeHtml(item.alias)}</div>`
+      : (item.alias && item.alias.trim() ? ` <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Alias: ${escapeHtml(item.alias)}</div>` : '');
+
+    const nameCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div>${escapeHtml(item.name)}</div>
+           <div style="margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.25rem;">
+             <input type="text" class="quick-edit-alias form-input" data-id="${item.id}" data-old="${escapeHtml(item.alias || '')}" value="${escapeHtml(item.alias || '')}" placeholder="Alias Picker" style="width: 140px; padding: 0.25rem; height: 28px; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--color-text-muted);">
+               <input type="checkbox" class="quick-edit-send-alias" data-id="${item.id}" data-old="${item.send_alias_to_picker ? 'true' : 'false'}" ${item.send_alias_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
+               <span>Alias al Picker</span>
+             </div>
+           </div>
+         </td>`
+      : `<td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.name)}${aliasBadge}</td>`;
+
     const statusCell = window.catalogQuickEditMode
       ? `<td style="padding: 0.5rem 1rem; text-align: center;">
            <select class="quick-edit-status form-input" data-id="${item.id}" data-old="${item.status || 'active'}" style="padding: 0.25rem; height: 32px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-width: 120px; margin: 0 auto;">
@@ -5208,7 +5229,7 @@ function renderMasterCatalogRows(products) {
         ${checkboxCell}
         <td style="padding: 0.75rem 1.5rem;">${imgHtml}</td>
         <td style="padding: 0.75rem 1.5rem;"><strong>${escapeHtml(item.sku)}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">${escapeHtml(item.name)}</td>
+        ${nameCell}
         ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.75rem 1.5rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
@@ -6519,11 +6540,19 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
+          const aliasInput = document.querySelector(`.quick-edit-alias[data-id="${prodId}"]`);
+          const oldAlias = aliasInput ? aliasInput.getAttribute('data-old') || '' : '';
+          const newAlias = aliasInput ? aliasInput.value.trim() || '' : '';
+
+          const sendAliasInput = document.querySelector(`.quick-edit-send-alias[data-id="${prodId}"]`);
+          const oldSendAlias = sendAliasInput ? sendAliasInput.getAttribute('data-old') === 'true' : false;
+          const newSendAlias = sendAliasInput ? sendAliasInput.checked : false;
+
           const statusInput = document.querySelector(`.quick-edit-status[data-id="${prodId}"]`);
           const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
           const newStatus = statusInput ? statusInput.value : 'active';
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus) {
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
             changes.push({
               prodId,
               oldStock,
@@ -6541,7 +6570,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
               oldSendBar,
               newSendBar,
               oldStatus,
-              newStatus
+              newStatus,
+              oldAlias,
+              newAlias,
+              oldSendAlias,
+              newSendAlias
             });
           }
         });
@@ -6593,6 +6626,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
                 send_barcode_to_picker: ch.newSendBar,
+                alias: ch.newAlias || null,
+                send_alias_to_picker: ch.newSendAlias,
                 status: ch.newStatus
               })
               .eq('id', ch.prodId);
@@ -26844,6 +26879,11 @@ async function openEditProductModal(prodId) {
     document.getElementById('edit-prod-barcode').value = product.barcode || '';
     document.getElementById('edit-prod-send-barcode').checked = product.send_barcode_to_picker || false;
     document.getElementById('edit-prod-picking-strict').checked = product.picking_match_strict || false;
+    document.getElementById('edit-prod-alias').value = product.alias || '';
+    const sendAliasInput = document.getElementById('edit-prod-send-alias');
+    if (sendAliasInput) {
+      sendAliasInput.checked = product.send_alias_to_picker || false;
+    }
     const statusInput = document.getElementById('edit-prod-status');
     if (statusInput) {
       statusInput.value = product.status || 'active';
@@ -26991,6 +27031,8 @@ function initProductFormListeners() {
       const name = document.getElementById('prod-name').value;
       const desc = document.getElementById('prod-desc').value;
       const stock = parseInt(document.getElementById('prod-stock').value, 10);
+      const alias = document.getElementById('prod-alias').value.trim() || null;
+      const sendAlias = document.getElementById('prod-send-alias')?.checked || false;
 
       try {
         const { data: profiles } = await supabase
@@ -27018,7 +27060,9 @@ function initProductFormListeners() {
             description: desc,
             is_pack: isPack,
             is_virtual: isVirtual,
-            picking_match_strict: pickingMatchStrict
+            picking_match_strict: pickingMatchStrict,
+            alias: alias,
+            send_alias_to_picker: sendAlias
           }])
           .select()
           .single();
@@ -27089,6 +27133,8 @@ function initProductFormListeners() {
       const name = document.getElementById('edit-prod-name').value;
       const barcode = document.getElementById('edit-prod-barcode').value || null;
       const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
+      const alias = document.getElementById('edit-prod-alias').value.trim() || null;
+      const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
 
       const volMethod = document.querySelector('input[name="edit-prod-vol-method"]:checked')?.value || 'dims';
       let length = null;
@@ -27133,6 +27179,8 @@ function initProductFormListeners() {
             sku,
             name,
             barcode,
+            alias,
+            send_alias_to_picker: sendAlias,
             length,
             width,
             height,
@@ -27814,7 +27862,7 @@ window.editWmsOrderCourierAndTracking = async function(orderId) {
     if (order.estado_wms === 'En preparación') {
       const { data: reloadedOrder, error: reloadErr } = await supabase
         .from('orders')
-        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))')
+        .select('*, order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -28011,7 +28059,7 @@ window.propagateOrderUpdateToPicker = async function(order) {
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
-      name: prod.name || order.item || 'Producto WMS',
+      name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
       manga: opt.manga || null,
@@ -28081,7 +28129,7 @@ window.sendSingleOrderToPicker = async function(order) {
       agenda: order.agenda || 'STK',
       quantity: parseInt(item.quantity, 10) || 1,
       sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || order.sku || 'SKU-TEMP'),
-      name: prod.name || order.item || 'Producto WMS',
+      name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || order.item || 'Producto WMS'),
       color: opt.color || null,
       talla: opt.talla || opt.size || null,
       manga: opt.manga || null,
@@ -28246,7 +28294,7 @@ window.sendIntakeToPicker = async function(id) {
     if (skus.length > 0) {
       const { data: dbProds } = await supabase
         .from('products')
-        .select('sku, picking_match_strict')
+        .select('sku, picking_match_strict, alias, send_alias_to_picker')
         .eq('comercio', dec.comercio)
         .in('sku', skus);
       if (dbProds) {
@@ -28254,6 +28302,7 @@ window.sendIntakeToPicker = async function(id) {
       }
     }
     const strictSkusMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), p.picking_match_strict]));
+    const aliasProdsMap = new Map(productsDb.map(p => [p.sku.toLowerCase().trim(), { alias: p.alias, send_alias_to_picker: p.send_alias_to_picker }]));
 
     for (const item of products) {
       // Regla: si el producto cuenta con codigo de barras declarado, y es diferente al sku, enviar el código de barras
@@ -28263,6 +28312,10 @@ window.sendIntakeToPicker = async function(id) {
         : cleanSku;
 
       const isStrict = strictSkusMap.get(cleanSku.toLowerCase()) || false;
+      const aliasData = aliasProdsMap.get(cleanSku.toLowerCase()) || {};
+      const prodName = (aliasData.send_alias_to_picker && aliasData.alias && aliasData.alias.trim())
+        ? aliasData.alias.trim()
+        : (item.name || 'Producto Ingreso WMS');
 
       payloads.push({
         sucursal: pickerSucursal,
@@ -28270,7 +28323,7 @@ window.sendIntakeToPicker = async function(id) {
         agenda: 'INGRESO',
         quantity: parseInt(item.qty, 10) || 1,
         sku: pickingSku,
-        name: item.name || 'Producto Ingreso WMS',
+        name: prodName,
         color: '-',
         talla: '-',
         manga: '-',
@@ -30286,7 +30339,7 @@ window.saveEditOrderItems = async function(orderId, comment) {
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase
         .from('order_items')
-        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict)')
+        .select('*, warehouses (name), products(id, sku, name, price, image_url, options, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker)')
         .eq('order_id', orderId);
       
       if (reloadedItems) {
