@@ -120,6 +120,18 @@ async function loadAndRenderData(container) {
     }
   });
 
+  // Combinar ediciones de perfil guardadas en respaldo local
+  try {
+    const fallbackProfiles = JSON.parse(localStorage.getItem('stocka_profiles_fallback') || '{}');
+    profiles = profiles.map(p => {
+      const emailLower = (p.email || '').toLowerCase().trim();
+      if (fallbackProfiles[emailLower]) {
+        return { ...p, ...fallbackProfiles[emailLower] };
+      }
+      return p;
+    });
+  } catch(e) {}
+
   // Calcular Métricas
   const totalWorkers = profiles.length;
   const activeQRs = qrCodes.filter(q => q.status === 'active').length;
@@ -749,6 +761,13 @@ function openEditWorkerModal(worker, mainContainer) {
 
   document.getElementById('edit-worker-form').addEventListener('submit', async (e) => {
     e.preventDefault();
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+    }
+
     const isColab = document.getElementById('edit-is-colaborador').checked;
     const emailLower = (worker.email || '').toLowerCase().trim();
 
@@ -773,12 +792,45 @@ function openEditWorkerModal(worker, mainContainer) {
       updated_at: new Date().toISOString()
     };
 
-    if (worker.id && isUUID(worker.id)) {
-      await supabase.from('profiles').update(payload).eq('id', worker.id);
+    let targetId = worker.id;
+    if (!targetId || !isUUID(targetId)) {
+      try {
+        const { data: existingProf } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', worker.email)
+          .maybeSingle();
+        if (existingProf && existingProf.id && isUUID(existingProf.id)) {
+          targetId = existingProf.id;
+        }
+      } catch(err) {}
     }
 
+    // Intentar actualizar en Supabase
+    if (targetId && isUUID(targetId)) {
+      try {
+        const { error: err1 } = await supabase.from('profiles').update(payload).eq('id', targetId);
+        if (err1) {
+          console.warn('Error al actualizar perfil en Supabase, intentando sin campos extendidos:', err1);
+          const basePayload = { ...payload };
+          delete basePayload.public_email;
+          delete basePayload.custom_company;
+          await supabase.from('profiles').update(basePayload).eq('id', targetId);
+        }
+      } catch(err) {
+        console.warn('Excepción al actualizar en Supabase:', err);
+      }
+    }
+
+    // Guardar siempre en respaldo local para persistencia inmediata
+    try {
+      const fallbackProfiles = JSON.parse(localStorage.getItem('stocka_profiles_fallback') || '{}');
+      fallbackProfiles[emailLower] = { ...worker, ...payload, id: targetId || worker.id };
+      localStorage.setItem('stocka_profiles_fallback', JSON.stringify(fallbackProfiles));
+    } catch(err) {}
+
     modalContainer.innerHTML = '';
-    renderIdentityQRAdmin(mainContainer);
+    await loadAndRenderData(mainContainer);
   });
 }
 
