@@ -12,47 +12,121 @@ const DEMO_COMMERCE = 'Empresa Demo S.A.';
 const INITIAL_MOCK_DATA = {
   profiles: [
     {
+      id: 'colab-1',
+      role: 'admin',
+      company_name: 'Stocka WMS HQ',
+      full_name: 'Felipe Trup',
+      email: 'felipe.trup@gmail.com',
+      comercio: 'Stocka WMS Chile',
+      job_title: 'Co-Founder & Director General',
+      work_phone: '+56987654321',
+      whatsapp_number: '+56987654321',
+      linkedin_url: 'https://linkedin.com/company/stocka',
+      bio_summary: 'Socio Fundador de Stocka WMS Chile, liderando la estrategia y operaciones logísticas.',
+      profile_public_enabled: true,
+      is_colaborador: true,
+      is_demo_user: false,
+      created_at: new Date('2026-08-01T00:00:00Z').toISOString()
+    },
+    {
+      id: 'colab-2',
+      role: 'admin',
+      company_name: 'Stocka WMS HQ',
+      full_name: 'Francisco Trup',
+      email: 'fratruper@gmail.com',
+      comercio: 'Stocka WMS Chile',
+      job_title: 'Director de Operaciones & Logística',
+      work_phone: '+56991234567',
+      whatsapp_number: '+56991234567',
+      linkedin_url: 'https://linkedin.com/company/stocka',
+      bio_summary: 'Gestión operativa de bodegas, fulfillment y logística de distribución.',
+      profile_public_enabled: true,
+      is_colaborador: true,
+      is_demo_user: false,
+      created_at: new Date('2026-08-01T00:00:00Z').toISOString()
+    },
+    {
+      id: 'colab-3',
+      role: 'admin',
+      company_name: 'Stocka WMS HQ',
+      full_name: 'Kyria Oyarce',
+      email: 'kyria.oyarcep@gmail.com',
+      comercio: 'Stocka WMS Chile',
+      job_title: 'Jefa de Administración & Finanzas',
+      work_phone: '+56955554433',
+      whatsapp_number: '+56955554433',
+      linkedin_url: 'https://linkedin.com/company/stocka',
+      bio_summary: 'Administración central, control financiero y atención a clientes.',
+      profile_public_enabled: true,
+      is_colaborador: true,
+      is_demo_user: false,
+      created_at: new Date('2026-08-01T00:00:00Z').toISOString()
+    },
+    {
+      id: 'colab-4',
+      role: 'admin',
+      company_name: 'Stocka WMS HQ',
+      full_name: 'Stocka Chile',
+      email: 'stockachile@gmail.com',
+      comercio: 'Stocka WMS Chile',
+      job_title: 'Equipo Central Stocka WMS',
+      work_phone: '+56944443322',
+      whatsapp_number: '+56944443322',
+      linkedin_url: 'https://linkedin.com/company/stocka',
+      bio_summary: 'Contacto oficial y soporte corporativo de Stocka Chile.',
+      profile_public_enabled: true,
+      is_colaborador: true,
+      is_demo_user: false,
+      created_at: new Date('2026-08-01T00:00:00Z').toISOString()
+    },
+    {
       id: DEMO_USER_ID,
       role: 'client',
       company_name: DEMO_COMMERCE,
       full_name: 'Cliente Invitado Demo',
       email: 'demo@stocka.cl',
       comercio: DEMO_COMMERCE,
-      allowed_modules: 'inventory, catalog, volumen_diario, declarations, orders, shipments, movements, warehouses, pending, returns, pickups, sales, cotizador, billing, integrations, incidencias, documentation',
+      job_title: 'Cliente Externo',
+      is_colaborador: false,
       is_demo_user: false,
-      lead_status: null,
-      lead_notes: '',
-      lead_emails_sent: [],
       created_at: new Date('2026-08-01T00:00:00Z').toISOString()
-    },
-    {
-      id: 'lead-1',
-      role: 'observer',
-      company_name: 'Tienda Deportiva SpA',
-      full_name: 'Rodrigo Cárcamo',
-      email: 'rodrigo.carcamo@gmail.com',
-      comercio: 'no asignado',
-      is_demo_user: true,
-      lead_status: 'nuevo',
-      lead_notes: 'Interesado en fulfillment para calzado deportivo en Santiago.',
-      lead_emails_sent: [],
-      created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString()
-    },
-    {
-      id: 'lead-2',
-      role: 'observer',
-      company_name: 'Electrónica Express',
-      full_name: 'Valentina Silva',
-      email: 'valentina.silva@outlook.com',
-      comercio: 'no asignado',
-      is_demo_user: true,
-      lead_status: 'contactado',
-      lead_notes: 'Busca bodega en RM con despacho rápido de accesorios.',
-      lead_emails_sent: [
-        { template: 'Bienvenida a la Demo', sent_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(), subject: '¡Bienvenido a la Demo de WMS Stocka!' }
-      ],
-      created_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString()
     }
+  ],
+  qr_codes: [
+    {
+      id: 'qr-demo-1',
+      token: 'stk_demo_felipe',
+      user_id: 'worker-admin-1',
+      type: 'vcard',
+      title: 'Tarjeta Virtual Felipe Matamala',
+      description: 'QR Oficial de Presentación',
+      status: 'active',
+      expires_at: null,
+      allowed_actions: ['vcard', 'gate_pass', 'authorize_release'],
+      created_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      id: 'qr-demo-2',
+      token: 'stk_demo_invitado',
+      user_id: DEMO_USER_ID,
+      type: 'vcard',
+      title: 'Tarjeta Virtual Cliente Invitado',
+      description: 'QR Oficial de Trabajo',
+      status: 'active',
+      expires_at: null,
+      allowed_actions: ['vcard'],
+      created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ],
+  qr_visit_logs: [
+    { id: 'vl-1', qr_code_id: 'qr-demo-1', device_type: 'mobile', user_agent: 'Mozilla/5.0 (iPhone)', referrer: 'Escaneo QR Físico', scanned_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() },
+    { id: 'vl-2', qr_code_id: 'qr-demo-1', device_type: 'mobile', user_agent: 'Mozilla/5.0 (Android)', referrer: 'Escaneo QR Físico', scanned_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: 'vl-3', qr_code_id: 'qr-demo-2', device_type: 'desktop', user_agent: 'Mozilla/5.0 (Windows)', referrer: 'Enlace Directo', scanned_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() }
+  ],
+  qr_notifications: [
+    { id: 'qn-1', qr_code_id: 'qr-demo-1', user_id: 'worker-admin-1', title: 'Escaneo de Tarjeta Virtual', message: 'La tarjeta de Felipe Matamala fue escaneada desde un celular.', read: false, created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() }
   ],
   warehouses: [
     { id: 'wh-central', name: 'Bodega Central', location: 'Santiago, RM', created_at: '2026-08-01T00:00:00Z' },

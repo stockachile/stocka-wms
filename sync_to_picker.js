@@ -70,7 +70,7 @@ async function run() {
         agenda,
         sucursal_pickeo,
         operador,
-        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict))
+        order_items (quantity, products(sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
       `)
       .eq('estado_wms', 'En preparación');
 
@@ -168,7 +168,7 @@ async function run() {
               agenda: wmsOrder.agenda || 'STK',
               quantity: parseInt(oi.quantity, 10) || 1,
               sku: ((prod.send_barcode_to_picker || prod.picking_match_strict || commerceStrict) && prod.barcode) ? prod.barcode : (prod.sku || 'SKU-TEMP'),
-              name: prod.name || 'Producto WMS',
+              name: (prod.send_alias_to_picker && prod.alias && prod.alias.trim()) ? prod.alias.trim() : (prod.name || 'Producto WMS'),
               color: opt.color || null,
               talla: opt.talla || opt.size || null,
               manga: opt.manga || null,

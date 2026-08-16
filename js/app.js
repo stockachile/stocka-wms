@@ -3117,6 +3117,11 @@ async function openEditProductModal(prodId) {
     if (sendBarInput) {
       sendBarInput.checked = product.send_barcode_to_picker || false;
     }
+    document.getElementById('edit-prod-alias').value = product.alias || '';
+    const sendAliasInput = document.getElementById('edit-prod-send-alias');
+    if (sendAliasInput) {
+      sendAliasInput.checked = product.send_alias_to_picker || false;
+    }
     document.getElementById('edit-prod-length').value = product.length || '';
     document.getElementById('edit-prod-width').value = product.width || '';
     document.getElementById('edit-prod-height').value = product.height || '';
@@ -9564,6 +9569,8 @@ async function renderIntegrations() {
     const desc = document.getElementById('prod-desc').value;
     const stock = parseInt(document.getElementById('prod-stock').value, 10);
     const stockCritico = parseInt(document.getElementById('prod-stock-critico').value, 10) || 0;
+    const alias = document.getElementById('prod-alias').value.trim() || null;
+    const sendAlias = document.getElementById('prod-send-alias')?.checked || false;
 
     try {
       const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
@@ -9619,7 +9626,9 @@ async function renderIntegrations() {
           description: desc,
           is_pack: isPack,
           is_virtual: isVirtual,
-          stock_critico: stockCritico
+          stock_critico: stockCritico,
+          alias: alias,
+          send_alias_to_picker: sendAlias
         }])
         .select()
         .single();
@@ -9749,6 +9758,8 @@ async function renderIntegrations() {
       const isPack = document.getElementById('edit-prod-is-pack')?.checked || false;
       const isVirtual = document.getElementById('edit-prod-is-virtual')?.checked || false;
       const sendBarcode = document.getElementById('edit-prod-send-barcode')?.checked || false;
+      const alias = document.getElementById('edit-prod-alias').value.trim() || null;
+      const sendAlias = document.getElementById('edit-prod-send-alias')?.checked || false;
       const statusVal = document.getElementById('edit-prod-status')?.value || 'active';
 
       // Validación para evitar movimientos (actualización de stock inicial) en productos archivados
@@ -9766,6 +9777,8 @@ async function renderIntegrations() {
           name,
           barcode,
           send_barcode_to_picker: sendBarcode,
+          alias,
+          send_alias_to_picker: sendAlias,
           status: statusVal,
           length,
           width,
@@ -21828,12 +21841,29 @@ function renderMasterCatalogRows(products) {
       <input type="checkbox" class="catalog-row-checkbox" data-id="${item.id}" ${isChecked} style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
     </td>`;
 
+    const aliasBadge = (item.send_alias_to_picker && item.alias && item.alias.trim())
+      ? ` <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 600; margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Picker: ${escapeHtml(item.alias)}</div>`
+      : (item.alias && item.alias.trim() ? ` <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-user-smile-line"></i> Alias: ${escapeHtml(item.alias)}</div>` : '');
+
+    const nameCell = window.catalogQuickEditMode
+      ? `<td style="padding: 0.45rem 0.75rem;">
+           <div>${escapeHtml(item.name)}</div>
+           <div style="margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.25rem;">
+             <input type="text" class="quick-edit-alias form-input" data-id="${item.id}" data-old="${escapeHtml(item.alias || '')}" value="${escapeHtml(item.alias || '')}" placeholder="Alias Picker" style="width: 140px; padding: 0.25rem; height: 28px; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+             <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.7rem; color: var(--color-text-muted);">
+               <input type="checkbox" class="quick-edit-send-alias" data-id="${item.id}" data-old="${item.send_alias_to_picker ? 'true' : 'false'}" ${item.send_alias_to_picker ? 'checked' : ''} style="cursor: pointer; margin: 0; width: auto; height: auto;">
+               <span>Alias al Picker</span>
+             </div>
+           </div>
+         </td>`
+      : `<td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}${aliasBadge}</td>`;
+
     return `
       <tr data-product-row-id="${item.id}">
         ${checkboxCell}
         <td style="padding: 0.45rem 0.75rem;">${imgHtml}</td>
         <td style="padding: 0.45rem 0.75rem;"><strong>${escapeHtml(item.sku)}</strong></td>
-        <td style="padding: 0.45rem 0.75rem;">${escapeHtml(item.name)}</td>
+        ${nameCell}
         ${barcodeCell}
         ${initialStockCell}
         <td style="padding: 0.45rem 0.75rem;">$${item.price ? item.price.toLocaleString('es-CL') : '0'}</td>
@@ -23723,11 +23753,19 @@ function setupCatalogListeners(commerce, mainPlatform) {
           const oldSendBar = sendBarInput ? sendBarInput.getAttribute('data-old') === 'true' : false;
           const newSendBar = sendBarInput ? sendBarInput.checked : false;
 
+          const aliasInput = document.querySelector(`.quick-edit-alias[data-id="${prodId}"]`);
+          const oldAlias = aliasInput ? aliasInput.getAttribute('data-old') || '' : '';
+          const newAlias = aliasInput ? aliasInput.value.trim() || '' : '';
+
+          const sendAliasInput = document.querySelector(`.quick-edit-send-alias[data-id="${prodId}"]`);
+          const oldSendAlias = sendAliasInput ? sendAliasInput.getAttribute('data-old') === 'true' : false;
+          const newSendAlias = sendAliasInput ? sendAliasInput.checked : false;
+
           const statusInput = document.querySelector(`.quick-edit-status[data-id="${prodId}"]`);
           const oldStatus = statusInput ? statusInput.getAttribute('data-old') || 'active' : 'active';
           const newStatus = statusInput ? statusInput.value : 'active';
 
-          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus) {
+          if (oldStock !== newStock || oldLength !== newLength || oldWidth !== newWidth || oldHeight !== newHeight || oldVol !== newVol || oldBarcode !== newBarcode || oldSendBar !== newSendBar || oldStatus !== newStatus || oldAlias !== newAlias || oldSendAlias !== newSendAlias) {
             changes.push({
               prodId,
               oldStock,
@@ -23745,7 +23783,11 @@ function setupCatalogListeners(commerce, mainPlatform) {
               oldSendBar,
               newSendBar,
               oldStatus,
-              newStatus
+              newStatus,
+              oldAlias,
+              newAlias,
+              oldSendAlias,
+              newSendAlias
             });
           }
         });
@@ -23797,6 +23839,8 @@ function setupCatalogListeners(commerce, mainPlatform) {
                 volumen: ch.newVol !== null && ch.newVol !== undefined ? ch.newVol : null,
                 barcode: ch.newBarcode || null,
                 send_barcode_to_picker: ch.newSendBar,
+                alias: ch.newAlias || null,
+                send_alias_to_picker: ch.newSendAlias,
                 status: ch.newStatus
               })
               .eq('id', ch.prodId);
