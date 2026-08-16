@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const htmlContent = `
       <div class="card-cover">
         <div class="brand-logo">
-          <i class="ri-box-3-fill"></i> STOCKA
+          <img src="img/logo-dark.png" alt="Stocka WMS" style="height: 32px; width: auto; object-fit: contain;">
         </div>
         <div class="verified-badge">
           <i class="ri-checkbox-circle-fill"></i> Verificado
