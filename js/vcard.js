@@ -64,17 +64,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    let worker = qrData.profiles;
+    let worker = qrData.profiles || {};
+
+    // Extraer metadata guardada en qrData.description para asegurar actualización inmediata en la nube
+    if (qrData.description) {
+      try {
+        const metaData = JSON.parse(qrData.description);
+        if (metaData && typeof metaData === 'object') {
+          worker = { ...worker, ...metaData };
+        }
+      } catch(e) {}
+    }
 
     // Si la unión profiles(*) devolvió null por políticas RLS o escaneo anónimo desde móvil, consultar el perfil por user_id
-    if ((!worker || !worker.full_name) && qrData.user_id) {
+    if ((!worker.full_name || !worker.job_title) && qrData.user_id) {
       try {
         const { data: directProfile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', qrData.user_id)
           .maybeSingle();
-        if (directProfile) worker = directProfile;
+        if (directProfile) {
+          worker = { ...directProfile, ...worker };
+        }
       } catch(e) {}
     }
 

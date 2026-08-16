@@ -806,7 +806,7 @@ function openEditWorkerModal(worker, mainContainer) {
       } catch(err) {}
     }
 
-    // Intentar actualizar en Supabase
+    // Intentar actualizar en Supabase (tabla profiles)
     if (targetId && isUUID(targetId)) {
       try {
         const { error: err1 } = await supabase.from('profiles').update(payload).eq('id', targetId);
@@ -822,7 +822,27 @@ function openEditWorkerModal(worker, mainContainer) {
       }
     }
 
-    // Guardar siempre en respaldo local para persistencia inmediata
+    // Almacenar metadata completa en qr_codes.description del QR activo para disponibilidad inmediata en vcard.html
+    try {
+      if (worker.qr && worker.qr.id) {
+        await supabase.from('qr_codes').update({
+          description: JSON.stringify(payload),
+          updated_at: new Date().toISOString()
+        }).eq('id', worker.qr.id);
+      } else if (targetId) {
+        const { data: qrs } = await supabase.from('qr_codes').select('id').eq('user_id', targetId);
+        if (qrs && qrs.length > 0) {
+          await supabase.from('qr_codes').update({
+            description: JSON.stringify(payload),
+            updated_at: new Date().toISOString()
+          }).in('id', qrs.map(q => q.id));
+        }
+      }
+    } catch(e) {
+      console.warn('Error al guardar metadata en qr_codes:', e);
+    }
+
+    // Guardar en respaldo local para persistencia inmediata en admin
     try {
       const fallbackProfiles = JSON.parse(localStorage.getItem('stocka_profiles_fallback') || '{}');
       fallbackProfiles[emailLower] = { ...worker, ...payload, id: targetId || worker.id };
