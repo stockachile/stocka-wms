@@ -8,6 +8,8 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS whatsapp_number TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS bio_summary TEXT;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS profile_public_enabled BOOLEAN DEFAULT true;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_colaborador BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS public_email TEXT;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS custom_company TEXT;
 
 -- Marcar automáticamente a los 4 colaboradores oficiales de Stocka
 UPDATE public.profiles 

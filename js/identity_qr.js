@@ -303,9 +303,9 @@ function renderTableRows(workersList, notifications, container) {
 
   tbody.innerHTML = workersList.map(w => {
     const fullName = w.full_name || 'Sin Nombre';
-    const email = w.email || 'Sin Correo';
+    const email = w.public_email || w.email || 'Sin Correo';
     const jobTitle = w.job_title || 'Equipo Stocka';
-    const company = w.comercio && w.comercio !== 'no asignado' ? w.comercio : 'Stocka WMS HQ';
+    const company = w.custom_company || (w.comercio && w.comercio !== 'no asignado' ? w.comercio : 'Stocka WMS Chile');
     const phone = w.work_phone || w.phone || '-';
 
     let statusBadge = '<span class="status-pill status-gray"><i class="ri-subtract-line"></i> Sin QR</span>';
@@ -665,63 +665,77 @@ function openEditWorkerModal(worker, mainContainer) {
 
   modalContainer.innerHTML = `
     <div class="modal-overlay active">
-      <div class="modal-card">
-        <div class="modal-header">
+      <div class="modal-card" style="max-height: 85vh; display: flex; flex-direction: column; overflow: hidden;">
+        <div class="modal-header" style="flex-shrink: 0;">
           <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700;">Editar Tarjeta Virtual</h3>
           <button class="modal-close-btn" id="close-edit-modal"><i class="ri-close-line"></i></button>
         </div>
-        <form id="edit-worker-form" class="modal-body" style="display: flex; flex-direction: column; gap: 1rem;">
-          <div class="form-group">
-            <label class="form-label">Nombre Completo</label>
-            <input type="text" id="edit-full-name" class="form-input" value="${escapeHtml(worker.full_name || '')}" required>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Cargo / Título Profesional</label>
-            <input type="text" id="edit-job-title" class="form-input" value="${escapeHtml(worker.job_title || '')}" placeholder="Ej. Operaciones & Fulfillment">
-          </div>
-
-          <div class="fields-row">
+        <form id="edit-worker-form" style="display: flex; flex-direction: column; flex: 1; overflow: hidden;">
+          <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
             <div class="form-group">
-              <label class="form-label">Teléfono Corporativo</label>
-              <input type="text" id="edit-work-phone" class="form-input" value="${escapeHtml(worker.work_phone || worker.phone || '')}" placeholder="+56912345678">
+              <label class="form-label">Nombre Completo</label>
+              <input type="text" id="edit-full-name" class="form-input" value="${escapeHtml(worker.full_name || '')}" required>
             </div>
+
             <div class="form-group">
-              <label class="form-label">WhatsApp Directo</label>
-              <input type="text" id="edit-whatsapp" class="form-input" value="${escapeHtml(worker.whatsapp_number || '')}" placeholder="+56912345678">
+              <label class="form-label">Cargo / Título Profesional</label>
+              <input type="text" id="edit-job-title" class="form-input" value="${escapeHtml(worker.job_title || '')}" placeholder="Ej. Operaciones & Logística">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Correo Comercial / Público</label>
+              <input type="email" id="edit-public-email" class="form-input" value="${escapeHtml(worker.public_email || worker.email || '')}" placeholder="Ej. felipe.trup@stocka.cl">
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Este correo se mostrará en tu tarjeta virtual pública en lugar del correo de acceso.</span>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Empresa / Comercios Visibles</label>
+              <input type="text" id="edit-custom-company" class="form-input" value="${escapeHtml(worker.custom_company || '')}" placeholder="Ej. Stocka WMS Chile — Logística & Fulfillment">
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 2px;">Reemplaza la lista completa de comercios por este texto personalizado.</span>
+            </div>
+
+            <div class="fields-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group">
+                <label class="form-label">Teléfono Corporativo</label>
+                <input type="text" id="edit-work-phone" class="form-input" value="${escapeHtml(worker.work_phone || worker.phone || '')}" placeholder="+56912345678">
+              </div>
+              <div class="form-group">
+                <label class="form-label">WhatsApp Directo</label>
+                <input type="text" id="edit-whatsapp" class="form-input" value="${escapeHtml(worker.whatsapp_number || '')}" placeholder="+56912345678">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">URL Perfil LinkedIn</label>
+              <input type="url" id="edit-linkedin" class="form-input" value="${escapeHtml(worker.linkedin_url || '')}" placeholder="https://linkedin.com/in/usuario">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Resumen / Bio Profesional</label>
+              <textarea id="edit-bio" class="form-input" rows="2" placeholder="Breve presentación del colaborador...">${escapeHtml(worker.bio_summary || '')}</textarea>
+            </div>
+
+            <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
+              <span class="setting-title" style="font-size: 0.88rem; font-weight: 600;">Perfil Público Visible</span>
+              <label class="switch">
+                <input type="checkbox" id="edit-public-enabled" ${worker.profile_public_enabled !== false ? 'checked' : ''}>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="setting-row" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--color-border); padding-top: 0.75rem;">
+              <div>
+                <span class="setting-title" style="display: block; font-weight: 700; font-size: 0.88rem;">Colaborador Oficial de Stocka</span>
+                <span style="font-size: 0.78rem; color: var(--color-text-muted);">Indica si este usuario pertenece al equipo interno de trabajadores de Stocka.</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="edit-is-colaborador" ${worker.is_colaborador !== false ? 'checked' : ''}>
+                <span class="slider"></span>
+              </label>
             </div>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">URL Perfil LinkedIn</label>
-            <input type="url" id="edit-linkedin" class="form-input" value="${escapeHtml(worker.linkedin_url || '')}" placeholder="https://linkedin.com/in/usuario">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Resumen / Bio Profesional</label>
-            <textarea id="edit-bio" class="form-input" rows="2" placeholder="Breve presentación del colaborador...">${escapeHtml(worker.bio_summary || '')}</textarea>
-          </div>
-
-          <div class="setting-row" style="margin-top: 0.5rem;">
-            <span class="setting-title">Perfil Público Visible</span>
-            <label class="switch">
-              <input type="checkbox" id="edit-public-enabled" ${worker.profile_public_enabled !== false ? 'checked' : ''}>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="setting-row" style="margin-top: 0.5rem; border-top: 1px dashed var(--color-border); padding-top: 0.75rem;">
-            <div>
-              <span class="setting-title" style="display: block; font-weight: 700;">Colaborador Oficial de Stocka</span>
-              <span style="font-size: 0.78rem; color: var(--color-text-muted);">Indica si este usuario pertenece al equipo interno de trabajadores de Stocka.</span>
-            </div>
-            <label class="switch">
-              <input type="checkbox" id="edit-is-colaborador" ${worker.is_colaborador !== false ? 'checked' : ''}>
-              <span class="slider"></span>
-            </label>
-          </div>
-
-          <div class="modal-footer" style="margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <div class="modal-footer" style="flex-shrink: 0; padding: 1rem 1.25rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem; background: var(--color-surface);">
             <button type="button" class="btn btn-secondary" id="cancel-edit-btn">Cancelar</button>
             <button type="submit" class="btn btn-primary"><i class="ri-save-line"></i> Guardar Cambios</button>
           </div>
@@ -748,6 +762,8 @@ function openEditWorkerModal(worker, mainContainer) {
     const payload = {
       full_name: document.getElementById('edit-full-name').value,
       job_title: document.getElementById('edit-job-title').value,
+      public_email: document.getElementById('edit-public-email').value,
+      custom_company: document.getElementById('edit-custom-company').value,
       work_phone: document.getElementById('edit-work-phone').value,
       whatsapp_number: document.getElementById('edit-whatsapp').value,
       linkedin_url: document.getElementById('edit-linkedin').value,
@@ -757,7 +773,7 @@ function openEditWorkerModal(worker, mainContainer) {
       updated_at: new Date().toISOString()
     };
 
-    if (worker.id && !worker.id.startsWith('official-colab-')) {
+    if (worker.id && isUUID(worker.id)) {
       await supabase.from('profiles').update(payload).eq('id', worker.id);
     }
 

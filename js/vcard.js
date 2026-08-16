@@ -138,9 +138,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderVCardUI(worker, qrData) {
     const fullName = worker.full_name || 'Colaborador Stocka';
     const jobTitle = worker.job_title || 'Equipo Stocka';
-    const company = worker.comercio && worker.comercio !== 'no asignado' ? worker.comercio : 'Stocka WMS Chile';
-    const email = worker.work_phone || worker.email || 'contacto@stocka.cl';
-    const rawEmail = worker.email || '';
+    const company = worker.custom_company || (worker.comercio && worker.comercio !== 'no asignado' ? worker.comercio : 'Stocka WMS Chile');
+    const displayEmail = worker.public_email || worker.email || '';
     const phone = worker.work_phone || worker.phone || '';
     const whatsapp = worker.whatsapp_number || (phone ? phone.replace(/\D/g, '') : '');
     const linkedin = worker.linkedin_url || '';
@@ -175,13 +174,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
     }
 
-    if (rawEmail) {
+    if (displayEmail) {
       contactItemsHTML += `
-        <a href="mailto:${rawEmail}" class="contact-item">
+        <a href="mailto:${displayEmail}" class="contact-item">
           <div class="contact-icon"><i class="ri-mail-fill"></i></div>
           <div class="contact-info">
             <span class="contact-label">Correo Electrónico</span>
-            <span class="contact-value">${rawEmail}</span>
+            <span class="contact-value">${displayEmail}</span>
           </div>
         </a>
       `;
@@ -276,8 +275,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   function downloadVCardFile(worker) {
     const fullName = worker.full_name || 'Colaborador Stocka';
     const jobTitle = worker.job_title || 'Equipo Stocka';
-    const company = worker.comercio && worker.comercio !== 'no asignado' ? worker.comercio : 'Stocka WMS';
-    const email = worker.email || '';
+    const company = worker.custom_company || (worker.comercio && worker.comercio !== 'no asignado' ? worker.comercio : 'Stocka WMS Chile');
+    const email = worker.public_email || worker.email || '';
     const phone = worker.work_phone || worker.phone || '';
     const bio = worker.bio_summary || 'Contacto oficial verificado del equipo de Stocka WMS Chile.';
 
