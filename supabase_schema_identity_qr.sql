@@ -142,4 +142,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- 6. Política RLS de lectura pública para profiles en Supabase (requerido para lectura anónima desde móviles)
+DROP POLICY IF EXISTS "Public Read Profiles for VCard" ON public.profiles;
+CREATE POLICY "Public Read Profiles for VCard" ON public.profiles 
+FOR SELECT 
+TO anon, authenticated 
+USING (profile_public_enabled = true OR is_colaborador = true);
+
 GRANT EXECUTE ON FUNCTION public.authorize_qr_token(TEXT, TEXT) TO anon, authenticated;

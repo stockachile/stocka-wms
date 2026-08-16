@@ -64,8 +64,34 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    const worker = qrData.profiles || {};
-    if (!worker || worker.profile_public_enabled === false) {
+    let worker = qrData.profiles;
+
+    // Si la unión profiles(*) devolvió null por políticas RLS o escaneo anónimo desde móvil, consultar el perfil por user_id
+    if ((!worker || !worker.full_name) && qrData.user_id) {
+      try {
+        const { data: directProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', qrData.user_id)
+          .maybeSingle();
+        if (directProfile) worker = directProfile;
+      } catch(e) {}
+    }
+
+    // Fallback de respaldo si no hay perfil en Supabase
+    if (!worker || !worker.full_name) {
+      worker = worker || {};
+      if (qrData.title && qrData.title.includes('Tarjeta Virtual')) {
+        worker.full_name = qrData.title.replace(/^Tarjeta Virtual\s*/i, '').trim();
+      } else {
+        worker.full_name = 'Colaborador Stocka';
+      }
+      if (!worker.job_title) worker.job_title = 'Equipo Stocka';
+      if (!worker.comercio) worker.comercio = 'Stocka WMS Chile';
+      worker.profile_public_enabled = true;
+    }
+
+    if (worker.profile_public_enabled === false) {
       showError('Perfil Privado', 'Este perfil no se encuentra visible públicamente en este momento.');
       return;
     }
