@@ -15,42 +15,6 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rep_legal
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rep_legal_email TEXT;
 
 -- 3. Recrear la función create_onboarding_request para soportar los nuevos parámetros
-CREATE OR REPLACE FUNCTION public.create_onboarding_request(
-    p_user_id UUID,
-    p_full_name TEXT,
-    p_rut_personal TEXT,
-    p_email TEXT,
-    p_phone TEXT,
-    p_cargo TEXT,
-    p_razon_social TEXT,
-    p_rut_empresa TEXT,
-    p_giro_comercio TEXT,
-    p_direccion_facturacion TEXT,
-    p_comuna TEXT,
-    p_email_facturacion TEXT,
-    p_nombre_fantasia TEXT,
-    p_sitio_web TEXT,
-    p_plataformas_venta TEXT[],
-    p_marketplaces TEXT[],
-    p_courier_santiago TEXT[],
-    p_courier_regiones TEXT[],
-    p_ml_opciones TEXT[],
-    p_retiro_sucursal BOOLEAN,
-    p_descripcion_packaging TEXT,
-    p_contrato_url TEXT,
-    p_contrato_storage_path TEXT,
-    p_rep_legal_nombre TEXT DEFAULT NULL,
-    p_rep_legal_rut TEXT DEFAULT NULL,
-    p_rep_legal_telefono TEXT DEFAULT NULL,
-    p_rep_legal_email TEXT DEFAULT NULL
-)
-RETURNS UUID AS $$
-DECLARE
-    v_request_id UUID;
-    v_status TEXT;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 -- Recrear el cuerpo completo de create_onboarding_request
 CREATE OR REPLACE FUNCTION public.create_onboarding_request(
     p_user_id UUID,
