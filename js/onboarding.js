@@ -136,7 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Formatear RUTs mientras escribe
-  const rutInputs = ['rut_personal', 'rut_empresa'];
+  const rutInputs = ['rut_personal', 'rut_empresa', 'rep_legal_rut'];
   rutInputs.forEach(id => {
     const input = document.getElementById(id);
     if (input) {
@@ -307,8 +307,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const comuna = document.getElementById('comuna').value.trim();
       const emailFac = document.getElementById('email_facturacion').value.trim();
       
-      if (!razon || !rutEmpresa || !giro || !dir || !comuna || !emailFac) {
-        showAlert('Por favor, completa todos los campos obligatorios de facturación.');
+      const repNombre = document.getElementById('rep_legal_nombre').value.trim();
+      const repRut = document.getElementById('rep_legal_rut').value.trim();
+      const repTelefono = document.getElementById('rep_legal_telefono').value.trim();
+      const repEmail = document.getElementById('rep_legal_email').value.trim();
+
+      if (!razon || !rutEmpresa || !giro || !dir || !comuna || !emailFac || !repNombre || !repRut || !repTelefono || !repEmail) {
+        showAlert('Por favor, completa todos los campos obligatorios de facturación y representante legal.');
         return false;
       }
       
@@ -316,10 +321,20 @@ document.addEventListener('DOMContentLoaded', () => {
         showAlert('El RUT de la Empresa no es válido.');
         return false;
       }
+
+      if (!validateRut(repRut)) {
+        showAlert('El RUT del Representante Legal no es válido.');
+        return false;
+      }
       
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(emailFac)) {
         showAlert('Por favor, ingresa un correo de facturación válido.');
+        return false;
+      }
+
+      if (!emailRegex.test(repEmail)) {
+        showAlert('Por favor, ingresa un correo del representante legal válido.');
         return false;
       }
     }
@@ -617,6 +632,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const comuna = document.getElementById('comuna').value.trim();
     const emailFac = document.getElementById('email_facturacion').value.trim();
     
+    const repNombre = document.getElementById('rep_legal_nombre').value.trim();
+    const repRut = document.getElementById('rep_legal_rut').value.trim();
+    const repTelefono = document.getElementById('rep_legal_telefono').value.trim();
+    const repEmail = document.getElementById('rep_legal_email').value.trim();
+
     const fantasia = document.getElementById('nombre_fantasia').value.trim();
     const sitio = document.getElementById('sitio_web').value.trim();
     
@@ -676,7 +696,11 @@ document.addEventListener('DOMContentLoaded', () => {
         p_retiro_sucursal: offersRetiro,
         p_descripcion_packaging: packagingDesc,
         p_contrato_url: null,
-        p_contrato_storage_path: null
+        p_contrato_storage_path: null,
+        p_rep_legal_nombre: repNombre,
+        p_rep_legal_rut: repRut,
+        p_rep_legal_telefono: repTelefono,
+        p_rep_legal_email: repEmail
       });
       
       if (rpcError) throw rpcError;

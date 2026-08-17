@@ -36,6 +36,78 @@ window.roundUpVolume = function(val) {
   return Math.ceil(Math.round(val * 10000000) / 100) / 100000;
 };
 
+async function resolveMerchantId(commerce) {
+  if (!commerce) return null;
+  let merchantId = null;
+
+  // 1. Try to find an existing product for this commerce and get its merchant_id
+  try {
+    const { data: siblingProd } = await supabase
+      .from('products')
+      .select('merchant_id')
+      .eq('comercio', commerce)
+      .limit(1)
+      .maybeSingle();
+    if (siblingProd && siblingProd.merchant_id) {
+      merchantId = siblingProd.merchant_id;
+    }
+  } catch (err) {
+    console.error('Error resolving merchant_id from products:', err);
+  }
+
+  // 2. Try to find merchant_id from merchant_integrations
+  if (!merchantId) {
+    try {
+      const { data: siblingInt } = await supabase
+        .from('merchant_integrations')
+        .select('merchant_id')
+        .eq('comercio', commerce)
+        .limit(1)
+        .maybeSingle();
+      if (siblingInt && siblingInt.merchant_id) {
+        merchantId = siblingInt.merchant_id;
+      }
+    } catch (err) {
+      console.error('Error resolving merchant_id from integrations:', err);
+    }
+  }
+
+  // 3. Try to find profiles matching the commerce name in a comma-separated list
+  if (!merchantId) {
+    try {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, comercio');
+      if (profiles) {
+        const commerceLower = commerce.toLowerCase().trim();
+        const matchedProfile = profiles.find(p => {
+          const list = p.comercio ? p.comercio.toLowerCase().split(',').map(x => x.trim()) : [];
+          return list.includes(commerceLower) || p.comercio === 'all';
+        });
+        if (matchedProfile) {
+          merchantId = matchedProfile.id;
+        }
+      }
+    } catch (err) {
+      console.error('Error resolving merchant_id from profiles:', err);
+    }
+  }
+
+  // 4. Direct fallback to current authenticated user
+  if (!merchantId) {
+    try {
+      const { data: userAuth } = await supabase.auth.getUser();
+      if (userAuth && userAuth.user) {
+        merchantId = userAuth.user.id;
+      }
+    } catch (err) {
+      console.error('Error resolving merchant_id from auth user:', err);
+    }
+  }
+
+  return merchantId;
+}
+
 window.wmsColumnFilters = window.wmsColumnFilters || {};
 
 window.getPeriodColor = function(period) {
@@ -5976,14 +6048,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
             return;
           }
 
-          // Obtener profiles del comercio
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('comercio', commerce)
-            .limit(1);
-
-          const merchantId = (profiles && profiles.length > 0) ? profiles[0].id : null;
+          const merchantId = await resolveMerchantId(commerce);
           if (!merchantId) {
             alert('No se pudo encontrar el merchant_id asociado a este comercio.');
             return;
@@ -10683,6 +10748,12 @@ async function renderUsersAdmin(forceReload = false) {
           </td>
           <td>
             <div style="display: flex; gap: 0.35rem;">
+              <button class="btn btn-outline btn-edit-user-info" 
+                      data-user-index="${index}" 
+                      style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);"
+                      title="Editar Razón Social, Representante y Contacto">
+                <i class="ri-edit-line"></i> Editar
+              </button>
               <button class="btn btn-outline btn-user-detail" 
                       data-user-index="${index}" 
                       style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 500; cursor: pointer; border-color: var(--color-border); color: var(--color-text-main); background: var(--color-surface);">
@@ -11625,13 +11696,117 @@ window.openUserDetailModal = function(index) {
   }, 10);
 };
 
-// Event listener delegado para abrir el modal de detalles del usuario
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('.btn-user-detail');
-  if (btn) {
+// Modal para editar Representante (full_name) y Razón Social (company_name) del usuario
+window.openEditUserInfoModal = function(userIndex) {
+  const users = window.adminUsersList || [];
+  const user = users[userIndex];
+  if (!user) return;
+
+  let modal = document.getElementById('modal-edit-user-info');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-edit-user-info';
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 520px; width: 90%; font-family: inherit;">
+      <form id="form-edit-user-info" style="margin: 0;">
+        <div class="modal-header" style="padding: 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+          <h3 style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-primary);">
+            <i class="ri-user-settings-line"></i> Editar Datos de Representante y Empresa
+          </h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('modal-edit-user-info').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; background: var(--color-bg);">
+          <div style="font-size: 0.825rem; color: var(--color-text-muted);">
+            Modificando información del usuario <strong>${user.email}</strong>. Estos datos se reflejan en el Informe de Salida, Términos de Servicio y reportes del WMS.
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block;">Representante (Nombre Completo) *</label>
+            <input type="text" id="edit-user-full-name" class="form-input" value="${user.full_name || ''}" placeholder="Ej: Juan Pérez" required style="width: 100%; box-sizing: border-box;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block;">Razón Social / Empresa *</label>
+            <input type="text" id="edit-user-company-name" class="form-input" value="${user.company_name || ''}" placeholder="Ej: IMPORTADORA SPA" required style="width: 100%; box-sizing: border-box;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block;">Teléfono de Contacto</label>
+            <input type="text" id="edit-user-phone" class="form-input" value="${user.phone || ''}" placeholder="Ej: +56 9 1234 5678" style="width: 100%; box-sizing: border-box;">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block;">Email de Contacto / Notificaciones</label>
+            <input type="email" id="edit-user-contact-email" class="form-input" value="${user.contact_email || ''}" placeholder="Ej: contacto@empresa.com" style="width: 100%; box-sizing: border-box;">
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-edit-user-info').remove()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-user-info" style="display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-save-line"></i> Guardar Cambios
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  setTimeout(() => modal.classList.add('active'), 10);
+
+  document.getElementById('form-edit-user-info').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const index = parseInt(btn.getAttribute('data-user-index'), 10);
+    const btn = document.getElementById('btn-save-user-info');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Guardando...';
+
+    const newFullName = document.getElementById('edit-user-full-name').value.trim();
+    const newCompanyName = document.getElementById('edit-user-company-name').value.trim();
+    const newPhone = document.getElementById('edit-user-phone').value.trim();
+    const newContactEmail = document.getElementById('edit-user-contact-email').value.trim();
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: newFullName,
+          company_name: newCompanyName,
+          phone: newPhone,
+          contact_email: newContactEmail
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      modal.classList.remove('active');
+      setTimeout(() => modal.remove(), 300);
+      alert('Información del usuario (Representante y Razón Social) actualizada exitosamente.');
+
+      if (typeof renderUsersAdmin === 'function') {
+        renderUsersAdmin(true);
+      }
+    } catch (err) {
+      console.error('Error al actualizar información del usuario:', err);
+      alert('Error al guardar cambios: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+    }
+  });
+};
+
+// Event listeners delegados para abrir los modales de usuarios
+document.addEventListener('click', (e) => {
+  const editBtn = e.target.closest('.btn-edit-user-info');
+  if (editBtn) {
+    e.preventDefault();
+    const index = parseInt(editBtn.getAttribute('data-user-index'), 10);
+    window.openEditUserInfoModal(index);
+    return;
+  }
+
+  const detailBtn = e.target.closest('.btn-user-detail');
+  if (detailBtn) {
+    e.preventDefault();
+    const index = parseInt(detailBtn.getAttribute('data-user-index'), 10);
     window.openUserDetailModal(index);
+    return;
   }
 });
 
@@ -24362,6 +24537,10 @@ async function renderMerchantsAdmin() {
         inventario_inicio_pedidos: extra.inventario_inicio_pedidos || {},
         rut: (extra.rut || '').trim(),
         razon_social: (extra.razon_social || '').trim(),
+        rep_legal_nombre: (extra.rep_legal_nombre || '').trim(),
+        rep_legal_rut: (extra.rep_legal_rut || '').trim(),
+        rep_legal_telefono: (extra.rep_legal_telefono || '').trim(),
+        rep_legal_email: (extra.rep_legal_email || '').trim(),
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
@@ -25861,6 +26040,31 @@ window.showMerchantCreateModal = function() {
             <input type="text" id="merchant-create-rut" class="form-input" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
           </div>
 
+          <!-- Datos del Representante Legal -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-government-line"></i> Representante Legal</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo</label>
+                <input type="text" id="merchant-create-rep-legal-nombre" class="form-input" placeholder="Juan Pérez" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">RUT</label>
+                <input type="text" id="merchant-create-rep-legal-rut" class="form-input" placeholder="12.345.678-9" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono</label>
+                <input type="tel" id="merchant-create-rep-legal-telefono" class="form-input" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo</label>
+                <input type="email" id="merchant-create-rep-legal-email" class="form-input" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
             <input type="email" id="merchant-create-email-colaborador" class="form-input" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
@@ -25966,36 +26170,41 @@ window.showMerchantCreateModal = function() {
 
   document.body.appendChild(modal);
 
-  // Formatear RUT al escribir
-  const rutInput = document.getElementById('merchant-create-rut');
-  if (rutInput) {
-    rutInput.addEventListener('input', (e) => {
-      const clean = e.target.value.replace(/[^0-9kK]/g, '');
-      if (!clean) {
-        e.target.value = '';
-        return;
-      }
-      if (clean.length === 1) {
-        e.target.value = clean.toUpperCase();
-        return;
-      }
-      const dv = clean.slice(-1).toUpperCase();
-      const body = clean.slice(0, -1);
-      let formatted = '';
-      let i = body.length;
-      let count = 0;
-      while (i > 0) {
-        i--;
-        formatted = body.charAt(i) + formatted;
-        count++;
-        if (count === 3 && i > 0) {
-          formatted = '.' + formatted;
-          count = 0;
+  // Formatear RUT al escribir (Helper)
+  const setupRutFormatter = (id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('input', (e) => {
+        const clean = e.target.value.replace(/[^0-9kK]/g, '');
+        if (!clean) {
+          e.target.value = '';
+          return;
         }
-      }
-      e.target.value = formatted + '-' + dv;
-    });
-  }
+        if (clean.length === 1) {
+          e.target.value = clean.toUpperCase();
+          return;
+        }
+        const dv = clean.slice(-1).toUpperCase();
+        const body = clean.slice(0, -1);
+        let formatted = '';
+        let i = body.length;
+        let count = 0;
+        while (i > 0) {
+          i--;
+          formatted = body.charAt(i) + formatted;
+          count++;
+          if (count === 3 && i > 0) {
+            formatted = '.' + formatted;
+            count = 0;
+          }
+        }
+        e.target.value = formatted + '-' + dv;
+      });
+    }
+  };
+  
+  setupRutFormatter('merchant-create-rut');
+  setupRutFormatter('merchant-create-rep-legal-rut');
 
   const form = document.getElementById('form-create-merchant');
   form.addEventListener('submit', async (e) => {
@@ -26011,6 +26220,10 @@ window.showMerchantCreateModal = function() {
     const sigla = document.getElementById('merchant-create-sigla').value.trim().toUpperCase();
     const razonSocial = document.getElementById('merchant-create-razon-social').value.trim().toUpperCase();
     const rut = document.getElementById('merchant-create-rut').value.trim().toUpperCase();
+    const repNombre = document.getElementById('merchant-create-rep-legal-nombre').value.trim();
+    const repRut = document.getElementById('merchant-create-rep-legal-rut').value.trim().toUpperCase();
+    const repTelefono = document.getElementById('merchant-create-rep-legal-telefono').value.trim();
+    const repEmail = document.getElementById('merchant-create-rep-legal-email').value.trim();
     const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
     const enviameId = document.getElementById('merchant-create-enviame-id').value.trim();
     const billing = document.getElementById('merchant-create-billing').value;
@@ -26078,6 +26291,10 @@ window.showMerchantCreateModal = function() {
             pedido_trae_sigla: !platSiglasConfig.Manual?.agregar_prefijo,
             rut: rut || null,
             razon_social: razonSocial || null,
+            rep_legal_nombre: repNombre || null,
+            rep_legal_rut: repRut || null,
+            rep_legal_telefono: repTelefono || null,
+            rep_legal_email: repEmail || null,
             plat_siglas_config: platSiglasConfig,
             email_colaborador: emailColaborador || null,
             enviame_id: enviameId || null,
@@ -26114,11 +26331,11 @@ window.showMerchantEditModal = async function(comercioName) {
   if (!commerce) return;
 
   // Intentar autocompletar desde onboarding_requests si no tiene razón social o rut
-  if (!commerce.razon_social || !commerce.rut) {
+  if (!commerce.razon_social || !commerce.rut || !commerce.rep_legal_nombre) {
     try {
       const { data: onbReq } = await supabase
         .from('onboarding_requests')
-        .select('razon_social, rut_empresa')
+        .select('razon_social, rut_empresa, rep_legal_nombre, rep_legal_rut, rep_legal_telefono, rep_legal_email')
         .eq('nombre_fantasia', comercioName)
         .eq('status', 'approved')
         .order('created_at', { ascending: false })
@@ -26131,6 +26348,18 @@ window.showMerchantEditModal = async function(comercioName) {
         }
         if (!commerce.rut && onbReq.rut_empresa) {
           commerce.rut = onbReq.rut_empresa;
+        }
+        if (!commerce.rep_legal_nombre && onbReq.rep_legal_nombre) {
+          commerce.rep_legal_nombre = onbReq.rep_legal_nombre;
+        }
+        if (!commerce.rep_legal_rut && onbReq.rep_legal_rut) {
+          commerce.rep_legal_rut = onbReq.rep_legal_rut;
+        }
+        if (!commerce.rep_legal_telefono && onbReq.rep_legal_telefono) {
+          commerce.rep_legal_telefono = onbReq.rep_legal_telefono;
+        }
+        if (!commerce.rep_legal_email && onbReq.rep_legal_email) {
+          commerce.rep_legal_email = onbReq.rep_legal_email;
         }
       }
     } catch (e) {
@@ -26175,6 +26404,31 @@ window.showMerchantEditModal = async function(comercioName) {
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">RUT de la Empresa</label>
             <input type="text" id="merchant-edit-rut" class="form-input" value="${commerce.rut || ''}" placeholder="Ej: 76.123.456-7" style="text-transform: uppercase; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <!-- Datos del Representante Legal -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-government-line"></i> Representante Legal</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo</label>
+                <input type="text" id="merchant-edit-rep-legal-nombre" class="form-input" value="${commerce.rep_legal_nombre || ''}" placeholder="Juan Pérez" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">RUT</label>
+                <input type="text" id="merchant-edit-rep-legal-rut" class="form-input" value="${commerce.rep_legal_rut || ''}" placeholder="12.345.678-9" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono</label>
+                <input type="tel" id="merchant-edit-rep-legal-telefono" class="form-input" value="${commerce.rep_legal_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo</label>
+                <input type="email" id="merchant-edit-rep-legal-email" class="form-input" value="${commerce.rep_legal_email || ''}" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
           </div>
 
           <div class="form-group" style="margin: 0;">
@@ -26357,36 +26611,41 @@ window.showMerchantEditModal = async function(comercioName) {
 
   document.body.appendChild(modal);
 
-  // Formatear RUT al escribir
-  const rutInput = document.getElementById('merchant-edit-rut');
-  if (rutInput) {
-    rutInput.addEventListener('input', (e) => {
-      const clean = e.target.value.replace(/[^0-9kK]/g, '');
-      if (!clean) {
-        e.target.value = '';
-        return;
-      }
-      if (clean.length === 1) {
-        e.target.value = clean.toUpperCase();
-        return;
-      }
-      const dv = clean.slice(-1).toUpperCase();
-      const body = clean.slice(0, -1);
-      let formatted = '';
-      let i = body.length;
-      let count = 0;
-      while (i > 0) {
-        i--;
-        formatted = body.charAt(i) + formatted;
-        count++;
-        if (count === 3 && i > 0) {
-          formatted = '.' + formatted;
-          count = 0;
+  // Formatear RUT al escribir (Helper)
+  const setupRutFormatter = (id) => {
+    const input = document.getElementById(id);
+    if (input) {
+      input.addEventListener('input', (e) => {
+        const clean = e.target.value.replace(/[^0-9kK]/g, '');
+        if (!clean) {
+          e.target.value = '';
+          return;
         }
-      }
-      e.target.value = formatted + '-' + dv;
-    });
-  }
+        if (clean.length === 1) {
+          e.target.value = clean.toUpperCase();
+          return;
+        }
+        const dv = clean.slice(-1).toUpperCase();
+        const body = clean.slice(0, -1);
+        let formatted = '';
+        let i = body.length;
+        let count = 0;
+        while (i > 0) {
+          i--;
+          formatted = body.charAt(i) + formatted;
+          count++;
+          if (count === 3 && i > 0) {
+            formatted = '.' + formatted;
+            count = 0;
+          }
+        }
+        e.target.value = formatted + '-' + dv;
+      });
+    }
+  };
+
+  setupRutFormatter('merchant-edit-rut');
+  setupRutFormatter('merchant-edit-rep-legal-rut');
 
   // Escuchar cambios en checkbox de seguimiento para mostrar/ocultar los inputs de inicio
   const inventoryCheckbox = document.getElementById('merchant-edit-inventory');
@@ -26525,6 +26784,10 @@ window.showMerchantEditModal = async function(comercioName) {
     const newBilling = document.getElementById('merchant-edit-billing').value;
     const newRazonSocial = document.getElementById('merchant-edit-razon-social').value.trim().toUpperCase();
     const newRut = document.getElementById('merchant-edit-rut').value.trim().toUpperCase();
+    const newRepNombre = document.getElementById('merchant-edit-rep-legal-nombre').value.trim();
+    const newRepRut = document.getElementById('merchant-edit-rep-legal-rut').value.trim().toUpperCase();
+    const newRepTelefono = document.getElementById('merchant-edit-rep-legal-telefono').value.trim();
+    const newRepEmail = document.getElementById('merchant-edit-rep-legal-email').value.trim();
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
@@ -26599,6 +26862,10 @@ window.showMerchantEditModal = async function(comercioName) {
             inventario_inicio_pedidos: startOrdersObj,
             rut: newRut || null,
             razon_social: newRazonSocial || null,
+            rep_legal_nombre: newRepNombre || null,
+            rep_legal_rut: newRepRut || null,
+            rep_legal_telefono: newRepTelefono || null,
+            rep_legal_email: newRepEmail || null,
             plat_siglas_config: newPlatSiglasConfig,
             email_colaborador: newEmailColaborador || null,
             enviame_id: newEnviameId || null,
@@ -27035,13 +27302,7 @@ function initProductFormListeners() {
       const sendAlias = document.getElementById('prod-send-alias')?.checked || false;
 
       try {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('comercio', commerce)
-          .limit(1);
-
-        const merchantId = (profiles && profiles.length > 0) ? profiles[0].id : null;
+        const merchantId = await resolveMerchantId(commerce);
         if (!merchantId) {
           throw new Error('No se pudo encontrar el merchant_id asociado a este comercio.');
         }
@@ -32047,6 +32308,17 @@ function showOnboardingDetailModal(req) {
             </div>
           </div>
 
+          <!-- Columna 3: Representante Legal -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); padding: 1.25rem; border-radius: var(--radius-md); grid-column: span 2;">
+            <h4 style="margin: 0 0 0.75rem 0; color: var(--color-primary); font-size: 0.9rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.25rem;"><i class="ri-government-line"></i> Representante Legal</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.85rem;">
+              <div><strong>Nombre Completo:</strong> ${req.rep_legal_nombre || 'No especificado'}</div>
+              <div><strong>RUT Representante:</strong> ${req.rep_legal_rut || 'No especificado'}</div>
+              <div><strong>Teléfono:</strong> ${req.rep_legal_telefono || 'No especificado'}</div>
+              <div><strong>Correo Electrónico:</strong> ${req.rep_legal_email || 'No especificado'}</div>
+            </div>
+          </div>
+
         </div>
 
         <!-- Seccion 3: Configuración Comercial -->
@@ -32261,6 +32533,10 @@ function showOnboardingApproveConfigModal(req) {
           inventario_seguimiento: enableInventory,
           rut: req.rut_empresa || null,
           razon_social: req.razon_social || null,
+          rep_legal_nombre: req.rep_legal_nombre || null,
+          rep_legal_rut: req.rep_legal_rut || null,
+          rep_legal_telefono: req.rep_legal_telefono || null,
+          rep_legal_email: req.rep_legal_email || null,
           onboarding_checklist: {
             integrations: false,
             catalog_ready: false,

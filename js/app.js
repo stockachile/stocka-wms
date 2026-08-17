@@ -11870,6 +11870,40 @@ async function renderRedZone(container, profile, commerceList) {
     });
     const resolvedCompanyList = Array.from(uniqueBillingNames);
 
+    // 1b. Obtener RUT, Razón Social y datos del Representante Legal de los comercios desde comercios_adicional_config
+    let resolvedRut = '';
+    let resolvedCompany = '';
+    let resolvedRepNombre = '';
+    let resolvedRepRut = '';
+    let resolvedRepTelefono = '';
+    let resolvedRepEmail = '';
+    try {
+      if (commerceList.length > 0) {
+        const { data: configData } = await supabase
+          .from('comercios_adicional_config')
+          .select('comercio, rut, razon_social, rep_legal_nombre, rep_legal_rut, rep_legal_telefono, rep_legal_email')
+          .in('comercio', commerceList);
+        
+        if (configData && configData.length > 0) {
+          resolvedRut = configData.map(c => c.rut).filter(Boolean).join(', ');
+          resolvedCompany = configData.map(c => c.razon_social).filter(Boolean).join(', ');
+          resolvedRepNombre = configData.map(c => c.rep_legal_nombre).filter(Boolean).join(', ');
+          resolvedRepRut = configData.map(c => c.rep_legal_rut).filter(Boolean).join(', ');
+          resolvedRepTelefono = configData.map(c => c.rep_legal_telefono).filter(Boolean).join(', ');
+          resolvedRepEmail = configData.map(c => c.rep_legal_email).filter(Boolean).join(', ');
+        }
+      }
+    } catch (err) {
+      console.warn('Advertencia al cargar datos de RUT y Razón Social en Zona Roja:', err);
+    }
+
+    const finalRut = resolvedRut || profile.rut || "[RUT de la Empresa]";
+    const finalCompany = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
+    const finalRepNombre = resolvedRepNombre || profile.full_name || "[Nombre del Representante]";
+    const finalRepRut = resolvedRepRut || "[RUT del Representante]";
+    const finalRepTelefono = resolvedRepTelefono || profile.phone || "[Teléfono del Representante]";
+    const finalRepEmail = resolvedRepEmail || profile.contact_email || user.email;
+
     // Obtener todos los períodos de facturación
     const { data: periods, error: pError } = await supabase
       .from('billing_periods')
@@ -12267,7 +12301,7 @@ async function renderRedZone(container, profile, commerceList) {
     `;
 
     // 9. Inyectar texto formal en el colapsable del documento
-    const legalDocText = generateLegalDocumentText(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr);
+    const legalDocText = generateLegalDocumentText(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, finalRepNombre, finalRepRut);
     const docPreviewContainer = document.getElementById('redzone-document-preview');
     if (docPreviewContainer) {
       docPreviewContainer.textContent = legalDocText;
@@ -12275,12 +12309,12 @@ async function renderRedZone(container, profile, commerceList) {
 
     // 10. Escuchar el botón de imprimir documento
     document.getElementById('btn-print-redzone-doc').addEventListener('click', () => {
-      printLegalDocument(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr);
+      printLegalDocument(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, finalRut, finalCompany, finalRepNombre, finalRepRut);
     });
 
     // 10b. Escuchar el botón de imprimir informe de salida
     document.getElementById('btn-print-exit-report').addEventListener('click', () => {
-      printExitReport(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, periodStatusList);
+      printExitReport(profile, commerceList.join(', '), totalSKUsWithStock, totalUnits, netTotal, iva, brutoTotal, exitDateStr, periodStatusList, finalRut, finalCompany, finalRepNombre, finalRepRut);
     });
 
     // 11. Escuchar el submit del formulario de salida
@@ -12304,10 +12338,12 @@ async function renderRedZone(container, profile, commerceList) {
 
 INFORMACIÓN DEL CLIENTE:
 - Comercio: ${commerceList.join(', ')}
-- Representante: ${profile.full_name || 'No especificado'}
-- Empresa/Razón Social: ${profile.company_name || 'No especificada'}
-- Correo: ${profile.contact_email || user.email}
-- Teléfono: ${profile.phone || 'No especificado'}
+- Representante Legal: ${finalRepNombre}
+- RUT Representante Legal: ${finalRepRut}
+- Empresa/Razón Social: ${finalCompany}
+- RUT Empresa: ${finalRut}
+- Correo Representante: ${finalRepEmail}
+- Teléfono Representante: ${finalRepTelefono}
 
 DATOS DE SALIDA:
 - Fecha Estimada de Salida: ${exitDateStr}
@@ -12375,10 +12411,11 @@ DECLARACIÓN JURADA DE FACTURACIÓN:
   }
 }
 
-function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate) {
-  const repName = profile.full_name || "[Nombre del Representante]";
-  const compName = profile.company_name || "[Razón Social / Empresa]";
-  const rutText = profile.rut || "[RUT de la Empresa]";
+function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut) {
+  const repName = repNombre || profile.full_name || "[Nombre del Representante]";
+  const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
+  const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
+  const repRutText = repRut || "[RUT del Representante]";
   const dateTodayStr = new Date().toLocaleDateString('es-CL', {
     day: '2-digit',
     month: 'long',
@@ -12391,7 +12428,7 @@ En Santiago de Chile, a ${dateTodayStr}, entre:
 
 1. STOCKA SpA, sociedad del giro logístico y almacenamiento, Rol Único Tributario N° 77.524.557-3, representada legalmente por doña Kyria Alejandra Oyarce Pérez, cédula nacional de identidad número 18.732.412-2, ambos domiciliados para estos efectos en Avenida Campo de Deportes 405, comuna de Ñuñoa, en adelante e indistintamente "STOCKA"; y
 
-2. La empresa ${compName}, del giro de su denominación, representada por don(ña) ${repName}, RUT N° ${rutText}, de su mismo domicilio, en adelante e indistintamente el "CLIENTE" o el "COMERCIO", asociado en la plataforma WMS al comercio denominado "${commerceName}".
+2. La empresa ${compName}, Rol Único Tributario N° ${rutText}, representada por don(ña) ${repName}, cédula nacional de identidad número ${repRutText}, de su mismo domicilio, en adelante e indistintamente el "CLIENTE" o el "COMERCIO", asociado en la plataforma WMS al comercio denominado "${commerceName}".
 
 Ambas partes acuerdan convenir al tenor de las siguientes cláusulas y declaraciones:
 
@@ -12431,8 +12468,8 @@ __________________________________            __________________________________
          Representante Legal                            Representante Legal`;
 }
 
-function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate) {
-  const text = generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate);
+function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut) {
+  const text = generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany, repNombre, repRut);
   const printWindow = window.open('', '_blank');
   
   printWindow.document.write(`
@@ -12481,10 +12518,10 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
   `);
 }
 
-function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList) {
-  const repName = profile.full_name || "No especificado";
-  const compName = profile.company_name || "No especificada";
-  const rutText = profile.rut || "No informado";
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRut) {
+  const repName = repNombre || profile.full_name || "No especificado";
+  const compName = resolvedCompany || profile.company_name || "No especificada";
+  const rutText = resolvedRut || profile.rut || "No informado";
   const dateTodayStr = new Date().toLocaleDateString('es-CL', {
     day: '2-digit',
     month: 'long',
@@ -12494,6 +12531,9 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
   const baseFee = 1250;
   const skuSurcharge = totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0;
   const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
+
+  const totalPendingBilling = periodStatusList.reduce((sum, p) => sum + (p.pending || 0), 0);
+  const totalToPayConsolidated = totalPendingBilling + brutoTotal;
 
   const printWindow = window.open('', '_blank');
   
@@ -12653,8 +12693,8 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <td>${compName}</td>
           </tr>
           <tr>
-            <td class="label">Representante:</td>
-            <td>${repName}</td>
+            <td class="label">Representante Legal:</td>
+            <td>${repName} ${repRut ? `(RUT: ${repRut})` : ''}</td>
             <td class="label">RUT de Empresa:</td>
             <td>${rutText}</td>
           </tr>
@@ -12756,6 +12796,28 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
         </div>
         <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
           *Nota: Este presupuesto no contempla los costos proporcionales de almacenamiento y despachos que puedan devengarse durante el mes en curso antes del retiro físico definitivo.
+        </p>
+
+        <h2 class="section-title">4. Liquidación y Pago Total Consolidado</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Cálculo total consolidado de los valores a transferir a STOCKA SpA para concretar la baja definitiva del servicio y liberación de mercadería:
+        </p>
+        <div class="cost-box" style="background-color: #fef2f2; border: 1px solid #fecdd3;">
+          <div class="cost-row">
+            <span>Monto Total Desgloses Pendientes (Sección 1):</span>
+            <span style="font-weight: bold;">$${totalPendingBilling.toLocaleString('es-CL')} CLP</span>
+          </div>
+          <div class="cost-row">
+            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):</span>
+            <span style="font-weight: bold;">$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+          </div>
+          <div class="cost-row total" style="font-size: 1.15rem; color: #991b1b; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 2px solid #ef4444;">
+            <span>TOTAL CONSOLIDADO A PAGAR:</span>
+            <span>$${totalToPayConsolidated.toLocaleString('es-CL')} CLP</span>
+          </div>
+        </div>
+        <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
+          *Nota de Cierre: El pago del total consolidado indicado anteriormente es condición obligatoria para la firma del finiquito legal y la entrega física de la mercadería custodiada en bodegas.
         </p>
 
         <div class="signature-section">
