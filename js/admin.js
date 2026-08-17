@@ -1898,6 +1898,16 @@ async function renderAdminOrders() {
     const merchantOptions = uniqueMerchants.map(m => `<option value="${m}">${m}</option>`).join('');
     const statusOptions = ALL_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
 
+    let warehouseOptions = '';
+    try {
+      const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
+      if (whList) {
+        warehouseOptions = whList.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
+      }
+    } catch (e) {
+      console.error('Error fetching warehouses list for filter:', e);
+    }
+
     window.updateMerchantFilterOptions = () => {
       const select = document.getElementById('filter-merchant');
       if (!select) return;
@@ -1986,6 +1996,13 @@ async function renderAdminOrders() {
             <select id="filter-merchant" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
               <option value="">Todos los comercios</option>
               ${merchantOptions}
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-size: 0.8rem; margin-bottom: 0.25rem;"><i class="ri-map-pin-line"></i> Bodega</label>
+            <select id="filter-warehouse" class="form-input" style="padding: 0.5rem 0.75rem; font-size: 0.875rem;">
+              <option value="">Todas las bodegas</option>
+              ${warehouseOptions}
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
@@ -2209,6 +2226,8 @@ async function renderAdminOrders() {
     if (statusSelect) statusSelect.addEventListener('change', triggerFilterUpdate);
     if (categoriaSelect) categoriaSelect.addEventListener('change', triggerFilterUpdate);
     if (exportStatusSelect) exportStatusSelect.addEventListener('change', triggerFilterUpdate);
+    const warehouseSelect = document.getElementById('filter-warehouse');
+    if (warehouseSelect) warehouseSelect.addEventListener('change', triggerFilterUpdate);
     if (dateFromInput) dateFromInput.addEventListener('change', handleDateChange);
     if (dateToInput) dateToInput.addEventListener('change', handleDateChange);
 
@@ -2231,6 +2250,7 @@ window.applyWmsFiltersAndRender = function() {
   const statusSelect = document.getElementById('filter-status');
   const categoriaSelect = document.getElementById('filter-categoria-entrega');
   const exportStatusSelect = document.getElementById('filter-export-status');
+  const warehouseSelect = document.getElementById('filter-warehouse');
   const dateFromInput = document.getElementById('filter-date-from');
   const dateToInput = document.getElementById('filter-date-to');
 
@@ -2241,6 +2261,7 @@ window.applyWmsFiltersAndRender = function() {
   const selectedStatus = statusSelect?.value || '';
   const selectedCategoriaEntrega = categoriaSelect?.value || '';
   const selectedExportStatus = exportStatusSelect?.value || '';
+  const selectedWarehouse = warehouseSelect?.value || '';
   const dateFrom = dateFromInput?.value || '';
   const dateTo = dateToInput?.value || '';
 
@@ -2323,7 +2344,9 @@ window.applyWmsFiltersAndRender = function() {
       if (dateFrom || dateTo) matchesDate = false;
     }
 
-    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria;
+    const matchesWarehouse = !selectedWarehouse || (order.order_items || []).some(oi => oi.warehouse_id === selectedWarehouse);
+
+    return matchesSearch && matchesMerchant && matchesOrigen && matchesStatus && matchesExport && matchesDate && matchesCategoria && matchesWarehouse;
   };
 
   // 1. Obtener conteo de pestañas
