@@ -619,15 +619,16 @@ export async function renderOptirouteSupport() {
 
       const missingWaypoints = rawCustomerWaypoints.filter(w => {
         const ref = w.service_request?.reference;
-        return !dbMap.has(ref) && w.service_request?.id;
+        const dbOrder = ref ? dbMap.get(ref) : null;
+        return (!dbOrder || (!dbOrder.phone && !dbOrder.email)) && w.service_request?.id;
       });
 
       const detailedOrdersList = [];
 
-      // Descargar detalles y rellenar dbMap
+      // Descargar detalles únicamente para las paradas faltantes en la BD
       const batchSize = 10;
-      for (let i = 0; i < rawCustomerWaypoints.length; i += batchSize) {
-        const batch = rawCustomerWaypoints.slice(i, i + batchSize);
+      for (let i = 0; i < missingWaypoints.length; i += batchSize) {
+        const batch = missingWaypoints.slice(i, i + batchSize);
         await Promise.all(batch.map(async (w) => {
           if (!w.service_request?.id) return;
           try {

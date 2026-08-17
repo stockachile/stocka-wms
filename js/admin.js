@@ -1087,6 +1087,9 @@ async function init() {
           } else if (view === 'onboarding_admin') {
             viewTitle.textContent = 'Solicitudes de Alta';
             renderOnboardingAdmin();
+          } else if (view === 'redzone_admin') {
+            viewTitle.textContent = 'Solicitudes de Baja (Término de Servicio)';
+            renderRedZoneAdmin();
           } else if (view === 'users_admin') {
             viewTitle.textContent = 'Gestionar Usuarios';
             renderUsersAdmin();
@@ -1363,6 +1366,23 @@ window.updateAdminBadges = async function() {
       }
     } catch (err) {
       console.warn('Error fetching onboarding count for admin badge:', err);
+    }
+
+    // 8. Solicitudes de Baja (RedZone) Admin Badge
+    try {
+      const { count: redzoneCount, error: rzErr } = await supabase
+        .from('tickets')
+        .select('*', { count: 'exact', head: true })
+        .ilike('subject', '[SOLICITUD DE BAJA]%')
+        .eq('status', 'abierto');
+
+      const badgeRedzone = document.getElementById('badge-redzone-admin');
+      if (badgeRedzone && redzoneCount !== null && !rzErr) {
+        badgeRedzone.textContent = redzoneCount;
+        badgeRedzone.style.display = redzoneCount > 0 ? 'inline-flex' : 'none';
+      }
+    } catch (err) {
+      console.warn('Error fetching redzone count for admin badge:', err);
     }
 
   } catch (e) {
@@ -38565,6 +38585,813 @@ window.showInfoModal = function(title, contentHtml) {
     if (e.target === modal) closeModal();
   });
 };
+
+// ==========================================
+// SOLICITUDES DE BAJA (ZONA ROJA) ADMIN LOGIC
+// ==========================================
+
+function parseTicketDescription(desc) {
+  const data = {
+    commerce: '',
+    repName: '',
+    repRut: '',
+    companyName: '',
+    rutText: '',
+    email: '',
+    phone: '',
+    exitDate: '',
+    totalUnits: 0,
+    totalSKUs: 0,
+    netTotal: 0,
+    iva: 0,
+    brutoTotal: 0
+  };
+
+  if (!desc) return data;
+
+  const getVal = (regex, defaultVal = '') => {
+    const match = desc.match(regex);
+    return match ? match[1].trim() : defaultVal;
+  };
+
+  data.commerce = getVal(/- Comercio:\s*(.*)/);
+  data.repName = getVal(/- Representante Legal:\s*(.*)/);
+  data.repRut = getVal(/- RUT Representante Legal:\s*(.*)/);
+  data.companyName = getVal(/- Empresa\/Razón Social:\s*(.*)/);
+  data.rutText = getVal(/- RUT Empresa:\s*(.*)/);
+  data.email = getVal(/- Correo Representante:\s*(.*)/);
+  data.phone = getVal(/- Teléfono Representante:\s*(.*)/);
+  data.exitDate = getVal(/- Fecha Estimada de Salida:\s*(.*)/);
+
+  const parseNum = (val) => {
+    if (!val) return 0;
+    const clean = val.replace(/\./g, '').replace(/CLP/g, '').replace(/\$/g, '').trim();
+    return parseInt(clean, 10) || 0;
+  };
+
+  data.totalUnits = parseNum(getVal(/- Unidades Totales en Inventario:\s*(.*)/));
+  data.totalSKUs = parseNum(getVal(/- SKUs con Stock Activo:\s*(.*)/));
+  data.netTotal = parseNum(getVal(/- Costo Neto:\s*(.*)/));
+  data.iva = parseNum(getVal(/- IVA \(19%\):\s*(.*)/));
+  data.brutoTotal = parseNum(getVal(/- Costo Bruto Total de Preparación:\s*(.*)/));
+
+  return data;
+}
+
+async function loadPeriodStatusListForCommerce(commerceName) {
+  let mappings = [];
+  try {
+    const { data: mappingsData } = await supabase
+      .from('billing_mappings')
+      .select('comercio_nombre, billing_name');
+    if (mappingsData) mappings = mappingsData;
+  } catch (err) {
+    console.warn('Error loading billing mappings:', err);
+  }
+
+  const commerceList = commerceName.split(',').map(c => c.trim()).filter(Boolean);
+  const uniqueBillingNames = new Set();
+  commerceList.forEach(c => {
+    const matchedMapping = mappings.find(m => m.comercio_nombre.toLowerCase() === c.toLowerCase());
+    const nameToUse = matchedMapping ? matchedMapping.billing_name : c;
+    uniqueBillingNames.add(nameToUse);
+  });
+  const resolvedCompanyList = Array.from(uniqueBillingNames);
+
+  const { data: periods } = await supabase
+    .from('billing_periods')
+    .select('*')
+    .order('name', { ascending: false });
+
+  const { data: billingRecords } = await supabase
+    .from('billing_records')
+    .select('*')
+    .in('comercio', resolvedCompanyList);
+
+  const periodStatusList = (periods || []).map(per => {
+    const recordsForPeriod = (billingRecords || []).filter(rec => rec.period_id === per.id);
+    
+    const totalFulf = recordsForPeriod.reduce((sum, r) => sum + (r.total_fulfillment || 0), 0);
+    const abonoFulf = recordsForPeriod.reduce((sum, r) => sum + (r.abono_fulfillment || 0), 0);
+    const totalEnv = recordsForPeriod.reduce((sum, r) => sum + (r.enviame || 0), 0);
+    const abonoEnv = recordsForPeriod.reduce((sum, r) => sum + (r.abono_enviame || 0), 0);
+
+    const totalFacturado = totalFulf + totalEnv;
+    const pending = (totalFulf - abonoFulf) + (totalEnv - abonoEnv);
+
+    let isPaid = true;
+    if (recordsForPeriod.length > 0) {
+      const hasUnpaidFulf = recordsForPeriod.some(r => r.total_fulfillment > 0 && r.pago_fulfillment !== 'Recibido');
+      const hasUnpaidEnv = recordsForPeriod.some(r => r.enviame > 0 && r.pago_enviame !== 'Recibido');
+      isPaid = !hasUnpaidFulf && !hasUnpaidEnv && pending <= 0;
+    }
+
+    return {
+      name: per.name,
+      total: totalFacturado,
+      pending: pending,
+      isPaid: isPaid,
+      totalFulf: totalFulf,
+      pendingFulf: totalFulf - abonoFulf,
+      totalEnv: totalEnv,
+      pendingEnv: totalEnv - abonoEnv
+    };
+  }).filter(p => p.total > 0 || p.pending > 0);
+
+  return periodStatusList;
+}
+
+async function renderRedZoneAdmin() {
+  const appContent = document.getElementById('app-content');
+  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando solicitudes de baja...</p>';
+
+  try {
+    const { data: tickets, error } = await supabase
+      .from('tickets')
+      .select('*, client:profiles!user_id(company_name, full_name, email)')
+      .ilike('subject', '[SOLICITUD DE BAJA]%')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    if (!tickets || tickets.length === 0) {
+      appContent.innerHTML = `
+        <div class="card" style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-close-circle-line" style="font-size: 3rem; color: var(--color-primary); display: block; margin-bottom: 1rem;"></i>
+          <h4>No hay solicitudes de baja registradas</h4>
+          <p>Actualmente no se registran solicitudes de término de servicio por parte de los clientes.</p>
+        </div>
+      `;
+      return;
+    }
+
+    appContent.innerHTML = `
+      <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
+        <h4 style="margin: 0 0 1.5rem 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-close-circle-line" style="color: #ef4444;"></i> Solicitudes de Baja (Término de Servicio)
+        </h4>
+
+        <div class="table-responsive">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Comercio</th>
+                <th>Representante / Empresa</th>
+                <th>Monto Salida</th>
+                <th>Fecha Salida</th>
+                <th>Estado</th>
+                <th style="text-align: center; width: 340px;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="redzone-requests-tbody">
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    const tbody = document.getElementById('redzone-requests-tbody');
+    tbody.innerHTML = '';
+
+    tickets.forEach(t => {
+      const parsed = parseTicketDescription(t.description);
+      const createdDate = new Date(t.created_at).toLocaleDateString('es-CL');
+      
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${createdDate}</td>
+        <td><strong>${parsed.commerce || t.comercio || 'N/A'}</strong></td>
+        <td>
+          <span style="display:block; font-weight:600;">${parsed.companyName || 'N/A'}</span>
+          <span style="font-size:0.75rem; color:var(--color-text-muted);">RUT: ${parsed.rutText || 'N/A'} • Rep: ${parsed.repName || 'N/A'}</span>
+        </td>
+        <td style="font-weight:700;">$${parsed.brutoTotal.toLocaleString('es-CL')} CLP</td>
+        <td style="font-weight:700; color:#ef4444;">${parsed.exitDate || 'N/A'}</td>
+        <td>
+          <span class="badge" style="background-color: ${t.status === 'abierto' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(16, 185, 129, 0.15)'}; color: ${t.status === 'abierto' ? '#ef4444' : '#10b981'}; font-weight:bold; font-size:0.75rem; padding: 2px 8px; border-radius: 99px;">
+            ${t.status.toUpperCase()}
+          </span>
+        </td>
+        <td style="text-align: center;">
+          <div style="display: flex; gap: 0.5rem; justify-content: center;">
+            <button type="button" class="btn btn-outline btn-minuta" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+              <i class="ri-file-text-line"></i> Minuta
+            </button>
+            <button type="button" class="btn btn-outline btn-resumen" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+              <i class="ri-file-chart-line"></i> Resumen
+            </button>
+            ${t.status === 'abierto' ? `
+              <button type="button" class="btn btn-primary btn-cerrar-baja" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; background-color: #10b981; border: none; color: white; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
+                <i class="ri-checkbox-circle-line"></i> Cerrar
+              </button>
+            ` : ''}
+          </div>
+        </td>
+      `;
+
+      tr.querySelector('.btn-minuta').addEventListener('click', () => {
+        const dummyProfile = {
+          full_name: parsed.repName,
+          company_name: parsed.companyName,
+          rut: parsed.rutText,
+          phone: parsed.phone,
+          contact_email: parsed.email
+        };
+        printLegalDocument(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut);
+      });
+
+      tr.querySelector('.btn-resumen').addEventListener('click', async () => {
+        const dummyProfile = {
+          full_name: parsed.repName,
+          company_name: parsed.companyName,
+          rut: parsed.rutText,
+          phone: parsed.phone,
+          contact_email: parsed.email
+        };
+        
+        const btnResumen = tr.querySelector('.btn-resumen');
+        const oldText = btnResumen.innerHTML;
+        btnResumen.innerHTML = `<i class="ri-loader-4-line spin"></i>...`;
+        btnResumen.disabled = true;
+
+        try {
+          const periodStatusList = await loadPeriodStatusListForCommerce(parsed.commerce);
+          printExitReport(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, periodStatusList, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut);
+        } catch(err) {
+          alert('Error al generar resumen: ' + err.message);
+        } finally {
+          btnResumen.innerHTML = oldText;
+          btnResumen.disabled = false;
+        }
+      });
+
+      const btnCerrar = tr.querySelector('.btn-cerrar-baja');
+      if (btnCerrar) {
+        btnCerrar.addEventListener('click', async () => {
+          if (!confirm(`¿Está seguro de cerrar la solicitud de baja para el comercio ${parsed.commerce}?`)) return;
+          
+          btnCerrar.disabled = true;
+          btnCerrar.innerHTML = `<i class="ri-loader-4-line spin"></i>...`;
+
+          try {
+            const { error: updateError } = await supabase
+              .from('tickets')
+              .update({ status: 'cerrado' })
+              .eq('id', t.id);
+
+            if (updateError) throw updateError;
+
+            alert('Solicitud de baja cerrada con éxito.');
+            renderRedZoneAdmin();
+          } catch(err) {
+            alert('Error al cerrar solicitud: ' + err.message);
+            btnCerrar.disabled = false;
+            btnCerrar.innerHTML = `<i class="ri-checkbox-circle-line"></i> Cerrar`;
+          }
+        });
+      }
+
+      tbody.appendChild(tr);
+    });
+
+  } catch (err) {
+    console.error("Error en renderRedZoneAdmin:", err);
+    appContent.innerHTML = `
+      <div style="padding: 2rem; background-color: #fef2f2; border: 1px solid #fecdd3; border-radius: var(--radius-md); text-align: center; color: #ef4444;">
+        <i class="ri-error-warning-fill" style="font-size: 2rem; display: block; margin-bottom: 0.5rem;"></i>
+        <strong>Error al cargar la información:</strong> ${err.message}
+      </div>
+    `;
+  }
+}
+
+function generateLegalDocumentText(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany) {
+  const repName = profile.full_name || "[Nombre del Representante]";
+  const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
+  const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
+  const dateTodayStr = new Date().toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  return `CONVENIO DE TÉRMINO DE PRESTACIÓN DE SERVICIOS LOGÍSTICOS Y FINIQUITO DE CUENTA
+
+En Santiago de Chile, a ${dateTodayStr}, entre:
+
+1. STOCKA SpA, sociedad del giro logístico y almacenamiento, Rol Único Tributario N° 77.524.557-3, representada legalmente por doña Kyria Alejandra Oyarce Pérez, cédula nacional de identidad número 18.732.412-2, ambos domiciliados para estos efectos en Avenida Campo de Deportes 405, comuna de Ñuñoa, en adelante e indistintamente "STOCKA"; y
+
+2. La empresa ${compName}, del giro de su denominación, representada por don(ña) ${repName}, RUT N° ${rutText}, de su mismo domicilio, en adelante e indistintamente el "CLIENTE" o el "COMERCIO", asociado en la plataforma WMS al comercio denominado "${commerceName}".
+
+Ambas partes acuerdan convenir al tenor de las siguientes cláusulas y declaraciones:
+
+PRIMERA: ANTECEDENTES Y TÉRMINO DEL SERVICIO
+Las partes suscribieron con anterioridad un contrato de prestación de servicios logísticos de fulfillment. Conforme a las condiciones del servicio, el CLIENTE ha manifestado de manera expresa y voluntaria su decisión de poner término a la relación contractual de servicios logísticos que le vincula con STOCKA. Para ello, se ha cumplido formalmente con la obligación de dar el aviso previo de 30 días corridos exigidos para la salida. La fecha de cese de operaciones y retiro definitivo del stock se acuerda formalmente para el día ${exitDate}.
+
+SEGUNDA: DECLARACIÓN JURADA DE FACTURACIÓN Y FINIQUITO DE CUENTAS
+El CLIENTE declara bajo juramento que a la fecha de la suscripción del presente instrumento, todos los períodos de facturación de servicios ordinarios, almacenamiento, despachos, devoluciones e insumos emitidos por STOCKA se encuentran íntegramente saldados y pagados de conformidad, no existiendo saldos deudores ni cuentas pendientes de ninguna especie.
+Asimismo, el CLIENTE renuncia de manera irrevocable a entablar cualquier acción legal, civil, mercantil o de otra índole posterior tendiente a reclamar diferencias de tarifas, devoluciones de cobros o revisión de facturaciones pasadas correspondientes a la vigencia de la relación contractual, otorgando a STOCKA el más amplio finiquito respecto de tales conceptos.
+
+TERCERA: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD
+Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+- Unidades Totales: ${totalUnits} unidades.
+- SKUs con Stock: ${totalSKUs} ítems.
+
+Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+
+CUARTA: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)
+De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
+- Tarifa Fija Base de Preparación: $1.250 CLP neto
+- Recargo por SKU adicional (sobre 3): $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto
+- Recargo por unidades adicionales (sobre 10): $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto
+- Subtotal Neto Estimado: $${netTotal.toLocaleString('es-CL')} CLP
+- IVA (19%): $${iva.toLocaleString('es-CL')} CLP
+- TOTAL BRUTO ESTIMADO A PAGAR: $${brutoTotal.toLocaleString('es-CL')} CLP
+
+Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+
+QUINTA: LIBERACIÓN MUTUA DE RESPONSABILIDADES Y PACTO DE INDEMNIDAD
+Con la firma de este convenio de término, las partes se otorgan recíproco y definitivo finiquito respecto de todas y cada una de las obligaciones emanadas del contrato de prestación de servicios logísticos, declarando que nada se adeudan por concepto de indemnizaciones, perjuicios, multas o prestaciones pendientes de ninguna naturaleza. El CLIENTE se compromete a mantener indemne a STOCKA por cualquier reclamo de terceros derivado de los productos retirados, vicios ocultos de fabricación, o uso indebido de los mismos posterior a la entrega.
+
+Las partes firman en dos ejemplares de un mismo tenor y fecha, comprometiéndose a legalizar las firmas ante Notario Público si cualquiera de ellas así lo solicitase el día del retiro.
+
+
+__________________________________            __________________________________
+            STOCKA SpA                              ${compName}
+         Representante Legal                        ${repName}`;
+}
+
+function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, resolvedRut, resolvedCompany) {
+  const repName = profile.full_name || "[Nombre del Representante]";
+  const compName = resolvedCompany || profile.company_name || "[Razón Social / Empresa]";
+  const rutText = resolvedRut || profile.rut || "[RUT de la Empresa]";
+  const repRutText = "[RUT del Representante]";
+  const dateTodayStr = new Date().toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  const printWindow = window.open('', '_blank');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Convenio de Termino - ${commerceName}</title>
+        <style>
+          body {
+            font-family: 'Times New Roman', Times, serif;
+            padding: 3rem;
+            line-height: 1.6;
+            color: #111;
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: justify;
+            font-size: 11pt;
+          }
+          p {
+            margin-bottom: 1.25rem;
+            text-indent: 2rem;
+          }
+          p.no-indent {
+            text-indent: 0;
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="margin-bottom: 2rem; padding: 1rem; background-color: #f3f4f6; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; font-family: sans-serif; font-size: 0.9rem; text-indent: 0;">
+          <span>Este es el borrador del documento legal de término de servicio.</span>
+          <button onclick="window.print()" style="padding: 0.5rem 1rem; background-color: #ef4444; color: white; border: none; font-weight: bold; border-radius: 4px; cursor: pointer;">Imprimir / Guardar como PDF</button>
+        </div>
+
+        <h1 style="text-align: center; font-size: 1.3rem; font-weight: bold; margin-bottom: 2.5rem; text-transform: uppercase; font-family: 'Times New Roman', Times, serif; line-height: 1.4;">
+          CONVENIO DE TÉRMINO DE PRESTACIÓN DE SERVICIOS LOGÍSTICOS Y FINIQUITO DE CUENTA
+        </h1>
+
+        <p class="no-indent">
+          En Santiago de Chile, a ${dateTodayStr}, entre:
+        </p>
+
+        <p>
+          1. <strong>STOCKA SpA</strong>, sociedad del giro logístico y almacenamiento, Rol Único Tributario N° <strong>77.524.557-3</strong>, representada legalmente por doña <strong>Kyria Alejandra Oyarce Pérez</strong>, cédula nacional de identidad número <strong>18.732.412-2</strong>, ambos domiciliados para estos efectos en Avenida Campo de Deportes 405, comuna de Ñuñoa, en adelante e indistintamente "<strong>STOCKA</strong>"; y
+        </p>
+
+        <p>
+          2. La empresa <strong>${compName}</strong>, Rol Único Tributario N° <strong>${rutText}</strong>, representada por don(ña) <strong>${repName}</strong>, de su mismo domicilio, en adelante e indistintamente el "<strong>CLIENTE</strong>" o el "<strong>COMERCIO</strong>", asociado en la plataforma WMS al comercio denominado "<strong>${commerceName}</strong>".
+        </p>
+
+        <p class="no-indent">
+          Ambas partes acuerdan convenir al tenor de las siguientes cláusulas y declaraciones:
+        </p>
+
+        <p class="no-indent">
+          <strong><u>PRIMERA</u>: ANTECEDENTES Y TÉRMINO DEL SERVICIO</strong><br>
+          Las partes suscribieron con anterioridad un contrato de prestación de servicios logísticos de fulfillment. Conforme a las condiciones del servicio, el CLIENTE ha manifestado de manera expresa y voluntaria su decisión de poner término a la relación contractual de servicios logísticos que le vincula con STOCKA. Para ello, se ha cumplido formalmente con la obligación de dar el aviso previo de 30 días corridos exigidos para la salida. La fecha de cese de operaciones y retiro definitivo del stock se acuerda formalmente para el día <strong>${exitDate}</strong>.
+        </p>
+
+        <p class="no-indent">
+          <strong><u>SEGUNDA</u>: DECLARACIÓN JURADA DE FACTURACIÓN Y FINIQUITO DE CUENTAS</strong><br>
+          El CLIENTE declara bajo juramento que a la fecha de la suscripción del presente instrumento, todos los períodos de facturación de servicios ordinarios, almacenamiento, despachos, devoluciones e insumos emitidos por STOCKA se encuentran íntegramente saldados y pagados de conformidad, no existiendo saldos deudores ni cuentas pendientes de ninguna especie.<br>
+          Asimismo, el CLIENTE renuncia de manera irrevocable a entablar cualquier acción legal, civil, mercantil o de otra índole posterior tendiente a reclamar diferencias de tarifas, devoluciones de cobros o revisión de facturaciones pasadas correspondientes a la vigencia de la relación contractual, otorgando a STOCKA el más amplio finiquito respecto de tales conceptos.
+        </p>
+
+        <p class="no-indent">
+          <strong><u>TERCERA</u>: RECONCILIACIÓN FÍSICA DE INVENTARIO Y LIBERACIÓN DE RESPONSABILIDAD</strong><br>
+          Las partes acuerdan que con fecha previa o simultánea al retiro definitivo, se realizará un conteo físico completo de las mercaderías del CLIENTE custodiadas por STOCKA. De acuerdo con el sistema informático WMS, el stock registrado asciende a:
+        </p>
+        <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
+          <li><strong>Unidades Totales:</strong> ${totalUnits} unidades.</li>
+          <li><strong>SKUs con Stock:</strong> ${totalSKUs} ítems.</li>
+        </ul>
+        <p class="no-indent">
+          Cualquier diferencia, merma o daño verificado en este proceso presencial será resuelto de conformidad a las tolerancias de merma técnica establecidas en el contrato general de servicios. Una vez firmado el recibo de retiro a conformidad por parte del transportista o representante del CLIENTE el día de la entrega, se entenderá que el inventario fue entregado en perfectas condiciones y cuadraje. STOCKA quedará liberada de toda responsabilidad de custodia, pérdida, daño parcial o total de la mercadería, asumiendo el CLIENTE todo riesgo posterior.
+        </p>
+
+        <p class="no-indent">
+          <strong><u>CUARTA</u>: TARIFA DE PREPARACIÓN DE RETIRO (OUTBOUND FEE DE SALIDA)</strong><br>
+          De conformidad con el Anexo de Tarifarios Stocka 2024-2025 vigente, la preparación logística para la salida total del inventario (proceso que contempla pickeo masivo, paletizado, alusado y preparación para carga sobre camión del cliente) se valoriza bajo la estructura de cobro unitaria de un pedido consolidado:
+        </p>
+        <ul style="padding-left: 3rem; margin-bottom: 1.25rem; list-style-type: disc;">
+          <li><strong>Tarifa Fija Base de Preparación:</strong> $1.250 CLP neto</li>
+          <li><strong>Recargo por SKU adicional (sobre 3):</strong> $${(totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0).toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Recargo por unidades adicionales (sobre 10):</strong> $${(totalUnits > 10 ? (totalUnits - 10) * 50 : 0).toLocaleString('es-CL')} CLP neto</li>
+          <li><strong>Subtotal Neto Estimado:</strong> $${netTotal.toLocaleString('es-CL')} CLP</li>
+          <li><strong>IVA (19%):</strong> $${iva.toLocaleString('es-CL')} CLP</li>
+          <li><strong>TOTAL BRUTO ESTIMADO A PAGAR:</strong> $${brutoTotal.toLocaleString('es-CL')} CLP</li>
+        </ul>
+        <p class="no-indent">
+          Esta cantidad deberá ser transferida a la cuenta bancaria de STOCKA de forma previa o en el mismo acto de retiro de la mercadería, siendo condición sine qua non para autorizar la salida física del inventario de las bodegas.
+        </p>
+
+        <p class="no-indent">
+          <strong><u>QUINTA</u>: LIBERACIÓN MUTUA DE RESPONSABILIDADES Y PACTO DE INDEMNIDAD</strong><br>
+          Con la firma de este convenio de término, las partes se otorgan recíproco y definitivo finiquito respecto de todas y cada una de las obligaciones emanadas del contrato de prestación de servicios logísticos, declarando que nada se adeudan por concepto de indemnizaciones, perjuicios, multas o prestaciones pendientes de ninguna naturaleza. El CLIENTE se compromete a mantener indemne a STOCKA por cualquier reclamo de terceros derivado de los productos retirados, vicios ocultos de fabricación, o uso indebido de los mismos posterior a la entrega.
+        </p>
+
+        <p class="no-indent">
+          Las partes firman en dos ejemplares de un mismo tenor y fecha, comprometiéndose a legalizar las firmas ante Notario Público si cualquiera de ellas así lo solicitase el día del retiro.
+        </p>
+
+        <div style="margin-top: 6rem; display: flex; justify-content: space-between; page-break-inside: avoid;">
+          <div style="width: 45%; text-align: center;">
+            <div style="border-top: 1px solid #111; padding-top: 0.5rem; margin-top: 3rem;">
+              <strong>STOCKA SpA</strong><br>
+              Representación y Operaciones
+            </div>
+          </div>
+          <div style="width: 45%; text-align: center;">
+            <div style="border-top: 1px solid #111; padding-top: 0.5rem; margin-top: 3rem;">
+              <strong>${compName}</strong><br>
+              ${repName}
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany) {
+  const repName = profile.full_name || "No especificado";
+  const compName = resolvedCompany || profile.company_name || "No especificada";
+  const rutText = resolvedRut || profile.rut || "No informado";
+  const dateTodayStr = new Date().toLocaleDateString('es-CL', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric'
+  });
+
+  const baseFee = 1250;
+  const skuSurcharge = totalSKUs > 3 ? (totalSKUs - 3) * 100 : 0;
+  const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
+
+  const totalPendingBilling = periodStatusList.reduce((sum, p) => sum + (p.pending || 0), 0);
+  const totalToPayConsolidated = totalPendingBilling + brutoTotal;
+
+  const printWindow = window.open('', '_blank');
+  
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Informe de Salida - ${commerceName}</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            padding: 2.5rem;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.5;
+            background-color: #fff;
+          }
+          .header-title {
+            text-align: center;
+            border-bottom: 2px solid #ef4444;
+            padding-bottom: 1rem;
+            margin-bottom: 2rem;
+          }
+          .header-title h1 {
+            font-size: 1.6rem;
+            color: #991b1b;
+            margin: 0 0 0.5rem 0;
+            text-transform: uppercase;
+            font-weight: 800;
+          }
+          .header-title p {
+            font-size: 0.85rem;
+            color: #666;
+            margin: 0;
+          }
+          .info-table, .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+          }
+          .info-table td {
+            padding: 0.5rem;
+            vertical-align: top;
+          }
+          .info-table td.label {
+            font-weight: bold;
+            color: #555;
+            width: 30%;
+          }
+          .data-table th, .data-table td {
+            padding: 0.6rem;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+          }
+          .data-table th {
+            background-color: #f9fafb;
+            font-weight: bold;
+            color: #374151;
+          }
+          .section-title {
+            font-size: 1.1rem;
+            color: #991b1b;
+            border-bottom: 1px solid #f3f4f6;
+            padding-bottom: 0.4rem;
+            margin: 1.5rem 0 1rem 0;
+            font-weight: bold;
+            text-transform: uppercase;
+          }
+          .cost-box {
+            background-color: #fafafa;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 1rem;
+            font-size: 0.85rem;
+            margin-bottom: 1.5rem;
+          }
+          .cost-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.35rem 0;
+            border-bottom: 1px dashed #e5e7eb;
+          }
+          .cost-row.total {
+            border-top: 1px solid #333;
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 1.05rem;
+            color: #b91c1c;
+            padding-top: 0.5rem;
+          }
+          .signature-section {
+            margin-top: 3rem;
+            display: flex;
+            justify-content: space-between;
+            gap: 2rem;
+            page-break-inside: avoid;
+          }
+          .signature-col {
+            width: 45%;
+            text-align: center;
+            font-size: 0.85rem;
+          }
+          .signature-line {
+            border-top: 1px solid #333;
+            margin-top: 3rem;
+            padding-top: 0.5rem;
+          }
+          .no-print {
+            background-color: #f3f4f6;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: sans-serif;
+            font-size: 0.85rem;
+            margin-bottom: 2rem;
+          }
+          .no-print button {
+            padding: 0.5rem 1rem;
+            background-color: #ef4444;
+            color: white;
+            border: none;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+          }
+          @media print {
+            body {
+              padding: 0;
+            }
+            .no-print {
+              display: none !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print">
+          <span>Este es el Informe Resumen de Salida del Servicio listo para descargar o imprimir.</span>
+          <button onclick="window.print()">Imprimir / Guardar PDF</button>
+        </div>
+
+        <div class="header-title">
+          <h1>Informe de Salida y Término de Servicio</h1>
+          <p>Stocka SpA Fulfillment Logístico • Generado el ${dateTodayStr}</p>
+        </div>
+
+        <h2 class="section-title">Antecedentes del Comercio y Salida</h2>
+        <table class="info-table">
+          <tr>
+            <td class="label">Comercio / Cuenta:</td>
+            <td>${commerceName}</td>
+            <td class="label">Razón Social:</td>
+            <td>${compName}</td>
+          </tr>
+          <tr>
+            <td class="label">Representante:</td>
+            <td>${repName}</td>
+            <td class="label">RUT de Empresa:</td>
+            <td>${rutText}</td>
+          </tr>
+          <tr>
+            <td class="label">Fecha Solicitud Aviso:</td>
+            <td>${dateTodayStr}</td>
+            <td class="label">Fecha Estimada de Salida:</td>
+            <td style="font-weight: bold; color: #b91c1c;">${exitDate}</td>
+          </tr>
+        </table>
+
+        <h2 class="section-title">1. Resumen de Cuentas y Facturación</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Estado de pago consolidado de los períodos de servicio registrados en plataforma:
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Período</th>
+              <th>Monto Facturado</th>
+              <th>Saldo Pendiente</th>
+              <th>Estado de Pago</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${periodStatusList.map(p => `
+              <tr>
+                <td><strong>${p.name}</strong></td>
+                <td>
+                  <strong>$${p.total.toLocaleString('es-CL')}</strong>
+                  <div style="font-size: 0.7rem; color: #666; margin-top: 2px;">
+                    Fulf: $${p.totalFulf.toLocaleString('es-CL')} | Env: $${p.totalEnv.toLocaleString('es-CL')}
+                  </div>
+                </td>
+                <td style="font-weight: ${p.pending > 0 ? 'bold' : 'normal'}; color: ${p.pending > 0 ? '#b91c1c' : '#333'}">
+                  <strong>$${p.pending.toLocaleString('es-CL')}</strong>
+                  <div style="font-size: 0.7rem; color: ${p.pending > 0 ? '#b91c1c' : '#666'}; margin-top: 2px;">
+                    Fulf: $${p.pendingFulf.toLocaleString('es-CL')} | Env: $${p.pendingEnv.toLocaleString('es-CL')}
+                  </div>
+                </td>
+                <td>
+                  <span style="font-weight: bold; color: ${p.isPaid ? '#047857' : '#b91c1c'};">
+                    ${p.isPaid ? 'Saldado' : 'Pendiente'}
+                  </span>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <p style="font-size: 0.75rem; color: #4b5563; font-style: italic; background-color: #f9fafb; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 4px; line-height: 1.4;">
+          <strong>Declaración de Conformidad:</strong> El Comercio acepta formalmente la liquidación de las tarifas del servicio correspondientes a los períodos señalados, reconociendo que se encuentran íntegramente saldadas y renuncia irrevocablemente a cualquier reclamo posterior por diferencias de cobro.
+        </p>
+
+        <h2 class="section-title">2. Resumen de Inventario Registrado</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Resumen total de existencias en el WMS a la fecha (sujeto a cuadraje físico presencial en bodega previo al retiro):
+        </p>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th style="text-align: center;">Cantidad</th>
+              <th>Notas Operativas</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Total de SKUs en Stock</strong></td>
+              <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalSKUs}</td>
+              <td style="font-size: 0.8rem; color: #666;">Variedad de artículos con stock activo para retiro.</td>
+            </tr>
+            <tr>
+              <td><strong>Total de Unidades Físicas</strong></td>
+              <td style="text-align: center; font-weight: bold; font-size: 1.1rem; color: #b91c1c;">${totalUnits}</td>
+              <td style="font-size: 0.8rem; color: #666;">Suma total de unidades físicas almacenadas en bodegas Stocka.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Costo estimado del retiro físico (preparación y entrega de stock) según Anexo de Tarifarios Stocka 2024-2025:
+        </p>
+        <div class="cost-box">
+          <div class="cost-row">
+            <span>Costo de Preparación Base:</span>
+            <span>$1.250</span>
+          </div>
+          <div class="cost-row">
+            <span>Recargo SKU Adicional (+$100 por cada SKU > 3): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalSKUs > 3 ? totalSKUs - 3 : 0} SKUs excedentes)</span></span>
+            <span>$${skuSurcharge.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row">
+            <span>Recargo Unidades Adicional (+$50 por cada unidad > 10): <span style="font-size: 0.75rem; color: #666; display: block;">(${totalUnits > 10 ? totalUnits - 10 : 0} unidades excedentes)</span></span>
+            <span>$${unitsSurcharge.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row" style="font-weight: bold; border-top: 1px dashed #ccc; padding-top: 0.5rem; margin-top: 0.25rem;">
+            <span>Total Neto Preparación:</span>
+            <span>$${netTotal.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row" style="color: #666;">
+            <span>IVA (19%):</span>
+            <span>$${iva.toLocaleString('es-CL')}</span>
+          </div>
+          <div class="cost-row total">
+            <span>Total Bruto Estimado de Salida:</span>
+            <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+          </div>
+        </div>
+        <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
+          *Nota: Este presupuesto no contempla los costos proporcionales de almacenamiento y despachos que puedan devengarse durante el mes en curso antes del retiro físico definitivo.
+        </p>
+
+        <h2 class="section-title">4. Liquidación y Pago Total Consolidado</h2>
+        <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
+          Cálculo total consolidado de los valores a transferir a STOCKA SpA para concretar la baja definitiva del servicio y liberación de mercadería:
+        </p>
+        <div class="cost-box" style="background-color: #fef2f2; border: 1px solid #fecdd3;">
+          <div class="cost-row">
+            <span>Monto Total Desgloses Pendientes (Sección 1):</span>
+            <span style="font-weight: bold;">$${totalPendingBilling.toLocaleString('es-CL')} CLP</span>
+          </div>
+          <div class="cost-row">
+            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):</span>
+            <span style="font-weight: bold;">$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+          </div>
+          <div class="cost-row total" style="font-size: 1.15rem; color: #991b1b; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 2px solid #ef4444;">
+            <span>TOTAL CONSOLIDADO A PAGAR:</span>
+            <span>$${totalToPayConsolidated.toLocaleString('es-CL')} CLP</span>
+          </div>
+        </div>
+        <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
+          *Nota de Cierre: El pago del total consolidado indicado anteriormente es condición obligatoria para la firma del finiquito legal y la entrega física de la mercadería custodiada en bodegas.
+        </p>
+
+        <div class="signature-section">
+          <div class="signature-col">
+            <div class="signature-line">
+              <strong>STOCKA SpA</strong><br>
+              Representación y Operaciones
+            </div>
+          </div>
+          <div class="signature-col">
+            <div class="signature-line">
+              <strong>${compName}</strong><br>
+              ${repName}
+            </div>
+          </div>
+        </div>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
 
 
 

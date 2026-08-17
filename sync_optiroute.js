@@ -15,11 +15,13 @@ if (!SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+const TERMINAL_STATUSES = new Set(['DELIVERED', 'CANCELLED', 'DELETED']);
+
 // ==========================================
 // FUNCIÓN PRINCIPAL DE SINCRONIZACIÓN
 // ==========================================
 async function syncOptirouteData() {
-  console.log('🔄 Iniciando sincronización con Optiroute API...');
+  console.log('🔄 Iniciando sincronización optimizada con Optiroute API...');
 
   try {
     // 1. Obtener todas las integraciones activas de Optiroute en Supabase
@@ -57,11 +59,11 @@ async function syncOptirouteData() {
 }
 
 /**
- * Obtiene la fecha de inicio en formato YYYY-MM-DD (hace 30 días)
+ * Obtiene la fecha de inicio en formato YYYY-MM-DD (hace 3 días para evitar consultas masivas de histórico)
  */
 function getStartDateStr() {
   const d = new Date();
-  d.setDate(d.getDate() - 30);
+  d.setDate(d.getDate() - 3);
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -90,15 +92,17 @@ function getOptirouteStatusName(statusNum) {
 }
 
 /**
- * Sincroniza los pedidos de un merchant específico usando sus credenciales de Optiroute
- * y los guarda en la tabla dedicada 'optiroute_orders'
+ * Sincroniza los pedidos recientes de un merchant específico usando sus credenciales de Optiroute.
+ * Aplica filtros estrictos para omitir pedidos entregados/cancelados y evitar throttling.
  */
 async function syncMerchantOrders(integration) {
   const startDate = getStartDateStr();
-  console.log(`--> Consultando pedidos en Optiroute creados desde: ${startDate}`);
+  console.log(`--> Consultando pedidos recientes en Optiroute creados desde: ${startDate}`);
 
   let optirouteUrl = `https://app.optiroute.cl/api/v1/integration-service-requests/?per_page=100&creationStartDate=${startDate}`;
   let pageCount = 1;
+  const MAX_DETAIL_CALLS_PER_RUN = 30; // Máximo de peticiones HTTP de detalle individual por ejecución
+  let detailCallsMade = 0;
 
   try {
     while (optirouteUrl) {
@@ -134,33 +138,75 @@ async function syncMerchantOrders(integration) {
 
       console.log(`--> Encontrados ${optirouteOrders.length} pedidos en la página ${pageCount}.`);
 
-      for (const optiOrder of optirouteOrders) {
-        // Obtener el detalle completo del pedido para recuperar el email anidado y dirección extendida
-        let detailedOrder = optiOrder;
-        try {
-          // Pequeño retardo de 50ms para prevenir throttling del API de Optiroute
-          await new Promise(resolve => setTimeout(resolve, 50));
-          
-          const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${optiOrder.id}/`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Token ${integration.access_token}`,
-              'Content-Type': 'application/json'
-            }
-          });
+      if (optirouteOrders.length === 0) {
+        break;
+      }
 
-          if (detailResponse.ok) {
-            detailedOrder = await detailResponse.json();
-          } else {
-            console.warn(`      ⚠️ No se pudo obtener detalle para ID ${optiOrder.id}: ${detailResponse.status} ${detailResponse.statusText}`);
+      // Pre-obtener datos existentes en Supabase en 1 sola consulta masiva
+      const orderIds = optirouteOrders.map(o => String(o.id));
+      const { data: existingDbRows, error: dbQueryErr } = await supabase
+        .from('optiroute_orders')
+        .select('id, status, email_cliente_destino, direccion_destino, raw_data')
+        .in('id', orderIds);
+
+      if (dbQueryErr) {
+        console.warn('⚠️ Advertencia al consultar caché previa de pedidos:', dbQueryErr.message);
+      }
+
+      const existingDbMap = new Map((existingDbRows || []).map(r => [String(r.id), r]));
+      const payloadsToUpsert = [];
+
+      for (const optiOrder of optirouteOrders) {
+        const idStr = String(optiOrder.id);
+        const existing = existingDbMap.get(idStr);
+        const listStatusName = getOptirouteStatusName(optiOrder.status);
+
+        // 1. REGLA PRINCIPAL: Si ya está registrado en Supabase con estado terminal (DELIVERED, CANCELLED, DELETED), OMITIR.
+        if (existing && TERMINAL_STATUSES.has(existing.status)) {
+          console.log(`   ⏭️ Omitiendo ID '${idStr}': Ya está en estado terminal '${existing.status}' en la BD.`);
+          continue;
+        }
+
+        // 2. REGLA DE INMUTABILIDAD: Si no ha cambiado de estado y ya tenemos datos en la BD, OMITIR.
+        if (existing && existing.status === listStatusName && (existing.email_cliente_destino || existing.direccion_destino)) {
+          console.log(`   ⏭️ Omitiendo ID '${idStr}': Sin cambios de estado ('${listStatusName}') y datos completos en BD.`);
+          continue;
+        }
+
+        // 3. Determinar si requiere consulta de detalle individual
+        // Solo hacer GET de detalle si NO existe en BD o su estado cambió, Y no hemos excedido la cuota segura por ejecución
+        let detailedOrder = optiOrder;
+        const needsDetail = (!existing || existing.status !== listStatusName) && detailCallsMade < MAX_DETAIL_CALLS_PER_RUN;
+
+        if (needsDetail) {
+          try {
+            await new Promise(resolve => setTimeout(resolve, 100)); // Retardo de 100ms para cuidar el servidor de Optiroute
+            detailCallsMade++;
+            console.log(`   📡 [API Call ${detailCallsMade}/${MAX_DETAIL_CALLS_PER_RUN}] Obteniendo detalle para ID '${idStr}'...`);
+
+            const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${optiOrder.id}/`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Token ${integration.access_token}`,
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (detailResponse.ok) {
+              detailedOrder = await detailResponse.json();
+            } else {
+              console.warn(`      ⚠️ No se pudo obtener detalle para ID ${optiOrder.id}: ${detailResponse.status} ${detailResponse.statusText}`);
+            }
+          } catch (detailErr) {
+            console.warn(`      ⚠️ Error al conectar para detalle de ID ${optiOrder.id}:`, detailErr.message);
           }
-        } catch (detailErr) {
-          console.warn(`      ⚠️ Error al conectar para detalle de ID ${optiOrder.id}:`, detailErr.message);
         }
 
         // Extraer los campos con lógica de fallback robusta
         const email = detailedOrder.customer?.customer?.email || 
                       detailedOrder.customer?.email || 
+                      optiOrder.customer?.email ||
+                      existing?.email_cliente_destino ||
                       null;
 
         const addressStr = detailedOrder.address?.full_address || 
@@ -168,13 +214,14 @@ async function syncMerchantOrders(integration) {
                            detailedOrder.address?.short_address || 
                            (detailedOrder.address?.street_name 
                              ? `${detailedOrder.address.street_name} ${detailedOrder.address.address_number || ''}`.trim() 
-                             : null);
+                             : null) ||
+                           existing?.direccion_destino ||
+                           null;
 
         let commune = detailedOrder.address?.commune_string || 
                       detailedOrder.address?.locality || 
                       (detailedOrder.address?.commune && typeof detailedOrder.address.commune === 'object' ? detailedOrder.address.commune.name : null);
 
-        // Fallback de extracción de comuna por coma
         if (!commune && (detailedOrder.address?.short_address || detailedOrder.address?.excel_address)) {
           const addr = detailedOrder.address.short_address || detailedOrder.address.excel_address;
           const parts = addr.split(',');
@@ -183,20 +230,21 @@ async function syncMerchantOrders(integration) {
           }
         }
 
-        // Armar el payload para la tabla dedicada 'optiroute_orders'
-        const upsertPayload = {
-          id: String(optiOrder.id),
+        const finalStatus = getOptirouteStatusName(detailedOrder.status !== undefined ? detailedOrder.status : optiOrder.status);
+
+        payloadsToUpsert.push({
+          id: idStr,
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
           empresa_comercio_proveedor: integration.comercio || 'STOCKA',
           tracking: (detailedOrder.tracking || optiOrder.tracking || '').trim() || null,
           tracking_url: (detailedOrder.tracking_url || optiOrder.tracking_url || '').trim() || null,
           courier: 'STOCKA X',
-          status: getOptirouteStatusName(detailedOrder.status !== undefined ? detailedOrder.status : optiOrder.status),
+          status: finalStatus,
           created_at: detailedOrder.created_at || optiOrder.created_at || null,
           updated_at: detailedOrder.updated_at || optiOrder.updated_at || null,
           servicio_tipo_envio: 'SAME DAY/24 HRS',
-          nombre_destinatario: detailedOrder.customer?.name || null,
-          telefono_destino: detailedOrder.customer?.phone_number || null,
+          nombre_destinatario: detailedOrder.customer?.name || optiOrder.customer?.name || null,
+          telefono_destino: detailedOrder.customer?.phone_number || optiOrder.customer?.phone_number || null,
           email_cliente_destino: email,
           direccion_destino: addressStr,
           complemento_destino: [detailedOrder.address?.apartment_number, detailedOrder.address?.address_more_info]
@@ -204,18 +252,20 @@ async function syncMerchantOrders(integration) {
             .join(', ') || null,
           comuna_destino: commune,
           raw_data: detailedOrder
-        };
+        });
+      }
 
-        console.log(`   📝 Guardando/Actualizando pedido Optiroute ID '${upsertPayload.id}' (Proveedor: ${upsertPayload.empresa_comercio_proveedor}, Estado: ${upsertPayload.status})`);
-
+      // Guardar en lote (Bulk Upsert)
+      if (payloadsToUpsert.length > 0) {
+        console.log(`   📝 Guardando ${payloadsToUpsert.length} pedidos actualizados en Supabase en 1 consulta masiva...`);
         const { error: upsertError } = await supabase
           .from('optiroute_orders')
-          .upsert(upsertPayload, { onConflict: 'id' });
+          .upsert(payloadsToUpsert, { onConflict: 'id' });
 
         if (upsertError) {
           console.error(`      ❌ Error al guardar en tabla optiroute_orders:`, upsertError.message);
         } else {
-          console.log(`      ✅ Guardado exitoso.`);
+          console.log(`      ✅ Sincronizados ${payloadsToUpsert.length} pedidos en Supabase correctamente.`);
         }
       }
 
@@ -234,14 +284,14 @@ async function syncMerchantOrders(integration) {
 }
 
 /**
- * Sincroniza pedidos antiguos (creados hace más de 30 días) que siguen activos
- * en la base de datos de Supabase, obteniendo su detalle individual
+ * Sincroniza de forma acotada pedidos antiguos que sigan en estado activo
+ * en la base de datos (excluyendo DELIVERED, CANCELLED, DELETED)
  */
 async function syncPendingOldOrders(integration) {
-  console.log('\n--> Buscando pedidos antiguos activos en la base de datos...');
+  console.log('\n--> Buscando pedidos activos pendientes de actualización en la base de datos...');
   
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
   const { data: pendingOrders, error: pendingErr } = await supabase
     .from('optiroute_orders')
@@ -249,8 +299,8 @@ async function syncPendingOldOrders(integration) {
     .not('status', 'eq', 'DELIVERED')
     .not('status', 'eq', 'CANCELLED')
     .not('status', 'eq', 'DELETED')
-    .lt('created_at', thirtyDaysAgo.toISOString())
-    .limit(50);
+    .lt('created_at', threeDaysAgo.toISOString())
+    .limit(20);
 
   if (pendingErr) {
     console.error('❌ Error al obtener pedidos antiguos activos:', pendingErr.message);
@@ -262,11 +312,13 @@ async function syncPendingOldOrders(integration) {
     return;
   }
 
-  console.log(`--> Encontrados ${pendingOrders.length} pedidos antiguos activos. Actualizando estado...`);
+  console.log(`--> Encontrados ${pendingOrders.length} pedidos antiguos activos. Actualizando estado (máximo 20)...`);
+
+  const payloadsToUpsert = [];
 
   for (const dbOrder of pendingOrders) {
     try {
-      await new Promise(resolve => setTimeout(resolve, 50)); // Evitar saturación
+      await new Promise(resolve => setTimeout(resolve, 100)); // Evitar saturación del servidor
 
       const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${dbOrder.id}/`, {
         method: 'GET',
@@ -283,9 +335,9 @@ async function syncPendingOldOrders(integration) {
 
       const detailedOrder = await detailResponse.json();
 
-      // Extraer los campos con la misma lógica robusta
       const email = detailedOrder.customer?.customer?.email || 
                     detailedOrder.customer?.email || 
+                    dbOrder.email_cliente_destino ||
                     null;
 
       const addressStr = detailedOrder.address?.full_address || 
@@ -293,56 +345,55 @@ async function syncPendingOldOrders(integration) {
                          detailedOrder.address?.short_address || 
                          (detailedOrder.address?.street_name 
                            ? `${detailedOrder.address.street_name} ${detailedOrder.address.address_number || ''}`.trim() 
-                           : null);
+                           : null) ||
+                         dbOrder.direccion_destino ||
+                         null;
 
       let commune = detailedOrder.address?.commune_string || 
                     detailedOrder.address?.locality || 
-                    (detailedOrder.address?.commune && typeof detailedOrder.address.commune === 'object' ? detailedOrder.address.commune.name : null);
+                    (detailedOrder.address?.commune && typeof detailedOrder.address.commune === 'object' ? detailedOrder.address.commune.name : null) ||
+                    dbOrder.comuna_destino;
 
-      if (!commune && (detailedOrder.address?.short_address || detailedOrder.address?.excel_address)) {
-        const addr = detailedOrder.address.short_address || detailedOrder.address.excel_address;
-        const parts = addr.split(',');
-        if (parts.length > 1) {
-          commune = parts[parts.length - 1].trim();
-        }
-      }
+      const newStatus = getOptirouteStatusName(detailedOrder.status);
 
-      const upsertPayload = {
+      payloadsToUpsert.push({
         id: String(detailedOrder.id),
-        referencia: detailedOrder.reference ? detailedOrder.reference.trim() : null,
-        empresa_comercio_proveedor: integration.profiles?.company_name || dbOrder.empresa_comercio_proveedor || 'STOCKA',
-        tracking: detailedOrder.tracking ? detailedOrder.tracking.trim() : null,
-        tracking_url: detailedOrder.tracking_url ? detailedOrder.tracking_url.trim() : null,
+        referencia: detailedOrder.reference ? detailedOrder.reference.trim() : dbOrder.referencia,
+        empresa_comercio_proveedor: integration.comercio || dbOrder.empresa_comercio_proveedor || 'STOCKA',
+        tracking: detailedOrder.tracking ? detailedOrder.tracking.trim() : dbOrder.tracking,
+        tracking_url: detailedOrder.tracking_url ? detailedOrder.tracking_url.trim() : dbOrder.tracking_url,
         courier: 'STOCKA X',
-        status: getOptirouteStatusName(detailedOrder.status),
+        status: newStatus,
         created_at: detailedOrder.created_at || dbOrder.created_at || null,
         updated_at: detailedOrder.updated_at || null,
         servicio_tipo_envio: 'SAME DAY/24 HRS',
-        nombre_destinatario: detailedOrder.customer?.name || null,
-        telefono_destino: detailedOrder.customer?.phone_number || null,
+        nombre_destinatario: detailedOrder.customer?.name || dbOrder.nombre_destinatario,
+        telefono_destino: detailedOrder.customer?.phone_number || dbOrder.telefono_destino,
         email_cliente_destino: email,
         direccion_destino: addressStr,
         complemento_destino: [detailedOrder.address?.apartment_number, detailedOrder.address?.address_more_info]
           .filter(Boolean)
-          .join(', ') || null,
+          .join(', ') || dbOrder.complemento_destino,
         comuna_destino: commune,
         raw_data: detailedOrder
-      };
+      });
 
-      console.log(`   📝 Actualizando pedido antiguo ID '${upsertPayload.id}' (Estado anterior: ${dbOrder.status} -> Nuevo: ${upsertPayload.status})`);
-
-      const { error: upsertError } = await supabase
-        .from('optiroute_orders')
-        .upsert(upsertPayload, { onConflict: 'id' });
-
-      if (upsertError) {
-        console.error(`      ❌ Error al guardar en tabla optiroute_orders:`, upsertError.message);
-      } else {
-        console.log(`      ✅ Actualización exitosa.`);
-      }
+      console.log(`   📝 Pedido antiguo ID '${dbOrder.id}': Estado previo '${dbOrder.status}' -> Nuevo '${newStatus}'`);
 
     } catch (err) {
       console.error(`❌ Error actualizando pedido antiguo ${dbOrder.id}:`, err.message);
+    }
+  }
+
+  if (payloadsToUpsert.length > 0) {
+    const { error: upsertError } = await supabase
+      .from('optiroute_orders')
+      .upsert(payloadsToUpsert, { onConflict: 'id' });
+
+    if (upsertError) {
+      console.error(`      ❌ Error al actualizar pedidos antiguos en optiroute_orders:`, upsertError.message);
+    } else {
+      console.log(`      ✅ Actualizados ${payloadsToUpsert.length} pedidos antiguos exitosamente.`);
     }
   }
 }
