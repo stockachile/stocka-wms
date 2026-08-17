@@ -15,6 +15,11 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rep_legal
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS rep_legal_email TEXT;
 
 -- 3. Recrear la función create_onboarding_request para soportar los nuevos parámetros
+-- Primero eliminamos la versión antigua (sin representante legal) para evitar conflictos de sobrecarga
+DROP FUNCTION IF EXISTS public.create_onboarding_request(
+    UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT[], TEXT[], TEXT[], TEXT[], TEXT[], BOOLEAN, TEXT, TEXT, TEXT
+);
+
 -- Recrear el cuerpo completo de create_onboarding_request
 CREATE OR REPLACE FUNCTION public.create_onboarding_request(
     p_user_id UUID,
