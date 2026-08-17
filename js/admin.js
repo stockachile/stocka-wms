@@ -24566,6 +24566,7 @@ async function renderMerchantsAdmin() {
         enviame_id: extra.enviame_id || '',
         picking_match_strict: extra.picking_match_strict || false,
         onboarding_checklist: extra.onboarding_checklist || {},
+        default_warehouse_id: extra.default_warehouse_id || null,
         associatedUsers,
         integrations: assocIntegrations
       };
@@ -25595,6 +25596,7 @@ CREATE TABLE IF NOT EXISTS public.comercios_adicional_config (
     plat_siglas_config JSONB DEFAULT '{}'::jsonb,
     email_colaborador TEXT,
     enviame_id TEXT,
+    default_warehouse_id UUID REFERENCES public.warehouses(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
@@ -25605,6 +25607,7 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS razon_soc
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_siglas_config JSONB DEFAULT '{}'::jsonb;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS enviame_id TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS default_warehouse_id UUID REFERENCES public.warehouses(id);
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -26350,6 +26353,14 @@ window.showMerchantEditModal = async function(comercioName) {
   const commerce = window.cachedAdminMerchants.find(c => c.nombre === comercioName);
   if (!commerce) return;
 
+  let allWhs = [];
+  try {
+    const { data: whList } = await supabase.from('warehouses').select('id, name').order('name');
+    allWhs = whList || [];
+  } catch (err) {
+    console.error('Error fetching warehouses:', err);
+  }
+
   // Intentar autocompletar desde onboarding_requests si no tiene razón social o rut
   if (!commerce.razon_social || !commerce.rut || !commerce.rep_legal_nombre) {
     try {
@@ -26470,6 +26481,15 @@ window.showMerchantEditModal = async function(comercioName) {
               <option value="suspendido" ${!commerce.al_dia ? 'selected' : ''}>Suspendido (Servicio pausado/bloqueado)</option>
             </select>
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Los comercios suspendidos verán un banner de advertencia y no podrán procesar pedidos.</p>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Bodega por Defecto</label>
+            <select id="merchant-edit-default-warehouse" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="">Ninguna (Usar Bodega Central por defecto)</option>
+              ${allWhs.map(wh => `<option value="${wh.id}" ${commerce.default_warehouse_id === wh.id ? 'selected' : ''}>${wh.name}</option>`).join('')}
+            </select>
+            <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Bodega inicial asignada a los ítems cuando ingresen pedidos de este comercio.</p>
           </div>
 
           <hr style="border: 0; border-top: 1px solid var(--color-border); margin: 0.25rem 0;">
@@ -26812,6 +26832,7 @@ window.showMerchantEditModal = async function(comercioName) {
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
     const newCatalogReady = !isMigration && document.getElementById('merchant-edit-catalog-ready')?.checked;
+    const newDefaultWh = document.getElementById('merchant-edit-default-warehouse')?.value || null;
 
     const oldChecklist = commerce.onboarding_checklist || {};
     const oldCatalogReady = !!oldChecklist.catalog_ready;
@@ -26890,7 +26911,8 @@ window.showMerchantEditModal = async function(comercioName) {
             email_colaborador: newEmailColaborador || null,
             enviame_id: newEnviameId || null,
             picking_match_strict: document.getElementById('merchant-edit-picking-strict')?.checked || false,
-            onboarding_checklist: updatedChecklist
+            onboarding_checklist: updatedChecklist,
+            default_warehouse_id: newDefaultWh || null
           });
 
         if (configErr) throw configErr;
