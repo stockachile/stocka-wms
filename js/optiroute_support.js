@@ -289,55 +289,88 @@ export async function renderOptirouteSupport() {
     `;
   }
 
-  // Cargar lista de planes de rutas
+  // Cargar lista de planes de rutas (Caché local + API en vivo)
   async function loadRoutePlansList() {
     try {
-      selectRoutePlans.innerHTML = '<option value="">Consultando API de Optiroute...</option>';
-      const response = await fetch('https://app.optiroute.cl/api/v1/route-plans/?per_page=40', {
-        headers: {
-          'Authorization': `Token ${activeToken}`,
-          'Content-Type': 'application/json'
+      selectRoutePlans.innerHTML = '<option value="">Cargando envíos de Optiroute...</option>';
+      
+      // 1. Cargar pedidos existentes en Supabase primero (Siempre disponible y sin CORS)
+      const { data: dbOrders } = await supabase
+        .from('optiroute_orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      const routePlansMap = new Map();
+      if (dbOrders && dbOrders.length > 0) {
+        dbOrders.forEach(o => {
+          const rp = o.raw_data?.route_plan || o.raw_data?.waypoint?.route_plan;
+          if (rp && rp.id) {
+            routePlansMap.set(String(rp.id), rp.name || `Ruta #${rp.id}`);
+          }
+        });
+      }
+
+      let optionsHtml = '';
+      if (dbOrders && dbOrders.length > 0) {
+        optionsHtml += `<option value="ALL_DB">📦 Todos los envíos en Base de Datos (${dbOrders.length} pedidos)</option>`;
+        routePlansMap.forEach((name, id) => {
+          optionsHtml += `<option value="${id}">🚚 Ruta: ${name}</option>`;
+        });
+      }
+
+      // 2. Intentar consultar la API en vivo en segundo plano silenciosamente
+      try {
+        const response = await fetch('https://app.optiroute.cl/api/v1/route-plans/?per_page=40', {
+          headers: {
+            'Authorization': `Token ${activeToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          let results = Array.isArray(data) ? data : (data?.results || []);
+
+          if (results.length > 0) {
+            results.sort((a, b) => new Date(b.departure_datetime) - new Date(a.departure_datetime));
+            const apiOptions = results.map(rp => {
+              const dateStr = rp.departure_datetime ? new Date(rp.departure_datetime).toLocaleDateString('es-CL', {
+                day: '2-digit', month: '2-digit', year: 'numeric'
+              }) : 'Sin fecha';
+              
+              let statusText = 'Creado';
+              if (rp.status === 1) statusText = 'En curso';
+              else if (rp.status === 2) statusText = 'Completado';
+              else if (rp.status === -1) statusText = 'Cancelado';
+
+              return `<option value="${rp.id}">🌐 API En Vivo: ${rp.name} (${dateStr}) - [${statusText}]</option>`;
+            }).join('');
+
+            optionsHtml = apiOptions + (optionsHtml ? `<optgroup label="Caché BD local">${optionsHtml}</optgroup>` : '');
+          }
         }
-      });
+      } catch (corsErr) {
+        console.log('ℹ️ Consulta directa a API Optiroute restringida por política CORS del navegador. Mostrando envíos de la base de datos local.');
+      }
 
-      if (!response.ok) throw new Error(`Optiroute API respondió con código: ${response.status}`);
-
-      const data = await response.json();
-      let results = [];
-      if (Array.isArray(data)) results = data;
-      else if (data && Array.isArray(data.results)) results = data.results;
-
-      if (results.length === 0) {
-        selectRoutePlans.innerHTML = '<option value="">No se encontraron rutas recientes</option>';
+      if (!optionsHtml) {
+        selectRoutePlans.innerHTML = '<option value="">No hay envíos de Optiroute registrados aún</option>';
         return;
       }
 
-      // Ordenar por fecha descendente
-      results.sort((a, b) => new Date(b.departure_datetime) - new Date(a.departure_datetime));
+      selectRoutePlans.innerHTML = optionsHtml;
 
-      selectRoutePlans.innerHTML = results.map(rp => {
-        const dateStr = rp.departure_datetime ? new Date(rp.departure_datetime).toLocaleDateString('es-CL', {
-          day: '2-digit', month: '2-digit', year: 'numeric'
-        }) : 'Sin fecha';
-        
-        let statusText = 'Creado';
-        if (rp.status === 1) statusText = 'En curso';
-        else if (rp.status === 2) statusText = 'Completado';
-        else if (rp.status === -1) statusText = 'Cancelado';
-
-        return `<option value="${rp.id}">${rp.name} (${dateStr}) - [${statusText}]</option>`;
-      }).join('');
-    } catch (err) {
-      console.error('Error consultando planes de rutas:', err);
-      selectRoutePlans.innerHTML = '<option value="">Error al cargar desde API (Usa carga manual)</option>';
-      if (window.Swal) {
-        Swal.fire({
-          icon: 'error',
-          title: 'Error de Red API',
-          text: 'No pudimos descargar la lista de rutas en tiempo real. Esto puede deberse a políticas de CORS o bloqueos de red. Puedes intentar cargar la planilla Excel de la ruta en la pestaña superior.',
-          confirmButtonColor: 'var(--color-primary)'
-        });
+      // Cargar automáticamente los envíos iniciales
+      const initialPlan = selectRoutePlans.value;
+      if (initialPlan) {
+        await loadRouteData(initialPlan, false);
       }
+
+    } catch (err) {
+      console.error('Error cargando lista de rutas:', err);
+      selectRoutePlans.innerHTML = '<option value="ALL_DB">📦 Todos los envíos en BD</option>';
+      await loadRouteData('ALL_DB', false);
     }
   }
 
@@ -477,15 +510,27 @@ export async function renderOptirouteSupport() {
     if (btnForceLive) btnForceLive.disabled = true;
 
     try {
-      // 1. Intentar cargar desde caché local si no se fuerza la actualización en vivo
-      if (!forceLive) {
-        console.log(`Buscando plan ${routePlanId} en base de datos local...`);
-        const { data: cached, error: cacheErr } = await supabase
-          .from('optiroute_orders')
-          .select('*')
-          .or(`raw_data->route_plan->>id.eq.${routePlanId},raw_data->waypoint->route_plan->>id.eq.${routePlanId}`);
-
-        if (cacheErr) console.warn('Error al leer caché local:', cacheErr.message);
+      // 1. Intentar cargar desde caché local si no se fuerza la actualización en vivo o si es ALL_DB
+      if (!forceLive || routePlanId === 'ALL_DB') {
+        console.log(`Buscando envíos del plan/base de datos (${routePlanId}) en Supabase...`);
+        let cached = [];
+        
+        if (routePlanId === 'ALL_DB') {
+          const { data, error: cacheErr } = await supabase
+            .from('optiroute_orders')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(500);
+          if (cacheErr) console.warn('Error al leer base de datos local:', cacheErr.message);
+          cached = data || [];
+        } else {
+          const { data, error: cacheErr } = await supabase
+            .from('optiroute_orders')
+            .select('*')
+            .or(`raw_data->route_plan->>id.eq.${routePlanId},raw_data->waypoint->route_plan->>id.eq.${routePlanId}`);
+          if (cacheErr) console.warn('Error al leer caché local:', cacheErr.message);
+          cached = data || [];
+        }
 
         if (cached && cached.length > 0) {
           console.log(`Cargando ${cached.length} pedidos de caché local...`);
@@ -558,9 +603,10 @@ export async function renderOptirouteSupport() {
             btnFetchRoute.disabled = false;
             btnFetchRoute.innerHTML = '<i class="ri-refresh-line"></i> Cargar Detalles de Ruta';
           }
-          if (btnForceLive) btnForceLive.disabled = false;
-          
-          console.log(`Caché inicial cargada. Sincronizando estados en tiempo real desde la API de Optiroute...`);
+          console.log(`Caché inicial cargada (${allWaypoints.length} envíos).`);
+          if (routePlanId === 'ALL_DB') {
+            return;
+          }
         }
       }
 
@@ -799,8 +845,15 @@ export async function renderOptirouteSupport() {
       }
 
     } catch (err) {
-      console.error(err);
-      if (window.Swal) Swal.fire('Error', `No se pudieron cargar los detalles: ${err.message}`, 'error');
+      console.warn('Consulta en vivo de plan interrumpida (CORS/red). Usando datos de BD:', err.message);
+      if (allWaypoints.length === 0 && window.Swal) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Modo Base de Datos',
+          text: 'Mostrando envíos almacenados en la base de datos. La API en vivo está restringida por políticas de navegador (CORS).',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+      }
     } finally {
       const currentBtnFetchRoute = document.getElementById('btn-fetch-route');
       const currentBtnForceLive = document.getElementById('btn-force-live-api');
