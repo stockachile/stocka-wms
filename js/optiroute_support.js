@@ -23,9 +23,12 @@ export async function renderOptirouteSupport() {
               Verifica direcciones, contacta clientes vía WhatsApp y supervisa estados de entrega de Optiroute en tiempo real.
             </p>
           </div>
-          <div style="display: flex; background: var(--color-bg); padding: 0.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; background: var(--color-bg); padding: 0.15rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); gap: 0.15rem;">
             <button id="tab-api" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: var(--color-surface); color: var(--color-primary); box-shadow: var(--shadow-sm); border: none; cursor: pointer;">
               <i class="ri-key-line"></i> Conexión API
+            </button>
+            <button id="tab-metrics" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--color-text-muted); border: none; cursor: pointer;">
+              <i class="ri-bar-chart-box-line"></i> Métricas API
             </button>
             <button id="tab-excel" class="btn btn-sm" style="padding: 0.3rem 0.6rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--color-text-muted); border: none; cursor: pointer;">
               <i class="ri-file-excel-2-line"></i> Cargar Planilla
@@ -51,6 +54,14 @@ export async function renderOptirouteSupport() {
               <i class="ri-refresh-line"></i> Cargar Detalles de Ruta
             </button>
           </div>
+        </div>
+
+        <!-- Sección de Métricas de API Optiroute -->
+        <div id="section-metrics" style="display: none; flex-direction: column; gap: 0.5rem; padding: 0.4rem 0;">
+          <div id="metrics-loading" style="color: var(--color-text-muted); font-size: 0.8rem;">Cargando métricas de consultas de API Optiroute...</div>
+          <div id="metrics-alert-banner"></div>
+          <div id="metrics-kpi-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem;"></div>
+          <div id="metrics-history-table"></div>
         </div>
 
         <!-- Sección de Entrada Excel (Unificada) -->
@@ -176,30 +187,44 @@ export async function renderOptirouteSupport() {
 
   // Manejo de tabs
   const tabApi = document.getElementById('tab-api');
+  const tabMetrics = document.getElementById('tab-metrics');
   const tabExcel = document.getElementById('tab-excel');
   const sectionApi = document.getElementById('section-api');
+  const sectionMetrics = document.getElementById('section-metrics');
   const sectionExcel = document.getElementById('section-excel');
 
-  tabApi.addEventListener('click', () => {
+  tabApi?.addEventListener('click', () => {
     tabApi.style.background = 'var(--color-surface)';
     tabApi.style.color = 'var(--color-primary)';
     tabApi.style.boxShadow = 'var(--shadow-sm)';
-    tabExcel.style.background = 'transparent';
-    tabExcel.style.color = 'var(--color-text-muted)';
-    tabExcel.style.boxShadow = 'none';
-    sectionApi.style.display = 'block';
-    sectionExcel.style.display = 'none';
+    if (tabMetrics) { tabMetrics.style.background = 'transparent'; tabMetrics.style.color = 'var(--color-text-muted)'; tabMetrics.style.boxShadow = 'none'; }
+    if (tabExcel) { tabExcel.style.background = 'transparent'; tabExcel.style.color = 'var(--color-text-muted)'; tabExcel.style.boxShadow = 'none'; }
+    if (sectionApi) sectionApi.style.display = 'block';
+    if (sectionMetrics) sectionMetrics.style.display = 'none';
+    if (sectionExcel) sectionExcel.style.display = 'none';
   });
 
-  tabExcel.addEventListener('click', () => {
+  tabMetrics?.addEventListener('click', () => {
+    tabMetrics.style.background = 'var(--color-surface)';
+    tabMetrics.style.color = 'var(--color-primary)';
+    tabMetrics.style.boxShadow = 'var(--shadow-sm)';
+    if (tabApi) { tabApi.style.background = 'transparent'; tabApi.style.color = 'var(--color-text-muted)'; tabApi.style.boxShadow = 'none'; }
+    if (tabExcel) { tabExcel.style.background = 'transparent'; tabExcel.style.color = 'var(--color-text-muted)'; tabExcel.style.boxShadow = 'none'; }
+    if (sectionMetrics) sectionMetrics.style.display = 'flex';
+    if (sectionApi) sectionApi.style.display = 'none';
+    if (sectionExcel) sectionExcel.style.display = 'none';
+    renderOptirouteMetrics();
+  });
+
+  tabExcel?.addEventListener('click', () => {
     tabExcel.style.background = 'var(--color-surface)';
     tabExcel.style.color = 'var(--color-primary)';
     tabExcel.style.boxShadow = 'var(--shadow-sm)';
-    tabApi.style.background = 'transparent';
-    tabApi.style.color = 'var(--color-text-muted)';
-    tabApi.style.boxShadow = 'none';
-    sectionExcel.style.display = 'flex';
-    sectionApi.style.display = 'none';
+    if (tabApi) { tabApi.style.background = 'transparent'; tabApi.style.color = 'var(--color-text-muted)'; tabApi.style.boxShadow = 'none'; }
+    if (tabMetrics) { tabMetrics.style.background = 'transparent'; tabMetrics.style.color = 'var(--color-text-muted)'; tabMetrics.style.boxShadow = 'none'; }
+    if (sectionExcel) sectionExcel.style.display = 'flex';
+    if (sectionApi) sectionApi.style.display = 'none';
+    if (sectionMetrics) sectionMetrics.style.display = 'none';
   });
 
   // 1. Obtener integración única de Optiroute
@@ -804,6 +829,145 @@ export async function renderOptirouteSupport() {
       loadRouteData(routePlanId, true);
     }
   });
+
+  // Renderizar panel de Métricas de API y Auditoría
+  async function renderOptirouteMetrics() {
+    const loadingDiv = document.getElementById('metrics-loading');
+    const alertDiv = document.getElementById('metrics-alert-banner');
+    const kpiDiv = document.getElementById('metrics-kpi-cards');
+    const historyDiv = document.getElementById('metrics-history-table');
+
+    if (!kpiDiv) return;
+
+    try {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { data: logs, error } = await supabase
+        .from('optiroute_api_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30);
+
+      if (error) {
+        console.warn('Advertencia al consultar optiroute_api_logs:', error.message);
+      }
+
+      const logList = logs || [];
+
+      // Calcular acumulados de hoy
+      const todayLogs = logList.filter(l => new Date(l.created_at) >= todayStart);
+      const totalCallsToday = todayLogs.reduce((acc, l) => acc + (l.total_http_calls || 0), 0);
+      const totalSkippedToday = todayLogs.reduce((acc, l) => acc + (l.skipped_terminal || 0) + (l.skipped_unchanged || 0), 0);
+      const totalProcessedToday = todayLogs.reduce((acc, l) => acc + (l.orders_synced || 0), 0);
+
+      const totalPotentialToday = totalCallsToday + totalSkippedToday;
+      const savingPercentage = totalPotentialToday > 0 
+        ? ((totalSkippedToday / totalPotentialToday) * 100).toFixed(1)
+        : '100.0';
+
+      let statusBadge = `<span class="badge badge-success" style="font-size:0.75rem; font-weight:700;"><i class="ri-checkbox-circle-fill"></i> Nivel Óptimo (< 300)</span>`;
+      let alertBannerHtml = '';
+
+      if (totalCallsToday > 500) {
+        statusBadge = `<span class="badge badge-danger" style="font-size:0.75rem; font-weight:700;"><i class="ri-error-warning-fill"></i> ALERTA CRÍTICA (> 500)</span>`;
+        alertBannerHtml = `
+          <div class="alert alert-danger" style="padding: 0.6rem 0.8rem; border-radius: var(--radius-md); font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); color: #ef4444;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <i class="ri-alarm-warning-line" style="font-size: 1.25rem;"></i>
+              <div>
+                <strong>⚠️ ALERTA DE CONSUMO ELEVADO:</strong> Se han registrado <strong>${totalCallsToday} peticiones HTTP hoy</strong> a la API de Optiroute, superando el umbral recomendado de 500 llamadas/día.
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (totalCallsToday > 300) {
+        statusBadge = `<span class="badge badge-warning" style="font-size:0.75rem; font-weight:700;"><i class="ri-alert-fill"></i> Consumo Moderado (300-500)</span>`;
+      }
+
+      if (alertDiv) alertDiv.innerHTML = alertBannerHtml;
+      if (loadingDiv) loadingDiv.style.display = 'none';
+
+      kpiDiv.innerHTML = `
+        <div style="background: var(--color-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.2rem;">
+          <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">PETICIONES API HOY</span>
+          <div style="font-size: 1.25rem; font-weight: 800; color: ${totalCallsToday > 500 ? '#ef4444' : totalCallsToday > 300 ? '#f59e0b' : 'var(--color-primary)'};">
+            ${totalCallsToday} <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">/ 500 máx recomendadas</span>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <div style="background: var(--color-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.2rem;">
+          <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">AHORRO DE PETICIONES</span>
+          <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-success);">
+            ${savingPercentage}% <span style="font-size: 0.7rem; font-weight: 500; color: var(--color-text-muted);">evitadas</span>
+          </div>
+          <span style="font-size: 0.7rem; color: var(--color-text-muted);">${totalSkippedToday.toLocaleString()} pedidos omitidos por caché</span>
+        </div>
+
+        <div style="background: var(--color-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.2rem;">
+          <span style="font-size: 0.7rem; color: var(--color-text-muted); font-weight: 600;">PEDIDOS SINCRONIZADOS HOY</span>
+          <div style="font-size: 1.25rem; font-weight: 800; color: var(--color-text-main);">
+            ${totalProcessedToday}
+          </div>
+          <span style="font-size: 0.7rem; color: var(--color-text-muted);">Actualizados en base de datos</span>
+        </div>
+      `;
+
+      if (historyDiv) {
+        if (logList.length === 0) {
+          historyDiv.innerHTML = `<p style="font-size:0.75rem; color:var(--color-text-muted); margin-top:0.5rem;">Aún no hay registros de auditoría guardados en <code>optiroute_api_logs</code>. Las métricas se registrarán automáticamente en la próxima sincronización del backend.</p>`;
+        } else {
+          historyDiv.innerHTML = `
+            <div style="margin-top: 0.5rem;">
+              <h4 style="font-size:0.8rem; font-weight:700; margin:0 0 0.4rem 0; color:var(--color-text-main);">Últimas Ejecuciones de Sincronización API</h4>
+              <div style="overflow-x: auto;">
+                <table class="data-table" style="width:100%; border-collapse:collapse; font-size:0.75rem;">
+                  <thead>
+                    <tr style="border-bottom:1px solid var(--color-border); text-align:left;">
+                      <th style="padding:0.4rem;">Fecha/Hora</th>
+                      <th style="padding:0.4rem;">Origen</th>
+                      <th style="padding:0.4rem; text-align:center;">Listado HTTP</th>
+                      <th style="padding:0.4rem; text-align:center;">Detalle HTTP</th>
+                      <th style="padding:0.4rem; text-align:center;">Total HTTP</th>
+                      <th style="padding:0.4rem; text-align:center;">Omitidos (Caché/Inmutables)</th>
+                      <th style="padding:0.4rem; text-align:center;">Sincronizados</th>
+                      <th style="padding:0.4rem; text-align:center;">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${logList.map(l => {
+                      const dateStr = new Date(l.created_at).toLocaleString('es-CL', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                      const st = l.status === 'critical' 
+                        ? '<span class="badge badge-danger" style="font-size:0.65rem;">Crítico</span>'
+                        : l.status === 'warning'
+                        ? '<span class="badge badge-warning" style="font-size:0.65rem;">Advertencia</span>'
+                        : '<span class="badge badge-success" style="font-size:0.65rem;">Normal</span>';
+                      return `
+                        <tr style="border-bottom:1px solid var(--color-border);">
+                          <td style="padding:0.35rem;">${dateStr}</td>
+                          <td style="padding:0.35rem;"><code>${l.source || 'cron'}</code></td>
+                          <td style="padding:0.35rem; text-align:center;">${l.list_calls || 0}</td>
+                          <td style="padding:0.35rem; text-align:center;">${l.detail_calls || 0}</td>
+                          <td style="padding:0.35rem; text-align:center; font-weight:700;">${l.total_http_calls || 0}</td>
+                          <td style="padding:0.35rem; text-align:center; color:var(--color-success);">${(l.skipped_terminal || 0) + (l.skipped_unchanged || 0)}</td>
+                          <td style="padding:0.35rem; text-align:center;">${l.orders_synced || 0}</td>
+                          <td style="padding:0.35rem; text-align:center;">${st}</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+    } catch (err) {
+      console.warn('Error renderizando métricas de Optiroute:', err);
+    }
+  }
 
   // Normalizador de estados legibles
   function getStatusName(statusInput) {

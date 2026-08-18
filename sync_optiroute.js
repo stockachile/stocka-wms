@@ -59,7 +59,7 @@ async function syncOptirouteData() {
 }
 
 /**
- * Obtiene la fecha de inicio en formato YYYY-MM-DD (hace 3 días para evitar consultas masivas de histórico)
+ * Obtiene la fecha de inicio en formato DD-MM-YYYY (hace 3 días para acotar el historial y evitar sobrecarga)
  */
 function getStartDateStr() {
   const d = new Date();
@@ -67,7 +67,8 @@ function getStartDateStr() {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  // Formato estrictamente solicitado por Optiroute: DD-MM-YYYY
+  return `${day}-${month}-${year}`;
 }
 
 /**
@@ -92,21 +93,26 @@ function getOptirouteStatusName(statusNum) {
 }
 
 /**
- * Sincroniza los pedidos recientes de un merchant específico usando sus credenciales de Optiroute.
- * Aplica filtros estrictos para omitir pedidos entregados/cancelados y evitar throttling.
+ * Sincroniza los pedidos recientes usando el listado paginado (per_page=100)
+ * y aplicando comparación delta por updated_at.
  */
 async function syncMerchantOrders(integration) {
   const startDate = getStartDateStr();
-  console.log(`--> Consultando pedidos recientes en Optiroute creados desde: ${startDate}`);
+  console.log(`--> Consultando pedidos recientes en Optiroute creados desde: ${startDate} (Formato DD-MM-YYYY)`);
 
   let optirouteUrl = `https://app.optiroute.cl/api/v1/integration-service-requests/?per_page=100&creationStartDate=${startDate}`;
   let pageCount = 1;
-  const MAX_DETAIL_CALLS_PER_RUN = 30; // Máximo de peticiones HTTP de detalle individual por ejecución
+  const MAX_DETAIL_CALLS_PER_RUN = 20; // Máximo estricto de peticiones HTTP de detalle individual por ejecución
+  let listCallsMade = 0;
   let detailCallsMade = 0;
+  let skippedTerminalCount = 0;
+  let skippedUnchangedCount = 0;
+  let totalSynced = 0;
 
   try {
     while (optirouteUrl) {
       console.log(`--> Consultando página ${pageCount} en Optiroute (URL: ${optirouteUrl})...`);
+      listCallsMade++;
       const response = await fetch(optirouteUrl, {
         method: 'GET',
         headers: {
@@ -146,7 +152,7 @@ async function syncMerchantOrders(integration) {
       const orderIds = optirouteOrders.map(o => String(o.id));
       const { data: existingDbRows, error: dbQueryErr } = await supabase
         .from('optiroute_orders')
-        .select('id, status, email_cliente_destino, direccion_destino, raw_data')
+        .select('id, status, updated_at, email_cliente_destino, direccion_destino, raw_data')
         .in('id', orderIds);
 
       if (dbQueryErr) {
@@ -161,28 +167,33 @@ async function syncMerchantOrders(integration) {
         const existing = existingDbMap.get(idStr);
         const listStatusName = getOptirouteStatusName(optiOrder.status);
 
-        // 1. REGLA PRINCIPAL: Si ya está registrado en Supabase con estado terminal (DELIVERED, CANCELLED, DELETED), OMITIR.
+        // REGLA 1: Si ya está registrado en Supabase con estado terminal (DELIVERED, CANCELLED, DELETED), OMITIR.
         if (existing && TERMINAL_STATUSES.has(existing.status)) {
-          console.log(`   ⏭️ Omitiendo ID '${idStr}': Ya está en estado terminal '${existing.status}' en la BD.`);
+          skippedTerminalCount++;
           continue;
         }
 
-        // 2. REGLA DE INMUTABILIDAD: Si no ha cambiado de estado y ya tenemos datos en la BD, OMITIR.
-        if (existing && existing.status === listStatusName && (existing.email_cliente_destino || existing.direccion_destino)) {
-          console.log(`   ⏭️ Omitiendo ID '${idStr}': Sin cambios de estado ('${listStatusName}') y datos completos en BD.`);
+        // REGLA 2 (Recomendación Optiroute): Comparar el timestamp 'updated_at' contra el valor en BD.
+        // Si updated_at no ha cambiado y el estado coincide con datos completos, OMITIR.
+        const existingTime = existing && existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+        const apiTime = optiOrder.updated_at ? new Date(optiOrder.updated_at).getTime() : 0;
+
+        if (existing && existingTime > 0 && existingTime === apiTime && existing.status === listStatusName && (existing.email_cliente_destino || existing.direccion_destino)) {
+          skippedUnchangedCount++;
           continue;
         }
 
-        // 3. Determinar si requiere consulta de detalle individual
-        // Solo hacer GET de detalle si NO existe en BD o su estado cambió, Y no hemos excedido la cuota segura por ejecución
+        // REGLA 3: Extraer datos directamente del objeto de listado (Optiroute indica que el listado ya trae status, updated_at, etc.)
         let detailedOrder = optiOrder;
-        const needsDetail = (!existing || existing.status !== listStatusName) && detailCallsMade < MAX_DETAIL_CALLS_PER_RUN;
+        
+        // Solo solicitar detalle individual si NO existe en BD o su timestamp cambió Y no hemos superado la cuota segura
+        const needsDetail = (!existing || existingTime !== apiTime) && detailCallsMade < MAX_DETAIL_CALLS_PER_RUN;
 
         if (needsDetail) {
           try {
-            await new Promise(resolve => setTimeout(resolve, 100)); // Retardo de 100ms para cuidar el servidor de Optiroute
+            await new Promise(resolve => setTimeout(resolve, 100)); // Retardo de 100ms
             detailCallsMade++;
-            console.log(`   📡 [API Call ${detailCallsMade}/${MAX_DETAIL_CALLS_PER_RUN}] Obteniendo detalle para ID '${idStr}'...`);
+            console.log(`   📡 [API Call ${detailCallsMade}/${MAX_DETAIL_CALLS_PER_RUN}] Obteniendo detalle individual para ID '${idStr}'...`);
 
             const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${optiOrder.id}/`, {
               method: 'GET',
@@ -257,7 +268,7 @@ async function syncMerchantOrders(integration) {
 
       // Guardar en lote (Bulk Upsert)
       if (payloadsToUpsert.length > 0) {
-        console.log(`   📝 Guardando ${payloadsToUpsert.length} pedidos actualizados en Supabase en 1 consulta masiva...`);
+        console.log(`   📝 Guardando ${payloadsToUpsert.length} pedidos actualizados en Supabase en 1 sola consulta masiva...`);
         const { error: upsertError } = await supabase
           .from('optiroute_orders')
           .upsert(payloadsToUpsert, { onConflict: 'id' });
@@ -265,6 +276,7 @@ async function syncMerchantOrders(integration) {
         if (upsertError) {
           console.error(`      ❌ Error al guardar en tabla optiroute_orders:`, upsertError.message);
         } else {
+          totalSynced += payloadsToUpsert.length;
           console.log(`      ✅ Sincronizados ${payloadsToUpsert.length} pedidos en Supabase correctamente.`);
         }
       }
@@ -278,6 +290,26 @@ async function syncMerchantOrders(integration) {
       }
     }
 
+    const totalHttpCalls = listCallsMade + detailCallsMade;
+    console.log(`\n📊 Resumen de Ejecución Optiroute:`);
+    console.log(`   - Peticiones HTTP al Listado: ${listCallsMade}`);
+    console.log(`   - Peticiones HTTP de Detalle: ${detailCallsMade}`);
+    console.log(`   - Total Peticiones HTTP enviadas: ${totalHttpCalls}`);
+    console.log(`   - Omitidos por Estado Terminal: ${skippedTerminalCount}`);
+    console.log(`   - Omitidos por 'updated_at' sin cambios: ${skippedUnchangedCount}`);
+    console.log(`   - Pedidos Sincronizados en BD: ${totalSynced}`);
+
+    // Registrar métricas en tabla optiroute_api_logs
+    await recordApiMetrics({
+      merchant_id: integration.merchant_id,
+      list_calls: listCallsMade,
+      detail_calls: detailCallsMade,
+      total_http_calls: totalHttpCalls,
+      skipped_terminal: skippedTerminalCount,
+      skipped_unchanged: skippedUnchangedCount,
+      orders_synced: totalSynced
+    });
+
   } catch (err) {
     console.error(`❌ Error sincronizando pedidos para el merchant ${integration.merchant_id}:`, err.message);
   }
@@ -285,7 +317,6 @@ async function syncMerchantOrders(integration) {
 
 /**
  * Sincroniza de forma acotada pedidos antiguos que sigan en estado activo
- * en la base de datos (excluyendo DELIVERED, CANCELLED, DELETED)
  */
 async function syncPendingOldOrders(integration) {
   console.log('\n--> Buscando pedidos activos pendientes de actualización en la base de datos...');
@@ -300,7 +331,7 @@ async function syncPendingOldOrders(integration) {
     .not('status', 'eq', 'CANCELLED')
     .not('status', 'eq', 'DELETED')
     .lt('created_at', threeDaysAgo.toISOString())
-    .limit(20);
+    .limit(15);
 
   if (pendingErr) {
     console.error('❌ Error al obtener pedidos antiguos activos:', pendingErr.message);
@@ -312,13 +343,13 @@ async function syncPendingOldOrders(integration) {
     return;
   }
 
-  console.log(`--> Encontrados ${pendingOrders.length} pedidos antiguos activos. Actualizando estado (máximo 20)...`);
+  console.log(`--> Encontrados ${pendingOrders.length} pedidos antiguos activos. Actualizando estado (máximo 15)...`);
 
   const payloadsToUpsert = [];
 
   for (const dbOrder of pendingOrders) {
     try {
-      await new Promise(resolve => setTimeout(resolve, 100)); // Evitar saturación del servidor
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const detailResponse = await fetch(`https://app.optiroute.cl/api/v1/integration-service-requests/${dbOrder.id}/`, {
         method: 'GET',
@@ -395,6 +426,40 @@ async function syncPendingOldOrders(integration) {
     } else {
       console.log(`      ✅ Actualizados ${payloadsToUpsert.length} pedidos antiguos exitosamente.`);
     }
+  }
+}
+
+/**
+ * Guarda las métricas de la ejecución en la tabla optiroute_api_logs
+ */
+async function recordApiMetrics(metrics) {
+  try {
+    const status = metrics.total_http_calls > 500 ? 'critical' : (metrics.total_http_calls > 300 ? 'warning' : 'normal');
+
+    const { error } = await supabase
+      .from('optiroute_api_logs')
+      .insert({
+        source: 'github_actions_cron',
+        merchant_id: metrics.merchant_id || null,
+        list_calls: metrics.list_calls || 0,
+        detail_calls: metrics.detail_calls || 0,
+        total_http_calls: metrics.total_http_calls || 0,
+        skipped_terminal: metrics.skipped_terminal || 0,
+        skipped_unchanged: metrics.skipped_unchanged || 0,
+        orders_synced: metrics.orders_synced || 0,
+        status: status,
+        details: {
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    if (error) {
+      console.warn('⚠️ No se pudo guardar el registro de auditoría en optiroute_api_logs:', error.message);
+    } else {
+      console.log(`📊 Registro de auditoría guardado exitosamente (Total llamadas HTTP: ${metrics.total_http_calls}, Estado: ${status}).`);
+    }
+  } catch (err) {
+    console.warn('⚠️ Error al registrar métricas en la base de datos:', err.message);
   }
 }
 
