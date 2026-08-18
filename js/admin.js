@@ -4744,7 +4744,7 @@ async function renderIntegrations() {
         try {
           if (hasOptiroute && optirouteIntegration?.id) {
             const { error: upErr } = await supabase.from('merchant_integrations')
-              .update({ access_token: token, is_active: true, updated_at: new Date().toISOString() })
+              .update({ access_token: token, is_active: true })
               .eq('id', optirouteIntegration.id);
 
             if (upErr) throw upErr;
