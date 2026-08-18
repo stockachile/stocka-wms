@@ -7073,7 +7073,79 @@ function initSearchableDropdown(containerId, options, defaultValue, onChange) {
 
 async function renderAdminInventory() {
   const appContent = document.getElementById('app-content');
+  window.activeAdminInventoryTab = window.activeAdminInventoryTab || 'stock';
+
+  const isStockTab = window.activeAdminInventoryTab === 'stock';
+  const isReqsTab = window.activeAdminInventoryTab === 'requests';
+
   appContent.innerHTML = `
+    <!-- PESTAÑAS DE NAVEGACIÓN EN INVENTARIO ADMIN -->
+    <div style="margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--color-border); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button id="tab-admin-inv-stock" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isStockTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
+          <i class="ri-box-3-line" style="margin-right: 0.35rem;"></i> Stock y Catálogo
+        </button>
+        <button id="tab-admin-inv-requests" class="btn btn-outline" style="height: 40px; padding: 0.5rem 1.25rem; font-size: 0.9rem; font-weight: 600; border-radius: var(--radius-md); ${isReqsTab ? 'background: var(--color-primary); color: #fff; border-color: var(--color-primary);' : 'background: transparent; color: var(--color-text-muted); border-color: var(--color-border);'}">
+          <i class="ri-survey-line" style="margin-right: 0.35rem;"></i> Solicitudes de Inventario
+          <span id="badge-admin-inv-requests" style="display: none; background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 9999px; margin-left: 0.4rem;">0</span>
+        </button>
+      </div>
+      <div>
+        <button id="btn-admin-quick-new-request" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background: #6366f1; border-color: #6366f1;">
+          <i class="ri-add-line"></i> Nueva Solicitud de Inventario
+        </button>
+      </div>
+    </div>
+
+    <div id="admin-inv-tab-content">
+      <!-- Se inyecta la vista de stock o de solicitudes según la pestaña activa -->
+    </div>
+  `;
+
+  // Listeners de pestañas
+  const tabStock = document.getElementById('tab-admin-inv-stock');
+  const tabRequests = document.getElementById('tab-admin-inv-requests');
+  const quickNewReq = document.getElementById('btn-admin-quick-new-request');
+
+  if (tabStock) {
+    tabStock.addEventListener('click', () => {
+      window.activeAdminInventoryTab = 'stock';
+      renderAdminInventory();
+    });
+  }
+
+  if (tabRequests) {
+    tabRequests.addEventListener('click', () => {
+      window.activeAdminInventoryTab = 'requests';
+      renderAdminInventory();
+    });
+  }
+
+  if (quickNewReq) {
+    quickNewReq.addEventListener('click', () => {
+      openAdminCreateInventoryRequestModal(() => {
+        if (window.activeAdminInventoryTab === 'requests') {
+          renderAdminInventoryRequestsWorkspace();
+        }
+        updateAdminInventoryRequestsTabBadge();
+      });
+    });
+  }
+
+  updateAdminInventoryRequestsTabBadge();
+
+  if (window.activeAdminInventoryTab === 'requests') {
+    await renderAdminInventoryRequestsWorkspace();
+  } else {
+    await renderAdminInventoryStockTab();
+  }
+}
+
+async function renderAdminInventoryStockTab() {
+  const container = document.getElementById('admin-inv-tab-content');
+  if (!container) return;
+
+  container.innerHTML = `
     <div style="margin-bottom: 2rem; background: var(--color-surface); padding: 1.5rem 2rem; border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
       <label class="form-label" style="font-weight: 600; display: block; margin-bottom: 0.75rem; color: var(--color-text-main); font-size: 1rem;">
         <i class="ri-user-settings-line" style="color: var(--color-primary); margin-right: 0.5rem;"></i>Seleccionar Cliente (Comercio) para Inventario
@@ -7129,7 +7201,7 @@ async function renderAdminInventory() {
 
   } catch (err) {
     console.error('Error loading admin inventory client select:', err);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones de inventario.</p>`;
+    container.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las integraciones de inventario: ${err.message}</p>`;
   }
 }
 
@@ -7236,6 +7308,9 @@ async function renderAdminInventoryWorkspace(commerce) {
             </button>
             <button id="btn-admin-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-arrow-left-right-line"></i> Traslado de Stock
+            </button>
+            <button id="btn-admin-create-req-from-workspace" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Generar Solicitud y Hoja de Conteo de Bodega">
+              <i class="ri-survey-line"></i> Solicitar Conteo
             </button>
           </div>
         </div>
@@ -7382,6 +7457,30 @@ async function renderAdminInventoryWorkspace(commerce) {
         }
 
         openBulkStockTransferModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+      });
+    }
+
+    const createReqBtn = document.getElementById('btn-admin-create-req-from-workspace');
+    if (createReqBtn) {
+      createReqBtn.addEventListener('click', () => {
+        const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
+        const selectedProducts = [];
+        const seenIds = new Set();
+        checkedBoxes.forEach(cb => {
+          const prodId = cb.getAttribute('data-prod-id');
+          if (!seenIds.has(prodId)) {
+            seenIds.add(prodId);
+            selectedProducts.push({
+              id: prodId,
+              sku: cb.getAttribute('data-prod-sku'),
+              name: cb.getAttribute('data-prod-name')
+            });
+          }
+        });
+
+        openAdminCreateInventoryRequestModal(() => {
+          updateAdminInventoryRequestsTabBadge();
+        }, commerce, selectedProducts);
       });
     }
 
@@ -7876,6 +7975,1206 @@ function exportAdminInventoryToCsv() {
   link.click();
   document.body.removeChild(link);
 }
+
+// ==========================================================================
+// PESTAÑA: SOLICITUDES DE TOMA DE INVENTARIO FÍSICO (ADMINISTRACIÓN)
+// ==========================================================================
+
+async function updateAdminInventoryRequestsTabBadge() {
+  const badge = document.getElementById('badge-admin-inv-requests');
+  if (!badge) return;
+
+  try {
+    const { data, error } = await supabase
+      .from('inventory_requests')
+      .select('id, status')
+      .eq('status', 'Pendiente');
+
+    if (!error && data) {
+      if (data.length > 0) {
+        badge.textContent = data.length;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    console.error('Error updating admin inventory requests badge:', e);
+  }
+}
+
+async function renderAdminInventoryRequestsWorkspace() {
+  const container = document.getElementById('admin-inv-tab-content');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px;">
+      <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--color-primary); margin-bottom: 0.5rem;"></i>
+      <span style="color: var(--color-text-muted); font-size: 0.9rem;">Cargando solicitudes de inventario...</span>
+    </div>
+  `;
+
+  try {
+    const { data: requests, error } = await supabase
+      .from('inventory_requests')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    window.cachedAdminInventoryRequests = requests || [];
+
+    // Comercios únicos
+    const comerciosSet = new Set();
+    const warehousesSet = new Set();
+    (requests || []).forEach(r => {
+      if (r.comercio) comerciosSet.add(r.comercio);
+      if (r.warehouse_name) warehousesSet.add(r.warehouse_name);
+    });
+
+    const comerciosOptions = Array.from(comerciosSet).sort().map(c => `<option value="${c}">${c}</option>`).join('');
+    const warehousesOptions = Array.from(warehousesSet).sort().map(w => `<option value="${w}">${w}</option>`).join('');
+
+    // Calcular estadísticas
+    const totalCount = (requests || []).length;
+    const pendingCount = (requests || []).filter(r => r.status === 'Pendiente').length;
+    const inProgressCount = (requests || []).filter(r => r.status === 'En Conteo').length;
+    const completedCount = (requests || []).filter(r => r.status === 'Finalizada').length;
+
+    container.innerHTML = `
+      <!-- METRIC CARDS -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: var(--radius-md); background: rgba(99, 102, 241, 0.12); color: #6366f1; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-survey-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--color-text-main);">${totalCount}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Total Solicitudes</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.12); color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-time-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #f59e0b;">${pendingCount}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Pendientes de Conteo</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: var(--radius-md); background: rgba(59, 130, 246, 0.12); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-loader-3-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #2563eb;">${inProgressCount}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">En Proceso de Conteo</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+            <i class="ri-checkbox-circle-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #10b981;">${completedCount}</div>
+            <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">Finalizadas / Cuadradas</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN CARD: FILTROS Y TABLA DE SOLICITUDES -->
+      <div class="card">
+        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main);">
+              Gestión de Tomas de Inventario Físico
+            </h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+              Genera hojas oficiales de conteo de bodega, registra resultados en terreno y aplica ajustes automáticos de stock.
+            </p>
+          </div>
+          
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="admin-req-search" class="form-input" placeholder="Buscar folio, comercio, sku..." style="width: 230px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            </div>
+
+            <select id="admin-req-comercio-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
+              <option value="">Todos los Comercios</option>
+              ${comerciosOptions}
+            </select>
+
+            <select id="admin-req-status-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
+              <option value="">Todos los Estados</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="En Conteo">En Conteo</option>
+              <option value="Finalizada">Finalizada</option>
+              <option value="Cancelada">Cancelada</option>
+            </select>
+
+            <select id="admin-req-warehouse-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
+              <option value="">Todas las Bodegas</option>
+              ${warehousesOptions}
+            </select>
+
+            <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background: #6366f1; border-color: #6366f1;">
+              <i class="ri-add-line"></i> Nueva Solicitud
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body" style="padding: 0;">
+          <div class="table-responsive" style="overflow-x: auto; width: 100%;">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th style="padding: 1rem 1.25rem;">Folio</th>
+                  <th style="padding: 1rem 1.25rem;">Fecha</th>
+                  <th style="padding: 1rem 1.25rem;">Comercio</th>
+                  <th style="padding: 1rem 1.25rem;">Bodega</th>
+                  <th style="padding: 1rem 1.25rem;">Tipo / Alcance</th>
+                  <th style="padding: 1rem 1.25rem; text-align: center;">Total SKUs</th>
+                  <th style="padding: 1rem 1.25rem; text-align: center;">Prioridad</th>
+                  <th style="padding: 1rem 1.25rem; text-align: center;">Estado</th>
+                  <th style="padding: 1rem 1.25rem;">Solicitado Por</th>
+                  <th style="padding: 1rem 1.25rem; text-align: center;">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-inventory-requests-tbody" style="font-size: 0.9rem; color: var(--color-text-main);">
+                <!-- Carga dinámica -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Listeners de filtros
+    const searchInput = document.getElementById('admin-req-search');
+    const comFilter = document.getElementById('admin-req-comercio-filter');
+    const statusFilter = document.getElementById('admin-req-status-filter');
+    const whFilter = document.getElementById('admin-req-warehouse-filter');
+    const addBtn = document.getElementById('btn-admin-add-new-req-main');
+
+    const triggerFilter = () => renderAdminInventoryRequestsTableBody();
+
+    if (searchInput) searchInput.addEventListener('input', triggerFilter);
+    if (comFilter) comFilter.addEventListener('change', triggerFilter);
+    if (statusFilter) statusFilter.addEventListener('change', triggerFilter);
+    if (whFilter) whFilter.addEventListener('change', triggerFilter);
+
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        openAdminCreateInventoryRequestModal(() => {
+          renderAdminInventoryRequestsWorkspace();
+          updateAdminInventoryRequestsTabBadge();
+        });
+      });
+    }
+
+    renderAdminInventoryRequestsTableBody();
+
+  } catch (err) {
+    console.error('Error loading admin inventory requests:', err);
+    container.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar las solicitudes de inventario: ${err.message}</p>`;
+  }
+}
+
+function renderAdminInventoryRequestsTableBody() {
+  const tbody = document.getElementById('admin-inventory-requests-tbody');
+  if (!tbody) return;
+
+  const requests = window.cachedAdminInventoryRequests || [];
+  const search = (document.getElementById('admin-req-search')?.value || '').toLowerCase().trim();
+  const comVal = document.getElementById('admin-req-comercio-filter')?.value || '';
+  const statusVal = document.getElementById('admin-req-status-filter')?.value || '';
+  const whVal = document.getElementById('admin-req-warehouse-filter')?.value || '';
+
+  const filtered = requests.filter(r => {
+    if (comVal && r.comercio !== comVal) return false;
+    if (statusVal && r.status !== statusVal) return false;
+    if (whVal && r.warehouse_name !== whVal) return false;
+
+    if (search) {
+      const folio = (r.folio || '').toLowerCase();
+      const comercio = (r.comercio || '').toLowerCase();
+      const requestedBy = (r.requested_by || '').toLowerCase();
+      const notes = (r.notes || '').toLowerCase();
+      const productsMatch = Array.isArray(r.products_list) && r.products_list.some(p => 
+        (p.sku || '').toLowerCase().includes(search) || (p.name || '').toLowerCase().includes(search)
+      );
+
+      return folio.includes(search) || comercio.includes(search) || requestedBy.includes(search) || notes.includes(search) || productsMatch;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="10" style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+          <i class="ri-survey-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.5rem; opacity: 0.4;"></i>
+          No se encontraron solicitudes de inventario con los filtros aplicados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(r => {
+    const dateStr = new Date(r.created_at).toLocaleDateString('es-CL', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+
+    let statusBadge = '<span class="badge badge-warning">Pendiente</span>';
+    if (r.status === 'En Conteo') {
+      statusBadge = '<span class="badge badge-info" style="background: rgba(59, 130, 246, 0.15); color: #2563eb;">En Conteo</span>';
+    } else if (r.status === 'Finalizada') {
+      statusBadge = '<span class="badge badge-success">Finalizada</span>';
+    } else if (r.status === 'Cancelada') {
+      statusBadge = '<span class="badge badge-neutral">Cancelada</span>';
+    }
+
+    let priorityColor = '#64748b';
+    if (r.priority === 'Alta' || r.priority === 'Urgente') priorityColor = '#ef4444';
+    else if (r.priority === 'Media') priorityColor = '#f59e0b';
+
+    const isSelective = (r.type === 'selectivo' || r.type === 'parcial');
+    const typeLabel = isSelective ? 'Selectivo' : 'Completo';
+
+    const skusCount = r.total_skus || (r.products_list || []).length;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s;" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor=''">
+        <td style="padding: 1rem 1.25rem; font-weight: 700; font-family: monospace; color: #6366f1;">
+          ${r.folio || r.id.substring(0, 8)}
+        </td>
+        <td style="padding: 1rem 1.25rem; color: var(--color-text-muted); font-size: 0.85rem;">
+          ${dateStr}
+        </td>
+        <td style="padding: 1rem 1.25rem; font-weight: 600; color: var(--color-text-main);">
+          ${r.comercio}
+        </td>
+        <td style="padding: 1rem 1.25rem; color: var(--color-text-muted);">
+          ${r.warehouse_name || 'Todas las bodegas'}
+        </td>
+        <td style="padding: 1rem 1.25rem;">
+          <span style="display: inline-block; padding: 0.2rem 0.5rem; background: var(--color-bg-alt); border-radius: var(--radius-sm); font-size: 0.8rem; font-weight: 600; border: 1px solid var(--color-border);">
+            ${typeLabel}
+          </span>
+        </td>
+        <td style="padding: 1rem 1.25rem; text-align: center; font-weight: 700; color: var(--color-primary);">
+          ${skusCount}
+        </td>
+        <td style="padding: 1rem 1.25rem; text-align: center;">
+          <span style="font-size: 0.8rem; font-weight: 700; color: ${priorityColor};">
+            ${r.priority || 'Normal'}
+          </span>
+        </td>
+        <td style="padding: 1rem 1.25rem; text-align: center;">
+          ${statusBadge}
+        </td>
+        <td style="padding: 1rem 1.25rem; font-size: 0.85rem; color: var(--color-text-muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${r.requested_by || ''}">
+          ${r.requested_by || 'Cliente WMS'}
+        </td>
+        <td style="padding: 1rem 1.25rem; text-align: center;">
+          <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja PDF para Bodega" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: transparent; cursor: pointer;">
+              <i class="ri-file-pdf-line"></i>
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
+              <i class="ri-file-excel-line"></i>
+            </button>
+            <button class="btn btn-primary btn-sm" onclick="openAdminManageInventoryRequestModal(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Gestionar y Cuadrar Conteo Físico" style="padding: 0.35rem 0.65rem; background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem;">
+              <i class="ri-edit-2-line"></i> Gestionar
+            </button>
+            <button class="btn btn-outline btn-sm" onclick="deleteAdminInventoryRequest('${r.id}')" title="Eliminar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer;">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function deleteAdminInventoryRequest(reqId) {
+  const confirmDel = confirm('¿Estás seguro de que deseas eliminar permanentemente esta solicitud de inventario?');
+  if (!confirmDel) return;
+
+  try {
+    const { error } = await supabase
+      .from('inventory_requests')
+      .delete()
+      .eq('id', reqId);
+
+    if (error) throw error;
+
+    if (window.cachedAdminInventoryRequests) {
+      window.cachedAdminInventoryRequests = window.cachedAdminInventoryRequests.filter(r => r.id !== reqId);
+    }
+
+    renderAdminInventoryRequestsTableBody();
+    updateAdminInventoryRequestsTabBadge();
+  } catch (err) {
+    console.error('Error deleting inventory request:', err);
+    alert('Error al eliminar la solicitud: ' + err.message);
+  }
+}
+
+function openAdminManageInventoryRequestModal(req) {
+  if (!req) return;
+
+  let modal = document.getElementById('modal-admin-manage-inventory-request');
+  if (modal) modal.remove();
+
+  const folio = req.folio || req.id.substring(0, 8);
+  const products = Array.isArray(req.products_list) ? JSON.parse(JSON.stringify(req.products_list)) : [];
+
+  modal = document.createElement('div');
+  modal.id = 'modal-admin-manage-inventory-request';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+
+  const rowsHtml = products.map((p, idx) => {
+    const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : 0;
+    const countedVal = (p.counted_qty !== undefined && p.counted_qty !== null) ? p.counted_qty : '';
+    const diff = (p.difference !== undefined && p.difference !== null) ? p.difference : null;
+    const noteVal = p.notes || '';
+
+    let diffBadge = '<span class="diff-badge" style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>';
+    if (diff !== null) {
+      if (diff === 0) {
+        diffBadge = '<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">0 (Cuadrado)</span>';
+      } else if (diff > 0) {
+        diffBadge = `<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">+${diff} (Sobrante)</span>`;
+      } else {
+        diffBadge = `<span class="diff-badge badge badge-danger" style="font-size: 0.75rem;">${diff} (Faltante)</span>`;
+      }
+    }
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border);" data-prod-index="${idx}" data-prod-id="${p.id || ''}" data-sys-qty="${sysQty}">
+        <td style="padding: 0.5rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
+        <td style="padding: 0.5rem 0.6rem; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${p.sku || '-'}</td>
+        <td style="padding: 0.5rem 0.6rem; font-family: monospace; font-size: 0.8rem; color: var(--color-text-muted);">${p.barcode || '-'}</td>
+        <td style="padding: 0.5rem 0.6rem; font-size: 0.85rem; font-weight: 500;">${p.name || 'Sin nombre'}</td>
+        <td style="padding: 0.5rem 0.6rem; text-align: center; font-size: 0.8rem; color: var(--color-text-muted);">${p.warehouse_name || req.warehouse_name || 'Bodega'}</td>
+        <td style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 700; font-size: 0.95rem; color: var(--color-primary); background: var(--color-bg-alt);">${sysQty}</td>
+        <!-- Input Conteo Físico Real -->
+        <td style="padding: 0.4rem 0.6rem; text-align: center; width: 110px;">
+          <input type="number" class="form-input counted-qty-input" data-prod-index="${idx}" min="0" value="${countedVal}" placeholder="Conteo..." style="width: 100%; height: 32px; text-align: center; font-weight: 700; border: 1.5px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main); font-size: 0.9rem;">
+        </td>
+        <!-- Badge Diferencia -->
+        <td style="padding: 0.5rem 0.6rem; text-align: center; width: 130px;" class="diff-container" data-prod-index="${idx}">
+          ${diffBadge}
+        </td>
+        <!-- Observaciones / Estado del Ítem -->
+        <td style="padding: 0.4rem 0.6rem; width: 160px;">
+          <input type="text" class="form-input item-notes-input" data-prod-index="${idx}" value="${noteVal}" placeholder="Dañado, sin etiqueta..." style="width: 100%; height: 32px; font-size: 0.8rem; padding: 0.25rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-bg); color: var(--color-text-main);">
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1050px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.2rem;">
+            <i class="ri-survey-line" style="color: #6366f1;"></i> Cuadratura y Registro de Toma de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.825rem; color: var(--color-text-muted);">
+            Comercio: <strong>${req.comercio}</strong> • Bodega: <strong>${req.warehouse_name || 'Todas las bodegas'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
+          </p>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-manage-inventory-request').remove()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <!-- Panel de Control de Estado y Supervisor -->
+        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Estado del Inventario
+            </label>
+            <select id="manage-req-status" class="form-input" style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-weight: 600;">
+              <option value="Pendiente" ${req.status === 'Pendiente' ? 'selected' : ''}>⏳ Pendiente (Sin iniciar)</option>
+              <option value="En Conteo" ${req.status === 'En Conteo' ? 'selected' : ''}>🔄 En Conteo (Cuadrilla en terreno)</option>
+              <option value="Finalizada" ${req.status === 'Finalizada' ? 'selected' : ''}>✅ Finalizada / Cuadrada</option>
+              <option value="Cancelada" ${req.status === 'Cancelada' ? 'selected' : ''}>❌ Cancelada</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Supervisor / Responsable de Validación
+            </label>
+            <input type="text" id="manage-req-supervisor" class="form-input" value="${req.completed_by || ''}" placeholder="Nombre del supervisor de bodega..." style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-size: 0.85rem;">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0; grid-column: 1 / -1;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Observaciones de Cuadratura / Comentarios de Bodega
+            </label>
+            <textarea id="manage-req-admin-notes" class="form-input" rows="2" placeholder="Detallar hallazgos de la cuadrilla, mermas detectadas, cajas sin abrir..." style="width: 100%; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;">${req.admin_notes || ''}</textarea>
+          </div>
+        </div>
+
+        ${req.notes ? `
+          <div style="background: rgba(99, 102, 241, 0.08); border-left: 3px solid #6366f1; padding: 0.6rem 0.85rem; border-radius: 0 4px 4px 0; font-size: 0.85rem;">
+            <strong>Instrucciones enviadas por el Cliente:</strong> ${req.notes}
+          </div>
+        ` : ''}
+
+        <!-- TABLA DE CONTEO Y DISCREPANCIAS -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: 700;">
+              Planilla de Conteo Físico Real (${products.length} SKUs)
+            </h4>
+            <div id="manage-req-discrepancy-summary" style="font-size: 0.8rem; font-weight: 600;">
+              <!-- Se calcula dinámicamente -->
+            </div>
+          </div>
+
+          <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 380px; overflow-y: auto; background: var(--color-surface);">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+              <thead>
+                <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.725rem; letter-spacing: 0.05em; position: sticky; top: 0; z-index: 1;">
+                  <th style="padding: 0.6rem 0.6rem; width: 30px; text-align: center;">#</th>
+                  <th style="padding: 0.6rem 0.6rem;">SKU</th>
+                  <th style="padding: 0.6rem 0.6rem;">Cód. Barras</th>
+                  <th style="padding: 0.6rem 0.6rem;">Producto</th>
+                  <th style="padding: 0.6rem 0.6rem; text-align: center;">Bodega</th>
+                  <th style="padding: 0.6rem 0.6rem; text-align: center; background: rgba(37, 99, 235, 0.1); color: var(--color-primary);">Stock Sist.</th>
+                  <th style="padding: 0.6rem 0.6rem; text-align: center; width: 110px; background: rgba(16, 185, 129, 0.1); color: #065f46;">Conteo Real</th>
+                  <th style="padding: 0.6rem 0.6rem; text-align: center; width: 130px;">Diferencia</th>
+                  <th style="padding: 0.6rem 0.6rem; width: 160px;">Notas / Estado</th>
+                </tr>
+              </thead>
+              <tbody id="manage-req-tbody">
+                ${rowsHtml}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-file-pdf-line"></i> Descargar Hoja PDF
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-file-excel-line"></i> Descargar Excel
+          </button>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-manage-inventory-request').remove()">Cancelar</button>
+          
+          <button type="button" class="btn btn-outline" id="btn-save-manage-inv" style="border-color: #6366f1; color: #6366f1; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+            <i class="ri-save-line"></i> Guardar Avance
+          </button>
+
+          <button type="button" class="btn btn-primary" id="btn-apply-stock-adjustment-inv" style="background: #10b981; border-color: #10b981; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+            <i class="ri-check-double-line"></i> Aplicar Ajustes de Stock en Sistema
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Recalcular discrepancias en vivo al escribir en los inputs
+  function recalculateDiscrepancies() {
+    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+    let totalSys = 0;
+    let totalCounted = 0;
+    let countedRowsCount = 0;
+    let totalDiff = 0;
+    let missingCount = 0;
+    let surplusCount = 0;
+    let matchCount = 0;
+
+    rows.forEach(tr => {
+      const idx = tr.getAttribute('data-prod-index');
+      const sysQty = parseInt(tr.getAttribute('data-sys-qty') || '0', 10);
+      const input = tr.querySelector('.counted-qty-input');
+      const diffContainer = tr.querySelector('.diff-container');
+
+      totalSys += sysQty;
+
+      if (input && input.value !== '') {
+        const countedVal = parseInt(input.value, 10);
+        countedRowsCount++;
+        totalCounted += countedVal;
+        const diff = countedVal - sysQty;
+        totalDiff += diff;
+
+        if (diff === 0) {
+          matchCount++;
+          diffContainer.innerHTML = '<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">0 (Cuadrado)</span>';
+        } else if (diff > 0) {
+          surplusCount += diff;
+          diffContainer.innerHTML = `<span class="diff-badge badge badge-success" style="font-size: 0.75rem;">+${diff} (Sobrante)</span>`;
+        } else {
+          missingCount += Math.abs(diff);
+          diffContainer.innerHTML = `<span class="diff-badge badge badge-danger" style="font-size: 0.75rem;">${diff} (Faltante)</span>`;
+        }
+      } else {
+        diffContainer.innerHTML = '<span class="diff-badge" style="color: var(--color-text-muted); font-size: 0.8rem;">-</span>';
+      }
+    });
+
+    const summaryEl = document.getElementById('manage-req-discrepancy-summary');
+    if (summaryEl) {
+      if (countedRowsCount === 0) {
+        summaryEl.innerHTML = `<span style="color: var(--color-text-muted);">Sin conteos ingresados aún</span>`;
+      } else {
+        summaryEl.innerHTML = `
+          <span>Contados: <strong>${countedRowsCount}/${rows.length}</strong></span>
+          <span style="margin: 0 0.35rem;">•</span>
+          <span style="color: #ef4444;">Faltantes: <strong>${missingCount}</strong></span>
+          <span style="margin: 0 0.35rem;">•</span>
+          <span style="color: #10b981;">Sobrantes: <strong>+${surplusCount}</strong></span>
+        `;
+      }
+    }
+  }
+
+  modal.querySelectorAll('.counted-qty-input').forEach(inp => {
+    inp.addEventListener('input', recalculateDiscrepancies);
+  });
+  recalculateDiscrepancies();
+
+  // Helper para extraer lista de productos del formulario
+  function extractUpdatedProductsList() {
+    const updatedProducts = [...products];
+    const rows = modal.querySelectorAll('#manage-req-tbody tr');
+
+    rows.forEach(tr => {
+      const idx = parseInt(tr.getAttribute('data-prod-index'), 10);
+      const sysQty = parseInt(tr.getAttribute('data-sys-qty') || '0', 10);
+      const input = tr.querySelector('.counted-qty-input');
+      const noteInput = tr.querySelector('.item-notes-input');
+
+      if (updatedProducts[idx]) {
+        if (input && input.value !== '') {
+          const counted = parseInt(input.value, 10);
+          updatedProducts[idx].counted_qty = counted;
+          updatedProducts[idx].difference = counted - sysQty;
+        } else {
+          updatedProducts[idx].counted_qty = null;
+          updatedProducts[idx].difference = null;
+        }
+        updatedProducts[idx].notes = noteInput ? noteInput.value.trim() : '';
+      }
+    });
+
+    return updatedProducts;
+  }
+
+  // Descargas PDF y Excel directas desde el modal
+  document.getElementById('btn-manage-download-pdf').addEventListener('click', () => {
+    const updated = {
+      ...req,
+      status: document.getElementById('manage-req-status').value,
+      completed_by: document.getElementById('manage-req-supervisor').value.trim(),
+      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
+      products_list: extractUpdatedProductsList()
+    };
+    window.generateInventoryCountPdf(updated);
+  });
+
+  document.getElementById('btn-manage-download-excel').addEventListener('click', () => {
+    const updated = {
+      ...req,
+      status: document.getElementById('manage-req-status').value,
+      completed_by: document.getElementById('manage-req-supervisor').value.trim(),
+      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
+      products_list: extractUpdatedProductsList()
+    };
+    window.generateInventoryCountExcel(updated);
+  });
+
+  // Guardar avance sin aplicar ajustes en el stock
+  const saveBtn = document.getElementById('btn-save-manage-inv');
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+    try {
+      const updatedProducts = extractUpdatedProductsList();
+      const newStatus = document.getElementById('manage-req-status').value;
+      const supervisor = document.getElementById('manage-req-supervisor').value.trim();
+      const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
+
+      const updatePayload = {
+        status: newStatus,
+        completed_by: supervisor || null,
+        admin_notes: adminNotes,
+        products_list: updatedProducts,
+        updated_at: new Date().toISOString()
+      };
+
+      if (newStatus === 'En Conteo' && !req.started_at) {
+        updatePayload.started_at = new Date().toISOString();
+      } else if (newStatus === 'Finalizada' && !req.completed_at) {
+        updatePayload.completed_at = new Date().toISOString();
+      }
+
+      const { error } = await supabase
+        .from('inventory_requests')
+        .update(updatePayload)
+        .eq('id', req.id);
+
+      if (error) throw error;
+
+      alert('¡Avance de inventario guardado con éxito!');
+      modal.remove();
+      renderAdminInventoryRequestsWorkspace();
+      updateAdminInventoryRequestsTabBadge();
+    } catch (err) {
+      console.error('Error saving inventory progress:', err);
+      alert('Error al guardar el avance: ' + err.message);
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Avance';
+    }
+  });
+
+  // Aplicar ajustes de stock en el sistema real
+  const applyBtn = document.getElementById('btn-apply-stock-adjustment-inv');
+  applyBtn.addEventListener('click', async () => {
+    const updatedProducts = extractUpdatedProductsList();
+    const itemsWithCount = updatedProducts.filter(p => p.counted_qty !== null && p.difference !== null);
+
+    if (itemsWithCount.length === 0) {
+      alert('Por favor ingresa al menos un conteo físico real antes de aplicar ajustes.');
+      return;
+    }
+
+    const itemsWithDiff = itemsWithCount.filter(p => p.difference !== 0);
+    const confirmMsg = `¿Confirmas la cuadratura de inventario?\n\n- Total SKUs contados: ${itemsWithCount.length}\n- SKUs con discrepancias de stock: ${itemsWithDiff.length}\n\nEsta acción actualizará el stock físico en la tabla de inventario y registrará los movimientos oficiales de auditoría.`;
+    
+    if (!confirm(confirmMsg)) return;
+
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Aplicando Ajustes...';
+
+    try {
+      const supervisor = document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor WMS';
+      const adminNotes = document.getElementById('manage-req-admin-notes').value.trim();
+
+      // Aplicar ajustes a cada ítem que tenga diferencia
+      for (const item of itemsWithDiff) {
+        const prodId = item.id;
+        const targetWarehouseId = item.warehouse_id || req.warehouse_id;
+        const newQty = item.counted_qty;
+        const diff = item.difference; // counted - sys
+
+        if (!prodId) continue;
+
+        // Si no hay bodega específica, buscar la bodega asignada o Bodega Central
+        let finalWhId = targetWarehouseId;
+        if (!finalWhId) {
+          const { data: invRecord } = await supabase
+            .from('inventory')
+            .select('warehouse_id')
+            .eq('product_id', prodId)
+            .limit(1)
+            .maybeSingle();
+
+          if (invRecord) {
+            finalWhId = invRecord.warehouse_id;
+          } else {
+            const central = (window.allWarehousesList || []).find(w => w.name.toLowerCase().includes('central')) || window.allWarehousesList?.[0];
+            finalWhId = central ? central.id : null;
+          }
+        }
+
+        if (finalWhId) {
+          // 1. Actualizar o Insertar en Inventory
+          const { data: existingInv } = await supabase
+            .from('inventory')
+            .select('id, quantity')
+            .eq('product_id', prodId)
+            .eq('warehouse_id', finalWhId)
+            .maybeSingle();
+
+          if (existingInv) {
+            await supabase
+              .from('inventory')
+              .update({ quantity: newQty })
+              .eq('id', existingInv.id);
+          } else {
+            await supabase
+              .from('inventory')
+              .insert([{
+                product_id: prodId,
+                warehouse_id: finalWhId,
+                quantity: newQty,
+                committed_quantity: 0
+              }]);
+          }
+
+          // 2. Registrar en Movements
+          const movType = diff > 0 ? 'in' : 'out';
+          const movQty = Math.abs(diff);
+          await supabase
+            .from('movements')
+            .insert([{
+              product_id: prodId,
+              warehouse_id: finalWhId,
+              type: movType,
+              quantity: movQty,
+              reference_doc: `Ajuste Toma Inventario Folio ${folio} (${diff > 0 ? '+' : ''}${diff} uds)`
+            }]);
+        }
+      }
+
+      // Actualizar registro de solicitud a Finalizada
+      const updatePayload = {
+        status: 'Finalizada',
+        completed_by: supervisor,
+        admin_notes: adminNotes ? `${adminNotes} [Ajustes de stock aplicados al sistema]` : 'Ajustes de stock aplicados al sistema',
+        products_list: updatedProducts,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: reqErr } = await supabase
+        .from('inventory_requests')
+        .update(updatePayload)
+        .eq('id', req.id);
+
+      if (reqErr) throw reqErr;
+
+      modal.remove();
+      renderAdminInventoryRequestsWorkspace();
+      updateAdminInventoryRequestsTabBadge();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Cuadratura de Stock Aplicada!',
+          text: `Se aplicaron los ajustes en ${itemsWithDiff.length} artículos con discrepancias. La solicitud ${folio} ha quedado marcada como Finalizada.`,
+          confirmButtonColor: '#10b981'
+        });
+      } else {
+        alert(`¡Cuadratura aplicada con éxito! Solicitud ${folio} finalizada.`);
+      }
+
+    } catch (err) {
+      console.error('Error applying inventory adjustment:', err);
+      alert('Error al aplicar ajustes de inventario: ' + err.message);
+      applyBtn.disabled = false;
+      applyBtn.innerHTML = '<i class="ri-check-double-line"></i> Aplicar Ajustes de Stock en Sistema';
+    }
+  });
+}
+
+async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce = '', defaultProducts = []) {
+  let modal = document.getElementById('modal-admin-create-inventory-request');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-admin-create-inventory-request';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+
+  // Obtener lista de comercios
+  let comerciosList = [];
+  try {
+    const { data: configComercios } = await supabase
+      .from('v_comercios_config')
+      .select('sigla, nombre')
+      .order('nombre');
+
+    if (configComercios) {
+      const seen = new Set();
+      configComercios.forEach(c => {
+        if (c.nombre && !seen.has(c.nombre)) {
+          seen.add(c.nombre);
+          comerciosList.push(c);
+        }
+      });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+
+  const comerciosOptions = comerciosList.map(c => `
+    <option value="${c.nombre}" ${c.nombre === defaultCommerce ? 'selected' : ''}>${c.nombre} (${c.sigla})</option>
+  `).join('');
+
+  const warehouses = window.allWarehousesList || [];
+  const warehouseOptions = `
+    <option value="">Todas las bodegas</option>
+    ${warehouses.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
+  `;
+
+  const hasDefaultProducts = defaultProducts && defaultProducts.length > 0;
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 780px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+          <i class="ri-add-circle-line" style="color: #6366f1;"></i> Crear Solicitud de Inventario (Admin)
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-create-inventory-request').remove()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">
+          Inicia una orden oficial de toma de inventario físico para el personal de bodega. Se generará la hoja de conteo en PDF y Excel para el equipo operativo.
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Seleccionar Comercio *
+            </label>
+            <select id="admin-create-req-commerce" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600;">
+              <option value="">-- Selecciona un comercio --</option>
+              ${comerciosOptions}
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Bodega a Inventariar
+            </label>
+            <select id="admin-create-req-warehouse" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+              ${warehouseOptions}
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Alcance del Inventario
+            </label>
+            <select id="admin-create-req-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+              <option value="completo" ${!hasDefaultProducts ? 'selected' : ''}>Inventario Completo (Todo el catálogo del comercio)</option>
+              <option value="selectivo" ${hasDefaultProducts ? 'selected' : ''}>Inventario Selectivo (${hasDefaultProducts ? `${defaultProducts.length} seleccionados` : 'Productos específicos'})</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Prioridad
+            </label>
+            <select id="admin-create-req-priority" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+              <option value="Normal" selected>Normal</option>
+              <option value="Media">Media (Próximas 24-48 hrs)</option>
+              <option value="Alta">Alta / Urgente (Mismo día)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+            Motivo de la Solicitud
+          </label>
+          <select id="admin-create-req-reason" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+            <option value="Auditoría / Cuadratura Periódica">Auditoría / Cuadratura Periódica Interna</option>
+            <option value="Diferencia o Descuadre Detectado">Diferencia o Descuadre Detectado en Picking</option>
+            <option value="Conteo Cíclico de Rutina">Conteo Cíclico de Rutina</option>
+            <option value="Revisión de Mermas o Daños">Revisión de Mermas o Empaques Dañados</option>
+            <option value="Preparación Campaña / Cyber">Preparación Campaña de Alto Volumen</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+            Instrucciones para la Cuadrilla de Bodega
+          </label>
+          <textarea id="admin-create-req-notes" class="form-input" rows="2" placeholder="Ej: Contar primero cajas completas en rack B, validar productos sin etiqueta..." style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;"></textarea>
+        </div>
+
+        <!-- Vista Previa de Productos -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
+              Productos a Incluir
+            </label>
+            <span id="admin-create-req-count-badge" style="font-size: 0.8rem; font-weight: 700; background: var(--color-bg-alt); padding: 0.2rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); color: var(--color-text-main);">
+              0 SKUs
+            </span>
+          </div>
+          <div style="max-height: 170px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+              <thead>
+                <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); position: sticky; top: 0; z-index: 1;">
+                  <th style="padding: 0.4rem 0.6rem; width: 30px; text-align: center;">#</th>
+                  <th style="padding: 0.4rem 0.6rem;">SKU</th>
+                  <th style="padding: 0.4rem 0.6rem;">Nombre</th>
+                  <th style="padding: 0.4rem 0.6rem; text-align: center;">Stock Sistema</th>
+                </tr>
+              </thead>
+              <tbody id="admin-create-req-preview-tbody">
+                <tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">Selecciona un comercio para cargar productos.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Opciones de Descarga Automática -->
+        <div style="background: var(--color-bg-alt); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-weight: 600; color: var(--color-text-main);">
+            <input type="checkbox" id="admin-create-auto-pdf" checked style="cursor: pointer; width: 16px; height: 16px; accent-color: #6366f1;">
+            <span><i class="ri-file-pdf-line" style="color: #ef4444; margin-right: 0.25rem;"></i> Descargar Hoja de Toma de Inventario (PDF) automáticamente</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-weight: 500; color: var(--color-text-muted);">
+            <input type="checkbox" id="admin-create-auto-excel" checked style="cursor: pointer; width: 16px; height: 16px; accent-color: #10b981;">
+            <span><i class="ri-file-excel-line" style="color: #10b981; margin-right: 0.25rem;"></i> Descargar Planilla Digital Excel (.xlsx)</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-create-inventory-request').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-admin-submit-create-req" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  let loadedProductsForCommerce = [];
+
+  async function loadProductsForSelectedCommerce() {
+    const comSelect = document.getElementById('admin-create-req-commerce');
+    const selectedCom = comSelect.value;
+    const tbody = document.getElementById('admin-create-req-preview-tbody');
+    const badge = document.getElementById('admin-create-req-count-badge');
+
+    if (!selectedCom) {
+      loadedProductsForCommerce = [];
+      badge.textContent = '0 SKUs';
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">Selecciona un comercio para cargar productos.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando catálogo...</td></tr>`;
+
+    try {
+      const { data: prods, error } = await supabase
+        .from('products')
+        .select(`
+          id, sku, name, barcode, status,
+          inventory (warehouse_id, quantity, warehouses(name))
+        `)
+        .eq('comercio', selectedCom)
+        .neq('status', 'archived');
+
+      if (error) throw error;
+
+      loadedProductsForCommerce = prods || [];
+      updateAdminCreatePreview();
+    } catch (e) {
+      console.error(e);
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: red;">Error al cargar productos: ${e.message}</td></tr>`;
+    }
+  }
+
+  function updateAdminCreatePreview() {
+    const type = document.getElementById('admin-create-req-type').value;
+    const whSelect = document.getElementById('admin-create-req-warehouse');
+    const selectedWhId = whSelect.value;
+    const tbody = document.getElementById('admin-create-req-preview-tbody');
+    const badge = document.getElementById('admin-create-req-count-badge');
+
+    if (!tbody || !badge) return;
+
+    let toShow = [];
+    if (type === 'selectivo' && hasDefaultProducts) {
+      const defaultIdSet = new Set(defaultProducts.map(p => p.id));
+      toShow = loadedProductsForCommerce.filter(p => defaultIdSet.has(p.id));
+    } else {
+      toShow = loadedProductsForCommerce;
+    }
+
+    badge.textContent = `${toShow.length} SKUs`;
+
+    if (toShow.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos para mostrar.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = toShow.map((p, idx) => {
+      let sysQty = 0;
+      const invs = p.inventory || [];
+      if (selectedWhId) {
+        const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
+        sysQty = match ? (match.quantity || 0) : 0;
+      } else {
+        sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border);">
+          <td style="padding: 0.4rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</td>
+          <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
+          <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  document.getElementById('admin-create-req-commerce').addEventListener('change', loadProductsForSelectedCommerce);
+  document.getElementById('admin-create-req-warehouse').addEventListener('change', updateAdminCreatePreview);
+  document.getElementById('admin-create-req-type').addEventListener('change', updateAdminCreatePreview);
+
+  if (defaultCommerce) {
+    loadProductsForSelectedCommerce();
+  }
+
+  // Guardar solicitud
+  const submitBtn = document.getElementById('btn-admin-submit-create-req');
+  submitBtn.addEventListener('click', async () => {
+    const selectedCom = document.getElementById('admin-create-req-commerce').value;
+    if (!selectedCom) {
+      alert('Por favor selecciona un comercio.');
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Generando Solicitud...';
+
+    try {
+      const type = document.getElementById('admin-create-req-type').value;
+      const whSelect = document.getElementById('admin-create-req-warehouse');
+      const selectedWhId = whSelect.value || null;
+      const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
+      const reason = document.getElementById('admin-create-req-reason').value;
+      const priority = document.getElementById('admin-create-req-priority').value;
+      const notes = document.getElementById('admin-create-req-notes').value.trim();
+      const autoPdf = document.getElementById('admin-create-auto-pdf').checked;
+      const autoExcel = document.getElementById('admin-create-auto-excel').checked;
+
+      let toInclude = [];
+      if (type === 'selectivo' && hasDefaultProducts) {
+        const defaultIdSet = new Set(defaultProducts.map(p => p.id));
+        toInclude = loadedProductsForCommerce.filter(p => defaultIdSet.has(p.id));
+      } else {
+        toInclude = loadedProductsForCommerce;
+      }
+
+      if (toInclude.length === 0) {
+        alert('No se encontraron productos para incluir en la solicitud.');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
+        return;
+      }
+
+      const productsList = toInclude.map(p => {
+        let sysQty = 0;
+        const invs = p.inventory || [];
+        if (selectedWhId) {
+          const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
+          sysQty = match ? (match.quantity || 0) : 0;
+        } else {
+          sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+        }
+
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          barcode: p.barcode || '',
+          warehouse_id: selectedWhId,
+          warehouse_name: selectedWhName,
+          system_qty: sysQty,
+          counted_qty: null,
+          difference: null,
+          notes: ''
+        };
+      });
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const userEmail = session?.user?.email || 'Administración STOCKA';
+
+      const dateCode = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+      const randomNum = Math.floor(100 + Math.random() * 900);
+      const folio = `REQ-INV-${dateCode}-${randomNum}`;
+
+      const newRecord = {
+        folio: folio,
+        merchant_id: session?.user?.id || null,
+        comercio: selectedCom,
+        warehouse_id: selectedWhId,
+        warehouse_name: selectedWhName,
+        type: type,
+        reason: reason,
+        priority: priority,
+        notes: notes,
+        status: 'Pendiente',
+        total_skus: productsList.length,
+        products_list: productsList,
+        requested_by: `Admin (${userEmail})`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: insertedData, error: insertErr } = await supabase
+        .from('inventory_requests')
+        .insert([newRecord])
+        .select()
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      const createdReq = insertedData || newRecord;
+
+      if (autoPdf && typeof window.generateInventoryCountPdf === 'function') {
+        window.generateInventoryCountPdf(createdReq);
+      }
+      if (autoExcel && typeof window.generateInventoryCountExcel === 'function') {
+        window.generateInventoryCountExcel(createdReq);
+      }
+
+      modal.remove();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Solicitud de Inventario Creada!',
+          html: `Folio: <code style="color: #6366f1; font-weight: bold;">${folio}</code> para <strong>${selectedCom}</strong> (${productsList.length} SKUs).`,
+          confirmButtonColor: '#6366f1'
+        });
+      } else {
+        alert(`¡Solicitud ${folio} creada con éxito!`);
+      }
+
+      if (onComplete) onComplete();
+    } catch (err) {
+      console.error('Error creating admin inventory request:', err);
+      alert('Error al crear la solicitud: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
+    }
+  });
+}
+
+
 
 async function openAdminProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements-admin';
@@ -32552,6 +33851,12 @@ function showOnboardingApproveConfigModal(req) {
             <span>Pedido de origen trae sigla del comercio</span>
           </label>
         </div>
+
+        <div class="form-group" style="margin-top: 0.5rem;">
+          <label class="form-label" for="definitive-contract-input" style="font-weight: 600;">Contrato Firmado Definitivo (Opcional - PDF) <i class="ri-attachment-line"></i></label>
+          <input type="file" id="definitive-contract-input" class="form-input" accept=".pdf" style="width: 100%; box-sizing: border-box; background: var(--color-bg); padding: 0.35rem 0.5rem;">
+          <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Carga la versión final del contrato firmada por ambas partes.</p>
+        </div>
       </div>
       <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
         <button class="btn btn-outline" id="btn-cancel-approve-config">Cancelar</button>
@@ -32577,6 +33882,9 @@ function showOnboardingApproveConfigModal(req) {
     const commerceSigla = document.getElementById('commerce-sigla-input').value.trim().toUpperCase();
     const enableInventory = document.getElementById('check-enable-inventory').checked;
     const siglaPedido = document.getElementById('check-sigla-pedido').checked;
+
+    const fileInput = document.getElementById('definitive-contract-input');
+    const selectedFile = fileInput ? fileInput.files[0] : null;
 
     if (!commerceName || commerceSigla.length !== 3) {
       alert('Por favor ingresa un nombre válido y una sigla de exactamente 3 caracteres.');
@@ -32605,6 +33913,27 @@ function showOnboardingApproveConfigModal(req) {
         return v.toString(16);
       });
 
+      // Subir contrato definitivo si se seleccionó
+      let definitiveContractUrl = null;
+      let definitiveStoragePath = null;
+
+      if (selectedFile) {
+        const sanitizedName = selectedFile.name.replace(/[^a-zA-Z0-9.]/g, '_');
+        definitiveStoragePath = `contracts/${newComerId}_definitive_${Date.now()}_${sanitizedName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('service_docs')
+          .upload(definitiveStoragePath, selectedFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('service_docs')
+          .getPublicUrl(definitiveStoragePath);
+
+        definitiveContractUrl = urlData.publicUrl;
+      }
+
       // 2. Crear comercio en v_comercios_config
       const { error: insertComErr } = await supabase
         .from('v_comercios_config')
@@ -32629,6 +33958,7 @@ function showOnboardingApproveConfigModal(req) {
         .from('comercios_adicional_config')
         .insert([{
           comercio: commerceName,
+          comercio_id: newComerId,
           pedido_trae_sigla: siglaPedido,
           inventario_seguimiento: enableInventory,
           rut: req.rut_empresa || null,
@@ -32637,6 +33967,8 @@ function showOnboardingApproveConfigModal(req) {
           rep_legal_rut: req.rep_legal_rut || null,
           rep_legal_telefono: req.rep_legal_telefono || null,
           rep_legal_email: req.rep_legal_email || null,
+          contrato_url: definitiveContractUrl,
+          contrato_storage_path: definitiveStoragePath,
           onboarding_checklist: {
             integrations: false,
             catalog_ready: false,
@@ -32666,10 +33998,16 @@ function showOnboardingApproveConfigModal(req) {
         p_comercio: commerceName
       });
 
-      // 7. Modificar la solicitud a 'approved' en onboarding_requests
+      // 7. Modificar la solicitud a 'approved' en onboarding_requests (e incluir contrato definitivo)
+      const updateData = { status: 'approved' };
+      if (definitiveContractUrl) {
+        updateData.contrato_url = definitiveContractUrl;
+        updateData.contrato_storage_path = definitiveStoragePath;
+      }
+
       const { error: onboardingErr } = await supabase
         .from('onboarding_requests')
-        .update({ status: 'approved' })
+        .update(updateData)
         .eq('id', req.id);
 
       if (onboardingErr) throw onboardingErr;

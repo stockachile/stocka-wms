@@ -249,7 +249,8 @@ BEGIN
       'commerceName', NEW.nombre_fantasia,
       'emailType', v_email_type,
       'emails', ARRAY[NEW.email],
-      'customMessage', v_custom_message
+      'customMessage', v_custom_message,
+      'contratoUrl', NEW.contrato_url
     )
   );
 

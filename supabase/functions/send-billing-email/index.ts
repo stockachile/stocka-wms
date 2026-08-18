@@ -1381,6 +1381,42 @@ serve(async (req) => {
       ];
     }
 
+    // Si es onboarding_approved y viene contratoUrl, descargar y adjuntar
+    const contratoUrl = payload.contratoUrl || payload.contrato_url;
+    if (emailType === 'onboarding_approved' && contratoUrl) {
+      try {
+        console.log(`[send-billing-email] Intentando descargar contrato definitivo desde: ${contratoUrl}`);
+        const fileRes = await fetch(contratoUrl);
+        if (fileRes.ok) {
+          const arrayBuffer = await fileRes.arrayBuffer();
+          // Convertir arrayBuffer a base64
+          let binary = '';
+          const bytes = new Uint8Array(arrayBuffer);
+          const len = bytes.byteLength;
+          for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const base64Content = btoa(binary);
+
+          if (!brevoPayload.attachment) {
+            brevoPayload.attachment = [];
+          }
+
+          // Nombre del archivo sanitizado
+          const sanitizedCommerceName = (commerceName || 'Comercio').replace(/[^a-zA-Z0-9]/g, '_');
+          brevoPayload.attachment.push({
+            content: base64Content,
+            name: `Contrato_Definitivo_${sanitizedCommerceName}.pdf`
+          });
+          console.log(`[send-billing-email] Contrato definitivo adjuntado con éxito!`);
+        } else {
+          console.error(`[send-billing-email] Error al descargar contrato: HTTP ${fileRes.status}`);
+        }
+      } catch (err) {
+        console.error(`[send-billing-email] Error descargando/adjuntando contrato:`, err);
+      }
+    }
+
     const brevoRes = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
