@@ -2497,6 +2497,10 @@ window.applyWmsFiltersAndRender = function() {
 
   let rowsHtml = '';
   paginatedOrders.forEach(order => {
+    const rawShopify = order.raw_shopify_data;
+    const isReturned = (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at)) && 
+                       ['Despachado', 'Pickeado', 'entregado', 'retirado'].includes(order.estado_wms);
+
     // Buscar el envío en el listado cargado con control de colisiones por comercio
     let orderShipments = shipments.filter(s => {
       const refMatches = s.pedido_referencia === order.id || 
@@ -2734,8 +2738,8 @@ window.applyWmsFiltersAndRender = function() {
       badgeBg = '#e0f2fe'; // blue
       badgeTextColor = '#0369a1';
     } else if (order.status === 'cancelado' || order.status === 'incidencia') {
-      badgeBg = '#fee2e2'; // red
-      badgeTextColor = '#991b1b';
+      badgeBg = isReturned ? '#ffe4e6' : '#fee2e2'; // rose for returned, red for cancelled
+      badgeTextColor = isReturned ? '#9f1239' : '#991b1b';
     } else if (order.status === 'para procesar') {
       badgeBg = '#e0e7ff'; // indigo
       badgeTextColor = '#3730a3';
@@ -2882,11 +2886,12 @@ window.applyWmsFiltersAndRender = function() {
       paymentBadgeHtml = `<span class="badge" style="background-color: #e5e7eb; color: #4b5563; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;">${order.payment_status.toUpperCase()}</span>`;
     }
 
-    // 2. Alerta de Cancelado (Shopify o estado WMS)
+    // 2. Alerta de Cancelado (Shopify o estado WMS) o Devolución
     let cancelBadgeHtml = '';
-    const rawShopify = order.raw_shopify_data;
-    const isCancelled = order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at);
-    if (isCancelled) {
+    const isCancelled = !isReturned && (order.status === 'cancelado' || (rawShopify && rawShopify.cancelled_at));
+    if (isReturned) {
+      cancelBadgeHtml = `<span class="badge" style="background-color: #ffe4e6; color: #9f1239; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-arrow-go-back-line"></i> DEVOLUCIÓN</span>`;
+    } else if (isCancelled) {
       cancelBadgeHtml = `<span class="badge" style="background-color: #fee2e2; color: #991b1b; font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.40rem; border-radius: 4px; display: inline-flex; align-items: center; gap: 0.15rem; width: fit-content; margin-top: 0.25rem; letter-spacing: 0.3px;"><i class="ri-close-circle-line"></i> CANCELADO</span>`;
     }
 
@@ -3005,7 +3010,11 @@ window.applyWmsFiltersAndRender = function() {
         let badgeBg = '#e5e7eb';
         let badgeColor = '#4b5563';
         
-        if (globStatus === 'DESPACHADO') {
+        if (isReturned) {
+          globStatus = 'DEVOLUCIÓN';
+          badgeBg = '#ffe4e6';
+          badgeColor = '#9f1239';
+        } else if (globStatus === 'DESPACHADO') {
           badgeBg = '#d1fae5';
           badgeColor = '#065f46';
         } else if (globStatus === 'ALERTA') {
@@ -3014,8 +3023,9 @@ window.applyWmsFiltersAndRender = function() {
         }
         
         const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
-        const rawStatusSpan = (rawStatus && rawStatus !== '-') 
-          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${rawStatus}</span>` 
+        const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
+        const rawStatusSpan = (displayRawStatus && displayRawStatus !== '-') 
+          ? `<span style="font-size: 0.65rem; color: var(--color-text-muted); font-weight: 500; text-transform: none; display: block; margin-top: 0.05rem;">${displayRawStatus}</span>` 
           : '';
 
         shipStatusBadge = `<span class="badge" style="background-color: ${badgeBg}; color: ${badgeColor}; font-size: 0.65rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px; text-transform: uppercase; margin-top: 0.2rem; display: inline-block; width: fit-content; letter-spacing: 0.3px;">${globStatus}</span>${rawStatusSpan}`;
@@ -3051,10 +3061,15 @@ window.applyWmsFiltersAndRender = function() {
       if (!globStatus) globStatus = 'SIN MOVIMIENTO';
 
       const rawStatus = (statusText && !/^-?\d+\.\d+$/.test(statusText)) ? statusText : '-';
+      const displayRawStatus = isReturned && rawStatus.toLowerCase().includes('cancelado') ? 'devolución' : rawStatus;
       let badgeBg = '#e5e7eb';
       let badgeColor = '#4b5563';
       
-      if (globStatus === 'DESPACHADO') {
+      if (isReturned) {
+        globStatus = 'DEVOLUCIÓN';
+        badgeBg = '#ffe4e6';
+        badgeColor = '#9f1239';
+      } else if (globStatus === 'DESPACHADO') {
         badgeBg = '#d1fae5';
         badgeColor = '#065f46';
       } else if (globStatus === 'ALERTA') {
@@ -3078,7 +3093,7 @@ window.applyWmsFiltersAndRender = function() {
             ${globStatus}
           </span>
           ${platformBadge}
-          ${rawStatus && rawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${rawStatus}</span>` : ''}
+          ${displayRawStatus && displayRawStatus !== '-' ? `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600; background: var(--color-surface); padding: 0.15rem 0.45rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">${displayRawStatus}</span>` : ''}
         </p>
         <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--color-text-muted);">
           <strong>Sincronización Courier:</strong> ${shipment.updated_at ? new Date(shipment.updated_at).toLocaleString() : '-'}
@@ -3303,7 +3318,7 @@ window.applyWmsFiltersAndRender = function() {
         <td style="text-align: center; vertical-align: middle;">${periodHtml}</td>
         <td><strong style="color: var(--color-text-main); font-size: 1.05rem;">${qtyStr}</strong></td>
         <td>
-          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${order.status}</span>
+          <span style="background-color:${badgeBg}; color:${badgeTextColor}; padding:0.2rem 0.65rem; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; display:inline-block;">${isReturned ? 'devolución' : order.status}</span>
         </td>
         <td>
           <select class="form-input wms-status-select" data-order-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.825rem; width: auto; font-weight: 700; border: 1.5px solid ${wmsColor}; color: ${wmsColor}; background: ${wmsColor}06; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
