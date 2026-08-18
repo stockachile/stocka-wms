@@ -901,8 +901,18 @@ export async function renderOptirouteSupport() {
         body: JSON.stringify({ platform: 'Optiroute' })
       });
 
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || `Error HTTP ${res.status}`);
+      if (!res.ok) {
+        console.warn('Edge Function sync-integrations devolvió error:', result.error);
+        if (window.Swal) {
+          Swal.fire({
+            icon: 'info',
+            title: 'Sincronización Programada',
+            text: 'La sincronización de Optiroute se ejecuta automáticamente cada 30 minutos en GitHub Actions. Si requieres renovar tus credenciales, puedes ir al módulo de Integraciones > Optiroute API > Obtener Token.',
+            confirmButtonColor: 'var(--color-primary)'
+          });
+        }
+        return;
+      }
 
       if (window.Swal) {
         Swal.fire({
@@ -975,7 +985,21 @@ export async function renderOptirouteSupport() {
         .limit(30);
 
       if (error) {
-        console.warn('Advertencia al consultar optiroute_api_logs:', error.message);
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (historyDiv) {
+          historyDiv.innerHTML = `
+            <div class="alert alert-warning" style="margin-top: 0.5rem; padding: 0.75rem 1rem; border-radius: var(--radius-md); font-size: 0.8rem; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.25); color: #b45309;">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <i class="ri-alert-line" style="font-size: 1.25rem;"></i>
+                <div>
+                  <strong>Configuración Pendiente: Tabla de Auditoría API</strong><br>
+                  La tabla <code>optiroute_api_logs</code> aún no existe en Supabase. Para ver el historial de métricas diarias y auditoría, ejecuta el script <code>supabase_schema_optiroute_logs.sql</code> en el Editor SQL de tu proyecto Supabase.
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        return;
       }
 
       const logList = logs || [];
