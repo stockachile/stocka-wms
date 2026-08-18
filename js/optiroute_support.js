@@ -53,6 +53,9 @@ export async function renderOptirouteSupport() {
             <button id="btn-fetch-route" class="btn btn-primary" style="height: 34px; display: flex; align-items: center; gap: 0.3rem; font-weight: 600; padding: 0 1rem; background: var(--color-primary); color: white; border: none; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; font-size: 0.8rem;">
               <i class="ri-refresh-line"></i> Cargar Detalles de Ruta
             </button>
+            <button id="btn-sync-optiroute-now" class="btn btn-outline" style="height: 34px; display: flex; align-items: center; gap: 0.3rem; font-weight: 600; padding: 0 0.8rem; border: 1px solid var(--color-primary); color: var(--color-primary); background: transparent; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; font-size: 0.8rem;" title="Ejecutar sincronización inmediata con la API de Optiroute">
+              <i class="ri-flashlight-line"></i> ⚡ Sincronizar Ahora
+            </button>
           </div>
         </div>
 
@@ -355,7 +358,20 @@ export async function renderOptirouteSupport() {
       }
 
       if (!optionsHtml) {
-        selectRoutePlans.innerHTML = '<option value="">No hay envíos de Optiroute registrados aún</option>';
+        selectRoutePlans.innerHTML = '<option value="">Sin envíos en BD aún. Presiona "⚡ Sincronizar Ahora"</option>';
+        if (statusContainer) {
+          statusContainer.innerHTML = `
+            <div class="alert alert-info" style="margin-top:0.4rem; padding:0.65rem 0.85rem; font-size:0.8rem; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.5rem; background:rgba(37,99,235,0.1); border:1px solid rgba(37,99,235,0.25); color:#2563eb; border-radius:var(--radius-md);">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <i class="ri-information-line" style="font-size:1.1rem;"></i>
+                <span>La API de Optiroute está <strong>Conectada y Activa</strong>. Presiona <strong>"⚡ Sincronizar Ahora"</strong> para descargar los envíos más recientes hacia la base de datos local.</span>
+              </div>
+              <button class="btn btn-primary btn-sm btn-trigger-optiroute-sync" style="padding:0.35rem 0.8rem; font-size:0.75rem; background:#2563eb; color:white; border:none; border-radius:var(--radius-md); cursor:pointer; font-weight:700; display:flex; align-items:center; gap:0.25rem;">
+                <i class="ri-flashlight-line"></i> ⚡ Sincronizar Ahora
+              </button>
+            </div>
+          `;
+        }
         return;
       }
 
@@ -864,6 +880,62 @@ export async function renderOptirouteSupport() {
       if (currentBtnForceLive) currentBtnForceLive.disabled = false;
     }
   }
+
+  // Función para solicitar sincronización inmediata con la API de Optiroute vía Edge Function
+  async function triggerOptirouteSync(btnElem) {
+    if (btnElem) {
+      btnElem.disabled = true;
+      btnElem.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Solicitando sync...';
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No autenticado en el WMS.");
+
+      const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/sync-integrations', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({ platform: 'Optiroute' })
+      });
+
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || `Error HTTP ${res.status}`);
+
+      if (window.Swal) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Sincronización Solicitada',
+          text: 'Se inició el proceso de sincronización con Optiroute. Los pedidos aparecerán en la base de datos local en unos momentos.',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+      }
+
+      // Auto refrescar a los 8 segundos y 20 segundos
+      setTimeout(() => loadRoutePlansList(), 8000);
+      setTimeout(() => loadRoutePlansList(), 20000);
+
+    } catch (err) {
+      console.error('Error al solicitar sincronización:', err);
+      if (window.Swal) Swal.fire('Error', `No se pudo iniciar la sincronización: ${err.message}`, 'error');
+    } finally {
+      if (btnElem) {
+        btnElem.disabled = false;
+        btnElem.innerHTML = '<i class="ri-flashlight-line"></i> ⚡ Sincronizar Ahora';
+      }
+    }
+  }
+
+  // Listener para botones de sincronización manual
+  document.addEventListener('click', (e) => {
+    const btnSync = e.target.closest('#btn-sync-optiroute-now, .btn-trigger-optiroute-sync');
+    if (btnSync) {
+      e.preventDefault();
+      triggerOptirouteSync(btnSync);
+    }
+  });
 
   // Escuchar botón Cargar Detalles de Ruta
   const btnFetchRoute = document.getElementById('btn-fetch-route');
