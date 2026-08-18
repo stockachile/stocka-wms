@@ -4630,32 +4630,28 @@ async function renderIntegrations() {
               <form id="form-optiroute-integration">
                 <div class="form-group" style="margin-bottom: 1.25rem;">
                   <label class="form-label" style="font-weight: 600;">Access Token de la API</label>
-                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" ${hasOptiroute ? 'readonly' : 'required'} style="background-color: ${hasOptiroute ? 'var(--color-bg)' : 'var(--color-surface)'}; border: 1px solid var(--color-border); color: var(--color-text-main);">
+                  <input type="password" id="optiroute-token" class="form-input" placeholder="Ingresa tu Token de API Optiroute" value="${hasOptiroute ? optirouteIntegration.access_token : ''}" required style="background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
                 </div>
 
-                <!-- Credential Helper (Only if not connected) -->
-                ${!hasOptiroute ? `
-                  <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: var(--color-surface);">
-                    <summary style="font-size: 0.875rem; font-weight: 600; cursor: pointer; color: var(--color-accent);"><i class="ri-key-line"></i> Generar Token usando credenciales</summary>
-                    <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Ingresa las credenciales de tu cuenta Optiroute para obtener el token automáticamente:</p>
-                      <div class="form-group" style="margin: 0;">
-                        <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
-                      </div>
-                      <div class="form-group" style="margin: 0;">
-                        <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
-                      </div>
-                      <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem; width: auto; font-weight: 600; border-color: var(--color-accent); color: var(--color-accent);">Obtener Token</button>
-                      <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.5rem; font-size: 0.8rem; margin: 0;"></div>
+                <!-- Credential Helper -->
+                <details style="margin-bottom: 1.25rem; border: 1px solid var(--color-border); padding: 0.75rem; border-radius: var(--radius-md); background: var(--color-surface);">
+                  <summary style="font-size: 0.875rem; font-weight: 600; cursor: pointer; color: var(--color-accent);"><i class="ri-key-line"></i> Generar Token usando credenciales</summary>
+                  <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                    <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Ingresa las credenciales de tu cuenta Optiroute para obtener el token automáticamente:</p>
+                    <div class="form-group" style="margin: 0;">
+                      <input type="email" id="optiroute-username" class="form-input" placeholder="correo@empresa.com" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
                     </div>
-                  </details>
-                ` : ''}
+                    <div class="form-group" style="margin: 0;">
+                      <input type="password" id="optiroute-password" class="form-input" placeholder="Tu Contraseña" style="padding: 0.5rem; font-size: 0.875rem; background-color: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border);">
+                    </div>
+                    <button type="button" id="btn-generate-optiroute-token" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.875rem; width: auto; font-weight: 600; border-color: var(--color-accent); color: var(--color-accent);">Obtener Token</button>
+                    <div id="optiroute-token-generation-alert" class="alert" style="display: none; padding: 0.5rem; font-size: 0.8rem; margin: 0;"></div>
+                  </div>
+                </details>
                 
-                <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                  ${!hasOptiroute ? 
-                    '<button type="submit" class="btn btn-primary" id="btn-save-optiroute" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">Conectar Optiroute</button>' : 
-                    '<button type="button" class="btn btn-outline" id="btn-disconnect-optiroute" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Optiroute</button>'
-                  }
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                  <button type="submit" class="btn btn-primary" id="btn-save-optiroute" style="background-color: var(--color-primary); border: none; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; color: var(--color-dark); box-shadow: var(--shadow-sm); transition: all 0.2s;">${hasOptiroute ? 'Actualizar Token' : 'Conectar Optiroute'}</button>
+                  ${hasOptiroute ? '<button type="button" class="btn btn-outline" id="btn-disconnect-optiroute" style="color: #ef4444; border: 1px solid #ef4444; background: transparent; padding: 0.75rem 1.5rem; font-weight: 600; border-radius: 0.375rem; cursor: pointer; transition: all 0.2s;">Desconectar Optiroute</button>' : ''}
                 </div>
               </form>
             </div>
@@ -4731,116 +4727,140 @@ async function renderIntegrations() {
   `;
 
     // Optiroute Submit Listener
-    if(!hasOptiroute) {
-      document.getElementById('form-optiroute-integration').addEventListener('submit', async (e) => {
+    const formOptiroute = document.getElementById('form-optiroute-integration');
+    if (formOptiroute) {
+      formOptiroute.addEventListener('submit', async (e) => {
         e.preventDefault();
         const btn = document.getElementById('btn-save-optiroute');
-        btn.disabled = true;
-        btn.textContent = 'Conectando...';
+        if (btn) btn.disabled = true;
 
         const token = document.getElementById('optiroute-token').value.trim();
+        if (!token) {
+          alert('Por favor ingresa un Token de API válido.');
+          if (btn) btn.disabled = false;
+          return;
+        }
 
         try {
-          const { error: insErr } = await supabase.from('merchant_integrations').insert([{
-            merchant_id: merchantId,
-            platform: 'Optiroute',
-            shop_url: 'app.optiroute.cl',
-            access_token: token,
-            is_active: true,
-            comercio: 'STOCKA'
-          }]);
-          if(insErr) throw insErr;
-          
-          alert('Integración con Optiroute guardada correctamente.');
-          renderIntegrations(); // Recargar vista
-        } catch(err) {
+          if (hasOptiroute && optirouteIntegration?.id) {
+            const { error: upErr } = await supabase.from('merchant_integrations')
+              .update({ access_token: token, is_active: true, updated_at: new Date().toISOString() })
+              .eq('id', optirouteIntegration.id);
+
+            if (upErr) throw upErr;
+            alert('Token de Optiroute actualizado correctamente.');
+          } else {
+            const { error: insErr } = await supabase.from('merchant_integrations').insert([{
+              merchant_id: merchantId,
+              platform: 'Optiroute',
+              shop_url: 'app.optiroute.cl',
+              access_token: token,
+              is_active: true,
+              comercio: 'STOCKA'
+            }]);
+            if (insErr) throw insErr;
+            alert('Integración con Optiroute guardada correctamente.');
+          }
+          renderIntegrations();
+        } catch (err) {
           console.error(err);
           alert('Error al guardar la integración: ' + err.message);
-          btn.disabled = false;
-          btn.textContent = 'Conectar Optiroute';
+          if (btn) btn.disabled = false;
         }
       });
+    }
 
-      // Token Generator helper handler
-      const btnGen = document.getElementById('btn-generate-optiroute-token');
-      if(btnGen) {
-        btnGen.addEventListener('click', async (e) => {
-          e.preventDefault();
-          const usernameInput = document.getElementById('optiroute-username');
-          const passwordInput = document.getElementById('optiroute-password');
-          const alertContainer = document.getElementById('optiroute-token-generation-alert');
-          
-          const username = usernameInput.value.trim();
-          const password = passwordInput.value;
-          
-          if(!username || !password) {
+    // Token Generator helper handler
+    const btnGen = document.getElementById('btn-generate-optiroute-token');
+    if (btnGen) {
+      btnGen.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const usernameInput = document.getElementById('optiroute-username');
+        const passwordInput = document.getElementById('optiroute-password');
+        const alertContainer = document.getElementById('optiroute-token-generation-alert');
+        
+        const username = usernameInput ? usernameInput.value.trim() : '';
+        const password = passwordInput ? passwordInput.value : '';
+        
+        if (!username || !password) {
+          if (alertContainer) {
             alertContainer.style.display = 'block';
             alertContainer.style.backgroundColor = '#fee2e2';
             alertContainer.style.color = '#b91c1c';
             alertContainer.style.border = '1px solid #fecaca';
             alertContainer.textContent = 'Ingresa tu usuario y contraseña.';
-            return;
+          }
+          return;
+        }
+        
+        btnGen.disabled = true;
+        btnGen.textContent = 'Obteniendo token...';
+        if (alertContainer) alertContainer.style.display = 'none';
+        
+        try {
+          const formData = new FormData();
+          formData.append('username', username);
+          formData.append('password', password);
+          
+          const response = await fetch('https://app.optiroute.cl/api-token-auth/', {
+            method: 'POST',
+            body: formData
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Error en el servidor de Optiroute: ${response.status} ${response.statusText}`);
           }
           
-          btnGen.disabled = true;
-          btnGen.textContent = 'Obteniendo token...';
-          alertContainer.style.display = 'none';
-          
-          try {
-            const formData = new FormData();
-            formData.append('username', username);
-            formData.append('password', password);
-            
-            const response = await fetch('https://app.optiroute.cl/api-token-auth/', {
-              method: 'POST',
-              body: formData
-            });
-            
-            if(!response.ok) {
-              throw new Error(`Error en el servidor de Optiroute: ${response.status} ${response.statusText}`);
-            }
-            
-            const data = await response.json();
-            if(data && data.token) {
-              document.getElementById('optiroute-token').value = data.token;
+          const data = await response.json();
+          if (data && data.token) {
+            const tokenField = document.getElementById('optiroute-token');
+            if (tokenField) tokenField.value = data.token;
+
+            if (alertContainer) {
               alertContainer.style.display = 'block';
               alertContainer.style.backgroundColor = '#d1fae5';
               alertContainer.style.color = '#047857';
               alertContainer.style.border = '1px solid #a7f3d0';
-              alertContainer.innerHTML = 'Token generado con éxito. <strong>¡Haz clic en "Conectar Optiroute" abajo para guardarlo!</strong>';
-              
-              usernameInput.value = '';
-              passwordInput.value = '';
-            } else {
-              throw new Error('El servidor no retornó un token.');
+              alertContainer.innerHTML = 'Token generado con éxito. <strong>¡Haz clic en "Guardar / Actualizar Token" abajo!</strong>';
             }
-          } catch(err) {
-            console.error(err);
+
+            if (usernameInput) usernameInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+          } else {
+            throw new Error('El servidor de Optiroute no retornó un token.');
+          }
+        } catch (err) {
+          console.error(err);
+          if (alertContainer) {
             alertContainer.style.display = 'block';
             alertContainer.style.backgroundColor = '#fee2e2';
             alertContainer.style.color = '#b91c1c';
             alertContainer.style.border = '1px solid #fecaca';
-            alertContainer.innerHTML = '<strong>Error de conexión / Bloqueo CORS:</strong> Obtén el token manualmente usando curl (ver la pestaña Optiroute a la derecha) e ingrésalo en el campo de arriba.';
-          } finally {
-            btnGen.disabled = false;
-            btnGen.textContent = 'Obtener Token';
+            alertContainer.innerHTML = '<strong>Error de conexión / Bloqueo CORS:</strong> Obtén el token manualmente usando curl (ver la guía a la derecha) e ingrésalo en el campo de arriba.';
           }
-        });
-      }
-    } else {
-      document.getElementById('btn-disconnect-optiroute').addEventListener('click', async () => {
-        if(confirm('¿Estás seguro que deseas desconectar tu cuenta de Optiroute?')) {
+        } finally {
+          btnGen.disabled = false;
+          btnGen.textContent = 'Obtener Token';
+        }
+      });
+    }
+
+    // Disconnect listener
+    const btnDisconnectOptiroute = document.getElementById('btn-disconnect-optiroute');
+    if (btnDisconnectOptiroute) {
+      btnDisconnectOptiroute.addEventListener('click', async () => {
+        if (confirm('¿Estás seguro que deseas desconectar tu cuenta de Optiroute?')) {
           try {
             const { error: delErr } = await supabase.from('merchant_integrations')
               .delete()
-              .eq('comercio', 'STOCKA')
               .eq('platform', 'Optiroute');
-            if(delErr) throw delErr;
-            alert('Optiroute desconectado.');
+
+            if (delErr) throw delErr;
+            alert('Optiroute desconectado correctamente.');
             renderIntegrations();
-          } catch(err) {
-             console.error(err);
-             alert('Error al desconectar: ' + err.message);
+          } catch (err) {
+            console.error(err);
+            alert('Error al desconectar: ' + err.message);
           }
         }
       });
