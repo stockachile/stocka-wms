@@ -85,6 +85,33 @@ function isComunaSupported(comunaName) {
   return SUPPORTED_COMUNAS.includes(normalized);
 }
 
+/**
+ * Configura la interceptación y bloqueo de recursos pesados (imágenes, fuentes, analíticas)
+ * para acelerar significativamente la velocidad de carga de la página.
+ */
+async function setupPageResourceBlocking(page) {
+  await page.route('**/*', (route) => {
+    const req = route.request();
+    const type = req.resourceType();
+    const url = req.url().toLowerCase();
+    
+    if (
+      type === 'image' || 
+      type === 'font' || 
+      type === 'media' ||
+      url.includes('google-analytics') || 
+      url.includes('analytics') || 
+      url.includes('facebook') || 
+      url.includes('hotjar') ||
+      url.includes('doubleclick')
+    ) {
+      route.abort();
+    } else {
+      route.continue();
+    }
+  });
+}
+
 function getFechaProcesamiento() {
   const d = new Date();
   const day = String(d.getDate()).padStart(2, '0');
@@ -288,6 +315,7 @@ async function handleIndividualMode(idPedido) {
 
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 800 });
+  await setupPageResourceBlocking(page);
 
   try {
     console.log(`Navegando a: ${TARGET_URL}`);
@@ -467,9 +495,13 @@ async function handleIndividualMode(idPedido) {
       await page.click('button.swal2-confirm, button.swal-button--confirm').catch(() => {});
     }
 
-    // Esperar un momento a que termine el AJAX
+    // Esperar respuesta de la creación (AJAX) de forma dinámica
     console.log('⏳ Esperando respuesta de la creación (AJAX)...');
-    await page.waitForTimeout(6000);
+    let retries = 0;
+    while (!createdDid && retries < 12) {
+      await page.waitForTimeout(500);
+      retries++;
+    }
 
     if (!createdDid) {
       console.error('❌ ERROR: No se pudo capturar el ID de envío (did) desde la respuesta de red de altaEnvio.');
@@ -751,6 +783,7 @@ async function handleBulkMode(limiteCarga) {
 
   const page = await context.newPage();
   await page.setViewportSize({ width: 1280, height: 800 });
+  await setupPageResourceBlocking(page);
 
   try {
     console.log(`Navegando a: ${TARGET_URL}`);
@@ -836,14 +869,21 @@ async function handleBulkMode(limiteCarga) {
     console.log('⚙️ Iniciando procesamiento...');
     // Hacer clic en Procesar usando el selector preciso y .first()
     await page.locator('a[onclick="appEnviosNoFlex.subirmodelo();"]').first().click();
-    await page.waitForTimeout(3000);
+    
+    // Esperar a que el SweetAlert aparezca de forma reactiva
+    await page.waitForSelector('.swal2-container, .swal-modal, .sweet-alert', { state: 'visible', timeout: 5000 }).catch(() => {});
 
     // Confirmar diálogo Swal
     console.log('🤝 Confirmando alerta SweetAlert...');
     await page.locator('button:has-text("Si, subir"), button.swal2-confirm').first().click({ timeout: 15000 });
 
-    // Esperar respuesta de inserción (donde se interceptará el controlador.php)
-    await page.waitForTimeout(10000);
+    // Esperar respuesta de inserción (donde se interceptará el controlador.php) de forma reactiva
+    console.log('⏳ Esperando respuesta de la creación masiva (controlador.php)...');
+    let retries = 0;
+    while (!createdDidsStr && retries < 24) {
+      await page.waitForTimeout(500);
+      retries++;
+    }
 
     if (!createdDidsStr) {
       console.error('❌ ERROR: No se pudieron capturar los dids de la respuesta de subida.');
