@@ -28703,7 +28703,7 @@ async function updateClientInventoryRequestsBadge(commerce) {
   }
 }
 
-function openRequestInventoryModal(commerce, onComplete) {
+async function openRequestInventoryModal(commerce, onComplete) {
   let modal = document.getElementById('modal-request-inventory');
   if (modal) modal.remove();
 
@@ -28736,6 +28736,22 @@ function openRequestInventoryModal(commerce, onComplete) {
     <option value="">Todas las bodegas</option>
     ${warehouses.map(w => `<option value="${w.id}" data-name="${w.name}">${w.name}</option>`).join('')}
   `;
+
+  // Buscar últimos pedidos procesados/despachados del comercio para sugerir corte de preparación
+  let recentPreparedOrders = [];
+  try {
+    const { data: ords } = await supabase
+      .from('orders')
+      .select('id, external_order_number, status, created_at')
+      .eq('comercio', commerce || 'no asignado')
+      .order('created_at', { ascending: false })
+      .limit(6);
+    recentPreparedOrders = ords || [];
+  } catch (e) {
+    console.error('Error loading recent orders for inventory cutoff:', e);
+  }
+
+  const defaultCutoffVal = recentPreparedOrders.length > 0 ? (recentPreparedOrders[0].external_order_number || recentPreparedOrders[0].id) : '';
 
   modal = document.createElement('div');
   modal.id = 'modal-request-inventory';
@@ -28808,6 +28824,29 @@ function openRequestInventoryModal(commerce, onComplete) {
             <option value="Preparación Campaña / Evento Especial">Preparación Campaña (CyberDay, Black Friday, etc.)</option>
             <option value="Otro">Otro Motivo</option>
           </select>
+        </div>
+
+        <!-- Punto de Corte de Pedidos / Último Pedido Preparado -->
+        <div class="form-group" style="margin-bottom: 0; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.25rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0; display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-main); font-size: 0.85rem;">
+              <i class="ri-scissors-cut-line" style="color: #6366f1;"></i> Último Pedido Preparado (Punto de Corte de Estante)
+            </label>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">¿Qué pedidos ya salieron del rack?</span>
+          </div>
+          <input type="text" id="req-inv-cutoff-order" class="form-input" placeholder="Ej: #10452 o 'Hasta pedido #10452 inclusive'" style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.65rem; font-size: 0.85rem; font-weight: 600;" value="${defaultCutoffVal}">
+          ${recentPreparedOrders.length > 0 ? `
+            <div style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Sugerencias recientes:</span>
+              ${recentPreparedOrders.slice(0, 4).map(o => {
+                const num = o.external_order_number || o.id;
+                return `<button type="button" class="btn-client-cutoff-chip" data-val="${num}" style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; color: #6366f1; font-weight: 600; font-family: monospace;">${num}</button>`;
+              }).join('')}
+            </div>
+          ` : ''}
+          <span style="display: block; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.3rem; line-height: 1.3;">
+            Indica el folio del último pedido cuyos productos fueron retirados físicamente del estante. Todo pedido posterior se considerará aún dentro del stock físico.
+          </span>
         </div>
 
         <div class="form-group" style="margin-bottom: 0;">
@@ -29000,6 +29039,14 @@ function openRequestInventoryModal(commerce, onComplete) {
     }
   }
 
+  modal.querySelectorAll('.btn-client-cutoff-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const val = chip.getAttribute('data-val');
+      const input = document.getElementById('req-inv-cutoff-order');
+      if (input) input.value = val;
+    });
+  });
+
   document.getElementById('req-inv-type').addEventListener('change', () => {
     const type = document.getElementById('req-inv-type').value;
     if (type === 'selectivo' && selectedProductIds.size === 0) {
@@ -29047,6 +29094,7 @@ function openRequestInventoryModal(commerce, onComplete) {
       const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
       const reason = document.getElementById('req-inv-reason').value;
       const priority = document.getElementById('req-inv-priority').value;
+      const cutoffOrder = document.getElementById('req-inv-cutoff-order')?.value.trim() || null;
       const notes = document.getElementById('req-inv-notes').value.trim();
       const autoPdf = document.getElementById('req-inv-auto-pdf').checked;
       const autoExcel = document.getElementById('req-inv-auto-excel').checked;
@@ -29109,6 +29157,7 @@ function openRequestInventoryModal(commerce, onComplete) {
         type: type,
         reason: reason,
         priority: priority,
+        cutoff_order: cutoffOrder,
         notes: notes,
         status: 'Pendiente',
         total_skus: productsList.length,
@@ -29148,8 +29197,9 @@ function openRequestInventoryModal(commerce, onComplete) {
               <p><strong>Folio:</strong> <code style="color: #6366f1; font-weight: bold;">${folio}</code></p>
               <p><strong>Comercio:</strong> ${commerce}</p>
               <p><strong>Total SKUs a Contar:</strong> ${productsList.length}</p>
+              ${cutoffOrder ? `<p><strong>Corte Último Pedido:</strong> <span style="font-family: monospace; color: #4338ca; font-weight: 700;">${cutoffOrder}</span></p>` : ''}
               <p style="color: var(--color-text-muted); font-size: 0.8rem; margin-top: 0.5rem;">
-                La solicitud quedó registrada en estado <strong>Pendiente</strong> y ya es visible para el equipo de administración y bodega.
+                La solicitud quedó registrada y las hojas de conteo se descargaron automáticamente.
               </p>
             </div>
           `,
@@ -29163,13 +29213,13 @@ function openRequestInventoryModal(commerce, onComplete) {
           }
         });
       } else {
-        alert(`¡Solicitud de Inventario ${folio} creada con éxito!`);
+        alert(`¡Solicitud ${folio} creada exitosamente!`);
       }
 
       if (onComplete) onComplete();
     } catch (err) {
       console.error('Error creating inventory request:', err);
-      alert('Error al crear la solicitud de inventario: ' + err.message);
+      alert('Error al generar solicitud: ' + err.message);
       submitBtn.disabled = false;
       submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
     }
@@ -29409,6 +29459,7 @@ function openViewInventoryRequestDetailModal(req) {
           <div><strong style="color: var(--color-text-muted);">Estado:</strong> ${statusBadge}</div>
           <div><strong style="color: var(--color-text-muted);">Prioridad:</strong> <span style="font-weight: 600;">${req.priority || 'Normal'}</span></div>
           <div><strong style="color: var(--color-text-muted);">Motivo:</strong> <span style="color: var(--color-text-main);">${req.reason || 'Auditoría'}</span></div>
+          <div><strong style="color: var(--color-text-muted);">Corte Último Pedido:</strong> <span style="font-weight: 700; color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</span></div>
           <div><strong style="color: var(--color-text-muted);">Fecha Solicitud:</strong> <span>${new Date(req.created_at).toLocaleString('es-CL')}</span></div>
           ${req.completed_at ? `<div><strong style="color: var(--color-text-muted);">Fecha Cierre:</strong> <span>${new Date(req.completed_at).toLocaleString('es-CL')}</span></div>` : ''}
           ${req.completed_by ? `<div><strong style="color: var(--color-text-muted);">Validado por:</strong> <span>${req.completed_by}</span></div>` : ''}
@@ -29650,6 +29701,158 @@ window.initWizardOrder = function() {
       if (window.currentWizardStep === 3) window.calculateShippingQuote();
     };
   }
+
+  // Configurar listeners para tarjetas selectoras de flujo de pedido
+  const flowRadios = document.querySelectorAll('input[name="order-flow-type"]');
+  flowRadios.forEach(radio => {
+    radio.onchange = function() {
+      window.updateOrderFlowType(this.value);
+    };
+  });
+
+  // Resetear flujo a despacho por defecto
+  window.updateOrderFlowType('despacho');
+  window.tempOrderOriginalData = null;
+};
+
+window.currentOrderFlowType = 'despacho';
+window.tempOrderOriginalData = null;
+
+window.updateOrderFlowType = function(flowType) {
+  // 1. Guardar datos actuales de despacho si venimos de despacho
+  if (window.currentOrderFlowType === 'despacho') {
+    const inputName = document.getElementById('order-cust-name');
+    const inputEmail = document.getElementById('order-cust-email');
+    const inputPhone = document.getElementById('order-cust-phone');
+    const inputAddress = document.getElementById('order-cust-address');
+    const inputCity = document.getElementById('order-cust-city');
+    const inputComplement = document.getElementById('order-cust-complement');
+
+    window.tempOrderOriginalData = {
+      name: inputName ? inputName.value.trim() : '',
+      email: inputEmail ? inputEmail.value.trim() : '',
+      phone: inputPhone ? inputPhone.value.trim() : '',
+      address: inputAddress ? inputAddress.value.trim() : '',
+      city: inputCity ? inputCity.value.trim() : '',
+      complement: inputComplement ? inputComplement.value.trim() : ''
+    };
+  }
+
+  // 2. Elementos DOM
+  const cardDespacho = document.getElementById('card-flow-despacho');
+  const cardRetiro = document.getElementById('card-flow-retiro');
+  const cardFull = document.getElementById('card-flow-full');
+
+  const inputName = document.getElementById('order-cust-name');
+  const inputEmail = document.getElementById('order-cust-email');
+  const inputPhone = document.getElementById('order-cust-phone');
+  const inputAddress = document.getElementById('order-cust-address');
+  const inputCity = document.getElementById('order-cust-city');
+  const inputComplement = document.getElementById('order-cust-complement');
+
+  const groupEmailPhone = document.getElementById('group-order-email-phone');
+  const groupAddress = document.getElementById('group-order-address');
+  const groupCityComplement = document.getElementById('group-order-city-complement');
+
+  if (!cardDespacho || !cardRetiro || !cardFull) return;
+
+  // Helper para aplicar estilos visuales a las tarjetas
+  const setCardActive = (card, active) => {
+    const icon = card.querySelector('i');
+    if (active) {
+      card.style.borderColor = 'var(--color-primary)';
+      card.style.background = 'rgba(var(--color-primary-rgb), 0.04)';
+      if (icon) icon.style.color = 'var(--color-primary)';
+    } else {
+      card.style.borderColor = 'var(--color-border)';
+      card.style.background = 'var(--color-surface)';
+      if (icon) icon.style.color = 'var(--color-text-muted)';
+    }
+  };
+
+  setCardActive(cardDespacho, flowType === 'despacho');
+  setCardActive(cardRetiro, flowType === 'retiro');
+  setCardActive(cardFull, flowType === 'full');
+
+  // Asegurar que el radio button correspondiente esté marcado
+  const radioInput = document.getElementById(`order-flow-${flowType}`);
+  if (radioInput) radioInput.checked = true;
+
+  // 3. Aplicar lógica de flujo
+  if (flowType === 'despacho') {
+    // Restaurar visibilidad
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    // Hacer editables los campos
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Juan Pérez';
+    }
+
+    // Restaurar valores guardados o limpiar
+    const cache = window.tempOrderOriginalData || {};
+    if (inputName) inputName.value = cache.name || '';
+    if (inputEmail) inputEmail.value = cache.email || '';
+    if (inputPhone) inputPhone.value = cache.phone || '';
+    if (inputAddress) inputAddress.value = cache.address || '';
+    if (inputCity) {
+      inputCity.value = cache.city || '';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+    if (inputComplement) inputComplement.value = cache.complement || '';
+
+  } else if (flowType === 'retiro') {
+    // Visibilidad completa
+    if (groupEmailPhone) groupEmailPhone.style.display = 'grid';
+    if (groupAddress) groupAddress.style.display = 'block';
+    if (groupCityComplement) groupCityComplement.style.display = 'grid';
+
+    // Hacer editable el nombre
+    if (inputName) {
+      inputName.readOnly = false;
+      inputName.placeholder = 'Ej: Juan Pérez';
+    }
+
+    // Si veníamos de full, restaurar datos del caché para los campos editables
+    const cache = window.tempOrderOriginalData || {};
+    if (inputName) inputName.value = (window.currentOrderFlowType === 'full') ? (cache.name || '') : (inputName.value || '');
+    if (inputEmail) inputEmail.value = (window.currentOrderFlowType === 'full') ? (cache.email || '') : (inputEmail.value || '');
+    if (inputPhone) inputPhone.value = (window.currentOrderFlowType === 'full') ? (cache.phone || '') : (inputPhone.value || '');
+    if (inputComplement) inputComplement.value = (window.currentOrderFlowType === 'full') ? (cache.complement || '') : (inputComplement.value || '');
+
+    // Autocompletar Dirección y Comuna
+    if (inputAddress) inputAddress.value = 'Avenida Campo de Deportes';
+    if (inputCity) {
+      inputCity.value = 'Ñuñoa';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+
+  } else if (flowType === 'full') {
+    // Ocultar campos innecesarios
+    if (groupEmailPhone) groupEmailPhone.style.display = 'none';
+    if (groupAddress) groupAddress.style.display = 'none';
+    if (groupCityComplement) groupCityComplement.style.display = 'none';
+
+    // Establecer Destinatario como BODEGA FULL MERCADOLIBRE y hacer readonly
+    if (inputName) {
+      inputName.value = 'BODEGA FULL MERCADOLIBRE';
+      inputName.readOnly = true;
+    }
+
+    // Autocompletar el resto bajo el capó para cumplir validaciones
+    if (inputEmail) inputEmail.value = 'full@mercadolibre.cl';
+    if (inputPhone) inputPhone.value = '999999999';
+    if (inputAddress) inputAddress.value = 'Bodega Full Mercado Libre';
+    if (inputCity) {
+      inputCity.value = 'Pudahuel';
+      inputCity.dispatchEvent(new Event('change'));
+    }
+    if (inputComplement) inputComplement.value = '';
+  }
+
+  window.currentOrderFlowType = flowType;
 };
 
 window.updateWizardUI = function() {
