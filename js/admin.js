@@ -3370,8 +3370,11 @@ window.applyWmsFiltersAndRender = function() {
               
               <!-- Col 1: Datos del Cliente y Despacho -->
               <div style="background: var(--color-surface); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm);">
-                <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
-                  <i class="ri-user-line"></i> Datos de Despacho
+                <h4 style="margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; color: var(--color-primary); font-size: 0.95rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+                  <span style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-user-line"></i> Datos de Despacho</span>
+                  <button onclick="window.editWmsOrderShippingDetails('${order.id}')" class="btn btn-outline btn-sm" style="padding: 0.15rem 0.4rem; font-size: 0.725rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-edit-line"></i> Editar
+                  </button>
                 </h4>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Nombre Cliente:</strong> ${displayName}</p>
                 <p style="margin-bottom: 0.5rem; font-size: 0.9rem;"><strong>Email:</strong> ${displayEmail}</p>
@@ -8699,8 +8702,11 @@ function renderAdminInventoryRequestsTableBody() {
             <button class="btn btn-outline btn-sm btn-admin-excel-req" data-id="${r.id}" title="Descargar Planilla Excel" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
               <i class="ri-file-excel-line"></i>
             </button>
+            <button class="btn btn-outline btn-sm btn-admin-edit-req" data-id="${r.id}" title="Editar Parámetros y Artículos de Solicitud" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer;">
+              <i class="ri-edit-line"></i>
+            </button>
             <button class="btn btn-primary btn-sm btn-admin-manage-req" data-id="${r.id}" title="Gestionar y Cuadrar Conteo Físico" style="padding: 0.35rem 0.65rem; background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer;">
-              <i class="ri-edit-2-line"></i> Gestionar
+              <i class="ri-survey-line"></i> Conteo
             </button>
             <button class="btn btn-outline btn-sm btn-admin-delete-req" data-id="${r.id}" title="Eliminar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer;">
               <i class="ri-delete-bin-line"></i>
@@ -8718,6 +8724,16 @@ function renderAdminInventoryRequestsTableBody() {
       const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
       if (req) {
         openAdminManageInventoryRequestModal(req);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-admin-edit-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req) {
+        openAdminEditInventoryRequestModal(req);
       }
     });
   });
@@ -8839,7 +8855,7 @@ function openAdminManageInventoryRequestModal(req) {
             <i class="ri-survey-line" style="color: #6366f1;"></i> Cuadratura y Registro de Toma de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
           </h3>
           <p style="margin: 0.2rem 0 0 0; font-size: 0.825rem; color: var(--color-text-muted);">
-            Comercio: <strong>${req.comercio}</strong> • Bodega: <strong>${req.warehouse_name || 'Todas las bodegas'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
+            Comercio: <strong>${req.comercio}</strong> • Bodega: <strong>${req.warehouse_name || 'Todas las bodegas'}</strong> • Corte Pedidos: <strong style="color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</strong> • Fecha: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
           </p>
         </div>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-manage-inventory-request').remove()">&times;</button>
@@ -9353,6 +9369,21 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
           </select>
         </div>
 
+        <!-- Punto de Corte de Pedidos / Último Pedido Preparado -->
+        <div class="form-group" style="margin-bottom: 0; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.25rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0; display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-main); font-size: 0.85rem;">
+              <i class="ri-scissors-cut-line" style="color: #6366f1;"></i> Último Pedido Preparado (Punto de Corte de Estante)
+            </label>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">¿Qué pedidos ya salieron del rack?</span>
+          </div>
+          <input type="text" id="admin-create-req-cutoff-order" class="form-input" placeholder="Ej: #10452 o 'Hasta pedido #10452 inclusive'" style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.65rem; font-size: 0.85rem; font-weight: 600;">
+          <div id="admin-create-cutoff-chips" style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap;"></div>
+          <span style="display: block; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.3rem; line-height: 1.3;">
+            Indica el folio del último pedido cuyos productos fueron retirados físicamente del estante. Todo pedido posterior se considerará aún dentro del stock físico.
+          </span>
+        </div>
+
         <div class="form-group" style="margin-bottom: 0;">
           <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
             Instrucciones para la Cuadrilla de Bodega
@@ -9447,11 +9478,56 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     return true;
   };
 
+  async function loadRecentOrdersForCommerce(selectedCom) {
+    const chipContainer = document.getElementById('admin-create-cutoff-chips');
+    const input = document.getElementById('admin-create-req-cutoff-order');
+    if (!chipContainer || !input) return;
+
+    if (!selectedCom) {
+      chipContainer.innerHTML = '';
+      input.value = '';
+      return;
+    }
+
+    try {
+      const { data: ords } = await supabase
+        .from('orders')
+        .select('id, external_order_number, status, created_at')
+        .eq('comercio', selectedCom)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (ords && ords.length > 0) {
+        if (!input.value) {
+          input.value = ords[0].external_order_number || ords[0].id;
+        }
+        chipContainer.innerHTML = `
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Sugerencias recientes:</span>
+          ${ords.map(o => {
+            const num = o.external_order_number || o.id;
+            return `<button type="button" class="btn-admin-cutoff-chip" data-val="${num}" style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; color: #6366f1; font-weight: 600; font-family: monospace;">${num}</button>`;
+          }).join('')}
+        `;
+        chipContainer.querySelectorAll('.btn-admin-cutoff-chip').forEach(btn => {
+          btn.addEventListener('click', () => {
+            input.value = btn.getAttribute('data-val');
+          });
+        });
+      } else {
+        chipContainer.innerHTML = '';
+      }
+    } catch (e) {
+      console.error('Error fetching recent orders for cutoff suggestion:', e);
+    }
+  }
+
   async function loadProductsForSelectedCommerce() {
     const comSelect = document.getElementById('admin-create-req-commerce');
     const selectedCom = comSelect.value;
     const tbody = document.getElementById('admin-create-req-preview-tbody');
     const badge = document.getElementById('admin-create-req-count-badge');
+
+    loadRecentOrdersForCommerce(selectedCom);
 
     if (!selectedCom) {
       loadedProductsForCommerce = [];
@@ -9530,15 +9606,15 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     }
 
     if (visibleProducts.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos físicos que coincidan con la búsqueda.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos físicos disponibles.</td></tr>`;
       return;
     }
 
     let allVisibleChecked = isSelective && visibleProducts.length > 0 && visibleProducts.every(p => selectedProductIds.has(p.id));
-    const newMasterCb = document.getElementById('admin-create-master-cb');
-    if (newMasterCb) {
-      newMasterCb.checked = allVisibleChecked;
-      newMasterCb.onchange = (e) => {
+    const masterCb = document.getElementById('admin-create-master-cb');
+    if (masterCb) {
+      masterCb.checked = allVisibleChecked;
+      masterCb.onchange = (e) => {
         const isChecked = e.target.checked;
         visibleProducts.forEach(p => {
           if (isChecked) selectedProductIds.add(p.id);
@@ -9605,7 +9681,6 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
   document.getElementById('admin-create-req-commerce').addEventListener('change', loadProductsForSelectedCommerce);
   document.getElementById('admin-create-req-warehouse').addEventListener('change', renderAdminProductsTable);
-  
   document.getElementById('admin-create-req-type').addEventListener('change', () => {
     const type = document.getElementById('admin-create-req-type').value;
     if (type === 'selectivo' && selectedProductIds.size === 0) {
@@ -9615,9 +9690,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
   });
 
   const searchInp = document.getElementById('admin-create-search-filter');
-  if (searchInp) {
-    searchInp.addEventListener('input', renderAdminProductsTable);
-  }
+  if (searchInp) searchInp.addEventListener('input', renderAdminProductsTable);
 
   const btnSelectAll = document.getElementById('btn-admin-create-select-all');
   if (btnSelectAll) {
@@ -9639,7 +9712,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     loadProductsForSelectedCommerce();
   }
 
-  // Guardar solicitud
+  // Manejar envío
   const submitBtn = document.getElementById('btn-admin-submit-create-req');
   submitBtn.addEventListener('click', async () => {
     const selectedCom = document.getElementById('admin-create-req-commerce').value;
@@ -9658,6 +9731,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
       const reason = document.getElementById('admin-create-req-reason').value;
       const priority = document.getElementById('admin-create-req-priority').value;
+      const cutoffOrder = document.getElementById('admin-create-req-cutoff-order')?.value.trim() || null;
       const notes = document.getElementById('admin-create-req-notes').value.trim();
       const autoPdf = document.getElementById('admin-create-auto-pdf').checked;
       const autoExcel = document.getElementById('admin-create-auto-excel').checked;
@@ -9716,6 +9790,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         type: type,
         reason: reason,
         priority: priority,
+        cutoff_order: cutoffOrder,
         notes: notes,
         status: 'Pendiente',
         total_skus: productsList.length,
@@ -9765,8 +9840,545 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
   });
 }
 
+async function openAdminEditInventoryRequestModal(req, onComplete) {
+  if (!req) return;
+
+  let modal = document.getElementById('modal-admin-edit-inventory-request');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-admin-edit-inventory-request';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9998';
+
+  const folio = req.folio || req.id.substring(0, 8);
+  const warehouses = window.allWarehousesList || [];
+  const warehouseOptions = `
+    <option value="" ${!req.warehouse_id ? 'selected' : ''}>Todas las bodegas</option>
+    ${warehouses.map(w => `<option value="${w.id}" data-name="${w.name}" ${String(w.id) === String(req.warehouse_id) ? 'selected' : ''}>${w.name}</option>`).join('')}
+  `;
+
+  // Obtener IDs de productos previamente seleccionados
+  const existingProductIds = new Set((req.products_list || []).map(p => p.id));
+  const selectedProductIds = new Set(existingProductIds);
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 850px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
+      <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+          <i class="ri-edit-2-line" style="color: #6366f1;"></i> Editar Solicitud de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-edit-inventory-request').remove()">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">
+          Modifica los parámetros de la orden de conteo para <strong>${req.comercio}</strong>. Puedes añadir o quitar productos de la lista y actualizar el estado o instrucciones.
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Comercio
+            </label>
+            <input type="text" class="form-input" value="${req.comercio}" disabled style="width: 100%; height: 38px; background: var(--color-bg-alt); color: var(--color-text-muted); border: 1px solid var(--color-border); border-radius: var(--radius-md); font-weight: 700;">
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Bodega Asignada
+            </label>
+            <select id="admin-edit-req-warehouse" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+              ${warehouseOptions}
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Alcance del Inventario
+            </label>
+            <select id="admin-edit-req-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600;">
+              <option value="completo" ${req.type === 'completo' ? 'selected' : ''}>Inventario Completo (Todo el catálogo físico)</option>
+              <option value="selectivo" ${req.type === 'selectivo' || req.type === 'parcial' ? 'selected' : ''}>Inventario Selectivo (Elegir artículos específicos)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Prioridad
+            </label>
+            <select id="admin-edit-req-priority" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+              <option value="Baja" ${req.priority === 'Baja' ? 'selected' : ''}>Baja</option>
+              <option value="Normal" ${!req.priority || req.priority === 'Normal' ? 'selected' : ''}>Normal</option>
+              <option value="Media" ${req.priority === 'Media' ? 'selected' : ''}>Media (24-48 hrs)</option>
+              <option value="Alta" ${req.priority === 'Alta' ? 'selected' : ''}>Alta / Urgente (Mismo día)</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Estado
+            </label>
+            <select id="admin-edit-req-status" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600;">
+              <option value="Pendiente" ${req.status === 'Pendiente' ? 'selected' : ''}>⏳ Pendiente</option>
+              <option value="En Conteo" ${req.status === 'En Conteo' ? 'selected' : ''}>🔄 En Conteo</option>
+              <option value="Finalizada" ${req.status === 'Finalizada' ? 'selected' : ''}>✅ Finalizada</option>
+              <option value="Cancelada" ${req.status === 'Cancelada' ? 'selected' : ''}>❌ Cancelada</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+            Motivo de la Solicitud
+          </label>
+          <select id="admin-edit-req-reason" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
+            <option value="Auditoría / Cuadratura Periódica" ${req.reason === 'Auditoría / Cuadratura Periódica' ? 'selected' : ''}>Auditoría / Cuadratura Periódica Interna</option>
+            <option value="Diferencia o Descuadre Detectado" ${req.reason === 'Diferencia o Descuadre Detectado' ? 'selected' : ''}>Diferencia o Descuadre Detectado en Picking</option>
+            <option value="Conteo Cíclico de Rutina" ${req.reason === 'Conteo Cíclico de Rutina' ? 'selected' : ''}>Conteo Cíclico de Rutina</option>
+            <option value="Revisión de Mermas o Daños" ${req.reason === 'Revisión de Mermas o Daños' ? 'selected' : ''}>Revisión de Mermas o Empaques Dañados</option>
+            <option value="Preparación Campaña / Cyber" ${req.reason === 'Preparación Campaña / Cyber' ? 'selected' : ''}>Preparación Campaña de Alto Volumen</option>
+            <option value="Otro" ${req.reason === 'Otro' ? 'selected' : ''}>Otro</option>
+          </select>
+        </div>
+
+        <!-- Punto de Corte de Pedidos / Último Pedido Preparado -->
+        <div class="form-group" style="margin-bottom: 0; background: var(--color-bg); padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; flex-wrap: wrap; gap: 0.25rem;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0; display: flex; align-items: center; gap: 0.35rem; color: var(--color-text-main); font-size: 0.85rem;">
+              <i class="ri-scissors-cut-line" style="color: #6366f1;"></i> Último Pedido Preparado (Punto de Corte de Estante)
+            </label>
+            <span style="font-size: 0.75rem; color: var(--color-text-muted);">¿Qué pedidos ya salieron del rack?</span>
+          </div>
+          <input type="text" id="admin-edit-req-cutoff-order" class="form-input" placeholder="Ej: #10452 o 'Hasta pedido #10452 inclusive'" style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.65rem; font-size: 0.85rem; font-weight: 600;" value="${req.cutoff_order || ''}">
+          <div id="admin-edit-cutoff-chips" style="display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap;"></div>
+          <span style="display: block; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.3rem; line-height: 1.3;">
+            Indica el folio del último pedido cuyos productos fueron retirados físicamente del estante.
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Instrucciones del Cliente
+            </label>
+            <textarea id="admin-edit-req-notes" class="form-input" rows="2" placeholder="Instrucciones del cliente..." style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;">${req.notes || ''}</textarea>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
+              Observaciones de Administración / Bodega
+            </label>
+            <textarea id="admin-edit-req-admin-notes" class="form-input" rows="2" placeholder="Observaciones internas..." style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;">${req.admin_notes || ''}</textarea>
+          </div>
+        </div>
+
+        <!-- Panel de Selección / Vista Previa de Productos -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
+                Productos Incluidos en la Solicitud
+              </label>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(Solo productos físicos activos, excluye virtuales y borradores)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span id="admin-edit-req-count-badge" style="font-size: 0.8rem; font-weight: 700; background: rgba(99, 102, 241, 0.12); color: #6366f1; padding: 0.2rem 0.65rem; border-radius: var(--radius-full); border: 1px solid rgba(99, 102, 241, 0.3);">
+                0 SKUs
+              </span>
+            </div>
+          </div>
+
+          <!-- Barra de Filtro y Botones de Selección Rápida -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative; flex: 1; min-width: 200px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+              <input type="text" id="admin-edit-search-filter" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 100%; height: 32px; padding-left: 2rem; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            </div>
+            <div id="admin-edit-selection-actions" style="display: flex; gap: 0.35rem;">
+              <button type="button" id="btn-admin-edit-select-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: #6366f1; color: #6366f1;">
+                <i class="ri-checkbox-line"></i> Seleccionar Todos
+              </button>
+              <button type="button" id="btn-admin-edit-deselect-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: var(--color-text-muted); color: var(--color-text-muted);">
+                <i class="ri-checkbox-blank-line"></i> Deseleccionar
+              </button>
+            </div>
+          </div>
+
+          <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+              <thead>
+                <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); position: sticky; top: 0; z-index: 1;">
+                  <th id="admin-edit-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
+                    <input type="checkbox" id="admin-edit-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+                  </th>
+                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
+                  <th style="padding: 0.4rem 0.6rem;">Nombre</th>
+                  <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
+                </tr>
+              </thead>
+              <tbody id="admin-edit-req-preview-tbody">
+                <tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando catálogo...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Opciones de Reemisión Automática -->
+        <div style="background: var(--color-bg-alt); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-weight: 600; color: var(--color-text-main);">
+            <input type="checkbox" id="admin-edit-auto-pdf" style="cursor: pointer; width: 16px; height: 16px; accent-color: #6366f1;">
+            <span><i class="ri-file-pdf-line" style="color: #ef4444; margin-right: 0.25rem;"></i> Descargar Hoja de Toma de Inventario (PDF) actualizada</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; font-weight: 500; color: var(--color-text-muted);">
+            <input type="checkbox" id="admin-edit-auto-excel" style="cursor: pointer; width: 16px; height: 16px; accent-color: #10b981;">
+            <span><i class="ri-file-excel-line" style="color: #10b981; margin-right: 0.25rem;"></i> Descargar Planilla Digital Excel (.xlsx) actualizada</span>
+          </label>
+        </div>
+
+      </div>
+
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
+        <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-edit-inventory-request').remove()">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-admin-submit-edit-req" style="background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="ri-save-line"></i> Guardar Cambios
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Helper para validar productos físicos activos
+  const isPhysicalActive = (p) => {
+    if (!p) return false;
+    if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+    const st = (p.status || '').toLowerCase().trim();
+    if (st === 'archived' || st === 'archivado' || st === 'draft' || st === 'borrador') return false;
+    return true;
+  };
+
+  let loadedProducts = [];
+
+  // Cargar pedidos recientes para chips de sugerencias
+  try {
+    const { data: ords } = await supabase
+      .from('orders')
+      .select('id, external_order_number, status, created_at')
+      .eq('comercio', req.comercio)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    const chipContainer = document.getElementById('admin-edit-cutoff-chips');
+    const input = document.getElementById('admin-edit-req-cutoff-order');
+    if (chipContainer && ords && ords.length > 0) {
+      chipContainer.innerHTML = `
+        <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 600;">Sugerencias recientes:</span>
+        ${ords.map(o => {
+          const num = o.external_order_number || o.id;
+          return `<button type="button" class="btn-admin-edit-cutoff-chip" data-val="${num}" style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; cursor: pointer; color: #6366f1; font-weight: 600; font-family: monospace;">${num}</button>`;
+        }).join('')}
+      `;
+      chipContainer.querySelectorAll('.btn-admin-edit-cutoff-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (input) input.value = btn.getAttribute('data-val');
+        });
+      });
+    }
+  } catch (e) {
+    console.error('Error loading recent orders for edit suggestions:', e);
+  }
+
+  // Cargar productos del comercio
+  try {
+    const { data: prods, error } = await supabase
+      .from('products')
+      .select(`
+        id, sku, name, barcode, status, is_virtual, is_pack,
+        inventory (warehouse_id, quantity, warehouses(name))
+      `)
+      .eq('comercio', req.comercio)
+      .neq('status', 'archived');
+
+    if (error) throw error;
+    loadedProducts = (prods || []).filter(isPhysicalActive);
+    renderEditProductsTable();
+  } catch (e) {
+    console.error(e);
+    const tbody = document.getElementById('admin-edit-req-preview-tbody');
+    if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: red;">Error al cargar catálogo: ${e.message}</td></tr>`;
+  }
+
+  function renderEditProductsTable() {
+    const type = document.getElementById('admin-edit-req-type').value;
+    const whSelect = document.getElementById('admin-edit-req-warehouse');
+    const selectedWhId = whSelect.value;
+    const searchFilter = (document.getElementById('admin-edit-search-filter')?.value || '').toLowerCase().trim();
+    const isSelective = (type === 'selectivo');
+
+    const actionsContainer = document.getElementById('admin-edit-selection-actions');
+    const thCheck = document.getElementById('admin-edit-th-check');
+
+    if (actionsContainer) actionsContainer.style.display = isSelective ? 'flex' : 'none';
+    if (thCheck) thCheck.innerHTML = isSelective ? `<input type="checkbox" id="admin-edit-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">` : '#';
+
+    const tbody = document.getElementById('admin-edit-req-preview-tbody');
+    const badge = document.getElementById('admin-edit-req-count-badge');
+    if (!tbody || !badge) return;
+
+    const visibleProducts = loadedProducts.filter(p => {
+      if (!searchFilter) return true;
+      const sku = (p.sku || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter);
+    });
+
+    if (isSelective) {
+      const totalSelected = Array.from(selectedProductIds).filter(id => loadedProducts.some(p => p.id === id)).length;
+      badge.textContent = `${totalSelected} de ${loadedProducts.length} seleccionados`;
+    } else {
+      badge.textContent = `${loadedProducts.length} SKUs físicos`;
+    }
+
+    if (visibleProducts.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos físicos que coincidan con la búsqueda.</td></tr>`;
+      return;
+    }
+
+    let allVisibleChecked = isSelective && visibleProducts.length > 0 && visibleProducts.every(p => selectedProductIds.has(p.id));
+    const newMasterCb = document.getElementById('admin-edit-master-cb');
+    if (newMasterCb) {
+      newMasterCb.checked = allVisibleChecked;
+      newMasterCb.onchange = (e) => {
+        const isChecked = e.target.checked;
+        visibleProducts.forEach(p => {
+          if (isChecked) selectedProductIds.add(p.id);
+          else selectedProductIds.delete(p.id);
+        });
+        renderEditProductsTable();
+      };
+    }
+
+    tbody.innerHTML = visibleProducts.map((p, idx) => {
+      let sysQty = 0;
+      const invs = p.inventory || [];
+      if (selectedWhId) {
+        const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
+        sysQty = match ? (match.quantity || 0) : 0;
+      } else {
+        sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+      }
+
+      const isChecked = isSelective ? selectedProductIds.has(p.id) : true;
+      const rowBg = (isSelective && isChecked) ? 'background: rgba(99, 102, 241, 0.07);' : '';
+
+      return `
+        <tr class="admin-edit-item-row" data-id="${p.id}" style="border-bottom: 1px solid var(--color-border); cursor: ${isSelective ? 'pointer' : 'default'}; ${rowBg}">
+          <td style="padding: 0.4rem 0.6rem; text-align: center;">
+            ${isSelective ? `
+              <input type="checkbox" class="admin-edit-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+            ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
+          </td>
+          <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
+          <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (isSelective) {
+      tbody.querySelectorAll('.admin-edit-item-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.tagName.toLowerCase() === 'input') return;
+          const prodId = row.getAttribute('data-id');
+          if (selectedProductIds.has(prodId)) {
+            selectedProductIds.delete(prodId);
+          } else {
+            selectedProductIds.add(prodId);
+          }
+          renderEditProductsTable();
+        });
+      });
+
+      tbody.querySelectorAll('.admin-edit-item-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const prodId = e.target.getAttribute('data-id');
+          if (e.target.checked) {
+            selectedProductIds.add(prodId);
+          } else {
+            selectedProductIds.delete(prodId);
+          }
+          renderEditProductsTable();
+        });
+      });
+    }
+  }
+
+  document.getElementById('admin-edit-req-warehouse').addEventListener('change', renderEditProductsTable);
+  document.getElementById('admin-edit-req-type').addEventListener('change', () => {
+    const type = document.getElementById('admin-edit-req-type').value;
+    if (type === 'selectivo' && selectedProductIds.size === 0) {
+      loadedProducts.forEach(p => selectedProductIds.add(p.id));
+    }
+    renderEditProductsTable();
+  });
+
+  const searchInp = document.getElementById('admin-edit-search-filter');
+  if (searchInp) searchInp.addEventListener('input', renderEditProductsTable);
+
+  const btnSelectAll = document.getElementById('btn-admin-edit-select-all');
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      loadedProducts.forEach(p => selectedProductIds.add(p.id));
+      renderEditProductsTable();
+    });
+  }
+
+  const btnDeselectAll = document.getElementById('btn-admin-edit-deselect-all');
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', () => {
+      selectedProductIds.clear();
+      renderEditProductsTable();
+    });
+  }
+
+  // Guardar cambios editados
+  const submitBtn = document.getElementById('btn-admin-submit-edit-req');
+  submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando Cambios...';
+
+    try {
+      const type = document.getElementById('admin-edit-req-type').value;
+      const whSelect = document.getElementById('admin-edit-req-warehouse');
+      const selectedWhId = whSelect.value || null;
+      const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
+      const reason = document.getElementById('admin-edit-req-reason').value;
+      const priority = document.getElementById('admin-edit-req-priority').value;
+      const status = document.getElementById('admin-edit-req-status').value;
+      const cutoffOrder = document.getElementById('admin-edit-req-cutoff-order')?.value.trim() || null;
+      const notes = document.getElementById('admin-edit-req-notes').value.trim();
+      const adminNotes = document.getElementById('admin-edit-req-admin-notes').value.trim();
+      const autoPdf = document.getElementById('admin-edit-auto-pdf').checked;
+      const autoExcel = document.getElementById('admin-edit-auto-excel').checked;
+
+      let toInclude = [];
+      if (type === 'selectivo') {
+        toInclude = loadedProducts.filter(p => selectedProductIds.has(p.id));
+      } else {
+        toInclude = loadedProducts;
+      }
+
+      if (toInclude.length === 0) {
+        alert('Por favor selecciona al menos un producto para la solicitud.');
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+        return;
+      }
+
+      // Mapear preservando conteos anteriores si existían
+      const oldList = Array.isArray(req.products_list) ? req.products_list : [];
+      const productsList = toInclude.map(p => {
+        let sysQty = 0;
+        const invs = p.inventory || [];
+        if (selectedWhId) {
+          const match = invs.find(i => String(i.warehouse_id) === String(selectedWhId));
+          sysQty = match ? (match.quantity || 0) : 0;
+        } else {
+          sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
+        }
+
+        const prev = oldList.find(oldP => oldP.id === p.id);
+        const countedVal = prev ? prev.counted_qty : null;
+        let diffVal = null;
+        if (countedVal !== null && countedVal !== undefined) {
+          diffVal = countedVal - sysQty;
+        }
+
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          barcode: p.barcode || '',
+          warehouse_id: selectedWhId,
+          warehouse_name: selectedWhName,
+          system_qty: sysQty,
+          counted_qty: countedVal,
+          difference: diffVal,
+          notes: prev ? prev.notes : ''
+        };
+      });
+
+      const updatePayload = {
+        warehouse_id: selectedWhId,
+        warehouse_name: selectedWhName,
+        type: type,
+        reason: reason,
+        priority: priority,
+        status: status,
+        cutoff_order: cutoffOrder,
+        notes: notes,
+        admin_notes: adminNotes,
+        total_skus: productsList.length,
+        products_list: productsList,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: updateErr } = await supabase
+        .from('inventory_requests')
+        .update(updatePayload)
+        .eq('id', req.id);
+
+      if (updateErr) throw updateErr;
+
+      // Actualizar objeto en memoria
+      Object.assign(req, updatePayload);
+      if (window.cachedAdminInventoryRequests) {
+        const foundIdx = window.cachedAdminInventoryRequests.findIndex(r => r.id === req.id);
+        if (foundIdx !== -1) {
+          window.cachedAdminInventoryRequests[foundIdx] = { ...window.cachedAdminInventoryRequests[foundIdx], ...updatePayload };
+        }
+      }
+
+      if (autoPdf && typeof window.generateInventoryCountPdf === 'function') {
+        window.generateInventoryCountPdf(req);
+      }
+      if (autoExcel && typeof window.generateInventoryCountExcel === 'function') {
+        window.generateInventoryCountExcel(req);
+      }
+
+      modal.remove();
+      renderAdminInventoryRequestsTableBody();
+      updateAdminInventoryRequestsTabBadge();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          icon: 'success',
+          title: '¡Solicitud Actualizada!',
+          text: `Los cambios para la solicitud ${folio} se guardaron exitosamente.`,
+          confirmButtonColor: '#6366f1'
+        });
+      } else {
+        alert(`¡Solicitud ${folio} actualizada con éxito!`);
+      }
+
+      if (onComplete) onComplete();
+
+    } catch (err) {
+      console.error('Error updating inventory request:', err);
+      alert('Error al guardar cambios: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Cambios';
+    }
+  });
+}
+
 // Exponer funciones globales para el módulo de inventario admin
 window.openAdminManageInventoryRequestModal = openAdminManageInventoryRequestModal;
+window.openAdminEditInventoryRequestModal = openAdminEditInventoryRequestModal;
 window.deleteAdminInventoryRequest = deleteAdminInventoryRequest;
 window.openAdminCreateInventoryRequestModal = openAdminCreateInventoryRequestModal;
 window.renderAdminInventoryRequestsWorkspace = renderAdminInventoryRequestsWorkspace;
@@ -15277,24 +15889,60 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
-    // 7. Cargar Noticias Recientes para el Sidebar (Ya cargadas desde caché o base de datos arriba)
+    // 7. Cargar Noticias Recientes para el Sidebar (Noticias 2.0 / Mini Blog)
     let newsHtml = '';
     if (!news || news.length === 0) {
       newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
     } else {
-      newsHtml = news.map(n => `
-        <div class="news-post-card news-item-clickable" data-id="${n.id}" style="cursor: pointer; padding: 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
-          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
-            <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 500;"><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString()}</span>
-            ${n.subtitle ? `<span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; font-size: 0.7rem; text-transform: uppercase;">${n.subtitle}</span>` : ''}
+      // Ordenar: Pinned primero, luego por fecha descendente
+      const sortedNews = [...news].sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1;
+        if (!a.is_pinned && b.is_pinned) return 1;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+
+      newsHtml = sortedNews.map(n => {
+        const cat = n.category || 'Actualización';
+        let badgeClass = 'news-tag-update';
+        let badgeIcon = 'ri-rocket-line';
+        if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+        else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+        else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+        else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+        else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+        // Clean plain text excerpt from HTML body
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = n.body || '';
+        const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+        const excerpt = plainText.length > 130 ? plainText.substring(0, 130) + '...' : plainText;
+
+        // Reading time
+        const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+        const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+        return `
+          <div class="news-post-card news-item-clickable ${n.is_pinned ? 'is-pinned-card' : ''}" data-id="${n.id}">
+            ${n.cover_image ? `<img src="${n.cover_image}" alt="${n.title}" class="news-card-cover" onerror="this.style.display='none'">` : ''}
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+                ${n.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Fijado</span>` : ''}
+              </div>
+              <span class="news-read-time"><i class="ri-time-line"></i> ${readTime} min lectura</span>
+            </div>
+            <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
+            ${n.subtitle ? `<div style="font-size: 0.825rem; font-weight: 600; color: var(--color-primary);">${n.subtitle}</div>` : ''}
+            <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${excerpt}</p>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+              <span><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString('es-CL')}</span>
+              <span style="color: var(--color-primary); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                Leer artículo <i class="ri-arrow-right-line"></i>
+              </span>
+            </div>
           </div>
-          <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
-          <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${n.body}</p>
-          <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--color-primary); font-weight: 600; margin-top: 0.25rem;">
-            Leer noticia completa <i class="ri-arrow-right-line" style="font-size: 0.9rem;"></i>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     let missingDimVolBannerHtml = '';
@@ -15568,6 +16216,37 @@ window.setupDashboardCalendarListeners_admin = function() {
   });
 };
 
+// ========================================================
+// NOTICIAS 2.0 / MINI BLOG INFORMATIVO - ADMIN & VIEWER
+// ========================================================
+
+window.openNewsImageLightbox = function(src) {
+  let lightbox = document.getElementById('news-image-lightbox-overlay');
+  if (!lightbox) {
+    lightbox = document.createElement('div');
+    lightbox.id = 'news-image-lightbox-overlay';
+    lightbox.className = 'news-image-lightbox';
+    document.body.appendChild(lightbox);
+  }
+  lightbox.innerHTML = `
+    <button class="news-image-lightbox-close" title="Cerrar (Esc)"><i class="ri-close-line"></i></button>
+    <img src="${src}" alt="Zoom Imagen">
+  `;
+  lightbox.style.display = 'flex';
+  
+  const close = () => { lightbox.style.display = 'none'; };
+  lightbox.onclick = (e) => { if (e.target !== lightbox.querySelector('img')) close(); };
+  lightbox.querySelector('.news-image-lightbox-close').onclick = close;
+  
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      close();
+      window.removeEventListener('keydown', onKey);
+    }
+  };
+  window.addEventListener('keydown', onKey);
+};
+
 function openNewsModal(newsItem) {
   let overlay = document.getElementById('news-detail-modal-overlay');
   if (!overlay) {
@@ -15576,32 +16255,87 @@ function openNewsModal(newsItem) {
     overlay.className = 'modal-overlay';
     document.body.appendChild(overlay);
   }
-  
+
+  const cat = newsItem.category || 'Actualización';
+  let badgeClass = 'news-tag-update';
+  let badgeIcon = 'ri-rocket-line';
+  if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+  else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+  else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+  else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+  else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = newsItem.body || '';
+  const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+  const pubDate = newsItem.created_at ? new Date(newsItem.created_at).toLocaleDateString('es-CL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }) : 'Reciente';
+
   overlay.innerHTML = `
-    <div class="modal-content" style="max-width: 600px; width: 90%;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border);">
-        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">${newsItem.title}</h3>
-        <button class="modal-close" id="close-news-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.25rem;"><i class="ri-close-line"></i></button>
+    <div class="modal-content" style="max-width: 780px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+          ${newsItem.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Noticia Destacada</span>` : ''}
+        </div>
+        <button class="modal-close" id="close-news-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.35rem; display: flex; align-items: center;" title="Cerrar"><i class="ri-close-line"></i></button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
-        ${newsItem.subtitle ? `<h4 style="margin: 0 0 1rem 0; font-weight: 600; color: var(--color-primary); font-size: 1rem;">${newsItem.subtitle}</h4>` : ''}
-        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;">
-          <i class="ri-calendar-line" style="margin-right: 0.25rem;"></i>${new Date(newsItem.created_at).toLocaleString()}
-        </span>
-        <div style="font-size: 0.9rem; color: var(--color-text-main); line-height: 1.6; white-space: pre-wrap;">${newsItem.body}</div>
+
+      <div class="modal-body" style="padding: 1.75rem 2rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        ${newsItem.cover_image ? `
+          <div style="margin-bottom: 1.5rem; border-radius: var(--radius-md); overflow: hidden; max-height: 320px; border: 1px solid var(--color-border);">
+            <img src="${newsItem.cover_image}" alt="${newsItem.title}" style="width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in;" onclick="window.openNewsImageLightbox('${newsItem.cover_image}')">
+          </div>
+        ` : ''}
+
+        <h1 style="margin: 0 0 0.5rem 0; font-size: 1.65rem; color: var(--color-text-main); font-weight: 800; line-height: 1.3; letter-spacing: -0.3px;">
+          ${newsItem.title}
+        </h1>
+
+        ${newsItem.subtitle ? `
+          <h2 style="margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--color-primary); font-weight: 600; line-height: 1.4;">
+            ${newsItem.subtitle}
+          </h2>
+        ` : ''}
+
+        <div style="display: flex; align-items: center; gap: 1.25rem; font-size: 0.8rem; color: var(--color-text-muted); padding-bottom: 1.25rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+          <span><i class="ri-calendar-event-line" style="margin-right: 0.3rem;"></i> ${pubDate}</span>
+          <span><i class="ri-time-line" style="margin-right: 0.3rem;"></i> ${readTime} min de lectura</span>
+          <span><i class="ri-user-smile-line" style="margin-right: 0.3rem;"></i> Equipo STOCKA</span>
+        </div>
+
+        <div class="blog-article-content" id="blog-modal-article-body">
+          ${newsItem.body || ''}
+        </div>
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end;">
-        <button class="btn btn-outline" id="close-news-modal-footer-btn" style="padding: 0.5rem 1rem;">Cerrar</button>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-outline btn-sm" onclick="window.print()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.825rem;">
+          <i class="ri-printer-line"></i> Imprimir / Guardar
+        </button>
+        <button class="btn btn-primary btn-sm" id="close-news-modal-footer-btn" style="padding: 0.4rem 1.2rem; font-size: 0.85rem;">
+          Cerrar
+        </button>
       </div>
     </div>
   `;
   
   overlay.classList.add('active');
   
-  const close = () => {
-    overlay.classList.remove('active');
-  };
-  
+  const articleBody = overlay.querySelector('#blog-modal-article-body');
+  if (articleBody) {
+    articleBody.querySelectorAll('img').forEach(img => {
+      img.onclick = () => window.openNewsImageLightbox(img.src);
+    });
+  }
+
+  const close = () => { overlay.classList.remove('active'); };
   document.getElementById('close-news-modal-btn').addEventListener('click', close);
   document.getElementById('close-news-modal-footer-btn').addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
@@ -15614,40 +16348,181 @@ async function renderNotificationsAdmin() {
   appContent.innerHTML = `
     <div style="margin-bottom: 2rem;">
       <h2 style="font-size: 1.75rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--color-text-main);">Notificaciones y Comunicaciones</h2>
-      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra las noticias, eventos del calendario y envía notificaciones a los usuarios.</p>
+      <p style="color: var(--color-text-muted); font-size: 1rem;">Administra el mini blog de noticias, eventos del calendario y notificaciones para los usuarios del WMS.</p>
     </div>
 
     <div class="dashboard-grid">
-      <!-- Gestión de Noticias -->
+      <!-- Gestión de Noticias 2.0 (Mini Blog) -->
       <div class="card" style="grid-column: 1 / -1;">
-        <div class="card-header">
-          <h3><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-accent);"></i> Gestión de Noticias</h3>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0;"><i class="ri-newspaper-line" style="margin-right: 0.5rem; color: var(--color-accent);"></i> Redactor de Noticias 2.0 (Mini Blog Informativo)</h3>
+          <span style="font-size: 0.8rem; background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.25rem 0.65rem; border-radius: 9999px; font-weight: 600;">
+            WYSIWYG & HTML
+          </span>
         </div>
-        <div class="card-body" style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+        <div class="card-body" style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 2rem;">
+          
+          <!-- Columna Izquierda: Editor de Noticias -->
           <div>
             <form id="form-create-news">
               <input type="hidden" id="news-id">
+              
               <div class="form-group">
-                <label class="form-label">Título</label>
-                <input type="text" id="news-title" class="form-input" required>
+                <label class="form-label" style="font-weight: 600;">Título del Artículo / Noticia <span style="color: var(--color-danger);">*</span></label>
+                <input type="text" id="news-title" class="form-input" placeholder="Ej: Lanzamiento de Nuevas Rutas de Despacho V2" required>
               </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Categoría</label>
+                  <select id="news-category" class="form-input">
+                    <option value="Actualización">🚀 Actualización de Sistema</option>
+                    <option value="Operaciones">📦 Operaciones & Logística</option>
+                    <option value="Alerta">⚠️ Alerta Operacional</option>
+                    <option value="Comunicado">📢 Comunicado Oficial</option>
+                    <option value="Tutorial">💡 Guía / Tutorial</option>
+                    <option value="Novedad">🎉 Novedad Comercial</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" style="font-weight: 600;">Destinatarios</label>
+                  <select id="news-target-role" class="form-input">
+                    <option value="all">Todos los usuarios</option>
+                    <option value="client">Solo Clientes</option>
+                    <option value="admin">Solo Administradores</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Imagen de Portada -->
               <div class="form-group">
-                <label class="form-label">Subtítulo (Opcional)</label>
-                <input type="text" id="news-subtitle" class="form-input">
+                <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between; align-items: center;">
+                  <span><i class="ri-image-line" style="margin-right: 0.3rem; color: var(--color-primary);"></i> Imagen de Portada / Banner (Opcional)</span>
+                  <span id="news-cover-status" style="font-size: 0.75rem; color: var(--color-text-muted);"></span>
+                </label>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <input type="url" id="news-cover-url" class="form-input" placeholder="https://ejemplo.com/portada.jpg" style="flex: 1;">
+                  <label class="btn btn-outline" style="cursor: pointer; padding: 0.5rem 0.85rem; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; margin: 0;">
+                    <i class="ri-upload-cloud-line"></i> Subir Archivo
+                    <input type="file" id="news-cover-file" accept="image/*" style="display: none;">
+                  </label>
+                </div>
+                <!-- Miniatura de Portada Preview -->
+                <div id="news-cover-preview-container" style="display: none; margin-top: 0.75rem; position: relative; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--color-border); max-height: 140px;">
+                  <img id="news-cover-preview-img" src="" alt="Portada" style="width: 100%; height: 140px; object-fit: cover; display: block;">
+                  <button type="button" id="btn-remove-cover" style="position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,0.65); color: #fff; border: none; border-radius: 4px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+                    <i class="ri-delete-bin-line"></i> Quitar
+                  </button>
+                </div>
               </div>
+
               <div class="form-group">
-                <label class="form-label">Cuerpo de la Noticia</label>
-                <textarea id="news-body" class="form-input" rows="4" required style="resize: vertical;"></textarea>
+                <label class="form-label" style="font-weight: 600;">Subtítulo o Resumen Breve (Opcional)</label>
+                <input type="text" id="news-subtitle" class="form-input" placeholder="Breve frase que introduce o sintetiza la noticia">
               </div>
-              <div style="display: flex; gap: 1rem;">
-                <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 1;">Publicar Noticia</button>
-                <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none;">Cancelar</button>
+
+              <!-- Pinned Checkbox -->
+              <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                <input type="checkbox" id="news-is-pinned" style="cursor: pointer; width: 18px; height: 18px;">
+                <label for="news-is-pinned" style="cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin: 0;">
+                  <i class="ri-pushpin-2-fill" style="color: #f59e0b;"></i> Fijar y Destacar en la parte superior del Dashboard
+                </label>
+              </div>
+
+              <!-- Cuerpo del Artículo: Quill Editor & Raw HTML Toggle -->
+              <div class="form-group">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                  <label class="form-label" style="font-weight: 600; margin: 0;">Contenido del Artículo <span style="color: var(--color-danger);">*</span></label>
+                  <button type="button" id="btn-toggle-html-mode" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.2rem 0.5rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <i class="ri-code-s-slash-line"></i> <span id="html-mode-label">Modo HTML</span>
+                  </button>
+                </div>
+                
+                <div class="quill-editor-wrapper" id="quill-news-wrapper">
+                  <div id="news-quill-toolbar">
+                    <span class="ql-formats">
+                      <select class="ql-header">
+                        <option value="1">Título H1</option>
+                        <option value="2">Encabezado H2</option>
+                        <option value="3">Subtítulo H3</option>
+                        <option selected>Normal</option>
+                      </select>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-bold"></button>
+                      <button class="ql-italic"></button>
+                      <button class="ql-underline"></button>
+                      <button class="ql-strike"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <select class="ql-color"></select>
+                      <select class="ql-background"></select>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-list" value="ordered"></button>
+                      <button class="ql-list" value="bullet"></button>
+                      <button class="ql-list" value="check"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-blockquote"></button>
+                      <button class="ql-code-block"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <select class="ql-align"></select>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-link"></button>
+                      <button class="ql-image" id="quill-custom-image-btn"></button>
+                      <button class="ql-video"></button>
+                    </span>
+                    <span class="ql-formats">
+                      <button class="ql-clean"></button>
+                    </span>
+                  </div>
+                  <div id="news-quill-editor"></div>
+                </div>
+
+                <textarea id="news-raw-html" class="raw-html-editor" placeholder="Escribe o pega código HTML aquí..."></textarea>
+              </div>
+
+              <!-- Action Buttons -->
+              <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem; flex-wrap: wrap;">
+                <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 2; min-width: 160px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
+                  <i class="ri-send-plane-fill"></i> <span id="btn-save-news-text">Publicar Noticia</span>
+                </button>
+                <button type="button" id="btn-preview-news" class="btn btn-outline" style="flex: 1; min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                  <i class="ri-eye-line"></i> Vista Previa
+                </button>
+                <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none; flex: 1;">
+                  Cancelar
+                </button>
               </div>
             </form>
           </div>
-          <div>
-            <h4>Noticias Publicadas</h4>
-            <div id="admin-news-list" style="max-height: 400px; overflow-y: auto; margin-top: 1rem;">Cargando...</div>
+
+          <!-- Columna Derecha: Lista de Noticias Publicadas con Buscador -->
+          <div style="border-left: 1px solid var(--color-border); padding-left: 1.5rem; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">
+                Artículos Publicados
+              </h4>
+              <button type="button" id="btn-new-news-quick" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-add-line"></i> Nueva
+              </button>
+            </div>
+
+            <div style="margin-bottom: 0.75rem;">
+              <div style="position: relative;">
+                <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+                <input type="text" id="admin-news-search" class="form-input" placeholder="Buscar por título o contenido..." style="padding-left: 2rem; font-size: 0.825rem; height: 36px;">
+              </div>
+            </div>
+
+            <div id="admin-news-list" style="max-height: 520px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.65rem; padding-right: 0.25rem;">
+              <div style="text-align: center; color: var(--color-text-muted); padding: 2rem 0;">
+                <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -15868,33 +16743,174 @@ async function renderNotificationsAdmin() {
     </div>
   `;
 
-  // Fetch and render functions
-  async function loadAdminData() {
-    // Load News
-    const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
-    window.adminNewsData = news || [];
-    const newsList = document.getElementById('admin-news-list');
-    if(news && news.length > 0) {
-      newsList.innerHTML = news.map(n => `
-        <div style="padding: 1rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 600;">${n.title}</div>
-            <div style="font-size: 0.8rem; color: var(--color-text-muted);">${new Date(n.created_at).toLocaleDateString()}</div>
-          </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-outline edit-news-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem;"><i class="ri-edit-line"></i></button>
-            <button class="btn btn-outline delete-news-btn" data-id="${n.id}" style="padding: 0.25rem 0.5rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
-          </div>
-        </div>
-      `).join('');
+  let quillInstance = null;
+  let isHtmlMode = false;
+
+  if (window.Quill) {
+    quillInstance = new Quill('#news-quill-editor', {
+      modules: {
+        toolbar: '#news-quill-toolbar'
+      },
+      placeholder: 'Redacta aquí el cuerpo de la noticia. Puedes usar títulos, negritas, insertar imágenes, listas, links y código...',
+      theme: 'snow'
+    });
+
+    const toolbar = quillInstance.getModule('toolbar');
+    toolbar.addHandler('image', () => {
+      const choice = prompt('Elige una opción para insertar imagen:\n1) Escribe la URL de la imagen\n(Deja vacío o presiona cancelar para subir archivo desde tu equipo)');
+      if (choice && choice.trim().startsWith('http')) {
+        const range = quillInstance.getSelection(true);
+        quillInstance.insertEmbed(range.index, 'image', choice.trim());
+      } else {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.click();
+        input.onchange = async () => {
+          const file = input.files[0];
+          if (file) {
+            try {
+              const url = await uploadNewsImageFile(file);
+              const range = quillInstance.getSelection(true);
+              quillInstance.insertEmbed(range.index, 'image', url);
+            } catch (e) {
+              console.error(e);
+              alert('Error al subir imagen: ' + e.message);
+            }
+          }
+        };
+      }
+    });
+  }
+
+  const toggleHtmlBtn = document.getElementById('btn-toggle-html-mode');
+  const quillWrapper = document.getElementById('quill-news-wrapper');
+  const rawHtmlTextarea = document.getElementById('news-raw-html');
+  const htmlModeLabel = document.getElementById('html-mode-label');
+
+  if (toggleHtmlBtn) {
+    toggleHtmlBtn.addEventListener('click', () => {
+      isHtmlMode = !isHtmlMode;
+      if (isHtmlMode) {
+        const html = quillInstance ? quillInstance.root.innerHTML : '';
+        rawHtmlTextarea.value = html;
+        quillWrapper.style.display = 'none';
+        rawHtmlTextarea.style.display = 'block';
+        htmlModeLabel.textContent = 'Modo Visual';
+        toggleHtmlBtn.classList.add('btn-primary');
+        toggleHtmlBtn.classList.remove('btn-outline');
+      } else {
+        const html = rawHtmlTextarea.value;
+        if (quillInstance) quillInstance.root.innerHTML = html;
+        rawHtmlTextarea.style.display = 'none';
+        quillWrapper.style.display = 'flex';
+        htmlModeLabel.textContent = 'Modo HTML';
+        toggleHtmlBtn.classList.remove('btn-primary');
+        toggleHtmlBtn.classList.add('btn-outline');
+      }
+    });
+  }
+
+  async function uploadNewsImageFile(file) {
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `news_uploads/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${ext}`;
+      
+      let bucket = 'service_docs';
+      let res = await supabase.storage.from(bucket).upload(path, file);
+      if (res.error) {
+        bucket = 'payment_receipts';
+        res = await supabase.storage.from(bucket).upload(path, file);
+        if (res.error) throw res.error;
+      }
+      const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+      return data.publicUrl;
+    } catch (err) {
+      console.warn('Storage upload error, using local base64 fallback:', err);
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target.result);
+        reader.readAsDataURL(file);
+      });
+    }
+  }
+
+  const coverUrlInput = document.getElementById('news-cover-url');
+  const coverFileInput = document.getElementById('news-cover-file');
+  const coverPreviewContainer = document.getElementById('news-cover-preview-container');
+  const coverPreviewImg = document.getElementById('news-cover-preview-img');
+  const btnRemoveCover = document.getElementById('btn-remove-cover');
+  const coverStatus = document.getElementById('news-cover-status');
+
+  function updateCoverPreview(url) {
+    if (url && url.trim()) {
+      coverPreviewImg.src = url.trim();
+      coverPreviewContainer.style.display = 'block';
+      coverUrlInput.value = url.trim();
     } else {
-      newsList.innerHTML = '<p style="color: var(--color-text-muted);">No hay noticias publicadas.</p>';
+      coverPreviewImg.src = '';
+      coverPreviewContainer.style.display = 'none';
+      coverUrlInput.value = '';
+    }
+  }
+
+  if (coverUrlInput) {
+    coverUrlInput.addEventListener('input', (e) => updateCoverPreview(e.target.value));
+  }
+
+  if (coverFileInput) {
+    coverFileInput.addEventListener('change', async () => {
+      const file = coverFileInput.files[0];
+      if (file) {
+        coverStatus.textContent = 'Subiendo portada...';
+        try {
+          const url = await uploadNewsImageFile(file);
+          updateCoverPreview(url);
+          coverStatus.textContent = '¡Portada cargada!';
+          setTimeout(() => { coverStatus.textContent = ''; }, 3000);
+        } catch (e) {
+          coverStatus.textContent = 'Error al subir';
+          alert('Error al subir imagen de portada: ' + e.message);
+        }
+      }
+    });
+  }
+
+  if (btnRemoveCover) {
+    btnRemoveCover.addEventListener('click', () => {
+      updateCoverPreview('');
+      if (coverFileInput) coverFileInput.value = '';
+    });
+  }
+
+  document.getElementById('btn-preview-news').addEventListener('click', () => {
+    let bodyContent = '';
+    if (isHtmlMode) {
+      bodyContent = rawHtmlTextarea.value;
+    } else if (quillInstance) {
+      bodyContent = quillInstance.root.innerHTML;
     }
 
-    // Load Events
+    const previewItem = {
+      title: document.getElementById('news-title').value.trim() || 'Título de Noticia de Ejemplo',
+      subtitle: document.getElementById('news-subtitle').value.trim() || '',
+      body: bodyContent || '<p>Aquí aparecerá el cuerpo formateado de tu noticia...</p>',
+      cover_image: coverUrlInput.value.trim() || null,
+      category: document.getElementById('news-category').value,
+      is_pinned: document.getElementById('news-is-pinned').checked,
+      created_at: new Date().toISOString()
+    };
+
+    openNewsModal(previewItem);
+  });
+
+  async function loadAdminData() {
+    const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
+    window.adminNewsData = news || [];
+    renderAdminNewsList(window.adminNewsData);
+
     const { data: events } = await supabase.from('dashboard_events').select('*').order('event_date', { ascending: false });
     
-    // Initialize Admin Calendar State if not exists
     if (!window.adminCalendarState) {
       window.adminCalendarState = { currentDate: new Date(), selectedDateStr: null, events: [] };
     }
@@ -15933,7 +16949,6 @@ async function renderNotificationsAdmin() {
       notifList.innerHTML = '<p style="color: var(--color-text-muted);">No hay notificaciones enviadas recientemente.</p>';
     }
 
-    // Load active banner and popups (Admin view simply loads the latest to populate the form if they want to edit, or we can just list them. We'll populate form with latest active)
     const { data: banners } = await supabase.from('system_banners').select('*').order('created_at', { ascending: false }).limit(1);
     if(banners && banners.length > 0) {
       const b = banners[0];
@@ -15948,7 +16963,6 @@ async function renderNotificationsAdmin() {
       document.getElementById('banner-target').value = b.target_role || 'all';
       document.getElementById('banner-dismissible').checked = b.is_dismissible !== false;
       
-      // Update color picker visibility
       const colorsContainer = document.getElementById('banner-colors-container');
       if (colorsContainer) {
         colorsContainer.style.display = (b.style_preset === 'custom' || !b.style_preset) ? 'grid' : 'none';
@@ -15969,7 +16983,6 @@ async function renderNotificationsAdmin() {
       document.getElementById('popup-dismissible').checked = p.is_dismissible !== false;
     }
 
-    // Load profiles for direct messaging
     const { data: profiles } = await supabase.from('profiles').select('id, full_name, email').order('full_name', { ascending: true });
     const userSelect = document.getElementById('notif-user-id');
     if (userSelect && profiles) {
@@ -15979,53 +16992,153 @@ async function renderNotificationsAdmin() {
     attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events);
   }
 
-  function attachEditDeleteListeners(newsData, eventsData) {
-    // News Delete
-    document.querySelectorAll('.delete-news-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        if(confirm('¿Eliminar esta noticia?')) {
-          await supabase.from('dashboard_news').delete().eq('id', e.currentTarget.getAttribute('data-id'));
-          loadAdminData();
-        }
-      });
-    });
-    // Events Delete
-    document.querySelectorAll('.delete-event-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        if(confirm('¿Eliminar este evento?')) {
-          await supabase.from('dashboard_events').delete().eq('id', e.currentTarget.getAttribute('data-id'));
-          loadAdminData();
-        }
-      });
-    });
-    // Notif Delete
-    document.querySelectorAll('.delete-notif-btn').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        if(confirm('¿Eliminar esta notificación?')) {
-          await supabase.from('dashboard_notifications').delete().eq('id', e.currentTarget.getAttribute('data-id'));
-          loadAdminData();
-        }
-      });
+  function renderAdminNewsList(newsListToRender) {
+    const newsList = document.getElementById('admin-news-list');
+    if (!newsList) return;
+
+    if (!newsListToRender || newsListToRender.length === 0) {
+      newsList.innerHTML = '<div style="text-align: center; color: var(--color-text-muted); padding: 2rem 0; font-size: 0.85rem;">No hay noticias publicadas.</div>';
+      return;
+    }
+
+    const sorted = [...newsListToRender].sort((a, b) => {
+      if (a.is_pinned && !b.is_pinned) return -1;
+      if (!a.is_pinned && b.is_pinned) return 1;
+      return new Date(b.created_at) - new Date(a.created_at);
     });
 
-    // Edit News
+    newsList.innerHTML = sorted.map(n => {
+      const cat = n.category || 'Actualización';
+      let badgeClass = 'news-tag-update';
+      let badgeIcon = 'ri-rocket-line';
+      if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+      else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+      else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+      else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+      else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+      return `
+        <div style="padding: 0.85rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; gap: 0.75rem; align-items: center; transition: all 0.2s;" class="${n.is_pinned ? 'is-pinned-card' : ''}">
+          ${n.cover_image ? `
+            <img src="${n.cover_image}" alt="Cover" style="width: 56px; height: 56px; border-radius: var(--radius-sm); object-fit: cover; border: 1px solid var(--color-border); flex-shrink: 0;" onerror="this.style.display='none'">
+          ` : `
+            <div style="width: 56px; height: 56px; border-radius: var(--radius-sm); background: var(--color-bg); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); flex-shrink: 0;">
+              <i class="ri-newspaper-line" style="font-size: 1.25rem;"></i>
+            </div>
+          `}
+          
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem; flex-wrap: wrap;">
+              <span class="news-tag ${badgeClass}" style="font-size: 0.65rem; padding: 0.1rem 0.45rem;"><i class="${badgeIcon}"></i> ${cat}</span>
+              ${n.is_pinned ? `<span class="news-pinned-tag" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;"><i class="ri-pushpin-fill"></i></span>` : ''}
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); margin-left: auto;">${new Date(n.created_at).toLocaleDateString('es-CL')}</span>
+            </div>
+            <div style="font-weight: 700; font-size: 0.875rem; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${n.title}">
+              ${n.title}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.5rem; margin-top: 0.15rem;">
+              <span><i class="ri-group-line"></i> ${n.target_role === 'client' ? 'Clientes' : (n.target_role === 'admin' ? 'Admins' : 'Todos')}</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+            <button class="btn btn-outline preview-news-btn" data-id="${n.id}" title="Vista Previa" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-eye-line"></i></button>
+            <button class="btn btn-outline edit-news-btn" data-id="${n.id}" title="Editar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-edit-line"></i></button>
+            <button class="btn btn-outline delete-news-btn" data-id="${n.id}" title="Eliminar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState ? window.adminCalendarState.events : []);
+  }
+
+  const searchInput = document.getElementById('admin-news-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!window.adminNewsData) return;
+      if (!q) {
+        renderAdminNewsList(window.adminNewsData);
+      } else {
+        const filtered = window.adminNewsData.filter(n => 
+          (n.title && n.title.toLowerCase().includes(q)) || 
+          (n.subtitle && n.subtitle.toLowerCase().includes(q)) ||
+          (n.body && n.body.toLowerCase().includes(q)) ||
+          (n.category && n.category.toLowerCase().includes(q))
+        );
+        renderAdminNewsList(filtered);
+      }
+    });
+  }
+
+  const quickNewBtn = document.getElementById('btn-new-news-quick');
+  if (quickNewBtn) {
+    quickNewBtn.addEventListener('click', () => {
+      document.getElementById('btn-cancel-news').click();
+      document.getElementById('news-title').focus();
+    });
+  }
+
+  function attachEditDeleteListeners(newsData, eventsData) {
+    document.querySelectorAll('.delete-news-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        if(confirm('¿Seguro que deseas eliminar esta noticia?')) {
+          await supabase.from('dashboard_news').delete().eq('id', id);
+          loadAdminData();
+        }
+      };
+    });
+
+    document.querySelectorAll('.preview-news-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = newsData.find(x => x.id === id);
+        if (n) openNewsModal(n);
+      };
+    });
+
     document.querySelectorAll('.edit-news-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.onclick = (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         const n = newsData.find(x => x.id === id);
         if(n) {
           document.getElementById('news-id').value = n.id;
           document.getElementById('news-title').value = n.title;
           document.getElementById('news-subtitle').value = n.subtitle || '';
-          document.getElementById('news-body').value = n.body;
-          document.getElementById('btn-save-news').textContent = 'Actualizar Noticia';
+          document.getElementById('news-category').value = n.category || 'Actualización';
+          document.getElementById('news-target-role').value = n.target_role || 'all';
+          document.getElementById('news-is-pinned').checked = !!n.is_pinned;
+          
+          updateCoverPreview(n.cover_image || '');
+
+          if (quillInstance) {
+            quillInstance.root.innerHTML = n.body || '';
+          }
+          if (rawHtmlTextarea) {
+            rawHtmlTextarea.value = n.body || '';
+          }
+
+          document.getElementById('btn-save-news-text').textContent = 'Guardar Cambios';
           document.getElementById('btn-cancel-news').style.display = 'block';
+          
+          document.getElementById('form-create-news').scrollIntoView({ behavior: 'smooth' });
         }
-      });
+      };
     });
-    // Edit Events
+
+    document.querySelectorAll('.delete-event-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        if(confirm('¿Eliminar este evento?')) {
+          await supabase.from('dashboard_events').delete().eq('id', e.currentTarget.getAttribute('data-id'));
+          loadAdminData();
+        }
+      };
+    });
+
     document.querySelectorAll('.edit-event-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.onclick = (e) => {
         const id = e.currentTarget.getAttribute('data-id');
         const ev = eventsData.find(x => x.id === id);
         if(ev) {
@@ -16033,7 +17146,6 @@ async function renderNotificationsAdmin() {
           document.getElementById('event-title').value = ev.title;
           document.getElementById('event-desc').value = ev.description || '';
           
-          // Format date for datetime-local (YYYY-MM-DDThh:mm)
           const d = new Date(ev.event_date);
           const formattedDate = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
           document.getElementById('event-date').value = formattedDate;
@@ -16041,6 +17153,15 @@ async function renderNotificationsAdmin() {
           document.getElementById('event-color').value = ev.color_type;
           document.getElementById('btn-save-event').textContent = 'Actualizar Evento';
           document.getElementById('btn-cancel-event').style.display = 'block';
+        }
+      };
+    });
+    
+    document.querySelectorAll('.delete-notif-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        if(confirm('¿Eliminar esta notificación?')) {
+          await supabase.from('dashboard_notifications').delete().eq('id', e.currentTarget.getAttribute('data-id'));
+          loadAdminData();
         }
       });
     });
@@ -16107,7 +17228,7 @@ async function renderNotificationsAdmin() {
       prevBtn.addEventListener('click', () => {
         window.adminCalendarState.currentDate.setMonth(window.adminCalendarState.currentDate.getMonth() - 1);
         window.adminCalendarState.selectedDateStr = null;
-        loadAdminData(); // re-render
+        loadAdminData();
       });
     }
     
@@ -16135,17 +17256,19 @@ async function renderNotificationsAdmin() {
           gridContainer.innerHTML = window.renderCalendarUI(window.adminCalendarState.events, window.adminCalendarState.currentDate, window.adminCalendarState.selectedDateStr);
           listContainer.innerHTML = renderAdminEventsListUI(window.adminCalendarState.events, window.adminCalendarState.selectedDateStr);
           setupCalendarListeners_admin();
-          attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events); // Re-attach because list re-rendered
+          attachEditDeleteListeners(window.adminNewsData || [], window.adminCalendarState.events);
         }
       });
     });
   }
 
-  // Cancel buttons
   document.getElementById('btn-cancel-news').addEventListener('click', () => {
     document.getElementById('form-create-news').reset();
     document.getElementById('news-id').value = '';
-    document.getElementById('btn-save-news').textContent = 'Publicar Noticia';
+    updateCoverPreview('');
+    if (quillInstance) quillInstance.root.innerHTML = '';
+    if (rawHtmlTextarea) rawHtmlTextarea.value = '';
+    document.getElementById('btn-save-news-text').textContent = 'Publicar Noticia';
     document.getElementById('btn-cancel-news').style.display = 'none';
   });
   
@@ -16158,31 +17281,50 @@ async function renderNotificationsAdmin() {
 
   loadAdminData();
 
-  // Handlers
   document.getElementById('form-create-news').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
       const id = document.getElementById('news-id').value;
+      let bodyContent = '';
+      if (isHtmlMode) {
+        bodyContent = rawHtmlTextarea.value.trim();
+      } else if (quillInstance) {
+        bodyContent = quillInstance.root.innerHTML.trim();
+      }
+
+      if (!bodyContent || bodyContent === '<p><br></p>') {
+        alert('Por favor ingresa el contenido del artículo.');
+        return;
+      }
+
       const payload = {
-        title: document.getElementById('news-title').value,
-        subtitle: document.getElementById('news-subtitle').value,
-        body: document.getElementById('news-body').value,
-        target_role: 'all'
+        title: document.getElementById('news-title').value.trim(),
+        subtitle: document.getElementById('news-subtitle').value.trim() || null,
+        body: bodyContent,
+        cover_image: coverUrlInput.value.trim() || null,
+        category: document.getElementById('news-category').value,
+        is_pinned: document.getElementById('news-is-pinned').checked,
+        target_role: document.getElementById('news-target-role').value
       };
 
       if (id) {
-        await supabase.from('dashboard_news').update(payload).eq('id', id);
+        const { error } = await supabase.from('dashboard_news').update(payload).eq('id', id);
+        if (error) throw error;
         alert('Noticia actualizada exitosamente');
       } else {
         const { data: { user } } = await supabase.auth.getUser();
         payload.created_by = user.id;
-        await supabase.from('dashboard_news').insert([payload]);
+        const { error } = await supabase.from('dashboard_news').insert([payload]);
+        if (error) throw error;
         alert('Noticia publicada exitosamente');
       }
       
-      document.getElementById('btn-cancel-news').click(); // reset form
+      document.getElementById('btn-cancel-news').click();
       loadAdminData();
-    } catch(err) { console.error(err); alert('Error al guardar noticia'); }
+    } catch(err) { 
+      console.error(err); 
+      alert('Error al guardar noticia: ' + err.message); 
+    }
   });
 
   document.getElementById('form-create-event').addEventListener('submit', async (e) => {
@@ -16207,12 +17349,11 @@ async function renderNotificationsAdmin() {
         alert('Evento agendado exitosamente');
       }
 
-      document.getElementById('btn-cancel-event').click(); // reset form
+      document.getElementById('btn-cancel-event').click();
       loadAdminData();
     } catch(err) { console.error(err); alert('Error al guardar evento'); }
   });
 
-  // Banner Preset Styles Logic
   setTimeout(() => {
     const bannerPresetSelect = document.getElementById('banner-preset');
     if (bannerPresetSelect) {
@@ -29755,6 +30896,139 @@ window.editWmsOrderComuna = async function(orderId) {
       }
     }
   });
+};
+
+window.editWmsOrderShippingDetails = async function(orderId) {
+  const order = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+  if (!order) {
+    Swal.fire('Error', 'No se encontró el pedido en memoria.', 'error');
+    return;
+  }
+
+  // Load display fallbacks similar to rendering logic
+  let displayName = order.customer_name || '';
+  if (!displayName || displayName === 'No registrado') {
+    if (order.raw_shopify_data) {
+      const raw = order.raw_shopify_data;
+      const billing = raw.billing_address;
+      const cust = raw.customer;
+      if (billing) {
+        displayName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim();
+      } else if (cust) {
+        displayName = `${cust.first_name || ''} ${cust.last_name || ''}`.trim();
+      }
+    }
+  }
+
+  let displayEmail = order.customer_email || '';
+  if (!displayEmail || displayEmail === 'No registrado') {
+    if (order.raw_shopify_data) {
+      const raw = order.raw_shopify_data;
+      displayEmail = raw.contact_email || raw.email || raw.customer?.email || '';
+    }
+  }
+
+  let displayPhone = order.customer_phone || '';
+  if (!displayPhone || displayPhone === 'No registrado') {
+    if (order.raw_shopify_data) {
+      const raw = order.raw_shopify_data;
+      displayPhone = raw.shipping_address?.phone || raw.billing_address?.phone || raw.customer?.phone || '';
+    }
+  }
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Editar Datos de Despacho',
+    html: `
+      <div style="text-align: left; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Nombre Cliente</label>
+          <input id="swal-cust-name" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${displayName}">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Email</label>
+          <input id="swal-cust-email" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${displayEmail}">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Teléfono</label>
+          <input id="swal-cust-phone" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${displayPhone}">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Dirección</label>
+          <input id="swal-cust-address" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${order.shipping_address || ''}">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Complemento (Depto, Oficina, Block, etc.)</label>
+          <input id="swal-cust-complement" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${order.shipping_complement || ''}">
+        </div>
+        <div>
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Ciudad / Comuna</label>
+          <input id="swal-cust-city" class="swal2-input" style="width: 100%; margin: 0; font-size: 0.875rem; box-sizing: border-box;" value="${order.shipping_city || ''}">
+        </div>
+      </div>
+    `,
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: 'Guardar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#7117eb',
+    preConfirm: () => {
+      const name = document.getElementById('swal-cust-name').value.trim();
+      const email = document.getElementById('swal-cust-email').value.trim();
+      const phone = document.getElementById('swal-cust-phone').value.trim();
+      const address = document.getElementById('swal-cust-address').value.trim();
+      const complement = document.getElementById('swal-cust-complement').value.trim();
+      const city = document.getElementById('swal-cust-city').value.trim();
+
+      if (!address) {
+        Swal.showValidationMessage('La dirección es obligatoria.');
+        return false;
+      }
+      if (!city) {
+        Swal.showValidationMessage('La comuna/ciudad es obligatoria.');
+        return false;
+      }
+
+      return { name, email, phone, address, complement, city };
+    }
+  });
+
+  if (formValues) {
+    Swal.fire({
+      title: 'Guardando...',
+      allowOutsideClick: false,
+      didOpen: () => Swal.showLoading()
+    });
+
+    try {
+      const { error: updateErr } = await supabase
+        .from('orders')
+        .update({
+          customer_name: formValues.name || null,
+          customer_email: formValues.email || null,
+          customer_phone: formValues.phone || null,
+          shipping_address: formValues.address || null,
+          shipping_complement: formValues.complement || null,
+          shipping_city: formValues.city || null
+        })
+        .eq('id', orderId);
+
+      if (updateErr) throw updateErr;
+
+      // Update local memory cache
+      order.customer_name = formValues.name;
+      order.customer_email = formValues.email;
+      order.customer_phone = formValues.phone;
+      order.shipping_address = formValues.address;
+      order.shipping_complement = formValues.complement;
+      order.shipping_city = formValues.city;
+
+      Swal.fire('¡Éxito!', 'Los datos de despacho han sido actualizados correctamente.', 'success');
+      window.applyWmsFiltersAndRender();
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Error', 'No se pudieron guardar los datos: ' + err.message, 'error');
+    }
+  }
 };
 
 window.editWmsOrderPickingInfo = async function(orderId) {
