@@ -584,8 +584,193 @@ window.downloadBase64Pdf = function(base64, filename) {
   }
 };
 
+// Función global para validar pedidos y permitir arreglar fono/comuna en un modal interactivo
+window.validateAndFixOrdersForLabeling = async function(orderIds) {
+  const selectedOrders = (window.loadedOrders || []).filter(o => orderIds.includes(o.id));
+  
+  // Buscar pedidos con fono faltante o comuna no soportada en RM
+  const invalidOrders = selectedOrders.filter(o => {
+    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '';
+    const isRm = String(o.agenda || '').toUpperCase() === 'RM';
+    const isComunaInvalid = isRm && !window.isAlphaComunaExact(o.shipping_city);
+    return isPhoneMissing || isComunaInvalid;
+  });
+
+  if (invalidOrders.length === 0) {
+    return true; // Todo en orden, continuar
+  }
+
+  // Si hay problemas, construir las opciones de comunas
+  const allComunas = [
+    ...window.ALPHA_COBERTURA_36.map(c => ({ name: c.charAt(0).toUpperCase() + c.slice(1), hasAlpha: true })),
+    { name: 'Buin', hasAlpha: false },
+    { name: 'Calera de Tango', hasAlpha: false },
+    { name: 'Lampa', hasAlpha: false },
+    { name: 'Malloco', hasAlpha: false },
+    { name: 'Paine', hasAlpha: false },
+    { name: 'Pirque', hasAlpha: false },
+    { name: 'San Jose de Maipo', hasAlpha: false },
+    { name: 'Talagante', hasAlpha: false }
+  ].sort((a, b) => a.name.localeCompare(b.name));
+
+  let tableRowsHtml = '';
+  invalidOrders.forEach(o => {
+    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '';
+    const isRm = String(o.agenda || '').toUpperCase() === 'RM';
+    const isComunaInvalid = isRm && !window.isAlphaComunaExact(o.shipping_city);
+    
+    const phoneStyle = isPhoneMissing ? 'border: 1.5px solid var(--color-danger); background: rgba(239, 68, 68, 0.05);' : '';
+    const comunaStyle = isComunaInvalid ? 'border: 1.5px solid var(--color-danger); background: rgba(239, 68, 68, 0.05);' : '';
+
+    const currentComuna = o.shipping_city || '';
+    const isKnown = allComunas.some(c => c.name.toLowerCase() === currentComuna.toLowerCase());
+    let optionsHtml = '';
+    if (currentComuna && !isKnown) {
+      optionsHtml += `<option value="${currentComuna}" selected>${currentComuna} (No válida/Sin Cobertura)</option>`;
+    }
+    optionsHtml += allComunas.map(c => 
+      `<option value="${c.name}" ${c.name.toLowerCase() === currentComuna.toLowerCase() ? 'selected' : ''}>${c.name} ${c.hasAlpha ? '(RM Cobertura OK)' : '(Sin Cobertura)'}</option>`
+    ).join('');
+
+    tableRowsHtml += `
+      <tr class="swal-validation-row" data-order-id="${o.id}">
+        <td style="padding: 0.5rem; font-weight: 700; color: var(--color-text-main); font-size: 0.85rem; vertical-align: middle;">
+          ${o.external_order_number || o.id.split('-')[0]}
+        </td>
+        <td style="padding: 0.5rem; vertical-align: middle;">
+          <input type="text" class="swal-order-phone" value="${o.customer_phone || ''}" placeholder="Ej: +56912345678" style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-surface); ${phoneStyle}">
+        </td>
+        <td style="padding: 0.5rem; vertical-align: middle;">
+          <select class="swal-order-comuna" style="width: 100%; padding: 0.35rem; font-size: 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-surface); ${comunaStyle}">
+            ${optionsHtml}
+          </select>
+        </td>
+      </tr>
+    `;
+  });
+
+  const htmlContent = `
+    <div style="text-align: left; max-height: 350px; overflow-y: auto;">
+      <p style="font-size: 0.85rem; line-height: 1.4; color: var(--color-text-muted); margin-bottom: 1rem;">
+        Se detectaron datos de fono faltantes o comunas sin cobertura para los siguientes pedidos. 
+        Corrígelos directamente en esta tabla antes de continuar:
+      </p>
+      <table style="width: 100%; border-collapse: collapse; text-align: left;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted);">
+            <th style="padding: 0.5rem;">Pedido</th>
+            <th style="padding: 0.5rem;">Teléfono / Fono</th>
+            <th style="padding: 0.5rem;">Comuna / Destino</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRowsHtml}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const { value: updates, isConfirmed } = await Swal.fire({
+    title: 'Validación Previa de Datos',
+    html: htmlContent,
+    width: '650px',
+    showCancelButton: true,
+    confirmButtonText: 'Guardar y Continuar',
+    cancelButtonText: 'Cancelar',
+    confirmButtonColor: '#7117eb',
+    customClass: {
+      popup: 'dark-sweet-alert'
+    },
+    preConfirm: () => {
+      const results = [];
+      const rows = document.querySelectorAll('.swal-validation-row');
+      let hasError = false;
+
+      rows.forEach(row => {
+        const orderId = row.getAttribute('data-order-id');
+        const phoneInput = row.querySelector('.swal-order-phone');
+        const comunaSelect = row.querySelector('.swal-order-comuna');
+
+        if (phoneInput && comunaSelect) {
+          const phone = phoneInput.value.trim();
+          const comuna = comunaSelect.value;
+          
+          if (!phone) {
+            phoneInput.style.border = '1.5px solid var(--color-danger)';
+            phoneInput.style.background = 'rgba(239, 68, 68, 0.08)';
+            hasError = true;
+          } else {
+            phoneInput.style.border = '1px solid var(--color-border)';
+            phoneInput.style.background = 'var(--color-surface)';
+          }
+
+          results.push({ id: orderId, customer_phone: phone, shipping_city: comuna });
+        }
+      });
+
+      if (hasError) {
+        Swal.showValidationMessage('Todos los campos de teléfono marcados en rojo son obligatorios.');
+        return false;
+      }
+      return results;
+    }
+  });
+
+  if (!isConfirmed || !updates) {
+    return false;
+  }
+
+  try {
+    // Mostrar cargador
+    Swal.fire({
+      title: 'Guardando datos corregidos...',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    for (const update of updates) {
+      const { error } = await supabase
+        .from('orders')
+        .update({ 
+          customer_phone: update.customer_phone, 
+          shipping_city: update.shipping_city 
+        })
+        .eq('id', update.id);
+
+      if (error) throw error;
+
+      // Sincronizar en memoria local
+      const orderObj = (window.loadedOrders || []).find(o => o.id === update.id);
+      if (orderObj) {
+        orderObj.customer_phone = update.customer_phone;
+        orderObj.shipping_city = update.shipping_city;
+      }
+    }
+    
+    // Refrescar renderizado del listado
+    window.applyWmsFiltersAndRender();
+    Swal.close();
+    return true; // Validación y corrección completadas con éxito
+  } catch (err) {
+    console.error('Error al guardar datos corregidos:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error al guardar cambios',
+      text: err.message,
+      confirmButtonColor: '#7117eb'
+    });
+    return false;
+  }
+};
+
 // Función global para solicitar la generación de la etiqueta LightData vía Edge Function
 window.generarEtiquetaLightData = async function(orderId, btn) {
+  // Validación previa de fono y comuna
+  const isValid = await window.validateAndFixOrdersForLabeling([orderId]);
+  if (!isValid) return;
+
   const order = (window.loadedOrders || []).find(o => o.id === orderId);
   if (order && (!order.sucursal_pickeo || order.sucursal_pickeo.trim() === '')) {
     const { value: sucursalSelection, isConfirmed } = await Swal.fire({
@@ -683,6 +868,10 @@ window.bulkCreateLightDataLabels = async function(btn) {
     return;
   }
   
+  // Validación previa de fono y comuna masiva
+  const isValid = await window.validateAndFixOrdersForLabeling(ids);
+  if (!isValid) return;
+
   const selectedOrders = (window.loadedOrders || []).filter(o => ids.includes(o.id));
   const ordersWithoutSucursal = selectedOrders.filter(o => !o.sucursal_pickeo || o.sucursal_pickeo.trim() === '');
 
