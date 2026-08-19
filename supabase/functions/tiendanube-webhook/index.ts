@@ -418,8 +418,14 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
   } else if (!isCancelled) {
     // Si no está preparando y no está cancelado, podemos re-sincronizar los ítems en caso de cambios en la orden
     
-    // 1. Eliminar ítems anteriores
-    await supabase.from("order_items").delete().eq("order_id", existingOrder.id);
+    // 1. Obtener ítems existentes para Smart Diffing
+    const { data: existingItems } = await supabase
+      .from("order_items")
+      .select("id, product_id, quantity, warehouse_id")
+      .eq("order_id", existingOrder.id);
+
+    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
+    const processedProductIds = new Set();
 
     // 2. Cargar equivalencias de SKU
     const skuMap: Record<string, string> = {};
@@ -441,7 +447,7 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
       console.error("⚠️ Error cargando equivalencias:", err.message);
     }
 
-    // 3. Registrar ítems actualizados
+    // 3. Registrar ítems actualizados de forma inteligente
     const { data: whRelation } = await supabase
       .from("merchants_warehouses")
       .select("warehouse_id")
@@ -488,12 +494,31 @@ async function handleOrderUpdate(merchantId: string, comercio: string, order: an
       }
 
       if (product) {
-        await supabase.from("order_items").insert([{
-          order_id: existingOrder.id,
-          product_id: product.id,
-          warehouse_id: warehouseId,
-          quantity: item.quantity
-        }]);
+        processedProductIds.add(product.id);
+        const existing = existingMap.get(product.id);
+
+        if (existing) {
+          if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
+            await supabase.from("order_items").update({
+              quantity: item.quantity,
+              warehouse_id: warehouseId || existing.warehouse_id
+            }).eq("id", existing.id);
+          }
+        } else {
+          await supabase.from("order_items").insert([{
+            order_id: existingOrder.id,
+            product_id: product.id,
+            warehouse_id: warehouseId,
+            quantity: item.quantity
+          }]);
+        }
+      }
+    }
+
+    // 4. Eliminar únicamente los ítems que ya no están en la orden
+    for (const [prodId, existingItem] of existingMap.entries()) {
+      if (!processedProductIds.has(prodId)) {
+        await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
       }
     }
     console.log(`Ítems actualizados con éxito para el pedido Tiendanube ${finalOrderNumber}`);

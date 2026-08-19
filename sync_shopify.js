@@ -293,6 +293,11 @@ async function syncOrders(integration) {
           .eq('id', existingOrder.id);
         orderId = existingOrder.id;
         console.log(`Actualizado pedido ${order.name}`);
+
+        // Si el pedido ya fue despachado, entregado, retirado o cancelado, NO tocar sus order_items
+        if (['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+          continue;
+        }
       } else {
         // Insertar nuevo pedido (lo ponemos como "para procesar" o su equivalente)
         const { data: newOrder, error: insErr } = await supabase
@@ -314,9 +319,27 @@ async function syncOrders(integration) {
         }
       }
 
-      // Sincronizar ítems de la orden
-      await supabase.from('order_items').delete().eq('order_id', orderId);
+      // Sincronizar ítems de la orden de forma inteligente (Smart Diffing)
+      const { data: existingItems } = await supabase
+        .from('order_items')
+        .select('id, product_id, quantity, warehouse_id')
+        .eq('order_id', orderId);
+
+      // Cargar relaciones de packs del catálogo para no borrar componentes expandidos
+      const { data: packRelations } = await supabase
+        .from('product_pack_items')
+        .select('pack_product_id, member_product_id');
+      
+      const packMembersMap = new Map();
+      (packRelations || []).forEach(pr => {
+        if (!packMembersMap.has(pr.pack_product_id)) packMembersMap.set(pr.pack_product_id, []);
+        packMembersMap.get(pr.pack_product_id).push(pr.member_product_id);
+      });
+
+      const existingMap = new Map((existingItems || []).map(i => [i.product_id, i]));
+      const processedProductIds = new Set();
       const lineItems = order.line_items || [];
+
       for (const item of lineItems) {
         let product = null;
         let cleanSku = (item.sku || "").trim().replace(/\s+/g, '');
@@ -326,7 +349,7 @@ async function syncOrders(integration) {
 
         // Buscar producto en catálogo por comercio y sku
         let query = supabase.from('products')
-          .select('id')
+          .select('id, is_pack')
           .eq('sku', searchSku)
           .eq('comercio', integration.comercio);
 
@@ -347,7 +370,7 @@ async function syncOrders(integration) {
               description: 'Creado automáticamente desde sincronización de Shopify' + (hasEquivalence ? ` (Equivalencia de SKU: ${cleanSku})` : ''),
               status: 'active'
             }])
-            .select('id')
+            .select('id, is_pack')
             .single();
 
           if (!prodErr && newProd) {
@@ -358,18 +381,52 @@ async function syncOrders(integration) {
         }
 
         if (product) {
-          const { error: itemErr } = await supabase
-            .from('order_items')
-            .insert([{
-              order_id: orderId,
-              product_id: product.id,
-              warehouse_id: warehouseId,
-              quantity: item.quantity
-            }]);
+          processedProductIds.add(product.id);
 
-          if (itemErr) {
-            console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr.message);
+          // Si el producto es un pack o tiene miembros, registrar también sus componentes para que no sean eliminados
+          const packMembers = packMembersMap.get(product.id) || [];
+          packMembers.forEach(memberId => processedProductIds.add(memberId));
+
+          const existing = existingMap.get(product.id);
+          const hasComponentsInOrder = packMembers.length > 0 && packMembers.some(memberId => existingMap.has(memberId));
+
+          if (existing) {
+            // Si cambio la cantidad o la bodega, actualizar el registro existente
+            if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
+              const { error: updErr } = await supabase
+                .from('order_items')
+                .update({
+                  quantity: item.quantity,
+                  warehouse_id: warehouseId || existing.warehouse_id
+                })
+                .eq('id', existing.id);
+
+              if (updErr) {
+                console.error(`Error actualizando item SKU ${item.sku} en order_items:`, updErr.message);
+              }
+            }
+          } else if (!hasComponentsInOrder) {
+            // Si es un item nuevo y no ha sido expandido previamente como pack, insertarlo
+            const { error: itemErr } = await supabase
+              .from('order_items')
+              .insert([{
+                order_id: orderId,
+                product_id: product.id,
+                warehouse_id: warehouseId,
+                quantity: item.quantity
+              }]);
+
+            if (itemErr) {
+              console.error(`Error insertando item SKU ${item.sku} en order_items:`, itemErr.message);
+            }
           }
+        }
+      }
+
+      // Eliminar unicamente los items que ya no vienen en la orden sincronizada y no son componentes de packs
+      for (const [prodId, existingItem] of existingMap.entries()) {
+        if (!processedProductIds.has(prodId)) {
+          await supabase.from('order_items').delete().eq('id', existingItem.id);
         }
       }
     }

@@ -227,19 +227,21 @@ window.formatCLP = function(value) {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
 };
 
-window.shouldProcessOrderStockLocal = function(order, config, allOrdersList) {
+window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, checkTerminal = true) {
   // Si no hay configuración para este comercio, por defecto no hacemos seguimiento
   if (!config) return false;
 
   // A. Check if tracking is active
   if (!config.inventario_seguimiento) return false;
 
-  // B. Check if order state is terminal (despachado, retirado, entregado, cancelado)
-  const orderStatus = (order.status || '').toLowerCase().trim();
-  const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-  const terminalStatuses = ['despachado', 'retirado', 'entregado', 'cancelado'];
-  if (terminalStatuses.includes(orderStatus) || terminalStatuses.includes(orderWmsStatus)) {
-    return false;
+  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado' o 'Cancelado' es terminal)
+  // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
+  if (checkTerminal) {
+    const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
+    const terminalWmsStatuses = ['despachado', 'cancelado'];
+    if (terminalWmsStatuses.includes(orderWmsStatus)) {
+      return false;
+    }
   }
 
   // C. Check start conditions
@@ -28705,24 +28707,28 @@ function openRequestInventoryModal(commerce, onComplete) {
   let modal = document.getElementById('modal-request-inventory');
   if (modal) modal.remove();
 
-  // Obtener productos seleccionados en la tabla con checkboxes (si los hay)
+  // Filtrar productos físicos activos (ignorando virtuales, archivados y borradores)
+  const isPhysicalActive = (p) => {
+    if (!p) return false;
+    if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+    const st = (p.status || '').toLowerCase().trim();
+    if (st === 'archived' || st === 'archivado' || st === 'draft' || st === 'borrador') return false;
+    return true;
+  };
+
+  const allCached = (window.cachedInventoryProducts || []).filter(isPhysicalActive);
+
+  // Obtener productos seleccionados en la tabla principal (si los hay)
   const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
-  const selectedCheckedProducts = [];
-  const seenIds = new Set();
+  const selectedProductIds = new Set();
   checkedBoxes.forEach(cb => {
     const prodId = cb.getAttribute('data-prod-id');
-    if (!seenIds.has(prodId)) {
-      seenIds.add(prodId);
-      selectedCheckedProducts.push({
-        id: prodId,
-        sku: cb.getAttribute('data-prod-sku') || '',
-        name: cb.getAttribute('data-prod-name') || ''
-      });
+    if (prodId && allCached.some(p => p.id === prodId)) {
+      selectedProductIds.add(prodId);
     }
   });
 
-  const allCached = (window.cachedInventoryProducts || []).filter(p => p.status !== 'archived');
-  const hasSelection = selectedCheckedProducts.length > 0;
+  const hasSelection = selectedProductIds.size > 0;
   const initialType = hasSelection ? 'selectivo' : 'completo';
 
   const warehouses = window.allWarehousesList || [];
@@ -28737,7 +28743,7 @@ function openRequestInventoryModal(commerce, onComplete) {
   modal.style.zIndex = '9998';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 750px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
+    <div class="modal-content" style="max-width: 800px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
           <i class="ri-survey-line" style="color: #6366f1;"></i> Nueva Solicitud de Toma de Inventario
@@ -28748,7 +28754,7 @@ function openRequestInventoryModal(commerce, onComplete) {
         
         <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem; font-size: 0.85rem; color: var(--color-text-main);">
           <strong style="color: #6366f1;"><i class="ri-information-line"></i> ¿Cómo funciona?</strong>
-          Al generar esta solicitud, se emitirá una <strong>Hoja de Toma de Inventario</strong> con el listado de productos y casillas en blanco para que el equipo de bodega realice el conteo físico pieza a pieza y reporte las cuadraturas.
+          Al generar esta solicitud, se emitirá una <strong>Hoja de Toma de Inventario</strong> con el listado de productos físicos y casillas en blanco para que el equipo de bodega realice el conteo pieza a pieza.
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
@@ -28773,9 +28779,9 @@ function openRequestInventoryModal(commerce, onComplete) {
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
               Alcance del Inventario
             </label>
-            <select id="req-inv-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
-              <option value="completo" ${initialType === 'completo' ? 'selected' : ''}>Inventario Completo (Todo el catálogo)</option>
-              <option value="selectivo" ${initialType === 'selectivo' ? 'selected' : ''}>Inventario Selectivo (${hasSelection ? `${selectedCheckedProducts.length} seleccionados` : 'Productos específicos'})</option>
+            <select id="req-inv-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600;">
+              <option value="completo" ${initialType === 'completo' ? 'selected' : ''}>Inventario Completo (Todo el catálogo físico)</option>
+              <option value="selectivo" ${initialType === 'selectivo' ? 'selected' : ''}>Inventario Selectivo (Elegir artículos específicos)</option>
             </select>
           </div>
           <div class="form-group" style="margin-bottom: 0;">
@@ -28811,24 +28817,48 @@ function openRequestInventoryModal(commerce, onComplete) {
           <textarea id="req-inv-notes" class="form-input" rows="2" placeholder="Ej: Prestar atención a las estanterías de calzado, validar unidades sin código de barras o cajas selladas..." style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;"></textarea>
         </div>
 
-        <!-- Vista Previa de Productos a Incluir -->
+        <!-- Panel de Selección / Vista Previa de Productos -->
         <div class="form-group" style="margin-bottom: 0;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-            <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
-              Resumen de Productos a Inventariar
-            </label>
-            <span id="req-inv-skus-count-badge" style="font-size: 0.8rem; font-weight: 700; background: var(--color-bg-alt); padding: 0.2rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); color: var(--color-text-main);">
-              0 SKUs
-            </span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
+                Artículos a Inventariar
+              </label>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(Solo productos físicos activos, excluye virtuales y borradores)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span id="req-inv-skus-count-badge" style="font-size: 0.8rem; font-weight: 700; background: rgba(99, 102, 241, 0.12); color: #6366f1; padding: 0.2rem 0.65rem; border-radius: var(--radius-full); border: 1px solid rgba(99, 102, 241, 0.3);">
+                0 SKUs
+              </span>
+            </div>
           </div>
-          <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+
+          <!-- Barra de Filtro y Botones de Selección Rápida -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative; flex: 1; min-width: 200px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+              <input type="text" id="req-inv-search-filter" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 100%; height: 32px; padding-left: 2rem; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            </div>
+            <div id="req-inv-selection-actions" style="display: flex; gap: 0.35rem;">
+              <button type="button" id="btn-req-inv-select-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: #6366f1; color: #6366f1;">
+                <i class="ri-checkbox-line"></i> Seleccionar Todos
+              </button>
+              <button type="button" id="btn-req-inv-deselect-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: var(--color-text-muted); color: var(--color-text-muted);">
+                <i class="ri-checkbox-blank-line"></i> Deseleccionar
+              </button>
+            </div>
+          </div>
+
+          <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
               <thead>
                 <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); position: sticky; top: 0; z-index: 1;">
-                  <th style="padding: 0.4rem 0.6rem; width: 30px; text-align: center;">#</th>
-                  <th style="padding: 0.4rem 0.6rem;">SKU</th>
+                  <th id="req-inv-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
+                    <input type="checkbox" id="req-inv-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+                  </th>
+                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
                   <th style="padding: 0.4rem 0.6rem;">Nombre</th>
-                  <th style="padding: 0.4rem 0.6rem; text-align: center;">Stock Sistema</th>
+                  <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
                 </tr>
               </thead>
               <tbody id="req-inv-preview-tbody">
@@ -28862,33 +28892,60 @@ function openRequestInventoryModal(commerce, onComplete) {
 
   document.body.appendChild(modal);
 
-  // Función para recalcular los productos mostrados en la vista previa
-  function updatePreviewProducts() {
+  // Renderizar tabla interactiva de productos
+  function renderProductsTable() {
     const type = document.getElementById('req-inv-type').value;
     const whSelect = document.getElementById('req-inv-warehouse');
     const selectedWhId = whSelect.value;
-    const selectedWhName = selectedWhId ? (whSelect.options[whSelect.selectedIndex].getAttribute('data-name') || 'Bodega') : 'Todas las bodegas';
+    const searchFilter = (document.getElementById('req-inv-search-filter')?.value || '').toLowerCase().trim();
+    const isSelective = (type === 'selectivo');
 
-    let prodsToInclude = [];
-    if (type === 'selectivo' && hasSelection) {
-      const selectedIdSet = new Set(selectedCheckedProducts.map(p => p.id));
-      prodsToInclude = allCached.filter(p => selectedIdSet.has(p.id));
-    } else {
-      prodsToInclude = allCached;
-    }
+    const actionsContainer = document.getElementById('req-inv-selection-actions');
+    const thCheck = document.getElementById('req-inv-th-check');
+    const masterCb = document.getElementById('req-inv-master-cb');
+
+    if (actionsContainer) actionsContainer.style.display = isSelective ? 'flex' : 'none';
+    if (thCheck) thCheck.innerHTML = isSelective ? `<input type="checkbox" id="req-inv-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">` : '#';
+
+    // Filtrar productos por búsqueda
+    const visibleProducts = allCached.filter(p => {
+      if (!searchFilter) return true;
+      const sku = (p.sku || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter);
+    });
 
     const tbody = document.getElementById('req-inv-preview-tbody');
     const badge = document.getElementById('req-inv-skus-count-badge');
     if (!tbody || !badge) return;
 
-    badge.textContent = `${prodsToInclude.length} SKUs`;
+    if (isSelective) {
+      const totalSelected = Array.from(selectedProductIds).filter(id => allCached.some(p => p.id === id)).length;
+      badge.textContent = `${totalSelected} de ${allCached.length} seleccionados`;
+    } else {
+      badge.textContent = `${allCached.length} SKUs físicos`;
+    }
 
-    if (prodsToInclude.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos para incluir.</td></tr>`;
+    if (visibleProducts.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos físicos que coincidan con la búsqueda.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = prodsToInclude.map((p, idx) => {
+    let allVisibleChecked = isSelective && visibleProducts.length > 0 && visibleProducts.every(p => selectedProductIds.has(p.id));
+    const newMasterCb = document.getElementById('req-inv-master-cb');
+    if (newMasterCb) {
+      newMasterCb.checked = allVisibleChecked;
+      newMasterCb.onchange = (e) => {
+        const isChecked = e.target.checked;
+        visibleProducts.forEach(p => {
+          if (isChecked) selectedProductIds.add(p.id);
+          else selectedProductIds.delete(p.id);
+        });
+        renderProductsTable();
+      };
+    }
+
+    tbody.innerHTML = visibleProducts.map((p, idx) => {
       let sysQty = 0;
       const invs = p.inventory || [];
       if (selectedWhId) {
@@ -28898,20 +28955,84 @@ function openRequestInventoryModal(commerce, onComplete) {
         sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
       }
 
+      const isChecked = isSelective ? selectedProductIds.has(p.id) : true;
+      const rowBg = (isSelective && isChecked) ? 'background: rgba(99, 102, 241, 0.07);' : '';
+
       return `
-        <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.4rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</td>
+        <tr class="req-inv-item-row" data-id="${p.id}" style="border-bottom: 1px solid var(--color-border); cursor: ${isSelective ? 'pointer' : 'default'}; ${rowBg}">
+          <td style="padding: 0.4rem 0.6rem; text-align: center;">
+            ${isSelective ? `
+              <input type="checkbox" class="req-inv-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+            ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
+          </td>
           <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
           <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
           <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         </tr>
       `;
     }).join('');
+
+    if (isSelective) {
+      tbody.querySelectorAll('.req-inv-item-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.tagName.toLowerCase() === 'input') return;
+          const prodId = row.getAttribute('data-id');
+          if (selectedProductIds.has(prodId)) {
+            selectedProductIds.delete(prodId);
+          } else {
+            selectedProductIds.add(prodId);
+          }
+          renderProductsTable();
+        });
+      });
+
+      tbody.querySelectorAll('.req-inv-item-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const prodId = e.target.getAttribute('data-id');
+          if (e.target.checked) {
+            selectedProductIds.add(prodId);
+          } else {
+            selectedProductIds.delete(prodId);
+          }
+          renderProductsTable();
+        });
+      });
+    }
   }
 
-  document.getElementById('req-inv-type').addEventListener('change', updatePreviewProducts);
-  document.getElementById('req-inv-warehouse').addEventListener('change', updatePreviewProducts);
-  updatePreviewProducts();
+  document.getElementById('req-inv-type').addEventListener('change', () => {
+    const type = document.getElementById('req-inv-type').value;
+    if (type === 'selectivo' && selectedProductIds.size === 0) {
+      // Si pasa a selectivo y no hay selección previa, marcar todos inicialmente
+      allCached.forEach(p => selectedProductIds.add(p.id));
+    }
+    renderProductsTable();
+  });
+
+  document.getElementById('req-inv-warehouse').addEventListener('change', renderProductsTable);
+  
+  const searchInp = document.getElementById('req-inv-search-filter');
+  if (searchInp) {
+    searchInp.addEventListener('input', renderProductsTable);
+  }
+
+  const btnSelectAll = document.getElementById('btn-req-inv-select-all');
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      allCached.forEach(p => selectedProductIds.add(p.id));
+      renderProductsTable();
+    });
+  }
+
+  const btnDeselectAll = document.getElementById('btn-req-inv-deselect-all');
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', () => {
+      selectedProductIds.clear();
+      renderProductsTable();
+    });
+  }
+
+  renderProductsTable();
 
   // Manejar envío
   const submitBtn = document.getElementById('btn-submit-inv-request');
@@ -28931,15 +29052,14 @@ function openRequestInventoryModal(commerce, onComplete) {
       const autoExcel = document.getElementById('req-inv-auto-excel').checked;
 
       let prodsToInclude = [];
-      if (type === 'selectivo' && hasSelection) {
-        const selectedIdSet = new Set(selectedCheckedProducts.map(p => p.id));
-        prodsToInclude = allCached.filter(p => selectedIdSet.has(p.id));
+      if (type === 'selectivo') {
+        prodsToInclude = allCached.filter(p => selectedProductIds.has(p.id));
       } else {
         prodsToInclude = allCached;
       }
 
       if (prodsToInclude.length === 0) {
-        alert('No hay productos disponibles para incluir en la solicitud.');
+        alert(type === 'selectivo' ? 'Por favor selecciona al menos un artículo para el inventario selectivo.' : 'No hay productos físicos disponibles para incluir en la solicitud.');
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
         return;

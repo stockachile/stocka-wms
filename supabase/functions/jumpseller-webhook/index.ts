@@ -241,11 +241,15 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     await supabase.from('orders').update(orderData).eq('id', existingOrder.id);
     localOrderId = existingOrder.id;
 
-    // Alertas críticas si el pedido ya está siendo preparado
-    const wmsStatus = existingOrder.estado_wms || 'En procesamiento';
-    const estadosCriticos = ['En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+    // Alertas críticas si el pedido ya está siendo preparado o protección si ya está cerrado
+    const rawStatus = (existingOrder.status || '').toLowerCase();
+    const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus);
+    const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
+    const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
 
-    if (estadosCriticos.includes(wmsStatus)) {
+    if (isClosedOrDispatched) {
+      console.log(`Pedido ${orderNumber} ya está en estado final (${existingOrder.status}). Omitiendo diffing.`);
+    } else if (estadosCriticos.includes(wmsStatus.toLowerCase())) {
       await supabase.from("order_alerts").insert([{
         merchant_id: merchantId,
         order_id: existingOrder.id,
@@ -254,8 +258,7 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       }]);
       console.log(`Alerta emitida para pedido modificado en WMS: ${orderNumber}`);
     } else {
-      // Si no es crítico, actualizamos ítems (borrar viejos, insertar nuevos)
-      await supabase.from("order_items").delete().eq("order_id", localOrderId);
+      // Si no es crítico, actualizamos ítems de forma inteligente (Smart Diffing)
       shouldInsertItems = true;
     }
   } else if (isActive) {
@@ -275,8 +278,16 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
     console.log(`Pedido ${orderNumber} ingresado en WMS con éxito.`);
   }
 
-  // Insertar ítems
+  // Insertar/Actualizar ítems con Smart Diffing
   if (localOrderId && shouldInsertItems) {
+    const { data: existingItems } = await supabase
+      .from('order_items')
+      .select('id, product_id, quantity, warehouse_id')
+      .eq('order_id', localOrderId);
+
+    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
+    const processedProductIds = new Set();
+
     const { data: whRel } = await supabase
       .from('merchants_warehouses')
       .select('warehouse_id')
@@ -325,12 +336,31 @@ async function handleOrderSave(merchantId: string, comercio: string, order: any)
       }
 
       if (product && warehouseId) {
-        await supabase.from('order_items').insert([{
-          order_id: localOrderId,
-          product_id: product.id,
-          warehouse_id: warehouseId,
-          quantity: qty
-        }]);
+        processedProductIds.add(product.id);
+        const existing = existingMap.get(product.id);
+
+        if (existing) {
+          if (existing.quantity !== (qty as number) || existing.warehouse_id !== warehouseId) {
+            await supabase.from('order_items').update({
+              quantity: qty as number,
+              warehouse_id: warehouseId
+            }).eq('id', existing.id);
+          }
+        } else {
+          await supabase.from('order_items').insert([{
+            order_id: localOrderId,
+            product_id: product.id,
+            warehouse_id: warehouseId,
+            quantity: qty as number
+          }]);
+        }
+      }
+    }
+
+    // Eliminar únicamente los ítems que ya no están en la orden
+    for (const [prodId, existingItem] of existingMap.entries()) {
+      if (!processedProductIds.has(prodId)) {
+        await supabase.from('order_items').delete().eq('id', (existingItem as any).id);
       }
     }
     console.log(`Ítems sincronizados con éxito para la orden ${orderNumber}.`);

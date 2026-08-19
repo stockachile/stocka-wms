@@ -1,14 +1,21 @@
--- WMS STOCKA - SQL Migration for Dispatched Order Items Edits
+-- WMS STOCKA - SQL Migration for Dispatched Order Items Edits with Sync Mode Bypass
 -- Run this script in the Supabase SQL Editor.
 
--- 1. Actualizar handle_new_order_item para descontar stock físico si el pedido ya está despachado/completado
+-- 1. Actualizar handle_new_order_item para descontar stock físico si el pedido ya está despachado/completado (e ignorar en sync)
 CREATE OR REPLACE FUNCTION public.handle_new_order_item()
 RETURNS trigger AS $$
 DECLARE
   v_order_status TEXT;
   v_is_virtual BOOLEAN;
   v_should_process BOOLEAN;
+  v_is_sync BOOLEAN;
 BEGIN
+  -- Verificar si la sesión actual está en modo de sincronización
+  v_is_sync := COALESCE(current_setting('app.is_sync_mode', true), 'false') = 'true';
+  IF v_is_sync THEN
+    RETURN NEW;
+  END IF;
+
   -- Obtener estado de la orden y ver si califica para procesamiento de stock
   SELECT status INTO v_order_status FROM public.orders WHERE id = NEW.order_id;
   v_should_process := public.should_process_order_stock(NEW.order_id);
@@ -50,14 +57,21 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 2. Actualizar handle_delete_order_item para devolver stock físico si el pedido ya está despachado/completado
+-- 2. Actualizar handle_delete_order_item para devolver stock físico si el pedido ya está despachado/completado (e ignorar en sync)
 CREATE OR REPLACE FUNCTION public.handle_delete_order_item()
 RETURNS trigger AS $$
 DECLARE
   v_order_status TEXT;
   v_is_virtual BOOLEAN;
   v_should_process BOOLEAN;
+  v_is_sync BOOLEAN;
 BEGIN
+  -- Verificar si la sesión actual está en modo de sincronización
+  v_is_sync := COALESCE(current_setting('app.is_sync_mode', true), 'false') = 'true';
+  IF v_is_sync THEN
+    RETURN OLD;
+  END IF;
+
   SELECT status INTO v_order_status FROM public.orders WHERE id = OLD.order_id;
   v_should_process := public.should_process_order_stock(OLD.order_id);
 
@@ -98,7 +112,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
--- 3. Actualizar handle_update_order_item para manejar cambios de cantidad, producto o bodega en pedidos despachados/completados
+-- 3. Actualizar handle_update_order_item para manejar cambios de cantidad, producto o bodega (e ignorar en sync)
 CREATE OR REPLACE FUNCTION public.handle_update_order_item()
 RETURNS trigger AS $$
 DECLARE
@@ -108,7 +122,14 @@ DECLARE
   v_old_is_virtual BOOLEAN;
   v_new_is_virtual BOOLEAN;
   v_qty_diff INTEGER;
+  v_is_sync BOOLEAN;
 BEGIN
+  -- Verificar si la sesión actual está en modo de sincronización
+  v_is_sync := COALESCE(current_setting('app.is_sync_mode', true), 'false') = 'true';
+  IF v_is_sync THEN
+    RETURN NEW;
+  END IF;
+
   SELECT status INTO v_order_status FROM public.orders WHERE id = COALESCE(NEW.order_id, OLD.order_id);
   v_old_process := public.should_process_order_stock(OLD.order_id);
   v_new_process := public.should_process_order_stock(NEW.order_id);
@@ -172,7 +193,7 @@ BEGIN
       UPDATE public.inventory
       SET committed_quantity = GREATEST(0, committed_quantity - OLD.quantity)
       WHERE product_id = OLD.product_id AND warehouse_id = OLD.warehouse_id;
-    END IF;
+    END If;
 
     -- Sumar nuevo
     IF v_new_process AND NEW.warehouse_id IS NOT NULL AND NOT v_new_is_virtual THEN

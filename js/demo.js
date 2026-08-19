@@ -364,6 +364,35 @@ const INITIAL_MOCK_DATA = {
     { id: 'sd-1', title: 'Importación Audífonos Q3', status: 'pending', quantity_declared: 200, volume_declared: 0.4, estimated_arrival_type: 'exact', estimated_arrival_date: '2026-08-20', estimated_arrival_period: 'morning', created_at: new Date('2026-08-05T11:00:00Z').toISOString(), merchant_id: DEMO_USER_ID, comercio: DEMO_COMMERCE },
     { id: 'sd-2', title: 'Reposición iPhones de prueba', status: 'completed', quantity_declared: 50, volume_declared: 0.025, estimated_arrival_type: 'exact', estimated_arrival_date: '2026-08-03', estimated_arrival_period: 'afternoon', created_at: new Date('2026-08-01T09:00:00Z').toISOString(), merchant_id: DEMO_USER_ID, comercio: DEMO_COMMERCE }
   ],
+  inventory_requests: [
+    {
+      id: 'req-inv-demo-1',
+      folio: 'REQ-INV-1001',
+      merchant_id: DEMO_USER_ID,
+      comercio: DEMO_COMMERCE,
+      warehouse_id: 'wh-central',
+      warehouse_name: 'Bodega Central',
+      type: 'completo',
+      reason: 'Auditoría / Cuadratura Periódica',
+      priority: 'Normal',
+      notes: 'Realizar conteo general para cuadratura de fin de mes.',
+      admin_notes: '',
+      status: 'Pendiente',
+      total_skus: 4,
+      products_list: [
+        { id: 'p-1', sku: 'SKU-001', name: 'Zapatilla Deportiva Air Pro', barcode: '7801234567890', warehouse_id: 'wh-central', warehouse_name: 'Bodega Central', system_qty: 45, counted_qty: null, difference: null, notes: '' },
+        { id: 'p-2', sku: 'SKU-002', name: 'Camiseta Dry-Fit Running', barcode: '7801234567891', warehouse_id: 'wh-central', warehouse_name: 'Bodega Central', system_qty: 120, counted_qty: null, difference: null, notes: '' },
+        { id: 'p-3', sku: 'SKU-003', name: 'Gorra Urbana Snapback', barcode: '7801234567892', warehouse_id: 'wh-central', warehouse_name: 'Bodega Central', system_qty: 30, counted_qty: null, difference: null, notes: '' },
+        { id: 'p-4', sku: 'SKU-004', name: 'Calcetines Deportivos Pack 3', barcode: '7801234567893', warehouse_id: 'wh-central', warehouse_name: 'Bodega Central', system_qty: 85, counted_qty: null, difference: null, notes: '' }
+      ],
+      requested_by: 'Cliente Invitado Demo (demo@stocka.cl)',
+      completed_by: null,
+      started_at: null,
+      completed_at: null,
+      created_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ],
   merchant_integrations: [
     { id: 'mi-shopify', merchant_id: DEMO_USER_ID, platform: 'shopify', shop_url: 'empresa-demo.myshopify.com', is_active: true, comercio: DEMO_COMMERCE, created_at: new Date('2026-08-01T12:00:00Z').toISOString() },
     { id: 'mi-meli', merchant_id: DEMO_USER_ID, platform: 'mercado_libre', shop_url: 'Empresa Demo ML', is_active: false, comercio: DEMO_COMMERCE, created_at: new Date('2026-08-02T10:00:00Z').toISOString() }

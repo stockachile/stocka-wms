@@ -351,12 +351,21 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     return;
   }
 
-  // Lógica de Alertas Condicionales
-  // Estados críticos del WMS: 'En preparación', 'Pickeado', 'Despachado', 'Incidencia'
-  const wmsStatus = existingOrder.estado_wms || 'En procesamiento';
-  const estadosCriticos = ['En preparación', 'Pickeado', 'Despachado', 'Incidencia'];
+  // Lógica de Alertas Condicionales y Protección de Pedidos Cerrados
+  const rawStatus = (existingOrder.status || '').toLowerCase();
+  const rawWmsStatus = (existingOrder.estado_wms || '').toLowerCase();
+  const isClosedOrDispatched = ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawStatus) ||
+                               ['despachado', 'entregado', 'retirado', 'cancelado'].includes(rawWmsStatus);
+
+  const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
+  const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
   
-  if (estadosCriticos.includes(wmsStatus)) {
+  if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {
+    if (isClosedOrDispatched) {
+      console.log(`Pedido ${order.name} ya está en estado final (${existingOrder.status}). Omitiendo diffing de order_items.`);
+      return;
+    }
+
     let alertMessage = `El pedido ${order.name} ha sido modificado en Shopify mientras estaba en WMS con estado: ${wmsStatus}.`;
     let alertType = 'MODIFICADO_EN_PREPARACION';
 
@@ -380,8 +389,14 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
     // Si NO está en un estado crítico (ej: está 'para procesar'), sincronizamos los items del pedido
     // para mantener el WMS actualizado antes de que comience la preparación.
     
-    // 1. Eliminar ítems anteriores
-    await supabase.from("order_items").delete().eq("order_id", existingOrder.id);
+    // 1. Obtener ítems existentes para Smart Diffing
+    const { data: existingItems } = await supabase
+      .from("order_items")
+      .select("id, product_id, quantity, warehouse_id")
+      .eq("order_id", existingOrder.id);
+
+    const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
+    const processedProductIds = new Set();
 
     // 2. Obtener primera bodega asignada al comerciante
     const { data: whRelation } = await supabase
@@ -393,7 +408,7 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       
     const warehouseId = whRelation?.warehouse_id || null;
 
-    // 3. Registrar ítems actualizados
+    // 3. Registrar ítems actualizados de forma inteligente
     const lineItems = order.line_items || [];
     for (const item of lineItems) {
       let product = null;
@@ -448,12 +463,31 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
       }
 
       if (product) {
-        await supabase.from("order_items").insert([{
-          order_id: existingOrder.id,
-          product_id: product.id,
-          warehouse_id: warehouseId,
-          quantity: item.quantity
-        }]);
+        processedProductIds.add(product.id);
+        const existing = existingMap.get(product.id);
+
+        if (existing) {
+          if (existing.quantity !== item.quantity || (warehouseId && existing.warehouse_id !== warehouseId)) {
+            await supabase.from("order_items").update({
+              quantity: item.quantity,
+              warehouse_id: warehouseId || existing.warehouse_id
+            }).eq("id", existing.id);
+          }
+        } else {
+          await supabase.from("order_items").insert([{
+            order_id: existingOrder.id,
+            product_id: product.id,
+            warehouse_id: warehouseId,
+            quantity: item.quantity
+          }]);
+        }
+      }
+    }
+
+    // 4. Eliminar únicamente los ítems que ya no están en la orden
+    for (const [prodId, existingItem] of existingMap.entries()) {
+      if (!processedProductIds.has(prodId)) {
+        await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
       }
     }
     console.log(`Ítems actualizados con éxito para el pedido ${order.name} en estado no crítico.`);

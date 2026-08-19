@@ -1,0 +1,355 @@
+// js/inventory_sheets.js - Generador de Hojas de Conteo de Inventario Físico (PDF & Excel) para STOCKA WMS
+
+/**
+ * Genera y descarga la Hoja Oficial de Toma de Inventario Físico en formato PDF
+ * Diseñada específicamente con cuadrícula y espacio para conteo manual en terreno
+ * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ */
+window.generateInventoryCountPdf = async function(req) {
+  if (!req) {
+    alert('Error: Datos de solicitud de inventario no disponibles.');
+    return;
+  }
+
+  const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
+  const comercio = req.comercio || 'Todos';
+  const warehouseName = req.warehouse_name || 'Todas las bodegas';
+  const reason = req.reason || 'Auditoría / Cuadratura Periódica';
+  const priority = req.priority || 'Normal';
+  const typeStr = (req.type === 'selectivo' || req.type === 'parcial') ? 'Inventario Selectivo (Parcial)' : 'Inventario Completo (General)';
+  const requestedBy = req.requested_by || 'Cliente WMS';
+  const notes = req.notes || 'Sin observaciones adicionales.';
+  const products = Array.isArray(req.products_list) ? req.products_list : [];
+  
+  const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  }) : new Date().toLocaleString('es-CL');
+
+  // Crear contenedor temporal fuera de pantalla para maquetación exacta
+  const container = document.createElement('div');
+  container.id = 'inventory-sheet-pdf-container';
+  container.style.position = 'fixed';
+  container.style.top = '-99999px';
+  container.style.left = '-99999px';
+  container.style.width = '210mm'; // Formato A4
+  container.style.backgroundColor = '#ffffff';
+  container.style.color = '#1e293b';
+  container.style.fontFamily = "'Inter', Arial, sans-serif";
+  container.style.padding = '12mm 15mm';
+  container.style.boxSizing = 'border-box';
+  container.style.fontSize = '9pt';
+  container.style.lineHeight = '1.3';
+
+  // Renderizar filas de productos
+  let rowsHtml = '';
+  if (products.length === 0) {
+    rowsHtml = `
+      <tr>
+        <td colspan="10" style="text-align: center; padding: 20px; color: #64748b; font-style: italic;">
+          No se especificaron productos individuales en la solicitud.
+        </td>
+      </tr>
+    `;
+  } else {
+    products.forEach((p, idx) => {
+      const isEven = idx % 2 === 0;
+      const bg = isEven ? '#ffffff' : '#f8fafc';
+      const barcode = p.barcode || p.codigo_barra || '-';
+      const whName = p.warehouse_name || warehouseName || 'Principal';
+      const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : (p.quantity || 0);
+
+      rowsHtml += `
+        <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; page-break-inside: avoid;">
+          <td style="padding: 6px 4px; text-align: center; font-weight: 600; color: #64748b; font-size: 8pt; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
+          <td style="padding: 6px 6px; font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8.5pt; border-right: 1px solid #e2e8f0; white-space: nowrap;">${p.sku || '-'}</td>
+          <td style="padding: 6px 6px; font-family: 'Courier New', monospace; color: #475569; font-size: 8pt; border-right: 1px solid #e2e8f0;">${barcode}</td>
+          <td style="padding: 6px 6px; color: #0f172a; font-size: 8.5pt; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.2;">${p.name || 'Sin nombre'}</td>
+          <td style="padding: 6px 4px; color: #475569; font-size: 7.5pt; text-align: center; border-right: 1px solid #e2e8f0;">${whName}</td>
+          <td style="padding: 6px 4px; text-align: center; font-weight: 700; color: #1e40af; font-size: 9pt; background-color: #f1f5f9; border-right: 1px solid #cbd5e1;">${sysQty}</td>
+          <!-- Casilla 1er Conteo -->
+          <td style="padding: 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 50px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #94a3b8; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; background: #fff;"></div>
+          </td>
+          <!-- Casilla 2do Conteo -->
+          <td style="padding: 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 50px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #94a3b8; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; background: #fff;"></div>
+          </td>
+          <!-- Casilla Diferencia -->
+          <td style="padding: 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 45px; background-color: #ffffff;">
+            <div style="border: 1.5px dashed #cbd5e1; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; background: #fff;"></div>
+          </td>
+          <!-- Casilla Observaciones / Estado -->
+          <td style="padding: 4px 6px; width: 95px; background-color: #ffffff;">
+            <div style="border-bottom: 1px dotted #94a3b8; height: 18px; margin-top: 2px;"></div>
+          </td>
+        </tr>
+      `;
+    });
+  }
+
+  // Prioridad con color de insignia
+  let priorityColor = '#2563eb';
+  let priorityBg = '#eff6ff';
+  if (priority === 'Alta' || priority === 'Urgente') {
+    priorityColor = '#dc2626';
+    priorityBg = '#fef2f2';
+  } else if (priority === 'Media') {
+    priorityColor = '#d97706';
+    priorityBg = '#fffbeb';
+  }
+
+  container.innerHTML = `
+    <div id="pdf-printable-area" style="width: 100%;">
+      <!-- ENCABEZADO INSTITUCIONAL -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 42px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+          <div>
+            <h1 style="margin: 0; font-size: 14pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
+              Hoja de Toma de Inventario Físico
+            </h1>
+            <p style="margin: 2px 0 0 0; font-size: 8pt; color: #64748b; font-weight: 500;">
+              STOCKA WMS & Fulfillment • Control Operativo de Bodega y Cuadratura de Stock
+            </p>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 10pt; font-family: monospace; letter-spacing: 0.5px;">
+            ${folio}
+          </div>
+          <div style="font-size: 7.5pt; color: #64748b; margin-top: 4px;">
+            Emisión: <strong>${formattedDate}</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- METADATOS DE LA SOLICITUD (TABLA DE RESUMEN) -->
+      <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px 12px; margin-bottom: 12px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 8.5pt;">
+          <tr>
+            <td style="padding: 3px 6px; width: 14%; font-weight: 700; color: #475569;">Cliente / Comercio:</td>
+            <td style="padding: 3px 6px; width: 36%; font-weight: 700; color: #0f172a; font-size: 9pt;">${comercio}</td>
+            <td style="padding: 3px 6px; width: 14%; font-weight: 700; color: #475569;">Bodega Asignada:</td>
+            <td style="padding: 3px 6px; width: 36%; font-weight: 600; color: #0f172a;">${warehouseName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 3px 6px; font-weight: 700; color: #475569;">Tipo Conteo:</td>
+            <td style="padding: 3px 6px; font-weight: 600; color: #0f172a;">${typeStr}</td>
+            <td style="padding: 3px 6px; font-weight: 700; color: #475569;">Prioridad:</td>
+            <td style="padding: 3px 6px;">
+              <span style="background-color: ${priorityBg}; color: ${priorityColor}; padding: 2px 8px; border-radius: 10px; font-size: 7.5pt; font-weight: 700; border: 1px solid ${priorityColor};">
+                ${priority.toUpperCase()}
+              </span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 3px 6px; font-weight: 700; color: #475569;">Motivo Solicitud:</td>
+            <td style="padding: 3px 6px; color: #1e293b;">${reason}</td>
+            <td style="padding: 3px 6px; font-weight: 700; color: #475569;">Total Artículos:</td>
+            <td style="padding: 3px 6px; font-weight: 700; color: #0f172a;">${products.length} SKUs a verificar</td>
+          </tr>
+          ${notes ? `
+          <tr>
+            <td style="padding: 3px 6px; font-weight: 700; color: #475569; vertical-align: top;">Instrucciones / Notas:</td>
+            <td colspan="3" style="padding: 3px 6px; color: #334155; font-style: italic; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px;">
+              ${notes}
+            </td>
+          </tr>
+          ` : ''}
+        </table>
+      </div>
+
+      <!-- GUÍA OPERATIVA PARA LA CUADRILLA -->
+      <div style="background-color: #f1f5f9; border-left: 4px solid #2563eb; padding: 6px 10px; margin-bottom: 12px; font-size: 7.8pt; color: #334155; border-radius: 0 4px 4px 0;">
+        <strong style="color: #1e40af;">Instrucciones Operativas para Bodega:</strong>
+        1. Realizar conteo físico pieza por pieza en el pasillo/rack.
+        2. Registrar en <strong>1er Conteo</strong>. En caso de descuadre, realizar <strong>2do Conteo</strong> de verificación.
+        3. Anotar en <em>Observaciones</em> si se detecta producto dañado, merma, empaque abierto o sin código de barras.
+        4. Al finalizar, firmar la hoja y entregar al supervisor de turno para ingresar los datos en el sistema WMS.
+      </div>
+
+      <!-- TABLA PRINCIPAL DE CONTEO FÍSICO -->
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-size: 8pt; margin-bottom: 15px;">
+        <thead>
+          <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.5px;">
+            <th style="padding: 6px 4px; width: 22px; text-align: center; border-right: 1px solid #334155;">#</th>
+            <th style="padding: 6px 6px; width: 85px; border-right: 1px solid #334155;">SKU</th>
+            <th style="padding: 6px 6px; width: 85px; border-right: 1px solid #334155;">Cód. Barras</th>
+            <th style="padding: 6px 6px; border-right: 1px solid #334155;">Descripción del Producto</th>
+            <th style="padding: 6px 4px; width: 70px; text-align: center; border-right: 1px solid #334155;">Bodega</th>
+            <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Sist.</th>
+            <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #047857; border-right: 1px solid #334155;">1° Conteo</th>
+            <th style="padding: 6px 4px; width: 50px; text-align: center; background-color: #047857; border-right: 1px solid #334155;">2° Conteo</th>
+            <th style="padding: 6px 4px; width: 45px; text-align: center; background-color: #475569; border-right: 1px solid #334155;">Dif. (±)</th>
+            <th style="padding: 6px 6px; width: 95px; text-align: center;">Estado / Notas</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <!-- SECCIÓN DE FIRMAS Y CIERRE DE TOMA DE INVENTARIO -->
+      <div style="page-break-inside: avoid; border-top: 1px solid #cbd5e1; padding-top: 10px; margin-top: 10px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 8pt;">
+          <tr>
+            <td style="width: 48%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 25px; text-transform: uppercase; font-size: 7.5pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px;">
+                Responsable del Conteo (Bodeguero / Operador)
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; color: #475569; font-size: 7.5pt;">
+                <div>Nombre: _____________________________________________</div>
+                <div>RUT: _______________________ Fecha: ____/____/________</div>
+                <div style="margin-top: 15px;">Firma: ______________________________________________</div>
+              </div>
+            </td>
+            <td style="width: 4%;"></td>
+            <td style="width: 48%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 25px; text-transform: uppercase; font-size: 7.5pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px;">
+                Validación y Cierre (Supervisor WMS STOCKA)
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; color: #475569; font-size: 7.5pt;">
+                <div>Nombre: _____________________________________________</div>
+                <div>Hora Inicio: _____:_____ &nbsp;&nbsp;|&nbsp;&nbsp; Hora Fin: _____:_____</div>
+                <div style="margin-top: 15px;">Firma V°B°: _________________________________________</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+        
+        <div style="text-align: center; margin-top: 10px; font-size: 7pt; color: #94a3b8;">
+          STOCKA WMS • Documento Oficial de Control y Auditoría Físico-Sistémica de Inventario • Página 1 de 1
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
+  try {
+    const printableArea = container.querySelector('#pdf-printable-area');
+    const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Hoja_Inventario_${safeFolio}_${safeCommerce}.pdf`;
+
+    const opt = {
+      margin:       [8, 10, 8, 10], // Margen en mm [top, left, bottom, right]
+      filename:     filename,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    if (typeof html2pdf !== 'undefined') {
+      await html2pdf().from(printableArea).set(opt).save();
+    } else {
+      window.print();
+    }
+  } catch (err) {
+    console.error('Error al generar PDF de inventario:', err);
+    alert('Error al generar el archivo PDF: ' + err.message);
+  } finally {
+    container.remove();
+  }
+};
+
+/**
+ * Genera y descarga la planilla Excel (XLSX) con la estructura de conteo de inventario
+ * @param {Object} req - Objeto con los datos de la solicitud de inventario
+ */
+window.generateInventoryCountExcel = function(req) {
+  if (!req) {
+    alert('Error: Datos de solicitud de inventario no disponibles.');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    alert('Error: Librería de exportación Excel (XLSX) no disponible.');
+    return;
+  }
+
+  const folio = req.folio || `REQ-INV-${(req.id || '').substring(0, 6).toUpperCase()}`;
+  const comercio = req.comercio || 'Todos';
+  const warehouseName = req.warehouse_name || 'Todas las bodegas';
+  const reason = req.reason || 'Auditoría / Cuadratura Periódica';
+  const priority = req.priority || 'Normal';
+  const notes = req.notes || '';
+  const products = Array.isArray(req.products_list) ? req.products_list : [];
+
+  const formattedDate = req.created_at ? new Date(req.created_at).toLocaleString('es-CL') : new Date().toLocaleString('es-CL');
+
+  // Construir filas del libro Excel
+  const excelRows = [
+    ['STOCKA WMS - HOJA DE TOMA DE INVENTARIO FÍSICO'],
+    ['Folio Solicitud:', folio, '', 'Fecha Emisión:', formattedDate],
+    ['Comercio:', comercio, '', 'Bodega:', warehouseName],
+    ['Motivo:', reason, '', 'Prioridad:', priority],
+    ['Instrucciones:', notes || 'Realizar conteo físico minucioso y registrar discrepancias.', '', 'Total SKUs:', products.length],
+    [], // Fila en blanco
+    [
+      'N°',
+      'SKU',
+      'Código de Barras',
+      'Producto / Descripción',
+      'Bodega Asignada',
+      'Stock Teórico (Sistema)',
+      '1er Conteo Físico',
+      '2do Conteo (Revisión)',
+      'Diferencia (Físico - Sistema)',
+      'Estado / Observaciones de Bodega'
+    ]
+  ];
+
+  products.forEach((p, idx) => {
+    const sysQty = (p.system_qty !== undefined && p.system_qty !== null) ? p.system_qty : (p.quantity || 0);
+    const counted = (p.counted_qty !== undefined && p.counted_qty !== null) ? p.counted_qty : '';
+    const diff = (p.difference !== undefined && p.difference !== null) ? p.difference : '';
+    const pNotes = p.notes || '';
+
+    excelRows.push([
+      idx + 1,
+      p.sku || '',
+      p.barcode || p.codigo_barra || '',
+      p.name || '',
+      p.warehouse_name || warehouseName || '',
+      sysQty,
+      counted,
+      '', // Espacio para 2do conteo
+      diff,
+      pNotes
+    ]);
+  });
+
+  // Fila de resumen / pie de conteo
+  excelRows.push([]);
+  excelRows.push(['', '', '', '', 'TOTAL UNIDADES SISTEMA:', { f: `SUM(F8:F${7 + products.length})` }, { f: `SUM(G8:G${7 + products.length})` }, '', { f: `SUM(I8:I${7 + products.length})` }, '']);
+  excelRows.push([]);
+  excelRows.push(['Responsable Conteo:', '___________________________', 'Firma:', '___________________________', 'Fecha:', '____/____/________']);
+  excelRows.push(['Supervisor Bodega:', '___________________________', 'Firma V°B°:', '___________________________', 'Fecha:', '____/____/________']);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(excelRows);
+
+  // Configuración de anchos de columnas
+  ws['!cols'] = [
+    { wch: 6 },  // N°
+    { wch: 18 }, // SKU
+    { wch: 18 }, // Código de Barras
+    { wch: 40 }, // Producto
+    { wch: 20 }, // Bodega
+    { wch: 16 }, // Stock Sistema
+    { wch: 16 }, // 1er Conteo
+    { wch: 16 }, // 2do Conteo
+    { wch: 18 }, // Diferencia
+    { wch: 35 }  // Observaciones
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Toma de Inventario');
+
+  const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `Planilla_Inventario_${safeFolio}_${safeCommerce}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+};

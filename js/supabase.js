@@ -156,6 +156,8 @@ class MockQueryBuilder {
         result = result.map(item => ({ ...item, merchant_id: demoUserId }));
       } else if (this.tableName === 'merchant_integrations') {
         result = result.map(item => ({ ...item, merchant_id: demoUserId }));
+      } else if (this.tableName === 'inventory_requests') {
+        result = result.map(item => ({ ...item, merchant_id: demoUserId }));
       }
     }
 

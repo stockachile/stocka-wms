@@ -383,14 +383,27 @@ async function syncShopifyOrders(integration: any): Promise<number> {
       if (existingOrder) {
         await supabase.from("orders").update(orderDataToSave).eq("id", existingOrder.id);
         orderId = existingOrder.id;
+
+        // Si el pedido ya está finalizado, no sincronizar sus items
+        if (['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+          continue;
+        }
       } else {
         const { data: newOrder } = await supabase.from("orders").insert([orderDataToSave]).select("id").single();
         if (newOrder) orderId = newOrder.id;
         else continue;
       }
 
-      await supabase.from("order_items").delete().eq("order_id", orderId);
+      // Sincronizar ítems con Smart Diffing
+      const { data: existingItems } = await supabase
+        .from("order_items")
+        .select("id, product_id, quantity, warehouse_id")
+        .eq("order_id", orderId);
+
+      const existingMap = new Map((existingItems || []).map((i: any) => [i.product_id, i]));
+      const processedProductIds = new Set();
       const lineItems = order.line_items || [];
+
       for (const item of lineItems) {
         const targetSku = (item.sku || item.variant_id?.toString() || "").trim();
         if (!targetSku) continue;
@@ -420,11 +433,28 @@ async function syncShopifyOrders(integration: any): Promise<number> {
         }
 
         if (product) {
-          await supabase.from("order_items").insert([{
-            order_id: orderId,
-            product_id: product.id,
-            quantity: item.quantity
-          }]);
+          processedProductIds.add(product.id);
+          const existing = existingMap.get(product.id);
+
+          if (existing) {
+            if (existing.quantity !== item.quantity) {
+              await supabase.from("order_items").update({
+                quantity: item.quantity
+              }).eq("id", existing.id);
+            }
+          } else {
+            await supabase.from("order_items").insert([{
+              order_id: orderId,
+              product_id: product.id,
+              quantity: item.quantity
+            }]);
+          }
+        }
+      }
+
+      for (const [prodId, existingItem] of existingMap.entries()) {
+        if (!processedProductIds.has(prodId)) {
+          await supabase.from("order_items").delete().eq("id", (existingItem as any).id);
         }
       }
       count++;

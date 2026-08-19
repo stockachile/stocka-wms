@@ -809,19 +809,21 @@ window.formatCLP = function(value) {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(value);
 };
 
-window.shouldProcessOrderStockLocal = function(order, config, allOrdersList) {
+window.shouldProcessOrderStockLocal = function(order, config, allOrdersList, checkTerminal = true) {
   // Si no hay configuración para este comercio, por defecto no hacemos seguimiento
   if (!config) return false;
 
   // A. Check if tracking is active
   if (!config.inventario_seguimiento) return false;
 
-  // B. Check if order state is terminal (despachado, retirado, entregado, cancelado)
-  const orderStatus = (order.status || '').toLowerCase().trim();
-  const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
-  const terminalStatuses = ['despachado', 'retirado', 'entregado', 'cancelado'];
-  if (terminalStatuses.includes(orderStatus) || terminalStatuses.includes(orderWmsStatus)) {
-    return false;
+  // B. Check if order state is terminal en WMS (solo estado_wms 'Despachado' o 'Cancelado' es terminal)
+  // El estado de despacho/plataforma (order.status) NO influye en el control de inventario WMS.
+  if (checkTerminal) {
+    const orderWmsStatus = (order.estado_wms || '').toLowerCase().trim();
+    const terminalWmsStatuses = ['despachado', 'cancelado'];
+    if (terminalWmsStatuses.includes(orderWmsStatus)) {
+      return false;
+    }
   }
 
   // C. Check start conditions
@@ -1067,7 +1069,7 @@ async function init() {
             viewTitle.textContent = 'Soporte Optiroute';
             renderOptirouteSupport();
           } else if (view === 'reassign_admin') {
-            viewTitle.textContent = 'Reubicar Stock';
+            viewTitle.textContent = 'Hub Central / Reubicar Stock';
             renderReassignStock();
           } else if (view === 'manual_in_admin') {
             viewTitle.textContent = 'Ingreso Manual';
@@ -1383,6 +1385,23 @@ window.updateAdminBadges = async function() {
       }
     } catch (err) {
       console.warn('Error fetching redzone count for admin badge:', err);
+    }
+
+    // 9. Central Stock (Hub Virtual) Admin Badge
+    try {
+      const { count: centralStockCount, error: centralErr } = await supabase
+        .from('inventory')
+        .select('*', { count: 'exact', head: true })
+        .eq('warehouse_id', 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09')
+        .gt('quantity', 0);
+
+      const badgeCentral = document.getElementById('badge-central-stock');
+      if (badgeCentral && centralStockCount !== null && !centralErr) {
+        badgeCentral.textContent = centralStockCount;
+        badgeCentral.style.display = centralStockCount > 0 ? 'inline-flex' : 'none';
+      }
+    } catch (err) {
+      console.warn('Error fetching central stock count for admin badge:', err);
     }
 
   } catch (e) {
@@ -3148,6 +3167,10 @@ window.applyWmsFiltersAndRender = function() {
           }
         } else if (origItem?.products?.is_virtual) {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem; font-style: italic;"><i class="ri-seedling-line"></i> Virtual</span>`;
+        } else if (isStockTrackingActive && origItem && !origItem.products?.is_virtual) {
+          const invMap = window.loadedOrdersInventoryMap || {};
+          const available = invMap[origItem.product_id + '_' + (origItem.warehouse_id || '')] || 0;
+          stockCellHtml = `<span style="color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;">${available} en bodega</span>`;
         } else {
           stockCellHtml = `<span style="color: #6b7280; font-size: 0.8rem;">-</span>`;
         }
@@ -3836,7 +3859,7 @@ window.applyBulkWmsStatus = async function() {
     const allItemsToCheck = [];
     selectedOrders.forEach(order => {
       const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-      const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
+      const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
       if (!isStockTrackingActive) return; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
       (order.order_items || []).forEach(item => {
@@ -4071,7 +4094,7 @@ async function validateOrderStockForDispatch(ordersList) {
 
   for (const order of ordersList) {
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     if (!isStockTrackingActive) continue; // Omitir validación de stock si el comercio no realiza seguimiento o está fuera de rango de inicio
 
     const hasCentralItems = (order.order_items || []).some(item => item.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09');
@@ -4101,20 +4124,20 @@ async function validateOrderStockForDispatch(ordersList) {
     const orderNames = ordersToPrompt.map(o => o.external_order_number || o.id).join(', ');
     const { value: sucursal } = await Swal.fire({
       title: 'Seleccionar Sucursal de Despacho',
-      text: `El/Los pedido(s) (${orderNames}) están en la Bodega Central (Virtual). Selecciona la sucursal física desde donde despachas para descontar el stock:`,
+      text: `El/Los pedido(s) (${orderNames}) están en la Bodega Central (Hub Virtual). Selecciona la sucursal física desde donde se realiza el despacho para descontar el stock físico:`,
       input: 'select',
       inputOptions: {
         'Sucursal Ñuñoa': 'Sucursal Ñuñoa',
         'Sucursal La Reina': 'Sucursal La Reina',
         'Sucursal Recoleta': 'Sucursal Recoleta'
       },
-      inputPlaceholder: 'Selecciona una sucursal',
+      inputPlaceholder: 'Selecciona una sucursal física',
       showCancelButton: true,
       confirmButtonText: 'Confirmar y Validar Stock',
       cancelButtonText: 'Cancelar',
       inputValidator: (value) => {
         if (!value) {
-          return 'Debes seleccionar una sucursal';
+          return 'Debes seleccionar una sucursal física';
         }
       }
     });
@@ -4193,11 +4216,20 @@ async function validateOrderStockForDispatch(ordersList) {
     
     const available = invMap[key] || 0;
     if (available < requiredMap[key]) {
-      const whName = check.order.sucursal_pickeo || 'Asignada';
+      const whName = check.order.sucursal_pickeo || 'Sucursal Asignada';
       await Swal.fire({
         icon: 'error',
         title: 'Stock Físico Insuficiente',
-        text: `No se puede marcar como Despachado: El SKU "${check.sku}" (${check.name}) no tiene suficiente stock físico en la bodega "${whName}" para cumplir con el despacho. (Requerido: ${requiredMap[key]} un., Disponible: ${available} un.).`,
+        html: `
+          <div style="text-align: left; font-size: 0.9rem;">
+            <p>No se puede marcar como <strong>Despachado</strong>: El SKU <strong>"${check.sku}"</strong> (${check.name}) no tiene suficiente stock físico en la bodega <strong>"${whName}"</strong> para cumplir con el despacho.</p>
+            <div style="background: var(--color-bg); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem;">
+              <div><strong>Requerido:</strong> ${requiredMap[key]} un.</div>
+              <div><strong>Disponible en ${whName}:</strong> <span style="color: #ef4444; font-weight: 700;">${available} un.</span></div>
+            </div>
+            <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">Si el stock se encuentra en Bodega Central, debes realizar primero un traslado hacia esta sucursal física desde el apartado <strong>Hub Central / Reubicar</strong>.</p>
+          </div>
+        `,
         confirmButtonText: 'Entendido'
       });
       return false;
@@ -4275,7 +4307,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 
     // Validar stock físico disponible para cada ítem (excluyendo virtuales) en la bodega destino
     const config = window.loadedCommerceConfigsMap ? window.loadedCommerceConfigsMap[order.comercio] : null;
-    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders) : !!(config && config.inventario_seguimiento);
+    const isStockTrackingActive = window.shouldProcessOrderStockLocal ? window.shouldProcessOrderStockLocal(order, config, window.loadedOrders, false) : !!(config && config.inventario_seguimiento);
     const itemsToCheck = isStockTrackingActive 
       ? (order.order_items || []).filter(item => !item.products?.is_virtual)
       : [];
@@ -4312,8 +4344,18 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         if (insufficientItem) {
           await Swal.fire({
             icon: 'error',
-            title: 'Falta de Stock Crítico',
-            text: `No hay suficiente stock para despachar el pedido ${order.external_order_number || order.id}. El pedido permanecerá en procesamiento. (SKU: ${insufficientItem.sku}, Requerido: ${insufficientItem.requested}, Disponible: ${insufficientItem.available})`,
+            title: 'Falta de Stock en Sucursal',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem;">
+                <p>No se puede enviar el pedido <strong>${order.external_order_number || order.id}</strong> a preparación: No hay suficiente stock físico en <strong>${formValues.sucursal}</strong>.</p>
+                <div style="background: var(--color-bg); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem;">
+                  <div><strong>SKU:</strong> ${insufficientItem.sku} (${insufficientItem.name})</div>
+                  <div><strong>Requerido:</strong> ${insufficientItem.requested} un.</div>
+                  <div><strong>Disponible en ${formValues.sucursal}:</strong> <span style="color: #ef4444; font-weight: 700;">${insufficientItem.available} un.</span></div>
+                </div>
+                <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">Si el stock se encuentra en Bodega Central, debes realizar primero un traslado hacia <strong>${formValues.sucursal}</strong> desde el apartado <strong>Hub Central / Reubicar</strong> antes de mandar al Picker.</p>
+              </div>
+            `,
             confirmButtonText: 'Entendido'
           });
 
@@ -4332,7 +4374,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
                 user_id: userId,
                 comercio: order.comercio,
                 title: `Falta de stock crítico - Pedido ${order.external_order_number || order.id}`,
-                description: `El pedido ${order.external_order_number || order.id} no se pudo despachar por falta de stock del SKU ${insufficientItem.sku} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
+                description: `El pedido ${order.external_order_number || order.id} no se pudo mandar a preparación por falta de stock del SKU ${insufficientItem.sku} en ${formValues.sucursal} (Faltan ${insufficientItem.requested - insufficientItem.available} un.).`,
                 type: 'stock',
                 severity: 'critico',
                 status: 'pendiente',
@@ -4437,15 +4479,337 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
 async function renderReassignStock() {
   const appContent = document.getElementById('app-content');
   appContent.innerHTML = `
-    <div class="card">
-      <div class="card-header">
-        <h3>Reubicación de Stock (En Desarrollo)</h3>
-      </div>
-      <div class="card-body">
-        <p style="color: var(--color-text-muted);">Pronto podrás listar aquí el inventario de Bodega Central y reasignarlo a otras sucursales.</p>
+    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+      <div class="card" style="padding: 1.5rem; border: none; box-shadow: var(--shadow-sm); background: var(--color-surface); border-radius: var(--radius-md);">
+        <div style="display: flex; align-items: center; justify-content: center; padding: 3rem; color: var(--color-text-muted); gap: 0.75rem;">
+          <i class="ri-loader-4-line spin" style="font-size: 2rem; color: var(--color-primary);"></i> 
+          <span style="font-size: 1rem; font-weight: 500;">Cargando inventario de Bodega Central (Hub Virtual)...</span>
+        </div>
       </div>
     </div>
   `;
+
+  try {
+    const centralWarehouseId = 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09'; // Bodega Central
+    
+    // 1. Cargar inventario de Bodega Central con productos
+    const { data: centralInvs, error: invErr } = await supabase
+      .from('inventory')
+      .select(`
+        id,
+        product_id,
+        warehouse_id,
+        quantity,
+        committed_quantity,
+        products (
+          id,
+          sku,
+          name,
+          comercio,
+          is_virtual,
+          price
+        )
+      `)
+      .eq('warehouse_id', centralWarehouseId)
+      .gt('quantity', 0);
+
+    if (invErr) throw invErr;
+
+    // 2. Cargar inventarios en sucursales físicas para estos mismos productos
+    const productIds = (centralInvs || []).map(i => i.product_id);
+    let allPhysicalInvs = [];
+    if (productIds.length > 0) {
+      const { data: pData } = await supabase
+        .from('inventory')
+        .select(`
+          product_id,
+          warehouse_id,
+          quantity,
+          committed_quantity,
+          warehouses (
+            id,
+            name
+          )
+        `)
+        .neq('warehouse_id', centralWarehouseId)
+        .in('product_id', productIds);
+      allPhysicalInvs = pData || [];
+    }
+
+    // 3. Normalizar ítems
+    const items = (centralInvs || []).map(inv => {
+      const p = inv.products || {};
+      const physicalStockList = allPhysicalInvs
+        .filter(pi => pi.product_id === inv.product_id && pi.quantity > 0)
+        .map(pi => `<span class="badge" style="background: var(--color-surface); border: 1px solid var(--color-border); font-size: 0.72rem; padding: 0.15rem 0.45rem; font-weight: 600;">${pi.warehouses?.name || 'Bodega'}: <strong>${pi.quantity}</strong></span>`);
+
+      return {
+        id: inv.id,
+        productId: inv.product_id,
+        sku: p.sku || 'Sin SKU',
+        name: p.name || 'Sin Nombre',
+        comercio: p.comercio || 'Sin Comercio',
+        price: p.price || 0,
+        isVirtual: !!p.is_virtual,
+        centralQty: inv.quantity || 0,
+        committedQty: inv.committed_quantity || 0,
+        availableQty: Math.max(0, (inv.quantity || 0) - (inv.committed_quantity || 0)),
+        physicalBadgesHtml: physicalStockList.length > 0 ? physicalStockList.join(' ') : '<span style="color: var(--color-text-muted); font-size: 0.75rem; font-style: italic;">Sin existencias en sucursales</span>'
+      };
+    });
+
+    items.sort((a, b) => a.comercio.localeCompare(b.comercio) || a.sku.localeCompare(b.sku));
+
+    // Stats
+    const totalCentralSkus = items.length;
+    const totalCentralUnits = items.reduce((acc, curr) => acc + curr.centralQty, 0);
+    const uniqueComercios = [...new Set(items.map(i => i.comercio))].sort();
+
+    const renderRows = (filteredList) => {
+      if (filteredList.length === 0) {
+        return `<tr><td colspan="7" style="text-align: center; padding: 3rem; color: var(--color-text-muted); font-size: 0.95rem;">No se encontraron productos con stock en Bodega Central según el filtro aplicado.</td></tr>`;
+      }
+
+      return filteredList.map(item => `
+        <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.2s;" onmouseover="this.style.background='var(--color-surface-hover)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 0.75rem 1rem; font-weight: 600; color: var(--color-text-main);">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-store-2-line" style="color: var(--color-primary); font-size: 0.9rem;"></i>
+              <span>${item.comercio}</span>
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1rem; font-family: monospace; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem;">
+            ${item.sku}
+          </td>
+          <td style="padding: 0.75rem 1rem; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.85rem;" title="${item.name.replace(/"/g, '&quot;')}">
+            ${item.name}
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: center;">
+            <span style="background: rgba(245, 158, 11, 0.12); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 0.25rem 0.65rem; border-radius: 99px; font-weight: 700; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-box-3-line"></i> ${item.centralQty} un.
+            </span>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: center; color: var(--color-text-muted); font-size: 0.85rem;">
+            ${item.committedQty > 0 ? `<span style="color: var(--color-danger); font-weight: 600;">${item.committedQty}</span>` : '0'}
+          </td>
+          <td style="padding: 0.75rem 1rem;">
+            <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center;">
+              ${item.physicalBadgesHtml}
+            </div>
+          </td>
+          <td style="padding: 0.75rem 1rem; text-align: right;">
+            <button class="btn btn-primary btn-sm btn-quick-reassign" 
+                    data-prod-id="${item.productId}" 
+                    data-sku="${item.sku}" 
+                    data-name="${item.name.replace(/"/g, '&quot;')}" 
+                    data-comercio="${item.comercio.replace(/"/g, '&quot;')}"
+                    style="padding: 0.35rem 0.75rem; font-size: 0.8rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; background-color: var(--color-primary); color: #ffffff; border: none; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.2s;">
+              <i class="ri-arrow-left-right-line"></i> Derivar a Sucursal
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    };
+
+    appContent.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        
+        <!-- Header Banner Informativo -->
+        <div class="card" style="padding: 1.5rem; border-left: 4px solid var(--color-warning); background: var(--color-surface); box-shadow: var(--shadow-sm); border-radius: var(--radius-md);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                <i class="ri-arrow-left-right-line" style="color: var(--color-warning);"></i> Hub Bodega Central & Reubicación de Stock
+              </h3>
+              <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.35rem 0 0 0; line-height: 1.4; max-width: 800px;">
+                La <strong>Bodega Central</strong> actúa como un Hub Virtual de consolidación. Los productos con existencias en este centro deben ser derivados a una <strong>sucursal física (Ñuñoa, La Reina, Recoleta)</strong> para permitir que los pedidos de los comercios pasen a preparación y despacho en el WMS.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button id="btn-refresh-reassign" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; border-radius: var(--radius-md);">
+                <i class="ri-refresh-line"></i> Refrescar
+              </button>
+              <button id="btn-reassign-bulk-commerce" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background-color: #d97706; border-color: #d97706; color: white; cursor: pointer; border-radius: var(--radius-md); font-weight: 600;">
+                <i class="ri-truck-line"></i> Derivar Stock Masivo
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metric Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+          <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(245, 158, 11, 0.12); color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+              <i class="ri-archive-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 1.6rem; font-weight: 700; color: var(--color-text-main); line-height: 1.1;">${totalCentralSkus}</div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; margin-top: 0.2rem;">SKUs en Hub Central</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(14, 165, 233, 0.12); color: #0ea5e9; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+              <i class="ri-stack-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 1.6rem; font-weight: 700; color: var(--color-text-main); line-height: 1.1;">${totalCentralUnits.toLocaleString('es-CL')}</div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; margin-top: 0.2rem;">Unidades por Derivar</div>
+            </div>
+          </div>
+
+          <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+              <i class="ri-store-2-line"></i>
+            </div>
+            <div>
+              <div style="font-size: 1.6rem; font-weight: 700; color: var(--color-text-main); line-height: 1.1;">${uniqueComercios.length}</div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500; margin-top: 0.2rem;">Comercios con Stock</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabla y Filtros -->
+        <div class="card" style="border: none; box-shadow: var(--shadow-md); background: var(--color-surface); border-radius: var(--radius-md); overflow: hidden;">
+          <div style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 280px;">
+              <div style="position: relative; flex: 1;">
+                <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="reassign-search" class="form-input" placeholder="Buscar por SKU o Nombre de Producto..." style="padding-left: 2.25rem; height: 38px; width: 100%; border-radius: var(--radius-md); box-sizing: border-box; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main);">
+              </div>
+              <select id="reassign-filter-commerce" class="form-input" style="height: 38px; min-width: 180px; width: auto; border-radius: var(--radius-md); background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-main); font-weight: 600;">
+                <option value="">Todos los Comercios (${uniqueComercios.length})</option>
+                ${uniqueComercios.map(c => `<option value="${c}">${c}</option>`).join('')}
+              </select>
+            </div>
+            <div style="font-size: 0.85rem; color: var(--color-text-muted);">
+              Mostrando <strong id="reassign-count" style="color: var(--color-text-main);">${items.length}</strong> productos
+            </div>
+          </div>
+
+          <div style="overflow-x: auto; width: 100%;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left;">
+              <thead>
+                <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                  <th style="padding: 0.85rem 1rem;">Comercio</th>
+                  <th style="padding: 0.85rem 1rem;">SKU</th>
+                  <th style="padding: 0.85rem 1rem;">Producto</th>
+                  <th style="padding: 0.85rem 1rem; text-align: center;">Stock Hub Central</th>
+                  <th style="padding: 0.85rem 1rem; text-align: center;">Comprometido</th>
+                  <th style="padding: 0.85rem 1rem;">Stock en Sucursales Físicas</th>
+                  <th style="padding: 0.85rem 1rem; text-align: right;">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="reassign-table-body">
+                ${renderRows(items)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    // Filtros dinámicos
+    const searchInput = document.getElementById('reassign-search');
+    const commerceSelect = document.getElementById('reassign-filter-commerce');
+    const tableBody = document.getElementById('reassign-table-body');
+    const countSpan = document.getElementById('reassign-count');
+
+    const applyFilters = () => {
+      const q = (searchInput?.value || '').toLowerCase().trim();
+      const comm = commerceSelect?.value || '';
+
+      const filtered = items.filter(item => {
+        const matchComm = !comm || item.comercio === comm;
+        const matchQ = !q || item.sku.toLowerCase().includes(q) || item.name.toLowerCase().includes(q);
+        return matchComm && matchQ;
+      });
+
+      if (tableBody) tableBody.innerHTML = renderRows(filtered);
+      if (countSpan) countSpan.textContent = filtered.length;
+      bindRowButtons();
+    };
+
+    const bindRowButtons = () => {
+      document.querySelectorAll('.btn-quick-reassign').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const prodId = btn.getAttribute('data-prod-id');
+          const sku = btn.getAttribute('data-sku');
+          const name = btn.getAttribute('data-name');
+          const comercio = btn.getAttribute('data-comercio');
+
+          if (window.openBulkStockTransferModal) {
+            window.openBulkStockTransferModal(
+              comercio,
+              [{ id: prodId, sku: sku, name: name }],
+              () => renderReassignStock(),
+              centralWarehouseId
+            );
+          }
+        });
+      });
+    };
+
+    if (searchInput) searchInput.addEventListener('input', applyFilters);
+    if (commerceSelect) commerceSelect.addEventListener('change', applyFilters);
+
+    // Botón refrescar
+    const refreshBtn = document.getElementById('btn-refresh-reassign');
+    if (refreshBtn) refreshBtn.addEventListener('click', () => renderReassignStock());
+
+    // Botón derivar stock masivo
+    const bulkBtn = document.getElementById('btn-reassign-bulk-commerce');
+    if (bulkBtn) {
+      bulkBtn.addEventListener('click', async () => {
+        const selectedCommerce = commerceSelect?.value || (uniqueComercios.length === 1 ? uniqueComercios[0] : '');
+        if (!selectedCommerce) {
+          const { value: comm } = await Swal.fire({
+            title: 'Seleccionar Comercio',
+            text: 'Selecciona el comercio del cual deseas trasladar stock masivo desde Bodega Central:',
+            input: 'select',
+            inputOptions: Object.fromEntries(uniqueComercios.map(c => [c, c])),
+            inputPlaceholder: 'Selecciona un comercio',
+            showCancelButton: true,
+            confirmButtonText: 'Continuar',
+            cancelButtonText: 'Cancelar'
+          });
+          if (!comm) return;
+          const commItems = items.filter(i => i.comercio === comm);
+          if (window.openBulkStockTransferModal) {
+            window.openBulkStockTransferModal(
+              comm,
+              commItems.map(i => ({ id: i.productId, sku: i.sku, name: i.name })),
+              () => renderReassignStock(),
+              centralWarehouseId
+            );
+          }
+        } else {
+          const commItems = items.filter(i => i.comercio === selectedCommerce);
+          if (window.openBulkStockTransferModal) {
+            window.openBulkStockTransferModal(
+              selectedCommerce,
+              commItems.map(i => ({ id: i.productId, sku: i.sku, name: i.name })),
+              () => renderReassignStock(),
+              centralWarehouseId
+            );
+          }
+        }
+      });
+    }
+
+    bindRowButtons();
+
+  } catch (err) {
+    console.error('Error renderizando Hub Central / Reubicación:', err);
+    appContent.innerHTML = `
+      <div class="alert alert-danger" style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #ef4444; padding: 1.5rem; border-radius: var(--radius-md);">
+        <h4><i class="ri-error-warning-line"></i> Error al cargar Hub Central</h4>
+        <p style="margin: 0.5rem 0 0 0;">${err.message}</p>
+        <button class="btn btn-outline" onclick="renderReassignStock()" style="margin-top: 1rem;"><i class="ri-refresh-line"></i> Reintentar</button>
+      </div>
+    `;
+  }
 }
 
 async function renderManualIn() {
@@ -8086,44 +8450,69 @@ async function renderAdminInventoryRequestsWorkspace() {
       </div>
 
       <!-- MAIN CARD: FILTROS Y TABLA DE SOLICITUDES -->
-      <div class="card">
-        <div class="card-header flex justify-between items-center" style="flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;">
+      <div class="card" style="border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--color-surface); box-shadow: var(--shadow-sm);">
+        
+        <!-- Header Principal: Título y Botón de Acción -->
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap; gap: 1rem; background: var(--color-surface);">
           <div>
-            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main);">
-              Gestión de Tomas de Inventario Físico
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-survey-line" style="color: #6366f1;"></i> Gestión de Tomas de Inventario Físico
             </h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
+            <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">
               Genera hojas oficiales de conteo de bodega, registra resultados en terreno y aplica ajustes automáticos de stock.
             </p>
           </div>
           
-          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-            <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-              <input type="text" id="admin-req-search" class="form-input" placeholder="Buscar folio, comercio, sku..." style="width: 230px; padding-left: 2.25rem; height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+          <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; background: #6366f1; border-color: #6366f1; padding: 0 1.15rem; border-radius: var(--radius-md); box-shadow: 0 2px 4px rgba(99, 102, 241, 0.25); cursor: pointer;">
+            <i class="ri-add-line" style="font-size: 1.1rem;"></i> Nueva Solicitud
+          </button>
+        </div>
+
+        <!-- Barra de Filtros Dedicada y Responsiva -->
+        <div style="background: var(--color-bg); padding: 0.85rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; flex: 1;">
+            
+            <!-- Buscador Dinámico -->
+            <div style="position: relative; min-width: 220px; flex: 1; max-width: 280px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
+              <input type="text" id="admin-req-search" class="form-input" placeholder="Buscar folio, SKU, solicitante..." style="width: 100%; padding-left: 2.2rem; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
             </div>
 
-            <select id="admin-req-comercio-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
-              <option value="">Todos los Comercios</option>
-              ${comerciosOptions}
-            </select>
+            <!-- Filtro Comercio -->
+            <div style="min-width: 175px; flex: 1; max-width: 220px;">
+              <select id="admin-req-comercio-filter" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.4rem 0.65rem; cursor: pointer;">
+                <option value="">🏢 Todos los Comercios</option>
+                ${comerciosOptions}
+              </select>
+            </div>
 
-            <select id="admin-req-status-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
-              <option value="">Todos los Estados</option>
-              <option value="Pendiente">Pendiente</option>
-              <option value="En Conteo">En Conteo</option>
-              <option value="Finalizada">Finalizada</option>
-              <option value="Cancelada">Cancelada</option>
-            </select>
+            <!-- Filtro Estado -->
+            <div style="min-width: 155px; flex: 1; max-width: 185px;">
+              <select id="admin-req-status-filter" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.4rem 0.65rem; cursor: pointer;">
+                <option value="">⚡ Todos los Estados</option>
+                <option value="Pendiente">⏳ Pendiente</option>
+                <option value="En Conteo">🔄 En Conteo</option>
+                <option value="Finalizada">✅ Finalizada</option>
+                <option value="Cancelada">🚫 Cancelada</option>
+              </select>
+            </div>
 
-            <select id="admin-req-warehouse-filter" class="form-input" style="height: 38px; font-size: 0.85rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.45rem 0.75rem; cursor: pointer;">
-              <option value="">Todas las Bodegas</option>
-              ${warehousesOptions}
-            </select>
+            <!-- Filtro Bodega -->
+            <div style="min-width: 165px; flex: 1; max-width: 195px;">
+              <select id="admin-req-warehouse-filter" class="form-input" style="width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.4rem 0.65rem; cursor: pointer;">
+                <option value="">📦 Todas las Bodegas</option>
+                ${warehousesOptions}
+              </select>
+            </div>
 
-            <button id="btn-admin-add-new-req-main" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background: #6366f1; border-color: #6366f1;">
-              <i class="ri-add-line"></i> Nueva Solicitud
+            <!-- Botón Limpiar Filtros -->
+            <button id="btn-admin-req-clear-filters" class="btn btn-outline btn-sm" title="Restablecer filtros" style="height: 38px; padding: 0 0.75rem; border-color: var(--color-border); color: var(--color-text-muted); font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem; background: var(--color-surface); cursor: pointer;">
+              <i class="ri-filter-off-line"></i> Limpiar
             </button>
+          </div>
+
+          <!-- Contador de Resultados -->
+          <div id="admin-req-results-counter" style="font-size: 0.825rem; color: var(--color-text-muted); white-space: nowrap; font-weight: 500;">
           </div>
         </div>
 
@@ -8158,6 +8547,7 @@ async function renderAdminInventoryRequestsWorkspace() {
     const comFilter = document.getElementById('admin-req-comercio-filter');
     const statusFilter = document.getElementById('admin-req-status-filter');
     const whFilter = document.getElementById('admin-req-warehouse-filter');
+    const clearBtn = document.getElementById('btn-admin-req-clear-filters');
     const addBtn = document.getElementById('btn-admin-add-new-req-main');
 
     const triggerFilter = () => renderAdminInventoryRequestsTableBody();
@@ -8166,6 +8556,16 @@ async function renderAdminInventoryRequestsWorkspace() {
     if (comFilter) comFilter.addEventListener('change', triggerFilter);
     if (statusFilter) statusFilter.addEventListener('change', triggerFilter);
     if (whFilter) whFilter.addEventListener('change', triggerFilter);
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => {
+        if (searchInput) searchInput.value = '';
+        if (comFilter) comFilter.value = '';
+        if (statusFilter) statusFilter.value = '';
+        if (whFilter) whFilter.value = '';
+        renderAdminInventoryRequestsTableBody();
+      });
+    }
 
     if (addBtn) {
       addBtn.addEventListener('click', () => {
@@ -8213,6 +8613,15 @@ function renderAdminInventoryRequestsTableBody() {
 
     return true;
   });
+
+  const counterEl = document.getElementById('admin-req-results-counter');
+  if (counterEl) {
+    if (filtered.length === requests.length) {
+      counterEl.innerHTML = `<span style="font-weight: 700; color: var(--color-text-main);">${filtered.length}</span> solicitudes`;
+    } else {
+      counterEl.innerHTML = `Mostrando <span style="font-weight: 700; color: #6366f1;">${filtered.length}</span> de ${requests.length}`;
+    }
+  }
 
   if (filtered.length === 0) {
     tbody.innerHTML = `
@@ -8284,16 +8693,16 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
-            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja PDF para Bodega" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: transparent; cursor: pointer;">
+            <button class="btn btn-outline btn-sm btn-admin-pdf-req" data-id="${r.id}" title="Descargar Hoja PDF para Bodega" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: transparent; cursor: pointer;">
               <i class="ri-file-pdf-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
+            <button class="btn btn-outline btn-sm btn-admin-excel-req" data-id="${r.id}" title="Descargar Planilla Excel" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
               <i class="ri-file-excel-line"></i>
             </button>
-            <button class="btn btn-primary btn-sm" onclick="openAdminManageInventoryRequestModal(window.cachedAdminInventoryRequests.find(x => x.id === '${r.id}'))" title="Gestionar y Cuadrar Conteo Físico" style="padding: 0.35rem 0.65rem; background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem;">
+            <button class="btn btn-primary btn-sm btn-admin-manage-req" data-id="${r.id}" title="Gestionar y Cuadrar Conteo Físico" style="padding: 0.35rem 0.65rem; background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer;">
               <i class="ri-edit-2-line"></i> Gestionar
             </button>
-            <button class="btn btn-outline btn-sm" onclick="deleteAdminInventoryRequest('${r.id}')" title="Eliminar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer;">
+            <button class="btn btn-outline btn-sm btn-admin-delete-req" data-id="${r.id}" title="Eliminar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer;">
               <i class="ri-delete-bin-line"></i>
             </button>
           </div>
@@ -8301,6 +8710,46 @@ function renderAdminInventoryRequestsTableBody() {
       </tr>
     `;
   }).join('');
+
+  // Vincular event listeners a los botones de acción
+  tbody.querySelectorAll('.btn-admin-manage-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req) {
+        openAdminManageInventoryRequestModal(req);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-admin-delete-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      if (reqId) {
+        deleteAdminInventoryRequest(reqId);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-admin-pdf-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req && typeof window.generateInventoryCountPdf === 'function') {
+        window.generateInventoryCountPdf(req);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-admin-excel-req').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req && typeof window.generateInventoryCountExcel === 'function') {
+        window.generateInventoryCountExcel(req);
+      }
+    });
+  });
 }
 
 async function deleteAdminInventoryRequest(reqId) {
@@ -8824,9 +9273,15 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
   `;
 
   const hasDefaultProducts = defaultProducts && defaultProducts.length > 0;
+  const initialType = hasDefaultProducts ? 'selectivo' : 'completo';
+
+  const selectedProductIds = new Set();
+  if (hasDefaultProducts) {
+    defaultProducts.forEach(p => selectedProductIds.add(p.id));
+  }
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 780px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
+    <div class="modal-content" style="max-width: 800px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 92vh;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
           <i class="ri-add-circle-line" style="color: #6366f1;"></i> Crear Solicitud de Inventario (Admin)
@@ -8866,9 +9321,9 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.4rem; display: block; color: var(--color-text-main); font-size: 0.85rem;">
               Alcance del Inventario
             </label>
-            <select id="admin-create-req-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer;">
-              <option value="completo" ${!hasDefaultProducts ? 'selected' : ''}>Inventario Completo (Todo el catálogo del comercio)</option>
-              <option value="selectivo" ${hasDefaultProducts ? 'selected' : ''}>Inventario Selectivo (${hasDefaultProducts ? `${defaultProducts.length} seleccionados` : 'Productos específicos'})</option>
+            <select id="admin-create-req-type" class="form-input" style="width: 100%; height: 38px; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; cursor: pointer; font-weight: 600;">
+              <option value="completo" ${initialType === 'completo' ? 'selected' : ''}>Inventario Completo (Todo el catálogo físico del comercio)</option>
+              <option value="selectivo" ${initialType === 'selectivo' ? 'selected' : ''}>Inventario Selectivo (Elegir artículos específicos)</option>
             </select>
           </div>
 
@@ -8905,24 +9360,48 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
           <textarea id="admin-create-req-notes" class="form-input" rows="2" placeholder="Ej: Contar primero cajas completas en rack B, validar productos sin etiqueta..." style="width: 100%; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.5rem 0.75rem; font-size: 0.85rem; resize: vertical;"></textarea>
         </div>
 
-        <!-- Vista Previa de Productos -->
+        <!-- Panel de Selección / Vista Previa de Productos -->
         <div class="form-group" style="margin-bottom: 0;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-            <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
-              Productos a Incluir
-            </label>
-            <span id="admin-create-req-count-badge" style="font-size: 0.8rem; font-weight: 700; background: var(--color-bg-alt); padding: 0.2rem 0.6rem; border-radius: var(--radius-full); border: 1px solid var(--color-border); color: var(--color-text-main);">
-              0 SKUs
-            </span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <label class="form-label" style="font-weight: 600; margin: 0; color: var(--color-text-main); font-size: 0.85rem;">
+                Productos a Incluir
+              </label>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block;">(Solo productos físicos activos, excluye virtuales y borradores)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span id="admin-create-req-count-badge" style="font-size: 0.8rem; font-weight: 700; background: rgba(99, 102, 241, 0.12); color: #6366f1; padding: 0.2rem 0.65rem; border-radius: var(--radius-full); border: 1px solid rgba(99, 102, 241, 0.3);">
+                0 SKUs
+              </span>
+            </div>
           </div>
-          <div style="max-height: 170px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+
+          <!-- Barra de Filtro y Botones de Selección Rápida -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <div style="position: relative; flex: 1; min-width: 200px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+              <input type="text" id="admin-create-search-filter" class="form-input" placeholder="Buscar por SKU o nombre..." style="width: 100%; height: 32px; padding-left: 2rem; font-size: 0.8rem; background: var(--color-bg); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+            </div>
+            <div id="admin-create-selection-actions" style="display: flex; gap: 0.35rem;">
+              <button type="button" id="btn-admin-create-select-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: #6366f1; color: #6366f1;">
+                <i class="ri-checkbox-line"></i> Seleccionar Todos
+              </button>
+              <button type="button" id="btn-admin-create-deselect-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; border-color: var(--color-text-muted); color: var(--color-text-muted);">
+                <i class="ri-checkbox-blank-line"></i> Deseleccionar
+              </button>
+            </div>
+          </div>
+
+          <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
             <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
               <thead>
                 <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); position: sticky; top: 0; z-index: 1;">
-                  <th style="padding: 0.4rem 0.6rem; width: 30px; text-align: center;">#</th>
-                  <th style="padding: 0.4rem 0.6rem;">SKU</th>
+                  <th id="admin-create-th-check" style="padding: 0.4rem 0.6rem; width: 36px; text-align: center;">
+                    <input type="checkbox" id="admin-create-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+                  </th>
+                  <th style="padding: 0.4rem 0.6rem; width: 120px;">SKU</th>
                   <th style="padding: 0.4rem 0.6rem;">Nombre</th>
-                  <th style="padding: 0.4rem 0.6rem; text-align: center;">Stock Sistema</th>
+                  <th style="padding: 0.4rem 0.6rem; text-align: center; width: 95px;">Stock Sistema</th>
                 </tr>
               </thead>
               <tbody id="admin-create-req-preview-tbody">
@@ -8959,6 +9438,15 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
   let loadedProductsForCommerce = [];
 
+  // Helper para validar productos físicos activos
+  const isPhysicalActive = (p) => {
+    if (!p) return false;
+    if (p.is_virtual === true || p.is_virtual === 1 || String(p.is_virtual).toLowerCase() === 'true') return false;
+    const st = (p.status || '').toLowerCase().trim();
+    if (st === 'archived' || st === 'archivado' || st === 'draft' || st === 'borrador') return false;
+    return true;
+  };
+
   async function loadProductsForSelectedCommerce() {
     const comSelect = document.getElementById('admin-create-req-commerce');
     const selectedCom = comSelect.value;
@@ -8967,6 +9455,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
     if (!selectedCom) {
       loadedProductsForCommerce = [];
+      selectedProductIds.clear();
       badge.textContent = '0 SKUs';
       tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">Selecciona un comercio para cargar productos.</td></tr>`;
       return;
@@ -8978,7 +9467,7 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       const { data: prods, error } = await supabase
         .from('products')
         .select(`
-          id, sku, name, barcode, status,
+          id, sku, name, barcode, status, is_virtual, is_pack,
           inventory (warehouse_id, quantity, warehouses(name))
         `)
         .eq('comercio', selectedCom)
@@ -8986,39 +9475,80 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
 
       if (error) throw error;
 
-      loadedProductsForCommerce = prods || [];
-      updateAdminCreatePreview();
+      // Filtrar solo productos físicos activos
+      loadedProductsForCommerce = (prods || []).filter(isPhysicalActive);
+
+      // Si no había selección previa o se cambió de comercio, ajustar selección
+      if (hasDefaultProducts) {
+        defaultProducts.forEach(p => {
+          if (loadedProductsForCommerce.some(lp => lp.id === p.id)) {
+            selectedProductIds.add(p.id);
+          }
+        });
+      } else {
+        selectedProductIds.clear();
+        loadedProductsForCommerce.forEach(p => selectedProductIds.add(p.id));
+      }
+
+      renderAdminProductsTable();
     } catch (e) {
       console.error(e);
       tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: red;">Error al cargar productos: ${e.message}</td></tr>`;
     }
   }
 
-  function updateAdminCreatePreview() {
+  function renderAdminProductsTable() {
     const type = document.getElementById('admin-create-req-type').value;
     const whSelect = document.getElementById('admin-create-req-warehouse');
     const selectedWhId = whSelect.value;
+    const searchFilter = (document.getElementById('admin-create-search-filter')?.value || '').toLowerCase().trim();
+    const isSelective = (type === 'selectivo');
+
+    const actionsContainer = document.getElementById('admin-create-selection-actions');
+    const thCheck = document.getElementById('admin-create-th-check');
+
+    if (actionsContainer) actionsContainer.style.display = isSelective ? 'flex' : 'none';
+    if (thCheck) thCheck.innerHTML = isSelective ? `<input type="checkbox" id="admin-create-master-cb" title="Seleccionar/Deseleccionar todos los visibles" style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">` : '#';
+
     const tbody = document.getElementById('admin-create-req-preview-tbody');
     const badge = document.getElementById('admin-create-req-count-badge');
-
     if (!tbody || !badge) return;
 
-    let toShow = [];
-    if (type === 'selectivo' && hasDefaultProducts) {
-      const defaultIdSet = new Set(defaultProducts.map(p => p.id));
-      toShow = loadedProductsForCommerce.filter(p => defaultIdSet.has(p.id));
+    // Filtrar por búsqueda
+    const visibleProducts = loadedProductsForCommerce.filter(p => {
+      if (!searchFilter) return true;
+      const sku = (p.sku || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      return sku.includes(searchFilter) || name.includes(searchFilter);
+    });
+
+    if (isSelective) {
+      const totalSelected = Array.from(selectedProductIds).filter(id => loadedProductsForCommerce.some(p => p.id === id)).length;
+      badge.textContent = `${totalSelected} de ${loadedProductsForCommerce.length} seleccionados`;
     } else {
-      toShow = loadedProductsForCommerce;
+      badge.textContent = `${loadedProductsForCommerce.length} SKUs físicos`;
     }
 
-    badge.textContent = `${toShow.length} SKUs`;
-
-    if (toShow.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos para mostrar.</td></tr>`;
+    if (visibleProducts.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);">No hay productos físicos que coincidan con la búsqueda.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = toShow.map((p, idx) => {
+    let allVisibleChecked = isSelective && visibleProducts.length > 0 && visibleProducts.every(p => selectedProductIds.has(p.id));
+    const newMasterCb = document.getElementById('admin-create-master-cb');
+    if (newMasterCb) {
+      newMasterCb.checked = allVisibleChecked;
+      newMasterCb.onchange = (e) => {
+        const isChecked = e.target.checked;
+        visibleProducts.forEach(p => {
+          if (isChecked) selectedProductIds.add(p.id);
+          else selectedProductIds.delete(p.id);
+        });
+        renderAdminProductsTable();
+      };
+    }
+
+    tbody.innerHTML = visibleProducts.map((p, idx) => {
       let sysQty = 0;
       const invs = p.inventory || [];
       if (selectedWhId) {
@@ -9028,20 +9558,82 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
         sysQty = invs.reduce((acc, i) => acc + (i.quantity || 0), 0);
       }
 
+      const isChecked = isSelective ? selectedProductIds.has(p.id) : true;
+      const rowBg = (isSelective && isChecked) ? 'background: rgba(99, 102, 241, 0.07);' : '';
+
       return `
-        <tr style="border-bottom: 1px solid var(--color-border);">
-          <td style="padding: 0.4rem 0.6rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</td>
+        <tr class="admin-create-item-row" data-id="${p.id}" style="border-bottom: 1px solid var(--color-border); cursor: ${isSelective ? 'pointer' : 'default'}; ${rowBg}">
+          <td style="padding: 0.4rem 0.6rem; text-align: center;">
+            ${isSelective ? `
+              <input type="checkbox" class="admin-create-item-cb" data-id="${p.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px; accent-color: #6366f1; vertical-align: middle;">
+            ` : `<span style="color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</span>`}
+          </td>
           <td style="padding: 0.4rem 0.6rem; font-weight: 600; font-family: monospace;">${p.sku}</td>
           <td style="padding: 0.4rem 0.6rem; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.name}</td>
           <td style="padding: 0.4rem 0.6rem; text-align: center; font-weight: 700; color: var(--color-primary);">${sysQty}</td>
         </tr>
       `;
     }).join('');
+
+    if (isSelective) {
+      tbody.querySelectorAll('.admin-create-item-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.tagName.toLowerCase() === 'input') return;
+          const prodId = row.getAttribute('data-id');
+          if (selectedProductIds.has(prodId)) {
+            selectedProductIds.delete(prodId);
+          } else {
+            selectedProductIds.add(prodId);
+          }
+          renderAdminProductsTable();
+        });
+      });
+
+      tbody.querySelectorAll('.admin-create-item-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const prodId = e.target.getAttribute('data-id');
+          if (e.target.checked) {
+            selectedProductIds.add(prodId);
+          } else {
+            selectedProductIds.delete(prodId);
+          }
+          renderAdminProductsTable();
+        });
+      });
+    }
   }
 
   document.getElementById('admin-create-req-commerce').addEventListener('change', loadProductsForSelectedCommerce);
-  document.getElementById('admin-create-req-warehouse').addEventListener('change', updateAdminCreatePreview);
-  document.getElementById('admin-create-req-type').addEventListener('change', updateAdminCreatePreview);
+  document.getElementById('admin-create-req-warehouse').addEventListener('change', renderAdminProductsTable);
+  
+  document.getElementById('admin-create-req-type').addEventListener('change', () => {
+    const type = document.getElementById('admin-create-req-type').value;
+    if (type === 'selectivo' && selectedProductIds.size === 0) {
+      loadedProductsForCommerce.forEach(p => selectedProductIds.add(p.id));
+    }
+    renderAdminProductsTable();
+  });
+
+  const searchInp = document.getElementById('admin-create-search-filter');
+  if (searchInp) {
+    searchInp.addEventListener('input', renderAdminProductsTable);
+  }
+
+  const btnSelectAll = document.getElementById('btn-admin-create-select-all');
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      loadedProductsForCommerce.forEach(p => selectedProductIds.add(p.id));
+      renderAdminProductsTable();
+    });
+  }
+
+  const btnDeselectAll = document.getElementById('btn-admin-create-deselect-all');
+  if (btnDeselectAll) {
+    btnDeselectAll.addEventListener('click', () => {
+      selectedProductIds.clear();
+      renderAdminProductsTable();
+    });
+  }
 
   if (defaultCommerce) {
     loadProductsForSelectedCommerce();
@@ -9071,15 +9663,14 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
       const autoExcel = document.getElementById('admin-create-auto-excel').checked;
 
       let toInclude = [];
-      if (type === 'selectivo' && hasDefaultProducts) {
-        const defaultIdSet = new Set(defaultProducts.map(p => p.id));
-        toInclude = loadedProductsForCommerce.filter(p => defaultIdSet.has(p.id));
+      if (type === 'selectivo') {
+        toInclude = loadedProductsForCommerce.filter(p => selectedProductIds.has(p.id));
       } else {
         toInclude = loadedProductsForCommerce;
       }
 
       if (toInclude.length === 0) {
-        alert('No se encontraron productos para incluir en la solicitud.');
+        alert(type === 'selectivo' ? 'Por favor selecciona al menos un artículo para el inventario selectivo.' : 'No se encontraron productos físicos disponibles para incluir en la solicitud.');
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Crear Solicitud y Emitir Hoja';
         return;
@@ -9174,7 +9765,13 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
   });
 }
 
-
+// Exponer funciones globales para el módulo de inventario admin
+window.openAdminManageInventoryRequestModal = openAdminManageInventoryRequestModal;
+window.deleteAdminInventoryRequest = deleteAdminInventoryRequest;
+window.openAdminCreateInventoryRequestModal = openAdminCreateInventoryRequestModal;
+window.renderAdminInventoryRequestsWorkspace = renderAdminInventoryRequestsWorkspace;
+window.updateAdminInventoryRequestsTabBadge = updateAdminInventoryRequestsTabBadge;
+window.renderAdminInventoryRequestsTableBody = renderAdminInventoryRequestsTableBody;
 
 async function openAdminProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements-admin';
@@ -14718,9 +15315,43 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       `;
     }
 
+    let centralStockUnits = 0;
+    let centralStockSkus = 0;
+    if (invRes.data) {
+      invRes.data.forEach(i => {
+        if (i.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' && (i.quantity || 0) > 0) {
+          centralStockUnits += (i.quantity || 0);
+          centralStockSkus++;
+        }
+      });
+    }
+
+    let centralStockBannerHtml = '';
+    if (centralStockUnits > 0) {
+      centralStockBannerHtml = `
+        <div class="alert" style="background: rgba(245, 158, 11, 0.08); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: 1.25rem 1.5rem; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm); flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="width: 42px; height: 42px; border-radius: 50%; background: rgba(245, 158, 11, 0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <i class="ri-arrow-left-right-line" style="color: var(--color-warning); font-size: 1.5rem;"></i>
+            </div>
+            <div>
+              <strong style="color: var(--color-text-main); display: block; font-size: 0.95rem;">Hub Bodega Central: Stock Pendiente de Derivación</strong>
+              <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-top: 0.15rem;">
+                Hay <strong>${centralStockUnits.toLocaleString('es-CL')}</strong> unidades físicas (${centralStockSkus} SKUs) en Bodega Central (Hub Virtual) que deben derivarse a sucursales físicas (Ñuñoa, La Reina, Recoleta) para poder preparar pedidos.
+              </span>
+            </div>
+          </div>
+          <button class="btn btn-warning btn-sm" onclick="document.querySelector('[data-view=reassign_admin]')?.click()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 700; padding: 0.45rem 0.9rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+            <i class="ri-arrow-left-right-line"></i> Reubicar Stock en Sucursales
+          </button>
+        </div>
+      `;
+    }
+
     // 8. Renderizar el HTML completo del dashboard
     if (loaderInterval) clearInterval(loaderInterval);
     contentDiv.innerHTML = `
+      ${centralStockBannerHtml}
       ${missingDimVolBannerHtml}
       <div class="dashboard-layout-split">
         <!-- Columna Izquierda: Área Principal -->
@@ -35111,7 +35742,7 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
   });
 }
 
-function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
+function openBulkStockTransferModal(commerce, selectedProducts, onComplete, defaultSourceWarehouseId = null, defaultDestWarehouseId = null) {
   let modal = document.getElementById('modal-bulk-stock-transfer');
   if (modal) modal.remove();
 
@@ -35207,6 +35838,9 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
 
   document.body.appendChild(modal);
 
+  // Exponer globalmente
+  window.openBulkStockTransferModal = openBulkStockTransferModal;
+
   // Load warehouses
   supabase
     .from('warehouses')
@@ -35224,6 +35858,13 @@ function openBulkStockTransferModal(commerce, selectedProducts, onComplete) {
             srcSelect.innerHTML += opt;
             destSelect.innerHTML += opt;
           });
+          if (defaultSourceWarehouseId) {
+            srcSelect.value = defaultSourceWarehouseId;
+            srcSelect.dispatchEvent(new Event('change'));
+          }
+          if (defaultDestWarehouseId) {
+            destSelect.value = defaultDestWarehouseId;
+          }
         }
       }
     });
