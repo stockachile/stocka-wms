@@ -1217,6 +1217,17 @@ async function renderDashboard() {
         if (docRes && docRes.data && docRes.data.file_url) {
           skuGuideUrl = docRes.data.file_url;
         }
+
+        if (!onboardingChecklist) {
+          onboardingChecklist = {
+            integrations: false,
+            shopify_pin: !!shopifyPartnerPin,
+            catalog_ready: false,
+            shipping_configured: !!(cacRes?.data?.enviame_id),
+            sku_guide: false,
+            stock_declared: false
+          };
+        }
       } catch (err) {
         console.warn("Error fetching onboarding checklist or SKU guide:", err);
       }
@@ -1847,6 +1858,16 @@ async function renderDashboard() {
     }
 
     let onboardingHtml = '';
+    if (!onboardingChecklist) {
+      onboardingChecklist = {
+        integrations: false,
+        shopify_pin: !!shopifyPartnerPin,
+        catalog_ready: false,
+        shipping_configured: false,
+        sku_guide: false,
+        stock_declared: false
+      };
+    }
     if (onboardingChecklist && onboardingChecklist.dismissed !== true) {
       onboardingHtml = `
         <!-- Guía de Inicio Onboarding -->
