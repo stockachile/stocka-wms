@@ -852,6 +852,41 @@ serve(async (req) => {
       headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
       emailTitle = 'Integración de Envíos';
 
+      // Consultar adjuntos para agregar enlaces directos en el cuerpo del correo
+      let resourcesHtml = '';
+      try {
+        const { data: e3Docs } = await supabaseClient
+          .from('service_docs')
+          .select('name, file_url')
+          .in('folder', ['E3', 'E3_General', 'E3_Shopify']);
+        
+        if (e3Docs && e3Docs.length > 0) {
+          resourcesHtml = `
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #166534; line-height: 1.6;">
+              <strong style="color: #14532d; display: block; margin-bottom: 8px; font-size: 14.5px;">
+                📂 Documentos Adjuntos y Enlaces de Descarga Directa:
+              </strong>
+              Haga clic en los siguientes enlaces para abrir o descargar el material adjunto:
+              <ul style="margin: 8px 0; padding-left: 20px;">
+          `;
+          e3Docs.forEach((doc: any) => {
+            resourcesHtml += `
+              <li style="margin-bottom: 6px;">
+                <a href="${doc.file_url}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+                  ${doc.name} (Descargar PDF)
+                </a>
+              </li>
+            `;
+          });
+          resourcesHtml += `
+              </ul>
+            </div>
+          `;
+        }
+      } catch (err) {
+        console.error('[send-billing-email] Error cargando enlaces E3 para cuerpo de correo:', err);
+      }
+
       emailBodyHtml = `
         <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
           Hola equipo de <strong>${commerceName}</strong>,<br><br>
@@ -910,6 +945,8 @@ serve(async (req) => {
             </li>
           </ul>
         </div>
+
+        ${resourcesHtml}
 
         <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
           📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
@@ -1534,24 +1571,30 @@ serve(async (req) => {
               const fileRes = await fetch(doc.file_url);
               if (fileRes.ok) {
                 const arrayBuffer = await fileRes.arrayBuffer();
-                const uint8 = new Uint8Array(arrayBuffer);
-                const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+                const sizeInMB = arrayBuffer.byteLength / (1024 * 1024);
 
-                if (!brevoPayload.attachment) {
-                  brevoPayload.attachment = [];
+                if (sizeInMB < 4.0) {
+                  const uint8 = new Uint8Array(arrayBuffer);
+                  const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+
+                  if (!brevoPayload.attachment) {
+                    brevoPayload.attachment = [];
+                  }
+
+                  // Asegurar que el nombre tenga la extensión adecuada si la URL la tiene
+                  let docName = doc.name;
+                  if (!docName.toLowerCase().endsWith('.pdf') && doc.file_url.toLowerCase().endsWith('.pdf')) {
+                    docName += '.pdf';
+                  }
+
+                  brevoPayload.attachment.push({
+                    content: base64Content,
+                    name: docName
+                  });
+                  console.log(`[send-billing-email] Adjunto E3 ${docName} cargado con éxito (${sizeInMB.toFixed(2)} MB).`);
+                } else {
+                  console.log(`[send-billing-email] Omitiendo adjunto físico por superar los 4MB (disponible por link): ${doc.name} (${sizeInMB.toFixed(2)} MB).`);
                 }
-
-                // Asegurar que el nombre tenga la extensión adecuada si la URL la tiene
-                let docName = doc.name;
-                if (!docName.toLowerCase().endsWith('.pdf') && doc.file_url.toLowerCase().endsWith('.pdf')) {
-                  docName += '.pdf';
-                }
-
-                brevoPayload.attachment.push({
-                  content: base64Content,
-                  name: docName
-                });
-                console.log(`[send-billing-email] Adjunto E3 ${docName} cargado con éxito!`);
               } else {
                 console.warn(`[send-billing-email] Adjunto opcional E3 ${doc.name} no se pudo descargar: HTTP ${fileRes.status}`);
               }
