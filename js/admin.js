@@ -28987,7 +28987,7 @@ async function renderMerchantsAdmin() {
 
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+        return `<tr><td colspan="13" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
       }
       
       return list.map(c => {
@@ -29032,6 +29032,9 @@ async function renderMerchantsAdmin() {
 
         return `
           <tr>
+            <td style="text-align: center;">
+              <input type="checkbox" class="merchant-select-checkbox" value="${c.nombre}" onchange="window.updateMerchantSelectionBar()" style="cursor: pointer; width: 16px; height: 16px;">
+            </td>
             <td><strong>${c.nombre}</strong></td>
             <td>${companyInfo}</td>
             <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
@@ -29069,6 +29072,23 @@ async function renderMerchantsAdmin() {
     appContent.innerHTML = `
       ${migrationBannerHtml}
       ${statsHtml}
+      
+      <!-- Bulk Actions Bar for Merchants Table -->
+      <div id="merchants-bulk-actions-bar" style="display: none; background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; box-shadow: var(--shadow-md);">
+        <div style="font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-checkbox-multiple-line" style="font-size: 1.2rem;"></i>
+          <span id="merchants-bulk-count">0 comercios seleccionados</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTable()" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+            <i class="ri-user-star-line"></i> Asignar KAM Masivo
+          </button>
+          <button class="btn btn-sm" onclick="window.clearMerchantSelection()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-size: 0.85rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 4px;">
+            Desmarcar Todos
+          </button>
+        </div>
+      </div>
+
       <div class="card" style="border: none; box-shadow: var(--shadow-md); margin-bottom: 2rem;">
         <div class="card-header" style="background-color: var(--color-bg); border-bottom: 1px solid var(--color-border); padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
           <div>
@@ -29110,6 +29130,9 @@ async function renderMerchantsAdmin() {
             <table class="data-table" style="width: 100%;">
               <thead>
                 <tr>
+                  <th style="width: 36px; text-align: center;">
+                    <input type="checkbox" id="merchant-select-all" onclick="window.toggleSelectAllMerchants(this)" style="cursor: pointer; width: 16px; height: 16px;" title="Seleccionar todos los comercios">
+                  </th>
                   <th>Comercio</th>
                   <th>Razón Social / RUT</th>
                   <th>Sigla</th>
@@ -29233,6 +29256,92 @@ window.switchMerchantTab = function(tabName) {
   }
 };
 
+// Funciones de Selección Masiva en Tabla Principal de Comercios
+window.toggleSelectAllMerchants = function(masterCb) {
+  const checkboxes = document.querySelectorAll('.merchant-select-checkbox');
+  checkboxes.forEach(cb => cb.checked = masterCb.checked);
+  window.updateMerchantSelectionBar();
+};
+
+window.updateMerchantSelectionBar = function() {
+  const checked = document.querySelectorAll('.merchant-select-checkbox:checked');
+  const bar = document.getElementById('merchants-bulk-actions-bar');
+  const countSpan = document.getElementById('merchants-bulk-count');
+  const masterCb = document.getElementById('merchant-select-all');
+  
+  if (masterCb) {
+    const total = document.querySelectorAll('.merchant-select-checkbox');
+    masterCb.checked = total.length > 0 && checked.length === total.length;
+  }
+
+  if (bar && countSpan) {
+    if (checked.length > 0) {
+      bar.style.display = 'flex';
+      countSpan.textContent = `${checked.length} comercio${checked.length > 1 ? 's' : ''} seleccionado${checked.length > 1 ? 's' : ''}`;
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+};
+
+window.clearMerchantSelection = function() {
+  const checkboxes = document.querySelectorAll('.merchant-select-checkbox, #merchant-select-all');
+  checkboxes.forEach(cb => cb.checked = false);
+  window.updateMerchantSelectionBar();
+};
+
+window.openBulkAssignKamModalFromTable = function() {
+  const checkedNodes = document.querySelectorAll('.merchant-select-checkbox:checked');
+  const selectedNames = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedNames.length === 0) {
+    Swal.fire('Atención', 'Por favor selecciona al menos un comercio.', 'warning');
+    return;
+  }
+  window.showBulkAssignKamModal(selectedNames);
+};
+
+// Funciones de Selección Masiva en Pestaña KAMs
+window.updateKamTabSelectionBar = function() {
+  const checked = document.querySelectorAll('.kam-tab-checkbox:checked');
+  const bar = document.getElementById('kam-tab-bulk-bar');
+  const countSpan = document.getElementById('kam-tab-bulk-count');
+  
+  if (bar && countSpan) {
+    if (checked.length > 0) {
+      bar.style.display = 'flex';
+      countSpan.textContent = `${checked.length} comercio${checked.length > 1 ? 's' : ''} seleccionado${checked.length > 1 ? 's' : ''}`;
+    } else {
+      bar.style.display = 'none';
+    }
+  }
+};
+
+window.clearKamTabSelection = function() {
+  const checkboxes = document.querySelectorAll('.kam-tab-checkbox');
+  checkboxes.forEach(cb => cb.checked = false);
+  window.updateKamTabSelectionBar();
+};
+
+window.toggleKamGroupSelection = function(groupName) {
+  const safeName = groupName.replace(/"/g, '&quot;');
+  const groupCheckboxes = document.querySelectorAll(`.kam-tab-checkbox[data-group="${CSS.escape(groupName)}"], .kam-tab-checkbox[data-group="${safeName}"]`);
+  
+  if (groupCheckboxes.length === 0) return;
+  const allChecked = Array.from(groupCheckboxes).every(cb => cb.checked);
+  groupCheckboxes.forEach(cb => cb.checked = !allChecked);
+  window.updateKamTabSelectionBar();
+};
+
+window.openBulkAssignKamModalFromTab = function() {
+  const checkedNodes = document.querySelectorAll('.kam-tab-checkbox:checked');
+  const selectedNames = Array.from(checkedNodes).map(cb => cb.value);
+  if (selectedNames.length === 0) {
+    Swal.fire('Atención', 'Por favor selecciona al menos un comercio para asignar KAM.', 'warning');
+    return;
+  }
+  window.showBulkAssignKamModal(selectedNames);
+};
+
 window.renderKamsTab = function() {
   const container = document.getElementById('tab-content-kams');
   if (!container) return;
@@ -29283,6 +29392,23 @@ window.renderKamsTab = function() {
   const kamList = Object.values(groups);
   const totalKamsCount = kamList.filter(g => !g.isUnassigned).length;
 
+  const bulkBarHtml = `
+    <div id="kam-tab-bulk-bar" style="display: none; background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; box-shadow: var(--shadow-md);">
+      <div style="font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+        <i class="ri-checkbox-multiple-line" style="font-size: 1.2rem;"></i>
+        <span id="kam-tab-bulk-count">0 comercios seleccionados</span>
+      </div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button class="btn btn-sm" onclick="window.openBulkAssignKamModalFromTab()" style="background: #ffffff; color: var(--color-primary); font-weight: 700; border: none; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; padding: 0.4rem 0.85rem; border-radius: 4px;">
+          <i class="ri-user-star-line"></i> Asignar / Reasignar KAM Masivo
+        </button>
+        <button class="btn btn-sm" onclick="window.clearKamTabSelection()" style="background: rgba(255,255,255,0.2); color: #ffffff; font-size: 0.85rem; border: none; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 4px;">
+          Desmarcar Todos
+        </button>
+      </div>
+    </div>
+  `;
+
   const statsHeaderHtml = `
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
       <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; align-items: center; gap: 0.75rem;">
@@ -29316,11 +29442,11 @@ window.renderKamsTab = function() {
   `;
 
   if (kamList.length === 0) {
-    container.innerHTML = statsHeaderHtml + `
+    container.innerHTML = bulkBarHtml + statsHeaderHtml + `
       <div style="text-align: center; padding: 3rem 1.5rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-md);">
         <i class="ri-user-star-line" style="font-size: 3rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;"></i>
         <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main);">No se encontraron datos de KAM</h4>
-        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">Puedes asignar ejecutivos de cuenta editando cada comercio.</p>
+        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">Puedes asignar ejecutivos de cuenta editando cada comercio o seleccionándolos de forma masiva.</p>
       </div>
     `;
     return;
@@ -29344,13 +29470,16 @@ window.renderKamsTab = function() {
         : `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: var(--color-danger); margin-right: 0.3rem;"></span>`;
       return `
         <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
-          <div>
-            <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center;">
-              ${billingDot} ${s.nombre} <code style="margin-left: 0.4rem; font-size: 0.7rem; background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 3px;">${s.sigla}</code>
+          <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden;">
+            <input type="checkbox" class="kam-tab-checkbox" data-group="${g.name.replace(/"/g, '&quot;')}" value="${s.nombre}" onchange="window.updateKamTabSelectionBar()" style="cursor: pointer; width: 16px; height: 16px; flex-shrink: 0;">
+            <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center;">
+                ${billingDot} ${s.nombre} <code style="margin-left: 0.4rem; font-size: 0.7rem; background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 3px;">${s.sigla}</code>
+              </div>
+              ${s.razon_social ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${s.razon_social} (${s.rut || 'Sin RUT'})</div>` : ''}
             </div>
-            ${s.razon_social ? `<div style="font-size: 0.75rem; color: var(--color-text-muted);">${s.razon_social} (${s.rut || 'Sin RUT'})</div>` : ''}
           </div>
-          <button class="btn btn-outline btn-sm" onclick="window.showMerchantEditModal('${s.nombre.replace(/'/g, "\\'")}')" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+          <button class="btn btn-outline btn-sm" onclick="window.showMerchantEditModal('${s.nombre.replace(/'/g, "\\'")}')" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; flex-shrink: 0;">
             <i class="ri-edit-line"></i> Editar
           </button>
         </div>
@@ -29377,7 +29506,12 @@ window.renderKamsTab = function() {
               </div>
             </div>
           </div>
-          ${g.notes ? `<div style="font-size: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); color: var(--color-text-muted); max-width: 300px;"><i class="ri-sticky-note-line"></i> ${g.notes}</div>` : ''}
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            ${g.notes ? `<div style="font-size: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); color: var(--color-text-muted); max-width: 300px;"><i class="ri-sticky-note-line"></i> ${g.notes}</div>` : ''}
+            <button class="btn btn-outline btn-sm" onclick="window.toggleKamGroupSelection('${g.name.replace(/'/g, "\\'")}')" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; background: var(--color-surface); color: var(--color-text-main); border-color: var(--color-border);">
+              <i class="ri-checkbox-multiple-line"></i> Seleccionar Grupo (${g.stores.length})
+            </button>
+          </div>
         </div>
         <div style="padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
           ${storeBadges}
@@ -29386,7 +29520,191 @@ window.renderKamsTab = function() {
     `;
   }).join('');
 
-  container.innerHTML = statsHeaderHtml + cardsHtml;
+  container.innerHTML = bulkBarHtml + statsHeaderHtml + cardsHtml;
+};
+
+// Modal de Asignación Masiva de KAM
+window.showBulkAssignKamModal = function(selectedNames) {
+  if (!selectedNames || selectedNames.length === 0) {
+    Swal.fire('Atención', 'Selecciona al menos un comercio para realizar la asignación masiva.', 'warning');
+    return;
+  }
+
+  // Extraer lista de KAMs existentes para autocompletar
+  const existingKamsMap = new Map();
+  (window.cachedAdminMerchants || []).forEach(c => {
+    if (c.kam_nombre && c.kam_nombre.trim()) {
+      const key = c.kam_nombre.trim().toUpperCase();
+      if (!existingKamsMap.has(key)) {
+        existingKamsMap.set(key, {
+          nombre: c.kam_nombre.trim(),
+          email: c.kam_email || '',
+          telefono: c.kam_telefono || '',
+          notas: c.kam_notas || ''
+        });
+      }
+    }
+  });
+  const existingKamsList = Array.from(existingKamsMap.values());
+
+  const modalId = 'modal-bulk-assign-kam';
+  let modal = document.getElementById(modalId);
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = modalId;
+  modal.className = 'modal-overlay active';
+
+  const merchantChips = selectedNames.map(name => 
+    `<span style="background: var(--color-surface-hover); border: 1px solid var(--color-border); padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;"><i class="ri-store-line" style="color: var(--color-primary);"></i> ${name}</span>`
+  ).join(' ');
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 550px; width: 90%;">
+      <form id="form-bulk-assign-kam" style="margin: 0;">
+        <div class="modal-header">
+          <h3 style="margin: 0;"><i class="ri-user-star-line" style="color: var(--color-primary);"></i> Asignar KAM Masivo</h3>
+          <button type="button" class="modal-close" onclick="document.getElementById('${modalId}').remove()">&times;</button>
+        </div>
+        <div class="modal-body" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          
+          <div style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2); padding: 0.75rem 1rem; border-radius: var(--radius-sm);">
+            <strong style="color: var(--color-primary); font-size: 0.85rem; display: block; margin-bottom: 0.35rem;">
+              Comercios Seleccionados (${selectedNames.length}):
+            </strong>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; max-height: 110px; overflow-y: auto; padding: 0.25rem 0;">
+              ${merchantChips}
+            </div>
+          </div>
+
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Copiar datos de KAM Existente</label>
+            <select id="bulk-kam-selector" class="form-input" style="width: 100%; box-sizing: border-box;">
+              <option value="">-- Escribir datos de un nuevo KAM --</option>
+              ${existingKamsList.map((k, idx) => `<option value="${idx}">${k.nombre} ${k.email ? `(${k.email})` : ''}</option>`).join('')}
+            </select>
+          </div>
+
+          <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: block;">Nombre Completo del KAM *</label>
+              <input type="text" id="bulk-kam-nombre" class="form-input" placeholder="Ej: María Paz González" required style="width: 100%; box-sizing: border-box; font-size: 0.85rem;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: block;">Correo Electrónico KAM</label>
+                <input type="email" id="bulk-kam-email" class="form-input" placeholder="kam@stocka.cl" style="width: 100%; box-sizing: border-box; font-size: 0.85rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: block;">Teléfono / WhatsApp KAM</label>
+                <input type="tel" id="bulk-kam-telefono" class="form-input" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; font-size: 0.85rem;">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.8rem; margin-bottom: 0.25rem; display: block;">Notas / Observaciones</label>
+              <input type="text" id="bulk-kam-notas" class="form-input" placeholder="Ej: Atención Lunes a Viernes 09:00 - 18:00 hrs" style="width: 100%; box-sizing: border-box; font-size: 0.85rem;">
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.25rem; background: var(--color-bg); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('${modalId}').remove()">Cancelar</button>
+          <button type="submit" id="btn-save-bulk-kam" class="btn btn-primary" style="background: var(--color-primary); color: #ffffff; font-weight: 600;">
+            <i class="ri-save-line"></i> Guardar y Asignar a (${selectedNames.length}) Comercios
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  // Auto-fill inputs when selecting existing KAM
+  const kamSelector = document.getElementById('bulk-kam-selector');
+  if (kamSelector) {
+    kamSelector.addEventListener('change', (e) => {
+      const idx = e.target.value;
+      if (idx !== '' && existingKamsList[idx]) {
+        const selectedKam = existingKamsList[idx];
+        document.getElementById('bulk-kam-nombre').value = selectedKam.nombre;
+        document.getElementById('bulk-kam-email').value = selectedKam.email;
+        document.getElementById('bulk-kam-telefono').value = selectedKam.telefono;
+        document.getElementById('bulk-kam-notas').value = selectedKam.notas;
+      }
+    });
+  }
+
+  // Handle form submission
+  const form = document.getElementById('form-bulk-assign-kam');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-bulk-kam');
+    const kamNombre = document.getElementById('bulk-kam-nombre').value.trim();
+    const kamEmail = document.getElementById('bulk-kam-email').value.trim();
+    const kamTelefono = document.getElementById('bulk-kam-telefono').value.trim();
+    const kamNotas = document.getElementById('bulk-kam-notas').value.trim();
+
+    if (!kamNombre) {
+      alert('Por favor ingresa el nombre del KAM.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="display: inline-block; animation: spin 1s linear infinite;"></i> Asignando...';
+
+    try {
+      // Build upsert payload for all selected merchants
+      const upserts = selectedNames.map(name => {
+        const c = window.cachedAdminMerchants.find(m => m.nombre === name) || {};
+        return {
+          comercio: name,
+          comercio_id: c.id || null,
+          inventario_seguimiento: c.inventario_seguimiento || false,
+          pedido_trae_sigla: c.pedido_trae_sigla || false,
+          rut: c.rut || null,
+          razon_social: c.razon_social || null,
+          rep_legal_nombre: c.rep_legal_nombre || null,
+          rep_legal_rut: c.rep_legal_rut || null,
+          rep_legal_telefono: c.rep_legal_telefono || null,
+          rep_legal_email: c.rep_legal_email || null,
+          plat_siglas_config: c.plat_siglas_config || {},
+          email_colaborador: c.email_colaborador || null,
+          enviame_id: c.enviame_id || null,
+          picking_match_strict: c.picking_match_strict || false,
+          default_warehouse_id: c.default_warehouse_id || null,
+          kam_nombre: kamNombre,
+          kam_email: kamEmail || null,
+          kam_telefono: kamTelefono || null,
+          kam_notas: kamNotas || null
+        };
+      });
+
+      const { error } = await supabase
+        .from('comercios_adicional_config')
+        .upsert(upserts);
+
+      if (error) throw error;
+
+      modal.remove();
+      Swal.fire({
+        title: '¡Asignación Masiva Exitosa!',
+        text: `Se asignó a "${kamNombre}" como KAM a los ${selectedNames.length} comercio(s) seleccionados.`,
+        icon: 'success'
+      });
+
+      if (typeof renderMerchantsAdmin === 'function') {
+        renderMerchantsAdmin();
+      }
+
+    } catch (err) {
+      console.error('Error al realizar la asignación masiva de KAM:', err);
+      btn.disabled = false;
+      btn.innerHTML = `<i class="ri-save-line"></i> Guardar y Asignar a (${selectedNames.length}) Comercios`;
+      Swal.fire('Error', 'No se pudo realizar la asignación masiva: ' + (err.message || JSON.stringify(err)), 'error');
+    }
+  });
 };
 
 window.renderHoldingsTab = function() {
