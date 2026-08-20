@@ -2650,4 +2650,17 @@ Hemos implementado el sistema de estado para productos (**Activo** y **Archivado
 
 ---
 
+## 114. Integración del Logo Oficial de Jumpseller en el WMS
+
+Hemos integrado el nuevo logotipo de **Jumpseller** (`img/jumpseller.png`) para identificar visualmente a todos los comercios y pedidos integrados mediante esta plataforma en el WMS:
+
+1. **Soporte en getPlatformBadge (Cliente & Admin)**:
+   - Modificamos la función `getPlatformBadge(platform)` tanto en [`js/app.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/app.js) como en [`js/admin.js`](file:///c:/Users/felip/Desktop/WMS%20STOCKA/js/admin.js).
+   - Añadimos la condición para detectar la plataforma `"jumpseller"` (resolviendo en minúsculas).
+   - Con esto, todas las vistas generales, listas de integraciones activas e historiales de órdenes cargan directamente el archivo de imagen oficial `img/jumpseller.png` en lugar del tag de texto estilizado anterior.
+   - Mantuvimos el resolvedor dinámico de detalles del pedido y la función de fallback intacta para garantizar la consistencia visual ante cualquier error de carga.
+
+
+---
+
 
