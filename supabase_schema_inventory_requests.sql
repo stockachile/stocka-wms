@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS public.inventory_requests (
   type TEXT NOT NULL DEFAULT 'completo' CHECK (type IN ('completo', 'selectivo')),
   reason TEXT NOT NULL DEFAULT 'Auditoría / Cuadratura Periódica',
   priority TEXT NOT NULL DEFAULT 'Normal' CHECK (priority IN ('Baja', 'Normal', 'Media', 'Alta', 'Urgente')),
+  cutoff_order TEXT, -- Último pedido preparado/procesado (punto de corte para items sacados de estante)
   notes TEXT, -- Comentarios / instrucciones del cliente
   admin_notes TEXT, -- Observaciones del supervisor / equipo de bodega
   status TEXT NOT NULL DEFAULT 'Pendiente' CHECK (status IN ('Pendiente', 'En Conteo', 'Finalizada', 'Cancelada')),
@@ -24,6 +25,9 @@ CREATE TABLE IF NOT EXISTS public.inventory_requests (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW()),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc', NOW())
 );
+
+-- Si la tabla ya existe, agregar la columna cutoff_order si no está presente:
+ALTER TABLE public.inventory_requests ADD COLUMN IF NOT EXISTS cutoff_order TEXT;
 
 -- Índices para búsquedas y filtros de alto rendimiento
 CREATE INDEX IF NOT EXISTS idx_inventory_requests_comercio ON public.inventory_requests(comercio);

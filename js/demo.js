@@ -375,6 +375,7 @@ const INITIAL_MOCK_DATA = {
       type: 'completo',
       reason: 'Auditoría / Cuadratura Periódica',
       priority: 'Normal',
+      cutoff_order: '#1006 (Último despachado)',
       notes: 'Realizar conteo general para cuadratura de fin de mes.',
       admin_notes: '',
       status: 'Pendiente',
@@ -398,8 +399,28 @@ const INITIAL_MOCK_DATA = {
     { id: 'mi-meli', merchant_id: DEMO_USER_ID, platform: 'mercado_libre', shop_url: 'Empresa Demo ML', is_active: false, comercio: DEMO_COMMERCE, created_at: new Date('2026-08-02T10:00:00Z').toISOString() }
   ],
   dashboard_news: [
-    { id: 'n-1', title: '🚀 Lanzamiento: Integración de Envios Automatizados V2', content: 'Hemos optimizado la comunicación con couriers nacionales. Tus etiquetas y guías de despacho ahora se generan 40% más rápido de forma nativa.', created_at: new Date('2026-08-08T09:00:00Z').toISOString() },
-    { id: 'n-2', title: '📊 Nuevos Módulos de Facturación y Liquidación', content: 'Revisa de manera transparente el desglose de almacenamiento cúbico, seguros y cobros KAM directo desde el panel de Billing.', created_at: new Date('2026-08-05T14:00:00Z').toISOString() }
+    { 
+      id: 'n-1', 
+      title: '🚀 Lanzamiento: Integración de Envíos Automatizados V2', 
+      subtitle: 'Mejoras en velocidad de despacho y sincronización courier',
+      body: '<p>Nos complace anunciar la activación de nuestro nuevo motor logístico <strong>Envíos Automatizados V2</strong>.</p><h3>Principales Novedades:</h3><ul><li><strong>40% más rápido</strong> en la generación de etiquetas y guías de despacho.</li><li>Validación automática de direcciones y comunas en tiempo real.</li><li>Soporte multicourier integrado (Blue Express, Chilexpress, Starken, CorreosChile).</li></ul><blockquote><p>Esta actualización ya se encuentra disponible para todos los comercios activos sin costo adicional.</p></blockquote>', 
+      cover_image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80',
+      category: 'Actualización',
+      is_pinned: true,
+      target_role: 'all',
+      created_at: new Date('2026-08-08T09:00:00Z').toISOString() 
+    },
+    { 
+      id: 'n-2', 
+      title: '📊 Nuevos Módulos de Facturación y Liquidación', 
+      subtitle: 'Transparencia total en cobros de bodegaje y fulfilment',
+      body: '<p>Revisa de manera transparente el desglose de almacenamiento cúbico, seguros y cobros KAM directo desde el nuevo panel de <strong>Facturación & Billing</strong>.</p><p>Puedes descargar reportes detallados en formato Excel y conciliar cada transacción de tus pedidos.</p>', 
+      cover_image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80',
+      category: 'Operaciones',
+      is_pinned: false,
+      target_role: 'all',
+      created_at: new Date('2026-08-05T14:00:00Z').toISOString() 
+    }
   ],
   billing_periods: [
     { id: 'bp-1', name: 'Julio 2026', start_date: '2026-07-01', end_date: '2026-07-31' },

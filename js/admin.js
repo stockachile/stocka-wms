@@ -5054,6 +5054,8 @@ async function renderIntegrations() {
         created_at,
         last_sync_at,
         last_sync_error,
+        partner_pin,
+        security_pin,
         profiles (
           company_name
         )
@@ -5073,9 +5075,14 @@ async function renderIntegrations() {
         
         const platformHtml = `<span style="background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;">${platform}</span>`;
         
-        const shopInfo = mi.username 
+        const partnerPin = mi.partner_pin || mi.security_pin || '';
+        const partnerPinHtml = (platform === 'Shopify' && partnerPin) 
+          ? `<span class="badge" style="background-color: #ede9fe; color: #5b21b6; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-family: monospace; font-weight: 700; margin-left: 0.5rem;" title="Código PIN Partner Shopify"><i class="ri-key-2-line"></i> PIN: ${partnerPin}</span>`
+          : '';
+
+        const shopInfo = (mi.username 
           ? `${mi.username} (${mi.shop_url || '-'})` 
-          : (mi.shop_url || '-');
+          : (mi.shop_url || '-')) + partnerPinHtml;
 
         const dateStr = mi.created_at ? new Date(mi.created_at).toLocaleDateString('es-CL', {
           day: '2-digit',

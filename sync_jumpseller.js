@@ -130,9 +130,11 @@ async function syncMerchantJumpseller(integration) {
     console.warn('⚠️ Advertencia: No se encontró bodega por defecto asignada para este comercio. Se usará un valor nulo o se omitirá la inserción de ítems.');
   }
 
+  const basicAuth = Buffer.from(`${loginKey}:${authToken}`).toString('base64');
   const headers = {
     'X-LOGIN-KEY': loginKey,
     'X-AUTH-TOKEN': authToken,
+    'Authorization': `Basic ${basicAuth}`,
     'Content-Type': 'application/json'
   };
 
@@ -205,7 +207,8 @@ async function syncProducts(integration, headers) {
       } else {
         // Si tiene variantes
         for (const variantWrapper of p.variants) {
-          const v = variantWrapper.variant;
+          const v = variantWrapper ? (variantWrapper.variant || variantWrapper) : null;
+          if (!v) continue;
           let variantSku = v.sku || `JS-${p.id}-${v.id}`;
           let cleanSku = variantSku.trim().replace(/\s+/g, '');
 
@@ -355,7 +358,7 @@ async function syncOrders(integration, headers, warehouseId) {
           sku = sku.trim().replace(/\s+/g, '');
           let mappedSku = skuMap[sku] || sku;
 
-          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.quantity);
+          itemQuantities[mappedSku] = (itemQuantities[mappedSku] || 0) + Number(op.qty || op.quantity || 1);
           if (op.name && !itemNames.includes(op.name)) {
             itemNames.push(op.name);
           }

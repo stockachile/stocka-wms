@@ -10,12 +10,15 @@ CREATE TABLE dashboard_events (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Tabla para Noticias
+-- Tabla para Noticias (Noticias 2.0 / Mini Blog)
 CREATE TABLE dashboard_news (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   subtitle VARCHAR(255),
   body TEXT NOT NULL,
+  cover_image TEXT,
+  category VARCHAR(100) DEFAULT 'Actualización',
+  is_pinned BOOLEAN DEFAULT false,
   target_role VARCHAR(50) DEFAULT 'all', -- 'all', 'client', 'admin', 'observer'
   created_by UUID REFERENCES auth.users(id),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
@@ -75,3 +78,11 @@ CREATE POLICY "Usuarios pueden actualizar sus propias notificaciones" ON dashboa
   FOR UPDATE USING (
     user_id = auth.uid()
   );
+
+-- ========================================================
+-- MIGRACIÓN NOTICIAS 2.0 (Mini Blog)
+-- Ejecutar en SQL Editor de Supabase si la tabla ya existe:
+-- ========================================================
+ALTER TABLE dashboard_news ADD COLUMN IF NOT EXISTS cover_image TEXT;
+ALTER TABLE dashboard_news ADD COLUMN IF NOT EXISTS category VARCHAR(100) DEFAULT 'Actualización';
+ALTER TABLE dashboard_news ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false;

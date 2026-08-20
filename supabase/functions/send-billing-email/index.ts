@@ -209,7 +209,7 @@ serve(async (req) => {
       .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'onboarding_contract_received', 'onboarding_catalog_ready'].includes(emailType);
+    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'shopify_pin_submitted', 'onboarding_contract_received', 'onboarding_catalog_ready'].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
     let recipientEmails: string[] = []
@@ -1004,6 +1004,35 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'shopify_pin_submitted') {
+      const pin = payload.shopifyPin || payload.pin || 'N/A';
+      const shopUrl = payload.shopUrl || payload.shop_url || 'No especificada';
+      emailSubject = `[WMS STOCKA] Código PIN Shopify Partner - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #111827, #5e17eb)';
+      emailTitle = 'Código PIN Shopify Partner';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          El comercio <strong>${commerceName}</strong> ha ingresado su código PIN de seguridad de 4 dígitos desde la Guía Interactiva WMS:
+        </div>
+
+        <div style="background-color: #f3f4f6; border-left: 4px solid #5e17eb; padding: 16px 20px; margin: 20px 0; border-radius: 6px; text-align: center;">
+          <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 6px;">Código PIN de Seguridad (4 Dígitos)</span>
+          <span style="font-size: 32px; font-family: monospace; font-weight: 800; color: #5e17eb; letter-spacing: 0.25em;">${pin}</span>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; font-weight: 600; width: 140px;">Comercio:</td>
+            <td style="padding: 8px 0; color: #111827; font-weight: 700;">${commerceName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Tienda Shopify:</td>
+            <td style="padding: 8px 0; color: #111827; font-weight: 700;">${shopUrl}</td>
+          </tr>
+        </table>
+      `;
+    }
     else if (emailType === 'out_of_stock') {
       const sku = payload.sku || 'N/A';
       const productName = payload.productName || 'N/A';
@@ -1261,7 +1290,7 @@ serve(async (req) => {
       'order_no_stock_alert'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
-    const finalRecipients = emailType === 'stock_inbound_created' ? ["stockachile@gmail.com"] : recipientEmails;
+    const finalRecipients = ['stock_inbound_created', 'shopify_pin_submitted'].includes(emailType) ? ["stockachile@gmail.com"] : recipientEmails;
 
     let htmlBody = '';
     

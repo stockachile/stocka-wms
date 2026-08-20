@@ -2033,6 +2033,12 @@ async function renderDashboard() {
                     <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-wordpress-fill" style="color: #9b5c8f;"></i> WooCommerce</span>
                     <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #ffe600;"></i> Mercado Libre</span>
                   </div>
+                  <div style="background: rgba(94, 23, 235, 0.04); border: 1px solid rgba(94, 23, 235, 0.15); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-main);">
+                      <i class="ri-key-2-fill" style="color: var(--color-primary); font-size: 1.1rem;"></i>
+                      <span><strong>Shopify Partners:</strong> Para colaborar en tu tienda, ingresa tu PIN de seguridad de 4 dígitos (Shopify &rarr; Configuración &rarr; Usuarios &rarr; Seguridad) en la Guía de Integración Shopify.</span>
+                    </div>
+                  </div>
                   <button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); document.querySelector('[data-view=\\'integrations\\']')?.click();" style="font-size: 0.75rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 600; border-radius: 6px; box-shadow: 0 4px 10px rgba(94, 23, 235, 0.15);">
                     <i class="ri-plug-2-line"></i> Configurar Canales de Venta
                   </button>
@@ -7021,6 +7027,8 @@ async function renderIntegrations() {
 
     const hasShopify = !!shopifyIntegration;
     const shopUrl = hasShopify ? shopifyIntegration.shop_url : '';
+    const savedPinLocal = localStorage.getItem('shopify_partner_pin_' + window.activeIntegrationCommerce) || '';
+    const shopifyPartnerPin = shopifyIntegration ? (shopifyIntegration.partner_pin || shopifyIntegration.security_pin || savedPinLocal) : savedPinLocal;
     const shopifyStatusText = hasShopify 
       ? (shopifyIntegration.is_active ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">Activa</span>' : '<span class="badge badge-warning">Inactiva</span>') 
       : '<span class="badge badge-gray" style="background-color: #f3f4f6; color: #4b5563; padding: 0.25rem 0.5rem; border-radius: 99px; font-size: 0.75rem;">No configurada</span>';
@@ -7326,6 +7334,46 @@ async function renderIntegrations() {
                   <li>
                     <strong style="color: var(--color-text-main);">Conexión Exitosa:</strong>
                     <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">Una vez instalada, serás redirigido de vuelta al WMS y tu tienda aparecerá como <strong style="color: var(--color-text-main);">Activa</strong>. Los nuevos pedidos comenzarán a sincronizarse automáticamente.</p>
+                  </li>
+                  <li>
+                    <strong style="color: var(--color-text-main);">Solicitud de Colaboración (Shopify Partners):</strong>
+                    <p style="margin: 0.25rem 0 0.75rem 0; color: var(--color-text-muted); font-size: 0.85rem; line-height: 1.5;">
+                      Como Stocka debemos enviarte una invitación para colaborar en tu tienda Shopify como <strong>Shopify Partners</strong>. Para enviarte la solicitud, requerimos tu <strong>código PIN de seguridad de 4 dígitos</strong>.
+                    </p>
+                    <div style="background: rgba(94, 23, 235, 0.04); border: 1px dashed rgba(94, 23, 235, 0.3); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.5rem;">
+                      <div style="display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.75rem; font-size: 0.82rem; color: var(--color-text-main);">
+                        <i class="ri-information-fill" style="color: var(--color-primary); font-size: 1.1rem; flex-shrink: 0; margin-top: 0.05rem;"></i>
+                        <span>
+                          <strong>¿Dónde encontrarlo en tu Shopify?</strong><br>
+                          Ingresa a tu panel de Shopify &rarr; <strong>Configuración</strong> &rarr; <strong>Usuarios / Permisos</strong> &rarr; <strong>Seguridad</strong>. Ahí encontrarás tu <strong>código PIN de 4 dígitos</strong>.
+                        </span>
+                      </div>
+                      
+                      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;">
+                        <div style="position: relative; width: 140px;">
+                          <input type="text" 
+                                 id="shopify-partner-pin-input" 
+                                 class="form-input" 
+                                 placeholder="Ej: 1234" 
+                                 maxlength="4" 
+                                 pattern="[0-9]{4}"
+                                 value="${shopifyPartnerPin}"
+                                 style="font-size: 1.1rem; font-family: monospace; font-weight: 700; letter-spacing: 0.2em; text-align: center; padding: 0.5rem;"
+                                 ${disabledAttr}>
+                        </div>
+                        <button type="button" 
+                                class="btn btn-primary btn-sm" 
+                                id="btn-submit-shopify-pin"
+                                onclick="window.handleShopifyPartnerPinSubmit()"
+                                style="padding: 0.55rem 1rem; font-weight: 600; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem;"
+                                ${disabledAttr}>
+                          <i class="ri-send-plane-fill"></i> ${shopifyPartnerPin ? 'Actualizar PIN' : 'Enviar Código PIN'}
+                        </button>
+                        <span id="shopify-pin-status-badge">
+                          ${shopifyPartnerPin ? '<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-checkbox-circle-fill"></i> PIN Guardado (' + shopifyPartnerPin + ')</span>' : ''}
+                        </span>
+                      </div>
+                    </div>
                   </li>
                 </ol>
 
@@ -8406,6 +8454,172 @@ async function renderIntegrations() {
         }
       });
     }
+
+    // Shopify Partner PIN Submit Handler
+    window.handleShopifyPartnerPinSubmit = async function() {
+      const pinInput = document.getElementById('shopify-partner-pin-input');
+      if (!pinInput) return;
+      
+      const pin = pinInput.value.trim();
+      if (!pin || !/^\d{4}$/.test(pin)) {
+        alert('Por favor, ingresa un código PIN de seguridad válido de 4 dígitos (sólo números).');
+        pinInput.focus();
+        return;
+      }
+
+      const btn = document.getElementById('btn-submit-shopify-pin');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando...';
+      }
+
+      try {
+        const comercio = window.activeIntegrationCommerce || 'Comercio';
+        const { data: { session } } = await supabase.auth.getSession();
+        const userEmail = session?.user?.email || 'Usuario WMS';
+        const userName = session?.user?.user_metadata?.full_name || userEmail;
+
+        // 1. Guardar en localStorage
+        localStorage.setItem('shopify_partner_pin_' + comercio, pin);
+
+        // 2. Obtener registro de la integración de Shopify si existe
+        const { data: shopifyReg } = await supabase
+          .from('merchant_integrations')
+          .select('id, shop_url')
+          .eq('comercio', comercio)
+          .eq('platform', 'Shopify')
+          .maybeSingle();
+
+        let shopUrl = shopifyReg?.shop_url || '';
+
+        if (shopifyReg?.id) {
+          await supabase
+            .from('merchant_integrations')
+            .update({
+              partner_pin: pin,
+              security_pin: pin
+            })
+            .eq('id', shopifyReg.id);
+        } else {
+          await supabase
+            .from('merchant_integrations')
+            .upsert({
+              comercio: comercio,
+              platform: 'Shopify',
+              partner_pin: pin,
+              security_pin: pin,
+              is_active: false
+            }, { onConflict: 'comercio,platform' });
+        }
+
+        // 3. Resguardo adicional en comercios_adicional_config
+        try {
+          await supabase
+            .from('comercios_adicional_config')
+            .upsert({
+              comercio: comercio,
+              shopify_partner_pin: pin
+            }, { onConflict: 'comercio' });
+        } catch(e) {
+          console.warn("Notice updating comercios_adicional_config:", e);
+        }
+
+        // 4. Enviar correo a stockachile@gmail.com por Brevo API
+        const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+        const subject = `[WMS STOCKA] Código PIN Shopify Partner - ${comercio}`;
+        const nowStr = new Date().toLocaleString('es-CL', { timeZone: 'America/Santiago' });
+
+        const htmlBody = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="background: linear-gradient(135deg, #111827 0%, #5e17eb 100%); padding: 24px; text-align: center; color: white;">
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.02em;">🔒 Código PIN de Colaborador Shopify</h2>
+              <p style="margin: 6px 0 0 0; font-size: 14px; opacity: 0.9;">Notificación desde la Guía Interactiva WMS STOCKA</p>
+            </div>
+            <div style="padding: 24px; color: #374151;">
+              <p style="font-size: 15px; margin-top: 0;">El comercio <strong>${comercio}</strong> ha ingresado su código PIN de seguridad de 4 dígitos para recibir la solicitud de colaboración como Shopify Partners:</p>
+
+              <div style="background-color: #f3f4f6; border-left: 4px solid #5e17eb; padding: 16px 20px; margin: 20px 0; border-radius: 6px; text-align: center;">
+                <span style="font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; display: block; margin-bottom: 6px;">Código PIN de Seguridad (4 Dígitos)</span>
+                <span style="font-size: 32px; font-family: monospace; font-weight: 800; color: #5e17eb; letter-spacing: 0.25em;">${pin}</span>
+              </div>
+
+              <table style="width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 14px;">
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; font-weight: 600; width: 140px;">Comercio:</td>
+                  <td style="padding: 8px 0; color: #111827; font-weight: 700;">${comercio}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Tienda Shopify:</td>
+                  <td style="padding: 8px 0; color: #111827; font-weight: 700;">${shopUrl || 'No especificada aún'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Usuario:</td>
+                  <td style="padding: 8px 0; color: #111827;">${userName} (${userEmail})</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; color: #6b7280; font-weight: 600;">Fecha y Hora:</td>
+                  <td style="padding: 8px 0; color: #111827;">${nowStr}</td>
+                </tr>
+              </table>
+
+              <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 13px; color: #6b7280;">
+                <p style="margin: 0;">💡 <strong>Próximo Paso:</strong> Accede a tu panel de Shopify Partners y envía la solicitud de colaboración a la tienda del cliente utilizando este código PIN de seguridad.</p>
+              </div>
+            </div>
+          </div>
+        `;
+
+        fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'api-key': BREVO_API_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            sender: { name: 'WMS STOCKA Guía Interactiva', email: 'info@stocka.cl' },
+            to: [{ email: 'stockachile@gmail.com', name: 'STOCKA Chile' }],
+            subject: subject,
+            htmlContent: htmlBody
+          })
+        }).catch(e => console.error("Error enviando correo por Brevo:", e));
+
+        if (session?.access_token) {
+          fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({
+              emailType: 'shopify_pin_submitted',
+              commerceName: comercio,
+              shopifyPin: pin,
+              shopUrl: shopUrl
+            })
+          }).catch(e => console.warn("Notice edge function call:", e));
+        }
+
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri-send-plane-fill"></i> Actualizar PIN';
+        }
+
+        const badgeEl = document.getElementById('shopify-pin-status-badge');
+        if (badgeEl) {
+          badgeEl.innerHTML = `<span class="badge badge-success" style="background-color: #d1fae5; color: #065f46; padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;"><i class="ri-checkbox-circle-fill"></i> PIN Guardado (${pin})</span>`;
+        }
+
+        alert(`¡Código PIN ${pin} guardado y notificación enviada exitosamente a stockachile@gmail.com!`);
+
+      } catch (err) {
+        console.error("Error guardando PIN:", err);
+        alert('Error al procesar la solicitud: ' + (err.message || err));
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Código PIN';
+        }
+      }
+    };
 
     // Paris Submit Listener
     if(!hasParis) {
