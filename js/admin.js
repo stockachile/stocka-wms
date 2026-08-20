@@ -1302,6 +1302,11 @@ async function init() {
           } else if (view === 'billing_admin') {
             viewTitle.textContent = 'Facturación';
             renderBillingAdmin();
+          } else if (view === 'clickup_facturacion_admin') {
+            viewTitle.textContent = 'Facturación ClickUp';
+            if (window.renderClickupFacturacionAdmin) {
+              window.renderClickupFacturacionAdmin();
+            }
           } else if (view === 'enviame_analytics') {
             viewTitle.textContent = 'Analítica Envíame';
             if (window.renderEnviameAnalytics) {
@@ -21027,7 +21032,10 @@ window.renderBillingAdmin = async function() {
       <button class="billing-tab-btn" id="tab-contacts-btn" onclick="switchBillingAdminTab('contacts')"><i class="ri-contacts-book-line"></i> Contactos</button>
       <button class="billing-tab-btn" id="tab-notification-logs-btn" onclick="switchBillingAdminTab('notification-logs')"><i class="ri-history-line"></i> Historial de Notificaciones</button>
       <button class="billing-tab-btn" id="tab-observations-btn" onclick="switchBillingAdminTab('observations')"><i class="ri-question-answer-line"></i> Apelaciones / Observaciones <span id="pending-observations-badge" class="badge" style="display: none; margin-left: 0.25rem; font-size: 0.7rem; padding: 0.15rem 0.35rem; border-radius: 50%; background: #d97706; color: white;">0</span></button>
+      <button class="billing-tab-btn" id="tab-clickup-btn" onclick="switchBillingAdminTab('clickup')"><i class="ri-table-line"></i> Facturación ClickUp</button>
     </div>
+    
+    <div id="tab-clickup-content" style="display: none;"></div>
     
     <div id="tab-control-content" style="display: none;">
       <div id="periods-list-container">
@@ -21147,7 +21155,7 @@ window.renderBillingAdmin = async function() {
 };
 
 window.switchBillingAdminTab = function(tabName) {
-  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations'];
+  const tabs = ['control', 'reports', 'metrics', 'status', 'extra', 'contacts', 'notification-logs', 'observations', 'clickup'];
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-${t}-btn`);
     const content = document.getElementById(`tab-${t}-content`);
@@ -21178,6 +21186,10 @@ window.switchBillingAdminTab = function(tabName) {
     loadNotificationLogsTab();
   } else if (tabName === 'observations') {
     loadBillingObservationsTab();
+  } else if (tabName === 'clickup') {
+    if (window.renderClickupFacturacionAdmin) {
+      window.renderClickupFacturacionAdmin('tab-clickup-content');
+    }
   }
 };
 
@@ -28761,6 +28773,10 @@ async function renderMerchantsAdmin() {
         rep_legal_rut: (extra.rep_legal_rut || '').trim(),
         rep_legal_telefono: (extra.rep_legal_telefono || '').trim(),
         rep_legal_email: (extra.rep_legal_email || '').trim(),
+        kam_nombre: (extra.kam_nombre || '').trim(),
+        kam_email: (extra.kam_email || '').trim(),
+        kam_telefono: (extra.kam_telefono || '').trim(),
+        kam_notas: (extra.kam_notas || '').trim(),
         plat_siglas_config: extra.plat_siglas_config || {},
         email_colaborador: extra.email_colaborador || '',
         enviame_id: extra.enviame_id || '',
@@ -28970,7 +28986,7 @@ async function renderMerchantsAdmin() {
 
     const renderTableRows = (list) => {
       if (list.length === 0) {
-        return `<tr><td colspan="11" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
+        return `<tr><td colspan="12" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">No se encontraron comercios.</td></tr>`;
       }
       
       return list.map(c => {
@@ -28999,6 +29015,14 @@ async function renderMerchantsAdmin() {
              </div>`
           : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">No enlazado</span>`;
 
+        const kamInfo = c.kam_nombre 
+          ? `<div>
+               <strong style="color: var(--color-text-main); font-size: 0.85rem;"><i class="ri-user-star-line" style="color: var(--color-primary); margin-right: 0.2rem;"></i>${c.kam_nombre}</strong>
+               ${c.kam_email ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-mail-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.kam_email}</div>` : ''}
+               ${c.kam_telefono ? `<div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.15rem;"><i class="ri-phone-line" style="vertical-align: middle; margin-right: 0.15rem;"></i>${c.kam_telefono}</div>` : ''}
+             </div>`
+          : `<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.8rem;">Sin KAM</span>`;
+
         // Generar lista corta de integraciones activas
         const activeIntList = c.integrations.filter(i => i.is_active).map(i => i.platform);
         const intDisplay = activeIntList.length > 0 
@@ -29010,6 +29034,7 @@ async function renderMerchantsAdmin() {
             <td><strong>${c.nombre}</strong></td>
             <td>${companyInfo}</td>
             <td><code style="background: var(--color-surface-hover); padding: 0.2rem 0.4rem; border-radius: 4px; font-weight: 600;">${c.sigla}</code></td>
+            <td>${kamInfo}</td>
             <td>${billingBadge}</td>
             <td>${invBadge}</td>
             <td>${siglaBadge}</td>
@@ -29048,7 +29073,7 @@ async function renderMerchantsAdmin() {
           <div>
             <h3 style="margin: 0; font-size: 1.2rem;">Configuración de Comercios</h3>
             <p style="color: var(--color-text-muted); font-size: 0.85rem; margin-top: 0.25rem; font-weight: normal; max-width: 650px;">
-              Administra la parametrización del WMS para cada cliente, incluyendo el estado de facturación, seguimiento de inventarios y siglas de órdenes.
+              Administra la parametrización del WMS para cada cliente, incluyendo el ejecutivo de cuentas (KAM), estado de facturación, seguimiento de inventarios y siglas de órdenes.
             </p>
           </div>
           <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -29057,15 +29082,18 @@ async function renderMerchantsAdmin() {
             </button>
             <div style="position: relative; width: 220px;" id="merchant-search-wrapper">
               <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.9rem;"></i>
-              <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio o sigla..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
+              <input type="text" id="merchant-search-input" class="form-input" placeholder="Buscar comercio, sigla o KAM..." style="padding-left: 2.25rem; margin: 0; font-size: 0.85rem; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); width: 100%;">
             </div>
           </div>
         </div>
         
         <!-- Navigation Tabs -->
-        <div style="display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.5rem 1.5rem 0 1.5rem; gap: 1rem;">
+        <div style="display: flex; background: var(--color-surface); border-bottom: 1px solid var(--color-border); padding: 0.5rem 1.5rem 0 1.5rem; gap: 1rem; flex-wrap: wrap;">
           <button id="tab-btn-merchants" class="btn-tab-merchant" onclick="window.switchMerchantTab('merchants')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-primary); border-bottom: 2px solid var(--color-primary); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-store-3-line"></i> Tiendas / Comercios
+          </button>
+          <button id="tab-btn-kams" class="btn-tab-merchant" onclick="window.switchMerchantTab('kams')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
+            <i class="ri-user-star-line"></i> Ejecutivos de Cuenta (KAM)
           </button>
           <button id="tab-btn-holdings" class="btn-tab-merchant" onclick="window.switchMerchantTab('holdings')" style="background: none; border: none; padding: 0.75rem 1rem; cursor: pointer; color: var(--color-text-muted); font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; outline: none; transition: all 0.2s;">
             <i class="ri-building-line"></i> Holdings / Conglomerados
@@ -29084,6 +29112,7 @@ async function renderMerchantsAdmin() {
                   <th>Comercio</th>
                   <th>Razón Social / RUT</th>
                   <th>Sigla</th>
+                  <th>Ejecutivo (KAM)</th>
                   <th>Estado Facturación</th>
                   <th>Seguimiento Inventario</th>
                   <th>Pedido trae Sigla</th>
@@ -29100,12 +29129,17 @@ async function renderMerchantsAdmin() {
             </table>
           </div>
 
-          <!-- Tab 2: Holdings List -->
+          <!-- Tab 2: KAMs List -->
+          <div id="tab-content-kams" style="display: none; padding: 1.5rem;">
+            <p style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando ejecutivos de cuentas...</p>
+          </div>
+
+          <!-- Tab 3: Holdings List -->
           <div id="tab-content-holdings" style="display: none; padding: 1.5rem;">
             <p style="text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando holdings...</p>
           </div>
 
-          <!-- Tab 3: Contratos List -->
+          <!-- Tab 4: Contratos List -->
           <div id="tab-content-contracts" style="display: none; padding: 0;">
             <p style="text-align: center; color: var(--color-text-muted); padding: 2rem;"><i class="ri-loader-4-line spin" style="font-size: 1.2rem; display: inline-block; animation: spin 1s linear infinite;"></i> Cargando registro de contratos...</p>
           </div>
@@ -29123,7 +29157,9 @@ async function renderMerchantsAdmin() {
           c.nombre.toLowerCase().includes(query) || 
           c.sigla.toLowerCase().includes(query) ||
           (c.razon_social && c.razon_social.toLowerCase().includes(query)) ||
-          (c.rut && c.rut.toLowerCase().includes(query))
+          (c.rut && c.rut.toLowerCase().includes(query)) ||
+          (c.kam_nombre && c.kam_nombre.toLowerCase().includes(query)) ||
+          (c.kam_email && c.kam_email.toLowerCase().includes(query))
         );
         tableBody.innerHTML = renderTableRows(filtered);
       });
@@ -29142,44 +29178,214 @@ async function renderMerchantsAdmin() {
 
 window.switchMerchantTab = function(tabName) {
   const tabMerchants = document.getElementById('tab-btn-merchants');
+  const tabKams = document.getElementById('tab-btn-kams');
   const tabHoldings = document.getElementById('tab-btn-holdings');
   const tabContracts = document.getElementById('tab-btn-contracts');
   const contentMerchants = document.getElementById('tab-content-merchants');
+  const contentKams = document.getElementById('tab-content-kams');
   const contentHoldings = document.getElementById('tab-content-holdings');
   const contentContracts = document.getElementById('tab-content-contracts');
   const searchWrapper = document.getElementById('merchant-search-wrapper');
   
-  if (!tabMerchants || !tabHoldings || !tabContracts || !contentMerchants || !contentHoldings || !contentContracts) return;
+  if (!tabMerchants || !contentMerchants) return;
 
   // Reset tab active states styles
-  [tabMerchants, tabHoldings, tabContracts].forEach(tab => {
+  [tabMerchants, tabKams, tabHoldings, tabContracts].filter(Boolean).forEach(tab => {
     tab.style.color = 'var(--color-text-muted)';
     tab.style.borderBottom = 'none';
   });
 
   // Hide all contents
-  contentMerchants.style.display = 'none';
-  contentHoldings.style.display = 'none';
-  contentContracts.style.display = 'none';
+  [contentMerchants, contentKams, contentHoldings, contentContracts].filter(Boolean).forEach(c => {
+    c.style.display = 'none';
+  });
 
   if (tabName === 'merchants') {
     tabMerchants.style.color = 'var(--color-primary)';
     tabMerchants.style.borderBottom = '2px solid var(--color-primary)';
     contentMerchants.style.display = 'block';
     if (searchWrapper) searchWrapper.style.display = 'block';
+  } else if (tabName === 'kams') {
+    if (tabKams) {
+      tabKams.style.color = 'var(--color-primary)';
+      tabKams.style.borderBottom = '2px solid var(--color-primary)';
+    }
+    if (contentKams) contentKams.style.display = 'block';
+    if (searchWrapper) searchWrapper.style.display = 'none';
+    window.renderKamsTab();
   } else if (tabName === 'holdings') {
-    tabHoldings.style.color = 'var(--color-primary)';
-    tabHoldings.style.borderBottom = '2px solid var(--color-primary)';
-    contentHoldings.style.display = 'block';
+    if (tabHoldings) {
+      tabHoldings.style.color = 'var(--color-primary)';
+      tabHoldings.style.borderBottom = '2px solid var(--color-primary)';
+    }
+    if (contentHoldings) contentHoldings.style.display = 'block';
     if (searchWrapper) searchWrapper.style.display = 'none';
     window.renderHoldingsTab();
   } else if (tabName === 'contracts') {
-    tabContracts.style.color = 'var(--color-primary)';
-    tabContracts.style.borderBottom = '2px solid var(--color-primary)';
-    contentContracts.style.display = 'block';
+    if (tabContracts) {
+      tabContracts.style.color = 'var(--color-primary)';
+      tabContracts.style.borderBottom = '2px solid var(--color-primary)';
+    }
+    if (contentContracts) contentContracts.style.display = 'block';
     if (searchWrapper) searchWrapper.style.display = 'none';
     window.renderMerchantContractsTab();
   }
+};
+
+window.renderKamsTab = function() {
+  const container = document.getElementById('tab-content-kams');
+  if (!container) return;
+
+  const list = window.cachedAdminMerchants || [];
+  
+  // Group by KAM Name
+  const groups = {};
+  let totalWithKam = 0;
+  let totalWithoutKam = 0;
+
+  list.forEach(c => {
+    const kamName = (c.kam_nombre || '').trim();
+    if (!kamName) {
+      totalWithoutKam++;
+      if (!groups['__SIN_KAM__']) {
+        groups['__SIN_KAM__'] = {
+          name: 'Sin KAM Asignado',
+          email: '',
+          phone: '',
+          notes: 'Comercios pendientes de asignación de ejecutivo de cuentas',
+          isUnassigned: true,
+          stores: []
+        };
+      }
+      groups['__SIN_KAM__'].stores.push(c);
+    } else {
+      totalWithKam++;
+      const key = kamName.toUpperCase();
+      if (!groups[key]) {
+        groups[key] = {
+          name: kamName,
+          email: c.kam_email || '',
+          phone: c.kam_telefono || '',
+          notes: c.kam_notas || '',
+          isUnassigned: false,
+          stores: []
+        };
+      } else {
+        if (!groups[key].email && c.kam_email) groups[key].email = c.kam_email;
+        if (!groups[key].phone && c.kam_telefono) groups[key].phone = c.kam_telefono;
+        if (!groups[key].notes && c.kam_notas) groups[key].notes = c.kam_notas;
+      }
+      groups[key].stores.push(c);
+    }
+  });
+
+  const kamList = Object.values(groups);
+  const totalKamsCount = kamList.filter(g => !g.isUnassigned).length;
+
+  const statsHeaderHtml = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+        <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(37, 99, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          <i class="ri-user-star-line"></i>
+        </div>
+        <div>
+          <div style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${totalKamsCount}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Ejecutivos Registrados</div>
+        </div>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+        <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(16, 185, 129, 0.1); color: var(--color-success); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          <i class="ri-checkbox-circle-line"></i>
+        </div>
+        <div>
+          <div style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${totalWithKam}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Comercios con KAM</div>
+        </div>
+      </div>
+      <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; align-items: center; gap: 0.75rem;">
+        <div style="width: 40px; height: 40px; border-radius: var(--radius-sm); background: rgba(245, 158, 11, 0.1); color: var(--color-warning); display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">
+          <i class="ri-alert-line"></i>
+        </div>
+        <div>
+          <div style="font-size: 1.25rem; font-weight: 700; color: var(--color-text-main);">${totalWithoutKam}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">Comercios Sin KAM</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (kamList.length === 0) {
+    container.innerHTML = statsHeaderHtml + `
+      <div style="text-align: center; padding: 3rem 1.5rem; background: var(--color-surface); border: 1px dashed var(--color-border); border-radius: var(--radius-md);">
+        <i class="ri-user-star-line" style="font-size: 3rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;"></i>
+        <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main);">No se encontraron datos de KAM</h4>
+        <p style="margin: 0; color: var(--color-text-muted); font-size: 0.85rem;">Puedes asignar ejecutivos de cuenta editando cada comercio.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Sort KAM list putting named KAMs first, unassigned last
+  kamList.sort((a, b) => {
+    if (a.isUnassigned) return 1;
+    if (b.isUnassigned) return -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const cardsHtml = kamList.map(g => {
+    const headerBg = g.isUnassigned ? 'var(--color-bg)' : 'rgba(37, 99, 235, 0.05)';
+    const headerBorder = g.isUnassigned ? 'var(--color-border)' : 'rgba(37, 99, 235, 0.2)';
+    const iconColor = g.isUnassigned ? 'var(--color-text-muted)' : 'var(--color-primary)';
+    
+    const storeBadges = g.stores.map(s => {
+      const billingDot = s.al_dia 
+        ? `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: var(--color-success); margin-right: 0.3rem;"></span>`
+        : `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: var(--color-danger); margin-right: 0.3rem;"></span>`;
+      return `
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+          <div>
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center;">
+              ${billingDot} ${s.nombre} <code style="margin-left: 0.4rem; font-size: 0.7rem; background: var(--color-bg); padding: 0.1rem 0.3rem; border-radius: 3px;">${s.sigla}</code>
+            </div>
+            ${s.razon_social ? `<div style="font-size: 0.75rem; color: var(--color-text-muted);">${s.razon_social} (${s.rut || 'Sin RUT'})</div>` : ''}
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="window.showMerchantEditModal('${s.nombre.replace(/'/g, "\\'")}')" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+            <i class="ri-edit-line"></i> Editar
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div style="background: var(--color-surface); border: 1px solid ${headerBorder}; border-radius: var(--radius-md); overflow: hidden; margin-bottom: 1.25rem; box-shadow: var(--shadow-sm);">
+        <div style="background: ${headerBg}; padding: 1rem 1.25rem; border-bottom: 1px solid ${headerBorder}; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="width: 42px; height: 42px; border-radius: 50%; background: var(--color-surface); border: 1px solid var(--color-border); display: flex; align-items: center; justify-content: center; font-size: 1.3rem; color: ${iconColor};">
+              <i class="${g.isUnassigned ? 'ri-question-mark' : 'ri-user-star-line'}"></i>
+            </div>
+            <div>
+              <h4 style="margin: 0; font-size: 1rem; color: var(--color-text-main); font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                ${g.name}
+                <span class="menu-badge" style="background: ${g.isUnassigned ? 'var(--color-warning)' : 'var(--color-primary)'}; color: #ffffff; font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 99px;">
+                  ${g.stores.length} ${g.stores.length === 1 ? 'comercio' : 'comercios'}
+                </span>
+              </h4>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.2rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                ${g.email ? `<span><i class="ri-mail-line" style="vertical-align: middle;"></i> ${g.email}</span>` : ''}
+                ${g.phone ? `<span><i class="ri-phone-line" style="vertical-align: middle;"></i> ${g.phone}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          ${g.notes ? `<div style="font-size: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); color: var(--color-text-muted); max-width: 300px;"><i class="ri-sticky-note-line"></i> ${g.notes}</div>` : ''}
+        </div>
+        <div style="padding: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+          ${storeBadges}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = statsHeaderHtml + cardsHtml;
 };
 
 window.renderHoldingsTab = function() {
@@ -29808,6 +30014,10 @@ ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS plat_sigl
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS email_colaborador TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS enviame_id TEXT;
 ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS default_warehouse_id UUID REFERENCES public.warehouses(id);
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_nombre TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_email TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_telefono TEXT;
+ALTER TABLE public.comercios_adicional_config ADD COLUMN IF NOT EXISTS kam_notas TEXT;
 
 ALTER TABLE public.comercios_adicional_config ENABLE ROW LEVEL SECURITY;
 
@@ -30288,6 +30498,31 @@ window.showMerchantCreateModal = function() {
             </div>
           </div>
 
+          <!-- Datos del Ejecutivo de Cuentas (KAM) -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-user-star-line" style="color: var(--color-primary);"></i> Ejecutivo de Cuentas (KAM)</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo KAM</label>
+                <input type="text" id="merchant-create-kam-nombre" class="form-input" placeholder="Ej: María Paz González" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo KAM</label>
+                <input type="email" id="merchant-create-kam-email" class="form-input" placeholder="kam@stocka.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono / WhatsApp KAM</label>
+                <input type="tel" id="merchant-create-kam-telefono" class="form-input" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Observaciones</label>
+                <input type="text" id="merchant-create-kam-notas" class="form-input" placeholder="Horarios de atención, notas..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Correo de Colaborador Marketplaces</label>
             <input type="email" id="merchant-create-email-colaborador" class="form-input" placeholder="Ej: colaborador@empresa.com" style="width: 100%; box-sizing: border-box;">
@@ -30447,6 +30682,10 @@ window.showMerchantCreateModal = function() {
     const repRut = document.getElementById('merchant-create-rep-legal-rut').value.trim().toUpperCase();
     const repTelefono = document.getElementById('merchant-create-rep-legal-telefono').value.trim();
     const repEmail = document.getElementById('merchant-create-rep-legal-email').value.trim();
+    const kamNombre = document.getElementById('merchant-create-kam-nombre')?.value.trim() || '';
+    const kamEmail = document.getElementById('merchant-create-kam-email')?.value.trim() || '';
+    const kamTelefono = document.getElementById('merchant-create-kam-telefono')?.value.trim() || '';
+    const kamNotas = document.getElementById('merchant-create-kam-notas')?.value.trim() || '';
     const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
     const enviameId = document.getElementById('merchant-create-enviame-id').value.trim();
     const billing = document.getElementById('merchant-create-billing').value;
@@ -30518,6 +30757,10 @@ window.showMerchantCreateModal = function() {
             rep_legal_rut: repRut || null,
             rep_legal_telefono: repTelefono || null,
             rep_legal_email: repEmail || null,
+            kam_nombre: kamNombre || null,
+            kam_email: kamEmail || null,
+            kam_telefono: kamTelefono || null,
+            kam_notas: kamNotas || null,
             plat_siglas_config: platSiglasConfig,
             email_colaborador: emailColaborador || null,
             enviame_id: enviameId || null,
@@ -30658,6 +30901,31 @@ window.showMerchantEditModal = async function(comercioName) {
               <div class="form-group" style="margin: 0;">
                 <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo</label>
                 <input type="email" id="merchant-edit-rep-legal-email" class="form-input" value="${commerce.rep_legal_email || ''}" placeholder="rep@empresa.com" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Datos del Ejecutivo de Cuentas (KAM) -->
+          <div style="background: var(--color-bg); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.75rem; margin: 0;">
+            <h4 style="margin: 0; font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;"><i class="ri-user-star-line" style="color: var(--color-primary);"></i> Ejecutivo de Cuentas (KAM)</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Nombre Completo KAM</label>
+                <input type="text" id="merchant-edit-kam-nombre" class="form-input" value="${commerce.kam_nombre || ''}" placeholder="Ej: María Paz González" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Correo KAM</label>
+                <input type="email" id="merchant-edit-kam-email" class="form-input" value="${commerce.kam_email || ''}" placeholder="kam@stocka.cl" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Teléfono / WhatsApp KAM</label>
+                <input type="tel" id="merchant-edit-kam-telefono" class="form-input" value="${commerce.kam_telefono || ''}" placeholder="+56 9 1234 5678" style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
+              </div>
+              <div class="form-group" style="margin: 0;">
+                <label class="form-label" style="font-weight: 600; font-size: 0.75rem; margin-bottom: 0.25rem; display: block;">Notas / Observaciones</label>
+                <input type="text" id="merchant-edit-kam-notas" class="form-input" value="${commerce.kam_notas || ''}" placeholder="Horarios de atención, notas..." style="width: 100%; box-sizing: border-box; height: 32px; font-size: 0.8rem; padding: 0.35rem 0.6rem;">
               </div>
             </div>
           </div>
@@ -31039,6 +31307,10 @@ window.showMerchantEditModal = async function(comercioName) {
     const newRepRut = document.getElementById('merchant-edit-rep-legal-rut').value.trim().toUpperCase();
     const newRepTelefono = document.getElementById('merchant-edit-rep-legal-telefono').value.trim();
     const newRepEmail = document.getElementById('merchant-edit-rep-legal-email').value.trim();
+    const newKamNombre = document.getElementById('merchant-edit-kam-nombre')?.value.trim() || '';
+    const newKamEmail = document.getElementById('merchant-edit-kam-email')?.value.trim() || '';
+    const newKamTelefono = document.getElementById('merchant-edit-kam-telefono')?.value.trim() || '';
+    const newKamNotas = document.getElementById('merchant-edit-kam-notas')?.value.trim() || '';
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const sendE3 = document.getElementById('merchant-edit-send-e3')?.checked || false;
@@ -31119,6 +31391,10 @@ window.showMerchantEditModal = async function(comercioName) {
             rep_legal_rut: newRepRut || null,
             rep_legal_telefono: newRepTelefono || null,
             rep_legal_email: newRepEmail || null,
+            kam_nombre: newKamNombre || null,
+            kam_email: newKamEmail || null,
+            kam_telefono: newKamTelefono || null,
+            kam_notas: newKamNotas || null,
             plat_siglas_config: newPlatSiglasConfig,
             email_colaborador: newEmailColaborador || null,
             enviame_id: newEnviameId || null,
@@ -41403,15 +41679,18 @@ window.updateWmsMonitorUI = async function() {
   if (!body || !btn) return;
 
   try {
-    const response = await fetch('https://api.github.com/repos/stockachile/stocka-wms/actions/workflows/create_lightdata_labels.yml/runs?per_page=5', {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("Sesión no válida en WMS");
+
+    const response = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/trigger-lightdata-label', {
+      method: 'GET',
       headers: {
-        'Accept': 'application/vnd.github+json',
-        'User-Agent': 'WMS-Monitor'
+        'Authorization': `Bearer ${session.access_token}`
       }
     });
 
     if (!response.ok) {
-      throw new Error(`GitHub API error ${response.status}`);
+      throw new Error(`Edge Function error ${response.status}`);
     }
 
     const data = await response.json();
