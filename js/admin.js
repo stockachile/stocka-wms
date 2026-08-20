@@ -30603,8 +30603,8 @@ window.showMerchantEditModal = async function(comercioName) {
               <span class="merchant-slider"></span>
             </label>
             <div>
-              <label for="merchant-edit-send-e3" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block;">Enviar Instrucciones de Integración Enviame (Correo E3)</label>
-              <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.3;">Envía un correo explicativo con el manual de webhook y tarifarios al email del comercio.</p>
+              <label for="merchant-edit-send-e3" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block;">Enviar Instrucciones de Integración Enviame - Shopify (Correo E3)</label>
+              <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.3;">Envía un correo explicativo con el manual de webhook de Shopify y tarifarios al email del comercio.</p>
             </div>
           </div>
 
