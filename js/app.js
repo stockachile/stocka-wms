@@ -1174,13 +1174,18 @@ async function renderDashboard() {
     // Obtener checklist de onboarding y guía SKU
     let onboardingChecklist = null;
     let skuGuideUrl = '#';
+    let shopifyPartnerPin = '';
     const targetCommerce = companyList[0] || '';
+    if (targetCommerce) {
+      shopifyPartnerPin = localStorage.getItem('shopify_partner_pin_' + targetCommerce) || '';
+    }
+
     if (targetCommerce && userRole !== 'observer') {
       try {
-        const [cacRes, docRes] = await Promise.all([
+        const [cacRes, docRes, miRes] = await Promise.all([
           supabase
             .from('comercios_adicional_config')
-            .select('onboarding_checklist, enviame_id')
+            .select('onboarding_checklist, enviame_id, shopify_partner_pin')
             .eq('comercio', targetCommerce)
             .maybeSingle(),
           supabase
@@ -1188,12 +1193,26 @@ async function renderDashboard() {
             .select('file_url')
             .ilike('name', '%sku%')
             .limit(1)
+            .maybeSingle(),
+          supabase
+            .from('merchant_integrations')
+            .select('partner_pin, security_pin')
+            .eq('comercio', targetCommerce)
+            .eq('platform', 'Shopify')
             .maybeSingle()
         ]);
         
-        if (cacRes && cacRes.data && cacRes.data.onboarding_checklist) {
-          onboardingChecklist = cacRes.data.onboarding_checklist;
-          onboardingChecklist.shipping_configured = !!cacRes.data.enviame_id;
+        if (cacRes && cacRes.data) {
+          if (cacRes.data.onboarding_checklist) {
+            onboardingChecklist = cacRes.data.onboarding_checklist;
+            onboardingChecklist.shipping_configured = !!cacRes.data.enviame_id;
+          }
+          if (cacRes.data.shopify_partner_pin) {
+            shopifyPartnerPin = cacRes.data.shopify_partner_pin;
+          }
+        }
+        if (miRes && miRes.data && (miRes.data.partner_pin || miRes.data.security_pin)) {
+          shopifyPartnerPin = miRes.data.partner_pin || miRes.data.security_pin;
         }
         if (docRes && docRes.data && docRes.data.file_url) {
           skuGuideUrl = docRes.data.file_url;
