@@ -1526,11 +1526,11 @@ serve(async (req) => {
     // Si es onboarding_enviame_instructions (correo E3), consultar y adjuntar dinámicamente los archivos de la carpeta E3
     if (emailType === 'onboarding_enviame_instructions') {
       try {
-        console.log(`[send-billing-email] Consultando documentos de la carpeta E3 en la base de datos...`);
+        // Por ahora, como el correo E3 es de Shopify, adjuntamos los archivos de 'E3' / 'E3_General' y 'E3_Shopify'
         const { data: e3Docs, error: e3Err } = await supabaseClient
           .from('service_docs')
           .select('name, file_url')
-          .eq('folder', 'E3');
+          .in('folder', ['E3', 'E3_General', 'E3_Shopify']);
 
         if (!e3Err && e3Docs && e3Docs.length > 0) {
           console.log(`[send-billing-email] Encontrados ${e3Docs.length} documentos en la carpeta E3.`);

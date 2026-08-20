@@ -21558,13 +21558,16 @@ async function loadDocsClientData() {
     const { data, error } = await supabase
       .from('service_docs')
       .select('*')
-      .neq('folder', 'E3')
       .order('is_pinned', { ascending: false })
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
 
-    clientDocsList = data || [];
+    // Filtrar para excluir cualquier carpeta que comience con E3
+    clientDocsList = (data || []).filter(doc => {
+      const f = doc.folder || '';
+      return !f.startsWith('E3');
+    });
     renderClientFoldersSidebar();
     filterAndRenderDocsClient();
   } catch (err) {

@@ -26058,12 +26058,16 @@ function renderFoldersSidebar() {
   const folders = {};
   adminDocsList.forEach(doc => {
     const f = doc.folder || 'General';
-    if (f !== 'E3' && f !== 'contractual_docs') {
+    if (!f.startsWith('E3') && f !== 'contractual_docs') {
       folders[f] = (folders[f] || 0) + 1;
     }
   });
 
-  const e3Count = adminDocsList.filter(doc => doc.folder === 'E3').length;
+  const e3GeneralCount = adminDocsList.filter(doc => doc.folder === 'E3' || doc.folder === 'E3_General').length;
+  const e3ShopifyCount = adminDocsList.filter(doc => doc.folder === 'E3_Shopify').length;
+  const e3WooCount = adminDocsList.filter(doc => doc.folder === 'E3_WooCommerce').length;
+  const e3JumpCount = adminDocsList.filter(doc => doc.folder === 'E3_Jumpseller').length;
+  const e3MeliCount = adminDocsList.filter(doc => doc.folder === 'E3_MercadoLibre').length;
 
   let html = `
     <li class="folder-item ${adminSelectedFolder === 'all' ? 'active' : ''}" data-folder="all">
@@ -26075,9 +26079,27 @@ function renderFoldersSidebar() {
     <li class="folder-item ${adminSelectedFolder === 'contractual_docs' ? 'active' : ''}" data-folder="contractual_docs" style="font-weight: 600;">
       <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
     </li>
+    
+    <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
     <li class="folder-item ${adminSelectedFolder === 'E3' ? 'active' : ''}" data-folder="E3" style="font-weight: 600;">
-      <span><i class="ri-mail-send-line folder-icon" style="color: var(--color-primary);"></i> Adjuntos Correo E3</span>
-      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3Count}</span>
+      <span><i class="ri-mail-send-line folder-icon" style="color: var(--color-primary);"></i> E3 (Comunes)</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3GeneralCount}</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3_Shopify' ? 'active' : ''}" data-folder="E3_Shopify" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
+      <span><i class="ri-shopping-bag-3-line folder-icon" style="color: #9333ea;"></i> E3 - Shopify</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3ShopifyCount}</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3_WooCommerce' ? 'active' : ''}" data-folder="E3_WooCommerce" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
+      <span><i class="ri-wordpress-line folder-icon" style="color: #3b82f6;"></i> E3 - WooCommerce</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3WooCount}</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3_Jumpseller' ? 'active' : ''}" data-folder="E3_Jumpseller" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
+      <span><i class="ri-store-2-line folder-icon" style="color: #10b981;"></i> E3 - Jumpseller</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3JumpCount}</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3_MercadoLibre' ? 'active' : ''}" data-folder="E3_MercadoLibre" style="font-weight: 600; padding-left: 1.5rem; font-size: 0.85rem;">
+      <span><i class="ri-hand-heart-line folder-icon" style="color: #eab308;"></i> E3 - Mercado Libre</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3MeliCount}</span>
     </li>
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
   `;
@@ -26144,8 +26166,19 @@ function filterAndRenderDocsTable() {
   let filtered = adminDocsList;
 
   if (adminSelectedFolder !== 'all') {
-    filtered = filtered.filter(doc => doc.folder === adminSelectedFolder);
-    if (folderTitle) folderTitle.textContent = `Carpeta: ${adminSelectedFolder}`;
+    if (adminSelectedFolder === 'E3') {
+      filtered = filtered.filter(doc => doc.folder === 'E3' || doc.folder === 'E3_General');
+      if (folderTitle) folderTitle.textContent = `Carpeta: E3 - Comunes`;
+    } else {
+      filtered = filtered.filter(doc => doc.folder === adminSelectedFolder);
+      if (folderTitle) {
+        if (adminSelectedFolder === 'E3_Shopify') folderTitle.textContent = 'Carpeta: E3 - Shopify';
+        else if (adminSelectedFolder === 'E3_WooCommerce') folderTitle.textContent = 'Carpeta: E3 - WooCommerce';
+        else if (adminSelectedFolder === 'E3_Jumpseller') folderTitle.textContent = 'Carpeta: E3 - Jumpseller';
+        else if (adminSelectedFolder === 'E3_MercadoLibre') folderTitle.textContent = 'Carpeta: E3 - Mercado Libre';
+        else folderTitle.textContent = `Carpeta: ${adminSelectedFolder}`;
+      }
+    }
   } else {
     if (folderTitle) folderTitle.textContent = 'Todos los Archivos';
   }
