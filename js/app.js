@@ -926,7 +926,7 @@ window.toggleOnboardingStepExpand = function(stepName) {
 
 window.toggleOnboardingCheckbox = async function(stepName, value) {
   const companyList = getCompanyList();
-  const commerce = companyList[0];
+  const commerce = window.activeIntegrationCommerce || companyList[0];
   if (!commerce) return;
 
   try {
@@ -1083,7 +1083,7 @@ window.updateOnboardingProgress = function() {
 
 window.dismissOnboardingChecklist = async function() {
   const companyList = getCompanyList();
-  const commerce = companyList[0];
+  const commerce = window.activeIntegrationCommerce || companyList[0];
   if (!commerce) return;
 
   const result = await Swal.fire({
@@ -1175,7 +1175,7 @@ async function renderDashboard() {
     let onboardingChecklist = null;
     let skuGuideUrl = '#';
     let shopifyPartnerPin = '';
-    const targetCommerce = companyList[0] || '';
+    const targetCommerce = window.activeIntegrationCommerce || companyList[0] || '';
     if (targetCommerce) {
       shopifyPartnerPin = localStorage.getItem('shopify_partner_pin_' + targetCommerce) || '';
     }
