@@ -588,11 +588,11 @@ window.downloadBase64Pdf = function(base64, filename) {
 window.validateAndFixOrdersForLabeling = async function(orderIds) {
   const selectedOrders = (window.loadedOrders || []).filter(o => orderIds.includes(o.id));
   
-  // Buscar pedidos con fono faltante o comuna no soportada en RM
+  // Buscar pedidos con fono faltante/inválido o comuna sin cobertura para LightData
   const invalidOrders = selectedOrders.filter(o => {
-    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '';
-    const isRm = String(o.agenda || '').toUpperCase() === 'RM';
-    const isComunaInvalid = isRm && !window.isAlphaComunaExact(o.shipping_city);
+    const cleanPhone = String(o.customer_phone || '').replace(/[^\d]/g, '');
+    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '' || cleanPhone.length < 6;
+    const isComunaInvalid = !window.isAlphaComunaExact(o.shipping_city);
     return isPhoneMissing || isComunaInvalid;
   });
 
@@ -615,9 +615,9 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
 
   let tableRowsHtml = '';
   invalidOrders.forEach(o => {
-    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '';
-    const isRm = String(o.agenda || '').toUpperCase() === 'RM';
-    const isComunaInvalid = isRm && !window.isAlphaComunaExact(o.shipping_city);
+    const cleanPhone = String(o.customer_phone || '').replace(/[^\d]/g, '');
+    const isPhoneMissing = !o.customer_phone || o.customer_phone.trim() === '' || cleanPhone.length < 6;
+    const isComunaInvalid = !window.isAlphaComunaExact(o.shipping_city);
     
     const phoneStyle = isPhoneMissing ? 'border: 1.5px solid var(--color-danger); background: rgba(239, 68, 68, 0.05);' : '';
     const comunaStyle = isComunaInvalid ? 'border: 1.5px solid var(--color-danger); background: rgba(239, 68, 68, 0.05);' : '';
@@ -695,7 +695,8 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
           const phone = phoneInput.value.trim();
           const comuna = comunaSelect.value;
           
-          if (!phone) {
+          const cleanPhone = phone.replace(/[^\d]/g, '');
+          if (!phone || cleanPhone.length < 6) {
             phoneInput.style.border = '1.5px solid var(--color-danger)';
             phoneInput.style.background = 'rgba(239, 68, 68, 0.08)';
             hasError = true;
