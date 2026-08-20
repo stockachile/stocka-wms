@@ -31154,8 +31154,11 @@ window.showMerchantEditModal = async function(comercioName) {
         // Si sendE3 está activo, enviar instrucciones de Enviame (E3)
         if (sendE3 && newEnviameId) {
           try {
-            let recipientEmail = newRepEmail || null;
-            if (!recipientEmail) {
+            let recipientEmails = [];
+            if (newRepEmail) {
+              recipientEmails.push(newRepEmail);
+            }
+            if (recipientEmails.length === 0) {
               // Consultar onboarding requests
               const { data: onbReq } = await supabase
                 .from('onboarding_requests')
@@ -31166,25 +31169,26 @@ window.showMerchantEditModal = async function(comercioName) {
                 .limit(1)
                 .maybeSingle();
               if (onbReq) {
-                recipientEmail = onbReq.rep_legal_email || onbReq.email;
+                const email = onbReq.rep_legal_email || onbReq.email;
+                if (email) recipientEmails.push(email);
               }
             }
-            if (!recipientEmail) {
-              // Fallback a perfil de usuario del cliente
+            if (recipientEmails.length === 0) {
+              // Fallback a perfiles de usuario del cliente
               const { data: profData } = await supabase
                 .from('profiles')
                 .select('email')
-                .ilike('comercio', `%${commerce.nombre}%`)
-                .limit(1);
+                .ilike('comercio', `%${commerce.nombre}%`);
               if (profData && profData.length > 0) {
-                recipientEmail = profData[0].email;
+                const unique = Array.from(new Set(profData.map(p => p.email).filter(Boolean)));
+                recipientEmails = unique;
               }
             }
 
-            if (recipientEmail) {
+            if (recipientEmails.length > 0) {
               const { data: { session } } = await supabase.auth.getSession();
               if (session) {
-                fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                const res = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json',
@@ -31193,12 +31197,27 @@ window.showMerchantEditModal = async function(comercioName) {
                   body: JSON.stringify({
                     commerceName: commerce.nombre,
                     emailType: 'onboarding_enviame_instructions',
-                    emails: [recipientEmail],
+                    emails: recipientEmails,
                     enviameId: newEnviameId
                   })
                 });
+                if (res.ok) {
+                  Swal.fire({
+                    title: 'Instrucciones Enviadas',
+                    text: `El correo E3 se envió correctamente a: ${recipientEmails.join(', ')}`,
+                    icon: 'success'
+                  });
+                } else {
+                  console.error('Error al enviar correo E3:', res.statusText);
+                  Swal.fire('Error', 'No se pudo enviar el correo de instrucciones (E3).', 'error');
+                }
               }
             } else {
+              Swal.fire({
+                title: 'Correo no enviado',
+                text: 'No se encontró ninguna dirección de correo válida para este comercio.',
+                icon: 'warning'
+              });
               console.warn('No se pudo encontrar un correo electrónico válido para enviar el correo E3.');
             }
           } catch (emailErr) {
