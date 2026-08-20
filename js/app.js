@@ -2170,7 +2170,7 @@ async function renderDashboard() {
                   <p style="margin: 0;">
                     ${onboardingChecklist.catalog_ready 
                       ? 'Tu catálogo base de productos ya ha sido cargado en el sistema. Puedes visualizarlo en el módulo de <strong>Catálogo</strong> y proceder con tus ingresos de mercadería.'
-                      : 'Una vez que firmaste el contrato, nuestro equipo de operaciones toma tus datos de productos para subirlos masivamente y mapear las configuraciones. Te llegará un correo de aviso en cuanto esté listo. (No requiere acción por tu parte).'
+                      : 'Luego de que realizas tus integraciones, nuestro equipo de sistemas se encarga de configurar tu catálogo a nivel de WMS para que puedas posteriormente avanzar con los siguientes pasos.'
                     }
                   </p>
                 </div>
