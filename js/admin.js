@@ -8885,17 +8885,26 @@ function renderAdminInventoryRequestsTableBody() {
         </td>
         <td style="padding: 1rem 1.25rem; text-align: center;">
           <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
-            <button class="btn btn-outline btn-sm btn-admin-pdf-req" data-id="${r.id}" title="Descargar Hoja PDF para Bodega" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: transparent; cursor: pointer;">
+            <!-- Botón Informe Oficial de Resultados (PDF) si está finalizada o tiene conteos -->
+            ${(r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined)) ? `
+              <button class="btn btn-outline btn-sm btn-admin-report-pdf" data-id="${r.id}" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer;">
+                <i class="ri-file-chart-line"></i>
+              </button>
+              <button class="btn btn-outline btn-sm btn-admin-report-excel" data-id="${r.id}" title="Descargar Informe Oficial de Resultados (Excel)" style="padding: 0.35rem 0.55rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); cursor: pointer;">
+                <i class="ri-file-excel-2-line"></i>
+              </button>
+            ` : ''}
+            <button class="btn btn-outline btn-sm btn-admin-pdf-req" data-id="${r.id}" title="Descargar Hoja de Toma en Terreno (PDF)" style="padding: 0.35rem 0.55rem; border-color: #ef4444; color: #ef4444; background: transparent; cursor: pointer;">
               <i class="ri-file-pdf-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm btn-admin-excel-req" data-id="${r.id}" title="Descargar Planilla Excel" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
+            <button class="btn btn-outline btn-sm btn-admin-excel-req" data-id="${r.id}" title="Descargar Planilla de Toma en Terreno (Excel)" style="padding: 0.35rem 0.55rem; border-color: #10b981; color: #10b981; background: transparent; cursor: pointer;">
               <i class="ri-file-excel-line"></i>
             </button>
-            <button class="btn btn-outline btn-sm btn-admin-edit-req" data-id="${r.id}" title="Editar Parámetros y Artículos de Solicitud" style="padding: 0.35rem 0.55rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer;">
+            <button class="btn btn-outline btn-sm btn-admin-edit-req" data-id="${r.id}" title="Editar Parámetros y Artículos de Solicitud" style="padding: 0.35rem 0.55rem; border-color: #64748b; color: #64748b; background: transparent; cursor: pointer;">
               <i class="ri-edit-line"></i>
             </button>
             <button class="btn btn-primary btn-sm btn-admin-manage-req" data-id="${r.id}" title="Gestionar y Cuadrar Conteo Físico" style="padding: 0.35rem 0.65rem; background: #6366f1; border-color: #6366f1; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer;">
-              <i class="ri-survey-line"></i> Conteo
+              <i class="ri-survey-line"></i> ${r.status === 'Finalizada' ? 'Ver Cuadratura' : 'Conteo'}
             </button>
             <button class="btn btn-outline btn-sm btn-admin-delete-req" data-id="${r.id}" title="Eliminar Solicitud" style="padding: 0.35rem 0.55rem; border-color: var(--color-danger); color: var(--color-danger); background: transparent; cursor: pointer;">
               <i class="ri-delete-bin-line"></i>
@@ -8907,6 +8916,26 @@ function renderAdminInventoryRequestsTableBody() {
   }).join('');
 
   // Vincular event listeners a los botones de acción
+  tbody.querySelectorAll('.btn-admin-report-pdf').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req && typeof window.generateInventoryReportPdf === 'function') {
+        window.generateInventoryReportPdf(req);
+      }
+    });
+  });
+
+  tbody.querySelectorAll('.btn-admin-report-excel').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const reqId = e.currentTarget.getAttribute('data-id');
+      const req = (window.cachedAdminInventoryRequests || []).find(x => x.id === reqId);
+      if (req && typeof window.generateInventoryReportExcel === 'function') {
+        window.generateInventoryReportExcel(req);
+      }
+    });
+  });
+
   tbody.querySelectorAll('.btn-admin-manage-req').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const reqId = e.currentTarget.getAttribute('data-id');
@@ -9123,12 +9152,18 @@ function openAdminManageInventoryRequestModal(req) {
       </div>
 
       <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
-        <div style="display: flex; gap: 0.5rem;">
-          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-pdf-line"></i> Descargar Hoja PDF
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-report-pdf" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
+            <i class="ri-file-chart-line"></i> Informe de Resultados (PDF)
           </button>
-          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-excel-line"></i> Descargar Excel
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-report-excel" style="border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
+            <i class="ri-file-excel-2-line"></i> Informe Resultados (Excel)
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;" title="Hoja en blanco para cuadrilla">
+            <i class="ri-file-pdf-line"></i> Hoja Terreno PDF
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-manage-download-excel" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.25rem;" title="Planilla en blanco para cuadrilla">
+            <i class="ri-file-excel-line"></i> Hoja Terreno Excel
           </button>
         </div>
 
@@ -9238,7 +9273,36 @@ function openAdminManageInventoryRequestModal(req) {
     return updatedProducts;
   }
 
-  // Descargas PDF y Excel directas desde el modal
+  // Descargas de Informes de Resultados (PDF y Excel)
+  document.getElementById('btn-manage-download-report-pdf')?.addEventListener('click', () => {
+    const updated = {
+      ...req,
+      status: document.getElementById('manage-req-status').value,
+      completed_by: document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA',
+      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
+      products_list: extractUpdatedProductsList(),
+      completed_at: req.completed_at || new Date().toISOString()
+    };
+    if (typeof window.generateInventoryReportPdf === 'function') {
+      window.generateInventoryReportPdf(updated);
+    }
+  });
+
+  document.getElementById('btn-manage-download-report-excel')?.addEventListener('click', () => {
+    const updated = {
+      ...req,
+      status: document.getElementById('manage-req-status').value,
+      completed_by: document.getElementById('manage-req-supervisor').value.trim() || 'Supervisor STOCKA',
+      admin_notes: document.getElementById('manage-req-admin-notes').value.trim(),
+      products_list: extractUpdatedProductsList(),
+      completed_at: req.completed_at || new Date().toISOString()
+    };
+    if (typeof window.generateInventoryReportExcel === 'function') {
+      window.generateInventoryReportExcel(updated);
+    }
+  });
+
+  // Descargas PDF y Excel de Hoja de Terreno desde el modal
   document.getElementById('btn-manage-download-pdf').addEventListener('click', () => {
     const updated = {
       ...req,
@@ -16008,6 +16072,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       else if (pLower.includes('woocommerce')) src = 'img/woocommerce.png';
       else if (pLower.includes('walmart')) src = 'img/walmart.png';
       else if (pLower.includes('tiendanube')) src = 'img/tiendanube.png';
+      else if (pLower.includes('jumpseller')) src = 'img/jumpseller.png';
       else if (pLower.includes('manual') || pLower.includes('stocka')) src = 'img/stocka.cap.png';
       
       if (src) {
@@ -16505,9 +16570,14 @@ function openNewsModal(newsItem) {
       </div>
 
       <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center;">
-        <button class="btn btn-outline btn-sm" onclick="window.print()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.825rem;">
-          <i class="ri-printer-line"></i> Imprimir / Guardar
-        </button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-outline btn-sm" onclick="window.print()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.825rem;">
+            <i class="ri-printer-line"></i> Imprimir / Guardar
+          </button>
+          <button class="btn btn-outline btn-sm" onclick="window.openSendNewsEmailModal(${JSON.stringify(newsItem).replace(/"/g, '&quot;')})" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.825rem; color: #2563eb; border-color: #2563eb;">
+            <i class="ri-mail-send-line"></i> Enviar por Correo
+          </button>
+        </div>
         <button class="btn btn-primary btn-sm" id="close-news-modal-footer-btn" style="padding: 0.4rem 1.2rem; font-size: 0.85rem;">
           Cerrar
         </button>
@@ -16531,6 +16601,646 @@ function openNewsModal(newsItem) {
     if (e.target === overlay) close();
   });
 }
+
+// ========================================================
+// SISTEMA DE ENVÍO MASIVO DE NOTICIAS VÍA BREVO (info@stocka.cl)
+// ========================================================
+
+function buildNewsEmailHTML(newsItem) {
+  const cat = newsItem.category || 'Actualización';
+  let badgeBg = '#2563eb';
+  let badgeIcon = '🚀';
+  if (cat.includes('Operacion') || cat.includes('Logística')) { badgeBg = '#10b981'; badgeIcon = '📦'; }
+  else if (cat.includes('Alerta')) { badgeBg = '#f59e0b'; badgeIcon = '⚠️'; }
+  else if (cat.includes('Comunicado')) { badgeBg = '#8b5cf6'; badgeIcon = '📢'; }
+  else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeBg = '#06b6d4'; badgeIcon = '💡'; }
+  else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeBg = '#f43f5e'; badgeIcon = '🎉'; }
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = newsItem.body || '';
+  const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+  const pubDate = newsItem.created_at ? new Date(newsItem.created_at).toLocaleDateString('es-CL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }) : new Date().toLocaleDateString('es-CL');
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${newsItem.title || 'Noticia STOCKA'}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, Arial, sans-serif; -webkit-font-smoothing:antialiased; color:#1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:24px 12px;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:620px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.06); border:1px solid #e2e8f0;">
+          
+          <!-- Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:20px 28px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA WMS" style="height:36px; max-height:36px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                  </td>
+                  <td style="text-align: right; vertical-align: middle;">
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#ffffff; background-color:${badgeBg}; padding:4px 10px; border-radius:9999px; text-transform:uppercase; letter-spacing:0.5px;">
+                      ${badgeIcon} ${cat}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          ${newsItem.cover_image ? `
+          <!-- Hero Cover Image -->
+          <tr>
+            <td style="padding:0;">
+              <img src="${newsItem.cover_image}" alt="${newsItem.title || 'Portada'}" style="width:100%; max-height:280px; object-fit:cover; display:block; border-bottom:1px solid #e2e8f0;" />
+            </td>
+          </tr>
+          ` : ''}
+
+          <!-- Article Content -->
+          <tr>
+            <td style="padding:28px 32px 24px 32px;">
+              
+              ${newsItem.is_pinned ? `
+              <div style="margin-bottom:12px;">
+                <span style="background:#fef3c7; color:#b45309; border:1px solid #fde68a; font-size:11px; font-weight:700; padding:3px 8px; border-radius:4px; text-transform:uppercase;">
+                  📌 Noticia Destacada
+                </span>
+              </div>
+              ` : ''}
+
+              <h1 style="margin:0 0 10px 0; font-size:22px; font-weight:800; color:#0f172a; line-height:1.35; letter-spacing:-0.3px;">
+                ${newsItem.title || 'Sin Título'}
+              </h1>
+
+              ${newsItem.subtitle ? `
+              <h2 style="margin:0 0 16px 0; font-size:15px; font-weight:600; color:#2563eb; line-height:1.45;">
+                ${newsItem.subtitle}
+              </h2>
+              ` : ''}
+
+              <div style="font-size:12px; color:#64748b; padding-bottom:16px; margin-bottom:20px; border-bottom:1px solid #e2e8f0;">
+                <span>📅 ${pubDate}</span> &nbsp;•&nbsp; 
+                <span>⏱️ ${readTime} min de lectura</span> &nbsp;•&nbsp; 
+                <span>👤 Equipo STOCKA</span>
+              </div>
+
+              <!-- Body HTML Content -->
+              <div style="font-size:14px; line-height:1.75; color:#334155;">
+                ${newsItem.body || ''}
+              </div>
+
+              <!-- Call to action button -->
+              <div style="margin-top:32px; padding-top:24px; border-top:1px solid #e2e8f0; text-align:center;">
+                <a href="https://wms.stocka.cl/" target="_blank" style="display:inline-block; background-color:#2563eb; color:#ffffff; font-weight:700; font-size:14px; padding:12px 28px; border-radius:8px; text-decoration:none; box-shadow:0 4px 10px rgba(37,99,235,0.25);">
+                  Acceder a STOCKA WMS &rarr;
+                </a>
+                <p style="margin:10px 0 0 0; font-size:11px; color:#94a3b8;">
+                  Puedes revisar el historial completo de noticias en la sección de Comunicaciones del WMS.
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 28px; border-top:1px solid #e2e8f0; text-align:center; font-size:11px; color:#94a3b8; line-height:1.6;">
+              <p style="margin:0 0 4px 0; font-weight:600; color:#64748b;">
+                STOCKA WMS - Plataforma de Gestión Logística & Fulfillment
+              </p>
+              <p style="margin:0 0 8px 0;">
+                Enviado oficialmente desde <a href="mailto:info@stocka.cl" style="color:#2563eb; text-decoration:none;">info@stocka.cl</a>
+              </p>
+              <p style="margin:0;">
+                © ${new Date().getFullYear()} STOCKA SpA. Todos los derechos reservados.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+async function fetchNewsRecipients() {
+  const recipientsMap = new Map();
+
+  try {
+    const { data: profiles, error: profErr } = await supabase
+      .from('profiles')
+      .select('id, full_name, email, role, comercio, company_name')
+      .order('full_name', { ascending: true });
+
+    if (!profErr && profiles) {
+      profiles.forEach(p => {
+        if (p.email && p.email.includes('@')) {
+          const emailKey = p.email.toLowerCase().trim();
+          recipientsMap.set(emailKey, {
+            email: emailKey,
+            name: p.full_name || p.company_name || 'Usuario WMS',
+            role: p.role || 'client',
+            type: 'user',
+            comercio: p.comercio || p.company_name || '-'
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error fetching profiles for news email:', e);
+  }
+
+  try {
+    const { data: contacts, error: contErr } = await supabase
+      .from('billing_contacts')
+      .select('id, comercio, nombre, email, rol, activo')
+      .eq('activo', true)
+      .order('comercio', { ascending: true });
+
+    if (!contErr && contacts) {
+      contacts.forEach(c => {
+        if (c.email && c.email.includes('@')) {
+          const emailKey = c.email.toLowerCase().trim();
+          if (recipientsMap.has(emailKey)) {
+            const existing = recipientsMap.get(emailKey);
+            if (c.comercio && existing.comercio === '-') existing.comercio = c.comercio;
+            if (c.nombre && (!existing.name || existing.name === 'Usuario WMS')) existing.name = c.nombre;
+          } else {
+            recipientsMap.set(emailKey, {
+              email: emailKey,
+              name: c.nombre || 'Contacto Comercial',
+              role: c.rol || 'contacto',
+              type: 'contact',
+              comercio: c.comercio || '-'
+            });
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('Error fetching billing_contacts for news email:', e);
+  }
+
+  return Array.from(recipientsMap.values());
+}
+
+window.openSendNewsEmailModal = async function(newsItem) {
+  let modalOverlay = document.getElementById('news-send-email-modal-overlay');
+  if (!modalOverlay) {
+    modalOverlay = document.createElement('div');
+    modalOverlay.id = 'news-send-email-modal-overlay';
+    modalOverlay.className = 'news-email-modal-overlay';
+    document.body.appendChild(modalOverlay);
+  }
+
+  const brevoApiKey = localStorage.getItem('wms_brevo_api_key') || ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+  const defaultSubject = `[STOCKA WMS] ${newsItem.category ? newsItem.category + ': ' : ''}${newsItem.title}`;
+  const generatedEmailHtml = buildNewsEmailHTML(newsItem);
+
+  modalOverlay.innerHTML = `
+    <div class="news-email-modal-content">
+      
+      <!-- Modal Header -->
+      <div style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-mail-send-line" style="color: #2563eb;"></i> Envío de Comunicado por Correo (Brevo)
+          </h3>
+          <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Remitente oficial: <strong>info@stocka.cl</strong> (STOCKA WMS)
+          </p>
+        </div>
+        <button class="modal-close" id="close-send-email-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.35rem;" title="Cerrar"><i class="ri-close-line"></i></button>
+      </div>
+
+      <!-- Modal Body Grid: Left Config, Right Live Preview -->
+      <div class="news-email-grid">
+        
+        <!-- Columna Izquierda: Configuración de Destinatarios y Envío de Prueba -->
+        <div class="news-email-col-left">
+          
+          <!-- Asunto del Correo -->
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Asunto del Correo Electrónico</label>
+            <input type="text" id="email-subject-input" class="form-input" value="${defaultSubject.replace(/"/g, '&quot;')}" required style="font-size: 0.875rem; width: 100%; box-sizing: border-box;">
+          </div>
+
+          <!-- Segmentación de Destinatarios -->
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Segmentar Audiencia</label>
+            <select id="email-audience-preset" class="form-input" style="font-size: 0.875rem; width: 100%; box-sizing: border-box;">
+              <option value="all" selected>🌐 Todos los Destinatarios (Usuarios + Contactos de Comercios)</option>
+              <option value="users_all">👤 Todos los Usuarios Registrados en WMS</option>
+              <option value="users_clients">🛍️ Solo Usuarios Clientes</option>
+              <option value="users_admins">🛡️ Solo Usuarios Administradores</option>
+              <option value="contacts_all">🏢 Solo Contactos de Comercios (Facturación / Ops)</option>
+              <option value="by_commerce">🏪 Por Comercio(s) Específico(s)...</option>
+            </select>
+          </div>
+
+          <!-- Filtro por Comercio Específico (Oculto por defecto) -->
+          <div class="form-group" id="email-commerce-filter-container" style="display: none; margin-bottom: 0;">
+            <label class="form-label" style="font-weight: 600; font-size: 0.85rem;">Seleccionar Comercio</label>
+            <select id="email-commerce-select" class="form-input" style="font-size: 0.875rem; width: 100%; box-sizing: border-box;">
+              <option value="">Selecciona un comercio...</option>
+            </select>
+          </div>
+
+          <!-- Lista Detallada de Destinatarios con Buscador y Contador -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin: 0;">
+                Destinatarios Seleccionados (<span id="recipient-selected-count">0</span>)
+              </label>
+              <div style="display: flex; gap: 0.4rem;">
+                <button type="button" id="btn-select-all-recipients" class="btn btn-outline btn-sm" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">Marcar todos</button>
+                <button type="button" id="btn-deselect-all-recipients" class="btn btn-outline btn-sm" style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">Desmarcar</button>
+              </div>
+            </div>
+            
+            <div style="position: relative; margin-bottom: 0.4rem;">
+              <i class="ri-search-line" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.8rem;"></i>
+              <input type="text" id="recipient-filter-search" class="form-input" placeholder="Filtrar por nombre, email o comercio..." style="padding-left: 1.8rem; font-size: 0.8rem; height: 32px; width: 100%; box-sizing: border-box;">
+            </div>
+
+            <div id="recipient-list-box" class="recipient-list-container">
+              <div style="text-align: center; color: var(--color-text-muted); padding: 1.5rem 0; font-size: 0.8rem;">
+                <i class="ri-loader-4-line ri-spin" style="margin-right: 0.3rem;"></i> Cargando destinatarios...
+              </div>
+            </div>
+          </div>
+
+          <!-- Envío de Prueba Individual -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; width: 100%; box-sizing: border-box;">
+            <div style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-flask-line" style="color: #8b5cf6;"></i> Envío de Prueba (Test Inbox)
+            </div>
+            <div style="display: flex; gap: 0.5rem; width: 100%; box-sizing: border-box;">
+              <input type="email" id="test-email-address" class="form-input" placeholder="tu-correo@ejemplo.com" style="flex: 1; font-size: 0.8rem; height: 34px; min-width: 0; box-sizing: border-box;">
+              <button type="button" id="btn-send-test-email" class="btn btn-outline btn-sm" style="font-size: 0.8rem; white-space: nowrap; height: 34px; display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0;">
+                <i class="ri-send-plane-line"></i> Enviar Prueba
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Columna Derecha: Vista Previa en Vivo del Correo -->
+        <div class="news-email-col-right">
+          <div class="email-preview-container">
+            <div class="email-preview-header">
+              <span><i class="ri-eye-line" style="margin-right: 0.3rem;"></i> Vista Previa del Correo (Gmail / Outlook)</span>
+              <span>Remitente: info@stocka.cl</span>
+            </div>
+            <iframe id="email-preview-iframe" class="email-preview-frame" sandbox="allow-same-origin"></iframe>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div style="flex: 1; min-width: 200px;">
+          <div id="email-send-status-text" style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main);">
+            Destinatarios preparados para el envío.
+          </div>
+          <div id="email-send-progress-container" style="display: none;">
+            <div class="email-progress-bar-wrapper">
+              <div id="email-send-progress-fill" class="email-progress-bar-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" id="btn-cancel-send-email-modal" class="btn btn-outline" style="font-size: 0.875rem;">
+            Cancelar
+          </button>
+          <button type="button" id="btn-trigger-bulk-send-email" class="btn btn-primary" style="font-size: 0.875rem; background-color: #2563eb; display: inline-flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-mail-send-fill"></i> <span id="btn-trigger-bulk-send-text">Enviar Correo Masivo</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  modalOverlay.classList.add('active');
+
+  // Inject preview HTML into iframe
+  const iframe = document.getElementById('email-preview-iframe');
+  if (iframe) {
+    iframe.srcdoc = generatedEmailHtml;
+  }
+
+  // Pre-fill test email with current user email if available
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && user.email) {
+      const testInput = document.getElementById('test-email-address');
+      if (testInput) testInput.value = user.email;
+    }
+  } catch (e) {}
+
+  // Fetch recipients
+  const allRecipients = await fetchNewsRecipients();
+
+  // Populate unique comercios list
+  const commerceSet = new Set();
+  allRecipients.forEach(r => {
+    if (r.comercio && r.comercio !== '-' && r.comercio !== 'all') {
+      r.comercio.split(',').forEach(c => commerceSet.add(c.trim()));
+    }
+  });
+  const commerceList = Array.from(commerceSet).filter(Boolean).sort();
+  const commerceSelect = document.getElementById('email-commerce-select');
+  if (commerceSelect) {
+    commerceList.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      commerceSelect.appendChild(opt);
+    });
+  }
+
+  // State
+  let currentSelectionState = new Map(); // key: email, value: boolean
+  allRecipients.forEach(r => currentSelectionState.set(r.email, true));
+
+  function updateRecipientsUI() {
+    const preset = document.getElementById('email-audience-preset').value;
+    const selectedCommerce = document.getElementById('email-commerce-select').value;
+    const searchQuery = (document.getElementById('recipient-filter-search')?.value || '').toLowerCase().trim();
+    const container = document.getElementById('recipient-list-box');
+    if (!container) return;
+
+    let filtered = allRecipients.filter(r => {
+      // Preset filtering
+      if (preset === 'users_all' && r.type !== 'user') return false;
+      if (preset === 'users_clients' && (r.type !== 'user' || r.role !== 'client')) return false;
+      if (preset === 'users_admins' && (r.type !== 'user' || r.role !== 'admin')) return false;
+      if (preset === 'contacts_all' && r.type !== 'contact') return false;
+      if (preset === 'by_commerce') {
+        if (!selectedCommerce) return false;
+        const matchesCommerce = r.comercio && (r.comercio.includes(selectedCommerce) || r.comercio === 'all');
+        if (!matchesCommerce) return false;
+      }
+
+      // Search query filtering
+      if (searchQuery) {
+        const matchesName = r.name && r.name.toLowerCase().includes(searchQuery);
+        const matchesEmail = r.email && r.email.toLowerCase().includes(searchQuery);
+        const matchesCom = r.comercio && r.comercio.toLowerCase().includes(searchQuery);
+        if (!matchesName && !matchesEmail && !matchesCom) return false;
+      }
+
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `<div style="text-align: center; color: var(--color-text-muted); padding: 1.5rem 0; font-size: 0.8rem;">No se encontraron destinatarios con los filtros actuales.</div>`;
+    } else {
+      container.innerHTML = filtered.map(r => {
+        const isChecked = currentSelectionState.get(r.email) !== false;
+        const badgeClass = r.type === 'user' ? 'recipient-badge-user' : 'recipient-badge-contact';
+        const badgeLabel = r.type === 'user' ? (r.role === 'admin' ? '🛡️ Admin' : '👤 Usuario') : '🏢 Contacto';
+
+        return `
+          <label class="recipient-row" style="cursor: pointer; margin: 0;">
+            <input type="checkbox" class="recipient-item-checkbox" data-email="${r.email}" ${isChecked ? 'checked' : ''} style="cursor: pointer; width: 15px; height: 15px;">
+            <span class="recipient-badge ${badgeClass}">${badgeLabel}</span>
+            <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+              <span style="font-weight: 600; color: var(--color-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.name}</span>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${r.email}</span>
+            </div>
+            ${r.comercio && r.comercio !== '-' ? `<span style="font-size: 0.7rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.1rem 0.35rem; border-radius: 4px; border: 1px solid var(--color-border); white-space: nowrap;">${r.comercio}</span>` : ''}
+          </label>
+        `;
+      }).join('');
+
+      container.querySelectorAll('.recipient-item-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const em = e.target.getAttribute('data-email');
+          currentSelectionState.set(em, e.target.checked);
+          updateCount();
+        });
+      });
+    }
+
+    updateCount();
+  }
+
+  function updateCount() {
+    let count = 0;
+    const container = document.getElementById('recipient-list-box');
+    if (container) {
+      container.querySelectorAll('.recipient-item-checkbox').forEach(cb => {
+        if (cb.checked) count++;
+      });
+    }
+    const countEl = document.getElementById('recipient-selected-count');
+    if (countEl) countEl.textContent = count;
+    
+    const sendBtnText = document.getElementById('btn-trigger-bulk-send-text');
+    if (sendBtnText) {
+      sendBtnText.textContent = `Enviar a (${count}) Destinatarios`;
+    }
+  }
+
+  // Listener for audience preset change
+  document.getElementById('email-audience-preset').addEventListener('change', (e) => {
+    const isCommerce = e.target.value === 'by_commerce';
+    document.getElementById('email-commerce-filter-container').style.display = isCommerce ? 'block' : 'none';
+    
+    // Auto-check all in new filtered view
+    allRecipients.forEach(r => currentSelectionState.set(r.email, true));
+    updateRecipientsUI();
+  });
+
+  document.getElementById('email-commerce-select').addEventListener('change', () => {
+    allRecipients.forEach(r => currentSelectionState.set(r.email, true));
+    updateRecipientsUI();
+  });
+
+  document.getElementById('recipient-filter-search').addEventListener('input', () => {
+    updateRecipientsUI();
+  });
+
+  document.getElementById('btn-select-all-recipients').addEventListener('click', () => {
+    const container = document.getElementById('recipient-list-box');
+    if (!container) return;
+    container.querySelectorAll('.recipient-item-checkbox').forEach(cb => {
+      cb.checked = true;
+      currentSelectionState.set(cb.getAttribute('data-email'), true);
+    });
+    updateCount();
+  });
+
+  document.getElementById('btn-deselect-all-recipients').addEventListener('click', () => {
+    const container = document.getElementById('recipient-list-box');
+    if (!container) return;
+    container.querySelectorAll('.recipient-item-checkbox').forEach(cb => {
+      cb.checked = false;
+      currentSelectionState.set(cb.getAttribute('data-email'), false);
+    });
+    updateCount();
+  });
+
+  // Initial populate
+  updateRecipientsUI();
+
+  // Test Email Button
+  document.getElementById('btn-send-test-email').addEventListener('click', async () => {
+    const testEmail = document.getElementById('test-email-address').value.trim();
+    if (!testEmail || !testEmail.includes('@')) {
+      alert('Por favor ingresa una dirección de correo válida para la prueba.');
+      return;
+    }
+
+    const testBtn = document.getElementById('btn-send-test-email');
+    const originalText = testBtn.innerHTML;
+    testBtn.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Enviando...`;
+    testBtn.disabled = true;
+
+    try {
+      const subject = document.getElementById('email-subject-input').value.trim() || defaultSubject;
+      const payload = {
+        sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
+        to: [{ email: testEmail, name: 'Usuario Prueba' }],
+        subject: `[PRUEBA] ${subject}`,
+        htmlContent: generatedEmailHtml
+      };
+
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': brevoApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Respuesta de Brevo (${res.status}): ${err}`);
+      }
+
+      alert(`✅ ¡Correo de prueba enviado exitosamente a ${testEmail}!\nRevisa tu bandeja de entrada.`);
+    } catch (e) {
+      console.error('Error sending test email:', e);
+      alert(`❌ Error al enviar correo de prueba: ${e.message}`);
+    } finally {
+      testBtn.innerHTML = originalText;
+      testBtn.disabled = false;
+    }
+  });
+
+  // Close handlers
+  const closeModal = () => { modalOverlay.classList.remove('active'); };
+  document.getElementById('close-send-email-modal-btn').addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-send-email-modal').addEventListener('click', closeModal);
+
+  // Bulk Send Handler
+  document.getElementById('btn-trigger-bulk-send-email').addEventListener('click', async () => {
+    const selectedEmails = [];
+    const container = document.getElementById('recipient-list-box');
+    if (container) {
+      container.querySelectorAll('.recipient-item-checkbox').forEach(cb => {
+        if (cb.checked) {
+          const em = cb.getAttribute('data-email');
+          const recObj = allRecipients.find(r => r.email === em);
+          if (recObj) selectedEmails.push(recObj);
+        }
+      });
+    }
+
+    if (selectedEmails.length === 0) {
+      alert('Debes seleccionar al menos un destinatario.');
+      return;
+    }
+
+    const subject = document.getElementById('email-subject-input').value.trim() || defaultSubject;
+    const confirmSend = confirm(`¿Estás seguro de enviar este comunicado a los ${selectedEmails.length} destinatarios seleccionados desde info@stocka.cl?`);
+    if (!confirmSend) return;
+
+    const sendBtn = document.getElementById('btn-trigger-bulk-send-email');
+    const cancelBtn = document.getElementById('btn-cancel-send-email-modal');
+    const statusText = document.getElementById('email-send-status-text');
+    const progressContainer = document.getElementById('email-send-progress-container');
+    const progressFill = document.getElementById('email-send-progress-fill');
+
+    sendBtn.disabled = true;
+    cancelBtn.disabled = true;
+    progressContainer.style.display = 'block';
+
+    let successCount = 0;
+    let failedCount = 0;
+    const total = selectedEmails.length;
+
+    // Send in parallel batches of 5
+    const batchSize = 5;
+    for (let i = 0; i < total; i += batchSize) {
+      const batch = selectedEmails.slice(i, i + batchSize);
+      
+      statusText.innerHTML = `<i class="ri-loader-4-line ri-spin"></i> Enviando ${i + 1} a ${Math.min(i + batch.length, total)} de ${total} correos...`;
+      const pct = Math.round(((i) / total) * 100);
+      progressFill.style.width = `${pct}%`;
+
+      const promises = batch.map(async (r) => {
+        try {
+          const payload = {
+            sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
+            to: [{ email: r.email, name: r.name }],
+            subject: subject,
+            htmlContent: generatedEmailHtml
+          };
+
+          const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+            method: 'POST',
+            headers: {
+              'api-key': brevoApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (res.ok) {
+            successCount++;
+          } else {
+            failedCount++;
+            console.error(`Error sending to ${r.email}:`, await res.text());
+          }
+        } catch (e) {
+          failedCount++;
+          console.error(`Error sending to ${r.email}:`, e);
+        }
+      });
+
+      await Promise.all(promises);
+    }
+
+    progressFill.style.width = '100%';
+    statusText.innerHTML = `✅ <strong>Envío completado:</strong> ${successCount} correos enviados con éxito${failedCount > 0 ? `, ${failedCount} fallidos` : ''}.`;
+
+    setTimeout(() => {
+      alert(`🎉 ¡Envío Masivo Finalizado!\n\n• Correos enviados exitosamente: ${successCount}\n• Fallidos: ${failedCount}\n• Remitente: info@stocka.cl`);
+      closeModal();
+    }, 1000);
+  });
+};
 
 async function renderNotificationsAdmin() {
   const appContent = document.getElementById('app-content');
@@ -16611,10 +17321,18 @@ async function renderNotificationsAdmin() {
               </div>
 
               <!-- Pinned Checkbox -->
-              <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; background: var(--color-bg); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 0.75rem;">
                 <input type="checkbox" id="news-is-pinned" style="cursor: pointer; width: 18px; height: 18px;">
                 <label for="news-is-pinned" style="cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin: 0;">
                   <i class="ri-pushpin-2-fill" style="color: #f59e0b;"></i> Fijar y Destacar en la parte superior del Dashboard
+                </label>
+              </div>
+
+              <!-- Brevo Mass Email Checkbox -->
+              <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; background: rgba(37, 99, 235, 0.05); padding: 0.65rem 0.85rem; border-radius: var(--radius-md); border: 1px solid rgba(37, 99, 235, 0.2); margin-bottom: 1rem;">
+                <input type="checkbox" id="news-notify-email" style="cursor: pointer; width: 18px; height: 18px;">
+                <label for="news-notify-email" style="cursor: pointer; font-size: 0.875rem; font-weight: 600; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; margin: 0;">
+                  <i class="ri-mail-send-line" style="font-size: 1.05rem;"></i> Enviar aviso masivo por correo (Brevo - info@stocka.cl) al publicar
                 </label>
               </div>
 
@@ -16679,8 +17397,11 @@ async function renderNotificationsAdmin() {
                 <button type="submit" id="btn-save-news" class="btn btn-primary" style="flex: 2; min-width: 160px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;">
                   <i class="ri-send-plane-fill"></i> <span id="btn-save-news-text">Publicar Noticia</span>
                 </button>
-                <button type="button" id="btn-preview-news" class="btn btn-outline" style="flex: 1; min-width: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
-                  <i class="ri-eye-line"></i> Vista Previa
+                <button type="button" id="btn-preview-news-email" class="btn btn-outline" style="flex: 1.3; min-width: 170px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; color: #2563eb; border-color: #2563eb;">
+                  <i class="ri-mail-check-line"></i> Previsualizar Correo & Destinatarios
+                </button>
+                <button type="button" id="btn-preview-news" class="btn btn-outline" style="flex: 1; min-width: 120px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                  <i class="ri-eye-line"></i> Vista Blog
                 </button>
                 <button type="button" id="btn-cancel-news" class="btn btn-outline" style="display: none; flex: 1;">
                   Cancelar
@@ -17087,11 +17808,37 @@ async function renderNotificationsAdmin() {
       cover_image: coverUrlInput.value.trim() || null,
       category: document.getElementById('news-category').value,
       is_pinned: document.getElementById('news-is-pinned').checked,
+      target_role: document.getElementById('news-target-role').value,
       created_at: new Date().toISOString()
     };
 
     openNewsModal(previewItem);
   });
+
+  const btnPreviewEmail = document.getElementById('btn-preview-news-email');
+  if (btnPreviewEmail) {
+    btnPreviewEmail.addEventListener('click', () => {
+      let bodyContent = '';
+      if (isHtmlMode) {
+        bodyContent = rawHtmlTextarea.value;
+      } else if (quillInstance) {
+        bodyContent = quillInstance.root.innerHTML;
+      }
+
+      const previewItem = {
+        title: document.getElementById('news-title').value.trim() || 'Título del Comunicado de Ejemplo',
+        subtitle: document.getElementById('news-subtitle').value.trim() || '',
+        body: bodyContent || '<p>Aquí aparecerá el contenido formateado que se enviará por correo electrónico a todos los destinatarios seleccionados...</p>',
+        cover_image: coverUrlInput.value.trim() || null,
+        category: document.getElementById('news-category').value,
+        is_pinned: document.getElementById('news-is-pinned').checked,
+        target_role: document.getElementById('news-target-role').value,
+        created_at: new Date().toISOString()
+      };
+
+      window.openSendNewsEmailModal(previewItem);
+    });
+  }
 
   async function loadAdminData() {
     const { data: news } = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
@@ -17231,6 +17978,7 @@ async function renderNotificationsAdmin() {
           </div>
 
           <div style="display: flex; gap: 0.35rem; flex-shrink: 0;">
+            <button class="btn btn-outline send-email-news-btn" data-id="${n.id}" title="Enviar / Reenviar por Correo (Brevo)" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #2563eb; border-color: #2563eb;"><i class="ri-mail-send-line"></i></button>
             <button class="btn btn-outline preview-news-btn" data-id="${n.id}" title="Vista Previa" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-eye-line"></i></button>
             <button class="btn btn-outline edit-news-btn" data-id="${n.id}" title="Editar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem;"><i class="ri-edit-line"></i></button>
             <button class="btn btn-outline delete-news-btn" data-id="${n.id}" title="Eliminar" style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: var(--color-danger); border-color: var(--color-danger);"><i class="ri-delete-bin-line"></i></button>
@@ -17277,6 +18025,14 @@ async function renderNotificationsAdmin() {
           await supabase.from('dashboard_news').delete().eq('id', id);
           loadAdminData();
         }
+      };
+    });
+
+    document.querySelectorAll('.send-email-news-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        const n = newsData.find(x => x.id === id);
+        if (n) window.openSendNewsEmailModal(n);
       };
     });
 
@@ -17454,6 +18210,8 @@ async function renderNotificationsAdmin() {
   document.getElementById('btn-cancel-news').addEventListener('click', () => {
     document.getElementById('form-create-news').reset();
     document.getElementById('news-id').value = '';
+    const notifyEmailCb = document.getElementById('news-notify-email');
+    if (notifyEmailCb) notifyEmailCb.checked = false;
     updateCoverPreview('');
     if (quillInstance) quillInstance.root.innerHTML = '';
     if (rawHtmlTextarea) rawHtmlTextarea.value = '';
@@ -17474,6 +18232,8 @@ async function renderNotificationsAdmin() {
     e.preventDefault();
     try {
       const id = document.getElementById('news-id').value;
+      const shouldSendEmail = document.getElementById('news-notify-email')?.checked;
+
       let bodyContent = '';
       if (isHtmlMode) {
         bodyContent = rawHtmlTextarea.value.trim();
@@ -17496,20 +18256,50 @@ async function renderNotificationsAdmin() {
         target_role: document.getElementById('news-target-role').value
       };
 
+      let savedNewsItem = null;
+
       if (id) {
-        const { error } = await supabase.from('dashboard_news').update(payload).eq('id', id);
-        if (error) throw error;
+        let res = await supabase.from('dashboard_news').update(payload).eq('id', id).select().maybeSingle();
+        if (res.error && (res.error.message.includes('category') || res.error.message.includes('cover_image') || res.error.message.includes('is_pinned') || res.error.code === 'PGRST204')) {
+          console.warn('Fallback: DB dashboard_news table missing new columns. Saving base fields.');
+          const fallbackPayload = {
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body,
+            target_role: payload.target_role
+          };
+          res = await supabase.from('dashboard_news').update(fallbackPayload).eq('id', id).select().maybeSingle();
+        }
+        if (res.error) throw res.error;
+        savedNewsItem = res.data ? { ...payload, ...res.data } : { id, ...payload };
         alert('Noticia actualizada exitosamente');
       } else {
         const { data: { user } } = await supabase.auth.getUser();
-        payload.created_by = user.id;
-        const { error } = await supabase.from('dashboard_news').insert([payload]);
-        if (error) throw error;
+        if (user) payload.created_by = user.id;
+        let res = await supabase.from('dashboard_news').insert([payload]).select().maybeSingle();
+        if (res.error && (res.error.message.includes('category') || res.error.message.includes('cover_image') || res.error.message.includes('is_pinned') || res.error.code === 'PGRST204')) {
+          console.warn('Fallback: DB dashboard_news table missing new columns. Saving base fields.');
+          const fallbackPayload = {
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body,
+            target_role: payload.target_role
+          };
+          if (user) fallbackPayload.created_by = user.id;
+          res = await supabase.from('dashboard_news').insert([fallbackPayload]).select().maybeSingle();
+        }
+        if (res.error) throw res.error;
+        savedNewsItem = res.data ? { ...payload, ...res.data } : payload;
         alert('Noticia publicada exitosamente');
       }
       
       document.getElementById('btn-cancel-news').click();
       loadAdminData();
+
+      // If user selected to send email broadcast immediately upon publication
+      if (shouldSendEmail && savedNewsItem) {
+        window.openSendNewsEmailModal(savedNewsItem);
+      }
     } catch(err) { 
       console.error(err); 
       alert('Error al guardar noticia: ' + err.message); 

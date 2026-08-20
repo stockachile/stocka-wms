@@ -1375,26 +1375,60 @@ async function renderDashboard() {
       });
     }
 
-    // Obtener Noticias (El calendario se carga asíncronamente)
-    // (Ya cargadas desde caché o base de datos arriba)
-
+    // Obtener Noticias (Noticias 2.0 / Mini Blog)
     let newsHtml = '';
     if (!news || news.length === 0) {
       newsHtml = '<div style="padding: 1.5rem; text-align: center; color: var(--color-text-muted);">No hay noticias recientes.</div>';
     } else {
-      newsHtml = news.map(n => `
-        <div class="news-post-card news-item-clickable" data-id="${n.id}" style="cursor: pointer; padding: 1.25rem; border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='var(--color-surface-hover)'" onmouseout="this.style.backgroundColor='transparent'">
-          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
-            <span style="display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 500;"><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString()}</span>
-            ${n.subtitle ? `<span style="background: rgba(37, 99, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; font-size: 0.7rem; text-transform: uppercase;">${n.subtitle}</span>` : ''}
+      // Ordenar: Pinned primero, luego por fecha descendente
+      const sortedNews = [...news].sort((a, b) => {
+        if (a.is_pinned && !b.is_pinned) return -1;
+        if (!a.is_pinned && b.is_pinned) return 1;
+        return new Date(b.created_at) - new Date(a.created_at);
+      });
+
+      newsHtml = sortedNews.map(n => {
+        const cat = n.category || 'Actualización';
+        let badgeClass = 'news-tag-update';
+        let badgeIcon = 'ri-rocket-line';
+        if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+        else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+        else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+        else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+        else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+        // Clean plain text excerpt from HTML body
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = n.body || '';
+        const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+        const excerpt = plainText.length > 130 ? plainText.substring(0, 130) + '...' : plainText;
+
+        // Reading time
+        const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+        const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+        return `
+          <div class="news-post-card news-item-clickable ${n.is_pinned ? 'is-pinned-card' : ''}" data-id="${n.id}">
+            ${n.cover_image ? `<img src="${n.cover_image}" alt="${n.title}" class="news-card-cover" onerror="this.style.display='none'">` : ''}
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.75rem; color: var(--color-text-muted); flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+                ${n.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Fijado</span>` : ''}
+              </div>
+              <span class="news-read-time"><i class="ri-time-line"></i> ${readTime} min lectura</span>
+            </div>
+            <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
+            ${n.subtitle ? `<div style="font-size: 0.825rem; font-weight: 600; color: var(--color-primary);">${n.subtitle}</div>` : ''}
+            <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${excerpt}</p>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.25rem; font-size: 0.75rem; color: var(--color-text-muted);">
+              <span><i class="ri-calendar-line"></i> ${new Date(n.created_at).toLocaleDateString('es-CL')}</span>
+              <span style="color: var(--color-primary); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                Leer artículo <i class="ri-arrow-right-line"></i>
+              </span>
+            </div>
           </div>
-          <h4 style="margin: 0; font-size: 1.05rem; color: var(--color-text-main); font-weight: 700; line-height: 1.35; letter-spacing: -0.2px;">${n.title}</h4>
-          <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">${n.body}</p>
-          <div style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; color: var(--color-primary); font-weight: 600; margin-top: 0.25rem;">
-            Leer noticia completa <i class="ri-arrow-right-line" style="font-size: 0.9rem;"></i>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     // Obtener información de facturación
@@ -1699,6 +1733,8 @@ async function renderDashboard() {
         src = 'img/walmart.png';
       } else if (pLower.includes('tiendanube')) {
         src = 'img/tiendanube.png';
+      } else if (pLower.includes('jumpseller')) {
+        src = 'img/jumpseller.png';
       } else if (pLower.includes('manual') || pLower.includes('stocka')) {
         src = 'img/stocka.cap.png';
       }
@@ -26287,6 +26323,33 @@ window.renderVolumenDiario = async function() {
   await loadHistories();
 };
 
+window.openNewsImageLightbox = window.openNewsImageLightbox || function(src) {
+  let lightbox = document.getElementById('news-image-lightbox-overlay');
+  if (!lightbox) {
+    lightbox = document.createElement('div');
+    lightbox.id = 'news-image-lightbox-overlay';
+    lightbox.className = 'news-image-lightbox';
+    document.body.appendChild(lightbox);
+  }
+  lightbox.innerHTML = `
+    <button class="news-image-lightbox-close" title="Cerrar (Esc)"><i class="ri-close-line"></i></button>
+    <img src="${src}" alt="Zoom Imagen">
+  `;
+  lightbox.style.display = 'flex';
+  
+  const close = () => { lightbox.style.display = 'none'; };
+  lightbox.onclick = (e) => { if (e.target !== lightbox.querySelector('img')) close(); };
+  lightbox.querySelector('.news-image-lightbox-close').onclick = close;
+  
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      close();
+      window.removeEventListener('keydown', onKey);
+    }
+  };
+  window.addEventListener('keydown', onKey);
+};
+
 function openNewsModal(newsItem) {
   let overlay = document.getElementById('news-detail-modal-overlay');
   if (!overlay) {
@@ -26295,40 +26358,94 @@ function openNewsModal(newsItem) {
     overlay.className = 'modal-overlay';
     document.body.appendChild(overlay);
   }
-  
+
+  const cat = newsItem.category || 'Actualización';
+  let badgeClass = 'news-tag-update';
+  let badgeIcon = 'ri-rocket-line';
+  if (cat.includes('Operacion') || cat.includes('Logística')) { badgeClass = 'news-tag-ops'; badgeIcon = 'ri-box-3-line'; }
+  else if (cat.includes('Alerta')) { badgeClass = 'news-tag-alert'; badgeIcon = 'ri-alert-line'; }
+  else if (cat.includes('Comunicado')) { badgeClass = 'news-tag-notice'; badgeIcon = 'ri-megaphone-line'; }
+  else if (cat.includes('Guía') || cat.includes('Tutorial')) { badgeClass = 'news-tag-guide'; badgeIcon = 'ri-lightbulb-line'; }
+  else if (cat.includes('Comercial') || cat.includes('Novedad')) { badgeClass = 'news-tag-commercial'; badgeIcon = 'ri-sparkling-line'; }
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = newsItem.body || '';
+  const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim();
+  const wordCount = plainText.split(/\s+/).filter(Boolean).length;
+  const readTime = Math.max(1, Math.ceil(wordCount / 180));
+
+  const pubDate = newsItem.created_at ? new Date(newsItem.created_at).toLocaleDateString('es-CL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }) : 'Reciente';
+
   overlay.innerHTML = `
-    <div class="modal-content" style="max-width: 600px; width: 90%;">
-      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border);">
-        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main); font-weight: 700;">${newsItem.title}</h3>
-        <button class="modal-close" id="close-news-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.25rem;"><i class="ri-close-line"></i></button>
+    <div class="modal-content" style="max-width: 780px; width: 92%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: var(--radius-lg); box-shadow: var(--shadow-xl);">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span class="news-tag ${badgeClass}"><i class="${badgeIcon}"></i> ${cat}</span>
+          ${newsItem.is_pinned ? `<span class="news-pinned-tag"><i class="ri-pushpin-fill"></i> Noticia Destacada</span>` : ''}
+        </div>
+        <button class="modal-close" id="close-news-modal-btn" style="background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1.35rem; display: flex; align-items: center;" title="Cerrar"><i class="ri-close-line"></i></button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
-        ${newsItem.subtitle ? `<h4 style="margin: 0 0 1rem 0; font-weight: 600; color: var(--color-primary); font-size: 1rem;">${newsItem.subtitle}</h4>` : ''}
-        <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 1rem;">
-          <i class="ri-calendar-line" style="margin-right: 0.25rem;"></i>${new Date(newsItem.created_at).toLocaleString()}
-        </span>
-        <div style="font-size: 0.9rem; color: var(--color-text-main); line-height: 1.6; white-space: pre-wrap;">${newsItem.body}</div>
+
+      <div class="modal-body" style="padding: 1.75rem 2rem; overflow-y: auto; flex: 1; background: var(--color-surface);">
+        ${newsItem.cover_image ? `
+          <div style="margin-bottom: 1.5rem; border-radius: var(--radius-md); overflow: hidden; max-height: 320px; border: 1px solid var(--color-border);">
+            <img src="${newsItem.cover_image}" alt="${newsItem.title}" style="width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in;" onclick="window.openNewsImageLightbox('${newsItem.cover_image}')">
+          </div>
+        ` : ''}
+
+        <h1 style="margin: 0 0 0.5rem 0; font-size: 1.65rem; color: var(--color-text-main); font-weight: 800; line-height: 1.3; letter-spacing: -0.3px;">
+          ${newsItem.title}
+        </h1>
+
+        ${newsItem.subtitle ? `
+          <h2 style="margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--color-primary); font-weight: 600; line-height: 1.4;">
+            ${newsItem.subtitle}
+          </h2>
+        ` : ''}
+
+        <div style="display: flex; align-items: center; gap: 1.25rem; font-size: 0.8rem; color: var(--color-text-muted); padding-bottom: 1.25rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--color-border); flex-wrap: wrap;">
+          <span><i class="ri-calendar-event-line" style="margin-right: 0.3rem;"></i> ${pubDate}</span>
+          <span><i class="ri-time-line" style="margin-right: 0.3rem;"></i> ${readTime} min de lectura</span>
+          <span><i class="ri-user-smile-line" style="margin-right: 0.3rem;"></i> Equipo STOCKA</span>
+        </div>
+
+        <div class="blog-article-content" id="blog-modal-article-body">
+          ${newsItem.body || ''}
+        </div>
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end;">
-        <button class="btn btn-outline" id="close-news-modal-footer-btn" style="padding: 0.5rem 1rem;">Cerrar</button>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-bg); display: flex; justify-content: space-between; align-items: center;">
+        <button class="btn btn-outline btn-sm" onclick="window.print()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.825rem;">
+          <i class="ri-printer-line"></i> Imprimir / Guardar
+        </button>
+        <button class="btn btn-primary btn-sm" id="close-news-modal-footer-btn" style="padding: 0.4rem 1.2rem; font-size: 0.85rem;">
+          Cerrar
+        </button>
       </div>
     </div>
   `;
   
   overlay.classList.add('active');
   
-  const close = () => {
-    overlay.classList.remove('active');
-  };
-  
+  const articleBody = overlay.querySelector('#blog-modal-article-body');
+  if (articleBody) {
+    articleBody.querySelectorAll('img').forEach(img => {
+      img.onclick = () => window.openNewsImageLightbox(img.src);
+    });
+  }
+
+  const close = () => { overlay.classList.remove('active'); };
   document.getElementById('close-news-modal-btn').addEventListener('click', close);
   document.getElementById('close-news-modal-footer-btn').addEventListener('click', close);
   overlay.addEventListener('click', (e) => {
-    if (e.target === overlay) {
-      close();
-    }
+    if (e.target === overlay) close();
   });
 }
+
 
 function getDeclarationProducts(dec) {
   if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
@@ -29172,7 +29289,6 @@ async function openRequestInventoryModal(commerce, onComplete) {
         .insert([newRecord])
         .select()
         .single();
-
       if (insertErr) throw insertErr;
 
       const createdReq = insertedData || newRecord;
@@ -29236,7 +29352,7 @@ async function openClientInventoryRequestsModal(commerce) {
   modal.style.zIndex = '9998';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 850px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
+    <div class="modal-content" style="max-width: 880px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
         <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
           <i class="ri-history-line" style="color: #6366f1;"></i> Mis Solicitudes de Inventario
@@ -29246,7 +29362,7 @@ async function openClientInventoryRequestsModal(commerce) {
       <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
           <p style="margin: 0; font-size: 0.85rem; color: var(--color-text-muted);">
-            Historial de solicitudes de tomas de inventario físico enviadas al equipo de bodega.
+            Historial de solicitudes de tomas de inventario físico y actas de cuadratura finalizada.
           </p>
           <button class="btn btn-primary" id="btn-new-req-from-modal" style="background: #6366f1; border-color: #6366f1; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.3rem;">
             <i class="ri-add-line"></i> Nueva Solicitud
@@ -29332,6 +29448,7 @@ async function openClientInventoryRequestsModal(commerce) {
       else if (r.priority === 'Media') priorityColor = '#f59e0b';
 
       const isPending = r.status === 'Pendiente';
+      const isFinalized = r.status === 'Finalizada' || (r.products_list || []).some(p => p.counted_qty !== null && p.counted_qty !== undefined);
 
       return `
         <tr style="border-bottom: 1px solid var(--color-border);">
@@ -29345,17 +29462,25 @@ async function openClientInventoryRequestsModal(commerce) {
           <td style="padding: 0.65rem 0.75rem; text-align: center;">${statusBadge}</td>
           <td style="padding: 0.65rem 0.75rem; text-align: center;">
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
-              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja PDF" style="padding: 0.25rem 0.45rem; border-color: #ef4444; color: #ef4444;">
+              ${isFinalized ? `
+                <button class="btn btn-outline btn-sm" onclick="window.generateInventoryReportPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Informe Oficial de Resultados (PDF)" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); cursor: pointer;">
+                  <i class="ri-file-chart-line"></i>
+                </button>
+                <button class="btn btn-outline btn-sm" onclick="window.generateInventoryReportExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Informe Oficial de Resultados (Excel)" style="padding: 0.25rem 0.45rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); cursor: pointer;">
+                  <i class="ri-file-excel-2-line"></i>
+                </button>
+              ` : ''}
+              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Hoja PDF para Terreno" style="padding: 0.25rem 0.45rem; border-color: #ef4444; color: #ef4444; cursor: pointer;">
                 <i class="ri-file-pdf-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981;">
+              <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Descargar Planilla Excel" style="padding: 0.25rem 0.45rem; border-color: #10b981; color: #10b981; cursor: pointer;">
                 <i class="ri-file-excel-line"></i>
               </button>
-              <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles y Cuadratura" style="padding: 0.25rem 0.45rem;">
+              <button class="btn btn-outline btn-sm" onclick="openViewInventoryRequestDetailModal(window.cachedClientInventoryRequests.find(x => x.id === '${r.id}'))" title="Ver Detalles y Cuadratura" style="padding: 0.25rem 0.45rem; border-color: #6366f1; color: #6366f1; cursor: pointer;">
                 <i class="ri-eye-line"></i>
               </button>
               ${isPending ? `
-                <button class="btn btn-outline btn-sm" onclick="cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.25rem 0.45rem; border-color: var(--color-danger); color: var(--color-danger);">
+                <button class="btn btn-outline btn-sm" onclick="cancelClientInventoryRequest('${r.id}', '${commerce}')" title="Cancelar Solicitud" style="padding: 0.25rem 0.45rem; border-color: var(--color-danger); color: var(--color-danger); cursor: pointer;">
                   <i class="ri-close-circle-line"></i>
                 </button>
               ` : ''}
@@ -29443,31 +29568,52 @@ function openViewInventoryRequestDetailModal(req) {
   modal.style.zIndex = '9999';
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 900px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
+    <div class="modal-content" style="max-width: 920px; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 90vh;">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
-          <i class="ri-file-list-3-line" style="color: #6366f1;"></i> Detalle de Solicitud de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
-        </h3>
+        <div>
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+            <i class="ri-file-list-3-line" style="color: #6366f1;"></i> Detalle de Solicitud de Inventario <code style="color: #6366f1; font-weight: bold; margin-left: 0.5rem;">${folio}</code>
+          </h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
+            Fecha Emisión: <strong>${new Date(req.created_at).toLocaleString('es-CL')}</strong>
+          </p>
+        </div>
         <button type="button" class="modal-close" onclick="document.getElementById('modal-view-inventory-request-detail').remove()">&times;</button>
       </div>
-      <div class="modal-body" style="padding: 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1rem;">
         
-        <!-- Tarjeta de Metadatos -->
-        <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; font-size: 0.85rem;">
-          <div><strong style="color: var(--color-text-muted);">Comercio:</strong> <span style="font-weight: 600; color: var(--color-text-main);">${req.comercio}</span></div>
-          <div><strong style="color: var(--color-text-muted);">Bodega:</strong> <span style="font-weight: 600; color: var(--color-text-main);">${req.warehouse_name || 'Todas'}</span></div>
-          <div><strong style="color: var(--color-text-muted);">Estado:</strong> ${statusBadge}</div>
-          <div><strong style="color: var(--color-text-muted);">Prioridad:</strong> <span style="font-weight: 600;">${req.priority || 'Normal'}</span></div>
-          <div><strong style="color: var(--color-text-muted);">Motivo:</strong> <span style="color: var(--color-text-main);">${req.reason || 'Auditoría'}</span></div>
-          <div><strong style="color: var(--color-text-muted);">Corte Último Pedido:</strong> <span style="font-weight: 700; color: #6366f1; font-family: monospace;">${req.cutoff_order || 'Sin corte especificado'}</span></div>
-          <div><strong style="color: var(--color-text-muted);">Fecha Solicitud:</strong> <span>${new Date(req.created_at).toLocaleString('es-CL')}</span></div>
-          ${req.completed_at ? `<div><strong style="color: var(--color-text-muted);">Fecha Cierre:</strong> <span>${new Date(req.completed_at).toLocaleString('es-CL')}</span></div>` : ''}
-          ${req.completed_by ? `<div><strong style="color: var(--color-text-muted);">Validado por:</strong> <span>${req.completed_by}</span></div>` : ''}
+        <!-- Info Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); font-size: 0.85rem;">
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">ESTADO</span>
+            <div style="margin-top: 0.25rem;">${statusBadge}</div>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">BODEGA ASIGNADA</span>
+            <strong style="color: var(--color-text-main);">${req.warehouse_name || 'Todas las bodegas'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">TIPO / ALCANCE</span>
+            <strong style="color: var(--color-text-main);">${(req.type === 'selectivo' || req.type === 'parcial') ? 'Selectivo (Parcial)' : 'Completo (General)'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">PRIORIDAD</span>
+            <strong style="color: var(--color-text-main);">${req.priority || 'Normal'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">CORTE ÚLTIMO PEDIDO</span>
+            <strong style="color: #4338ca; font-family: monospace;">${req.cutoff_order || 'Sin corte (Todo en estante)'}</strong>
+          </div>
+          <div>
+            <span style="color: var(--color-text-muted); display: block; font-size: 0.75rem;">MOTIVO</span>
+            <span style="color: var(--color-text-main);">${req.reason || 'Auditoría periódica'}</span>
+          </div>
         </div>
 
         ${req.notes ? `
-          <div style="background: var(--color-bg-alt); border-left: 3px solid #6366f1; padding: 0.6rem 0.85rem; border-radius: 0 4px 4px 0; font-size: 0.85rem;">
-            <strong>Instrucciones del Cliente:</strong> ${req.notes}
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); font-size: 0.85rem;">
+            <strong style="color: var(--color-text-muted);">Instrucciones / Notas enviadas:</strong> ${req.notes}
           </div>
         ` : ''}
 
@@ -29505,13 +29651,16 @@ function openViewInventoryRequestDetailModal(req) {
         </div>
 
       </div>
-      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center;">
-        <div style="display: flex; gap: 0.5rem;">
-          <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountPdf(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${req.id}') : null)" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-pdf-line"></i> Descargar Hoja PDF
+      <div class="modal-footer" style="padding: 1.25rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-pdf" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
+            <i class="ri-file-chart-line"></i> Descargar Informe de Resultados (PDF)
           </button>
-          <button class="btn btn-outline btn-sm" onclick="window.generateInventoryCountExcel(window.cachedClientInventoryRequests ? window.cachedClientInventoryRequests.find(x => x.id === '${req.id}') : null)" style="border-color: #10b981; color: #10b981; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-excel-line"></i> Descargar Planilla Excel
+          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-report-excel" style="border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.08); display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 700;">
+            <i class="ri-file-excel-2-line"></i> Informe (Excel)
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" id="btn-client-modal-sheet-pdf" style="border-color: #ef4444; color: #ef4444; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-file-pdf-line"></i> Hoja Terreno PDF
           </button>
         </div>
         <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-view-inventory-request-detail').remove()">Cerrar</button>
