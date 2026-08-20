@@ -26326,10 +26326,32 @@ function openUploadDocModal() {
 
   const select = document.getElementById('doc-upload-folder-select');
   if (select) {
-    const folders = Array.from(new Set(adminDocsList.map(d => d.folder || 'General')));
+    const predefinedFolders = [
+      'FACTURACIÓN',
+      'ENVIAME',
+      'ONBOARDING',
+      'OPERACIONES',
+      'E3',
+      'E3_Shopify',
+      'E3_WooCommerce',
+      'E3_Jumpseller',
+      'E3_MercadoLibre',
+      'contractual_docs'
+    ];
+    const getFolderLabel = (f) => {
+      if (f === 'E3') return 'E3 (Comunes)';
+      if (f === 'E3_Shopify') return 'E3 - Shopify';
+      if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
+      if (f === 'E3_Jumpseller') return 'E3 - Jumpseller';
+      if (f === 'E3_MercadoLibre') return 'E3 - Mercado Libre';
+      if (f === 'contractual_docs') return 'Docs Contractuales';
+      return f;
+    };
+    const dynamicFolders = adminDocsList.map(d => d.folder || 'General');
+    const allFolders = Array.from(new Set([...predefinedFolders, ...dynamicFolders]));
     select.innerHTML = '<option value="">-- Selecciona Carpeta --</option>';
-    folders.forEach(f => {
-      select.innerHTML += `<option value="${f}">${f}</option>`;
+    allFolders.forEach(f => {
+      select.innerHTML += `<option value="${f}">${getFolderLabel(f)}</option>`;
     });
   }
 
@@ -26377,11 +26399,33 @@ function openEditDocModal(id) {
 
   const select = document.getElementById('doc-edit-folder-select');
   if (select) {
-    const folders = Array.from(new Set(adminDocsList.map(d => d.folder || 'General')));
+    const predefinedFolders = [
+      'FACTURACIÓN',
+      'ENVIAME',
+      'ONBOARDING',
+      'OPERACIONES',
+      'E3',
+      'E3_Shopify',
+      'E3_WooCommerce',
+      'E3_Jumpseller',
+      'E3_MercadoLibre',
+      'contractual_docs'
+    ];
+    const getFolderLabel = (f) => {
+      if (f === 'E3') return 'E3 (Comunes)';
+      if (f === 'E3_Shopify') return 'E3 - Shopify';
+      if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
+      if (f === 'E3_Jumpseller') return 'E3 - Jumpseller';
+      if (f === 'E3_MercadoLibre') return 'E3 - Mercado Libre';
+      if (f === 'contractual_docs') return 'Docs Contractuales';
+      return f;
+    };
+    const dynamicFolders = adminDocsList.map(d => d.folder || 'General');
+    const allFolders = Array.from(new Set([...predefinedFolders, ...dynamicFolders]));
     select.innerHTML = '<option value="">-- Selecciona Carpeta --</option>';
-    folders.forEach(f => {
+    allFolders.forEach(f => {
       const selected = f === doc.folder ? 'selected' : '';
-      select.innerHTML += `<option value="${f}" ${selected}>${f}</option>`;
+      select.innerHTML += `<option value="${f}" ${selected}>${getFolderLabel(f)}</option>`;
     });
   }
 
