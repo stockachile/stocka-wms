@@ -1464,10 +1464,14 @@ serve(async (req) => {
       `;
     }
 
+    const senderEmail = emailType === 'onboarding_enviame_instructions'
+      ? 'contacto@stocka.cl'
+      : (useInfoSender ? 'info@stocka.cl' : 'finanzas@stocka.cl');
+
     const brevoPayload: any = {
       sender: {
         name: emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"),
-        email: useInfoSender ? "contacto@stocka.cl" : "finanzas@stocka.cl"
+        email: senderEmail
       },
       to: finalRecipients.map(email => ({ email })),
       subject: emailSubject,
@@ -1519,47 +1523,58 @@ serve(async (req) => {
       }
     }
 
-    // Si es onboarding_enviame_instructions (correo E3), descargar y adjuntar los dos documentos correspondientes
+    // Si es onboarding_enviame_instructions (correo E3), consultar y adjuntar dinámicamente los archivos de la carpeta E3
     if (emailType === 'onboarding_enviame_instructions') {
-      const attachmentsToFetch = [
-        {
-          url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/manual_webhook_enviame.pdf',
-          name: 'Manual_Integracion_Webhooks_Enviame.pdf'
-        },
-        {
-          url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/presentacion_same_day.pdf',
-          name: 'Presentacion_Servicio_SameDay_Stocka.pdf'
-        }
-      ];
+      try {
+        console.log(`[send-billing-email] Consultando documentos de la carpeta E3 en la base de datos...`);
+        const { data: e3Docs, error: e3Err } = await supabaseClient
+          .from('service_docs')
+          .select('name, file_url')
+          .eq('folder', 'E3');
 
-      for (const att of attachmentsToFetch) {
-        try {
-          console.log(`[send-billing-email] Descargando adjunto E3: ${att.name} desde ${att.url}`);
-          const fileRes = await fetch(att.url);
-          if (fileRes.ok) {
-            const arrayBuffer = await fileRes.arrayBuffer();
-            let binary = '';
-            const bytes = new Uint8Array(arrayBuffer);
-            const len = bytes.byteLength;
-            for (let i = 0; i < len; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            const base64Content = btoa(binary);
+        if (!e3Err && e3Docs && e3Docs.length > 0) {
+          console.log(`[send-billing-email] Encontrados ${e3Docs.length} documentos en la carpeta E3.`);
+          for (const doc of e3Docs) {
+            try {
+              console.log(`[send-billing-email] Descargando adjunto E3: ${doc.name} desde ${doc.file_url}`);
+              const fileRes = await fetch(doc.file_url);
+              if (fileRes.ok) {
+                const arrayBuffer = await fileRes.arrayBuffer();
+                let binary = '';
+                const bytes = new Uint8Array(arrayBuffer);
+                const len = bytes.byteLength;
+                for (let i = 0; i < len; i++) {
+                  binary += String.fromCharCode(bytes[i]);
+                }
+                const base64Content = btoa(binary);
 
-            if (!brevoPayload.attachment) {
-              brevoPayload.attachment = [];
+                if (!brevoPayload.attachment) {
+                  brevoPayload.attachment = [];
+                }
+
+                // Asegurar que el nombre tenga la extensión adecuada si la URL la tiene
+                let docName = doc.name;
+                if (!docName.toLowerCase().endsWith('.pdf') && doc.file_url.toLowerCase().endsWith('.pdf')) {
+                  docName += '.pdf';
+                }
+
+                brevoPayload.attachment.push({
+                  content: base64Content,
+                  name: docName
+                });
+                console.log(`[send-billing-email] Adjunto E3 ${docName} cargado con éxito!`);
+              } else {
+                console.warn(`[send-billing-email] Adjunto opcional E3 ${doc.name} no se pudo descargar: HTTP ${fileRes.status}`);
+              }
+            } catch (err) {
+              console.error(`[send-billing-email] Error descargando adjunto E3 ${doc.name}:`, err);
             }
-            brevoPayload.attachment.push({
-              content: base64Content,
-              name: att.name
-            });
-            console.log(`[send-billing-email] Adjunto E3 ${att.name} cargado con éxito!`);
-          } else {
-            console.warn(`[send-billing-email] Adjunto opcional E3 ${att.name} no se pudo descargar: HTTP ${fileRes.status}`);
           }
-        } catch (err) {
-          console.error(`[send-billing-email] Error descargando adjunto E3 ${att.name}:`, err);
+        } else {
+          console.log(`[send-billing-email] No se encontraron documentos en la carpeta E3 en la base de datos:`, e3Err);
         }
+      } catch (dbErr) {
+        console.error(`[send-billing-email] Error al consultar adjuntos E3:`, dbErr);
       }
     }
 

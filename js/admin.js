@@ -26058,8 +26058,12 @@ function renderFoldersSidebar() {
   const folders = {};
   adminDocsList.forEach(doc => {
     const f = doc.folder || 'General';
-    folders[f] = (folders[f] || 0) + 1;
+    if (f !== 'E3' && f !== 'contractual_docs') {
+      folders[f] = (folders[f] || 0) + 1;
+    }
   });
+
+  const e3Count = adminDocsList.filter(doc => doc.folder === 'E3').length;
 
   let html = `
     <li class="folder-item ${adminSelectedFolder === 'all' ? 'active' : ''}" data-folder="all">
@@ -26070,6 +26074,10 @@ function renderFoldersSidebar() {
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
     <li class="folder-item ${adminSelectedFolder === 'contractual_docs' ? 'active' : ''}" data-folder="contractual_docs" style="font-weight: 600;">
       <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
+    </li>
+    <li class="folder-item ${adminSelectedFolder === 'E3' ? 'active' : ''}" data-folder="E3" style="font-weight: 600;">
+      <span><i class="ri-mail-send-line folder-icon" style="color: var(--color-primary);"></i> Adjuntos Correo E3</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e3Count}</span>
     </li>
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
   `;

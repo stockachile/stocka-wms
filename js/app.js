@@ -21558,6 +21558,7 @@ async function loadDocsClientData() {
     const { data, error } = await supabase
       .from('service_docs')
       .select('*')
+      .neq('folder', 'E3')
       .order('is_pinned', { ascending: false })
       .order('updated_at', { ascending: false });
 
