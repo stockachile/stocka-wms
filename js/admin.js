@@ -31008,7 +31008,8 @@ window.showMerchantCreateModal = function() {
     const emailColaborador = document.getElementById('merchant-create-email-colaborador').value.trim();
     const enviameId = document.getElementById('merchant-create-enviame-id').value.trim();
     const billing = document.getElementById('merchant-create-billing').value;
-    const inventory = !isMigration && document.getElementById('merchant-create-inventory').checked;
+    const createInventoryInput = document.getElementById('merchant-create-inventory');
+    const inventory = createInventoryInput ? createInventoryInput.checked : false;
 
     // Obtener configuración de prefijos por plataforma
     const platSiglasConfig = {};
@@ -31633,8 +31634,10 @@ window.showMerchantEditModal = async function(comercioName) {
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
     const sendE3 = document.getElementById('merchant-edit-send-e3')?.checked || false;
-    const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
-    const newCatalogReady = !isMigration && document.getElementById('merchant-edit-catalog-ready')?.checked;
+    const inventoryInput = document.getElementById('merchant-edit-inventory');
+    const newInventory = inventoryInput ? inventoryInput.checked : (commerce.inventario_seguimiento || false);
+    const catalogReadyInput = document.getElementById('merchant-edit-catalog-ready');
+    const newCatalogReady = catalogReadyInput ? catalogReadyInput.checked : (commerce.onboarding_checklist?.catalog_ready || false);
     const newDefaultWh = document.getElementById('merchant-edit-default-warehouse')?.value || null;
 
     const oldChecklist = commerce.onboarding_checklist || {};
