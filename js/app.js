@@ -2016,7 +2016,7 @@ async function renderDashboard() {
                     </div>
                     <div>
                       <strong style="font-size: 0.92rem; color: var(--color-text-main); display: block; font-weight: 700;">1. Integraciones con tus Canales de Venta</strong>
-                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Vincula Shopify, WooCommerce o Mercado Libre para sincronizar ventas y stock.</span>
+                      <span style="font-size: 0.76rem; color: var(--color-text-muted); font-weight: 500;">Vincula tus tiendas y marketplaces (Shopify, WooCommerce, Mercado Libre, Falabella, París, Ripley, Walmart, Jumpseller, Tiendanube) para sincronizar ventas y stock.</span>
                     </div>
                   </div>
                   <div style="display: flex; align-items: center; gap: 0.85rem;">
@@ -2032,6 +2032,12 @@ async function renderDashboard() {
                     <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-shopping-bag-3-fill" style="color: #95bf47;"></i> Shopify</span>
                     <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-wordpress-fill" style="color: #9b5c8f;"></i> WooCommerce</span>
                     <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #ffe600;"></i> Mercado Libre</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #84cc16;"></i> Falabella</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #e11d48;"></i> París</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #7c3aed;"></i> Ripley</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-store-2-fill" style="color: #0071ce;"></i> Walmart</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-shopping-bag-2-fill" style="color: #0284c7;"></i> Jumpseller</span>
+                    <span style="background: var(--color-bg); padding: 0.3rem 0.6rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem; border: 1px solid var(--color-border); font-size: 0.72rem; font-weight: 600;"><i class="ri-cloud-fill" style="color: #06b6d4;"></i> Tiendanube</span>
                   </div>
                   <div style="background: rgba(94, 23, 235, 0.04); border: 1px solid rgba(94, 23, 235, 0.15); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--color-text-main);">
