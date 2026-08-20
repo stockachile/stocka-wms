@@ -35301,13 +35301,20 @@ window.saveEditOrderItems = async function(orderId, comment) {
     const orderItemsNames = window.tempEditOrderItems.map(item => item.name).join(', ');
     const totalValue = window.tempEditOrderItems.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
+    const targetOrder = window.loadedOrders ? window.loadedOrders.find(o => o.id === orderId) : null;
+    const updatedRawShopify = {
+      ...((targetOrder && targetOrder.raw_shopify_data) || {}),
+      wms_items_edited: true
+    };
+
     const { error: orderUpdErr } = await supabase
       .from('orders')
       .update({
         cantidad: totalCantidad,
         sku: orderSkus,
         item: orderItemsNames,
-        total_value: totalValue
+        total_value: totalValue,
+        raw_shopify_data: updatedRawShopify
       })
       .eq('id', orderId);
 
@@ -35328,12 +35335,13 @@ window.saveEditOrderItems = async function(orderId, comment) {
 
     if (auditErr) throw auditErr;
 
-    const order = window.loadedOrders.find(o => o.id === orderId);
+    const order = targetOrder || (window.loadedOrders && window.loadedOrders.find(o => o.id === orderId));
     if (order) {
       order.cantidad = totalCantidad;
       order.sku = orderSkus;
       order.item = orderItemsNames;
       order.total_value = totalValue;
+      order.raw_shopify_data = updatedRawShopify;
 
       // Recargar los order_items en memoria con sus productos y bodegas asociadas
       const { data: reloadedItems } = await supabase

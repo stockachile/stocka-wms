@@ -381,11 +381,20 @@ async function syncShopifyOrders(integration: any): Promise<number> {
 
       let orderId: string;
       if (existingOrder) {
-        await supabase.from("orders").update(orderDataToSave).eq("id", existingOrder.id);
+        const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
+        const orderDataToUpdate = { ...orderDataToSave };
+        if (isWmsEdited) {
+          delete (orderDataToUpdate as any).sku;
+          delete (orderDataToUpdate as any).item;
+          delete (orderDataToUpdate as any).cantidad;
+          delete (orderDataToUpdate as any).total_value;
+        }
+
+        await supabase.from("orders").update(orderDataToUpdate).eq("id", existingOrder.id);
         orderId = existingOrder.id;
 
-        // Si el pedido ya está finalizado, no sincronizar sus items
-        if (['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+        if (isWmsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+          count++;
           continue;
         }
       } else {

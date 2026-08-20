@@ -360,6 +360,12 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const wmsStatus = existingOrder.estado_wms || existingOrder.status || 'En procesamiento';
   const estadosCriticos = ['en preparación', 'pickeado', 'despachado', 'incidencia', 'entregado', 'retirado', 'cancelado'];
   
+  const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
+  if (isWmsEdited) {
+    console.log(`Pedido ${order.name} fue editado manualmente en WMS. Omitiendo sobrescritura de order_items desde Shopify.`);
+    return;
+  }
+
   if (isClosedOrDispatched || estadosCriticos.includes(wmsStatus.toLowerCase())) {
     if (isClosedOrDispatched) {
       console.log(`Pedido ${order.name} ya está en estado final (${existingOrder.status}). Omitiendo diffing de order_items.`);

@@ -286,16 +286,28 @@ async function syncOrders(integration) {
 
       let orderId;
       if (existingOrder) {
+        const isWmsEdited = !!(existingOrder.raw_shopify_data && existingOrder.raw_shopify_data.wms_items_edited);
+        const orderDataToUpdate = { ...orderDataToSave };
+        
+        // Si el pedido fue editado manualmente en WMS, no sobrescribir SKU, item, cantidad ni total_value
+        if (isWmsEdited) {
+          delete orderDataToUpdate.sku;
+          delete orderDataToUpdate.item;
+          delete orderDataToUpdate.cantidad;
+          delete orderDataToUpdate.total_value;
+        }
+
         // Actualizar pedido existente
         await supabase
           .from('orders')
-          .update(orderDataToSave)
+          .update(orderDataToUpdate)
           .eq('id', existingOrder.id);
         orderId = existingOrder.id;
         console.log(`Actualizado pedido ${order.name}`);
 
-        // Si el pedido ya fue despachado, entregado, retirado o cancelado, NO tocar sus order_items
-        if (['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+        // Si el pedido fue editado en WMS o ya fue despachado, entregado, retirado o cancelado, NO tocar sus order_items
+        if (isWmsEdited || ['despachado', 'entregado', 'retirado', 'cancelado'].includes(existingOrder.status)) {
+          console.log(`Omite sync de ítems para pedido ${order.name} (${isWmsEdited ? 'Editado en WMS' : existingOrder.status})`);
           continue;
         }
       } else {
