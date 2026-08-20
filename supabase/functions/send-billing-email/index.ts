@@ -1495,14 +1495,8 @@ serve(async (req) => {
         const fileRes = await fetch(contratoUrl);
         if (fileRes.ok) {
           const arrayBuffer = await fileRes.arrayBuffer();
-          // Convertir arrayBuffer a base64
-          let binary = '';
-          const bytes = new Uint8Array(arrayBuffer);
-          const len = bytes.byteLength;
-          for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const base64Content = btoa(binary);
+          const uint8 = new Uint8Array(arrayBuffer);
+          const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
 
           if (!brevoPayload.attachment) {
             brevoPayload.attachment = [];
@@ -1540,13 +1534,8 @@ serve(async (req) => {
               const fileRes = await fetch(doc.file_url);
               if (fileRes.ok) {
                 const arrayBuffer = await fileRes.arrayBuffer();
-                let binary = '';
-                const bytes = new Uint8Array(arrayBuffer);
-                const len = bytes.byteLength;
-                for (let i = 0; i < len; i++) {
-                  binary += String.fromCharCode(bytes[i]);
-                }
-                const base64Content = btoa(binary);
+                const uint8 = new Uint8Array(arrayBuffer);
+                const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
 
                 if (!brevoPayload.attachment) {
                   brevoPayload.attachment = [];
