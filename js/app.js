@@ -1187,19 +1187,22 @@ async function renderDashboard() {
             .from('comercios_adicional_config')
             .select('onboarding_checklist, enviame_id, shopify_partner_pin')
             .eq('comercio', targetCommerce)
-            .maybeSingle(),
+            .maybeSingle()
+            .catch(err => { console.warn("Error fetching adicional config:", err); return { data: null }; }),
           supabase
             .from('service_docs')
             .select('file_url')
             .ilike('name', '%sku%')
             .limit(1)
-            .maybeSingle(),
+            .maybeSingle()
+            .catch(err => { console.warn("Error fetching service doc:", err); return { data: null }; }),
           supabase
             .from('merchant_integrations')
             .select('partner_pin, security_pin')
             .eq('comercio', targetCommerce)
             .eq('platform', 'Shopify')
             .maybeSingle()
+            .catch(err => { console.warn("Error fetching merchant integration:", err); return { data: null }; })
         ]);
         
         if (cacRes && cacRes.data) {
