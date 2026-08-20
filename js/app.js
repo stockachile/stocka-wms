@@ -1236,7 +1236,8 @@ async function renderDashboard() {
       }
     }
     const cacheKey = 'client_dashboard_' + (companyList.join('_') || 'no_company');
-    const cached = window.getDashboardCache(cacheKey, 300000); // 5 min TTL
+    window.clearDashboardCache(cacheKey);
+    const cached = null;
 
     let results, news;
     let isCached = false;
