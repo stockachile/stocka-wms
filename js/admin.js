@@ -30589,6 +30589,17 @@ window.showMerchantEditModal = async function(comercioName) {
             <p style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Identificador del comercio en Enviame (número o ID).</p>
           </div>
 
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 0.25rem;">
+            <label class="merchant-switch" style="flex-shrink: 0; margin-top: 2px;">
+              <input type="checkbox" id="merchant-edit-send-e3">
+              <span class="merchant-slider"></span>
+            </label>
+            <div>
+              <label for="merchant-edit-send-e3" style="font-weight: 600; font-size: 0.85rem; cursor: pointer; user-select: none; display: block;">Enviar Instrucciones de Integración Enviame (Correo E3)</label>
+              <p style="font-size: 0.725rem; color: var(--color-text-muted); margin: 0.15rem 0 0 0; line-height: 1.3;">Envía un correo explicativo con el manual de webhook y tarifarios al email del comercio.</p>
+            </div>
+          </div>
+
           <div class="form-group" style="margin: 0;">
             <label class="form-label" style="font-weight: 600; margin-bottom: 0.35rem; display: block;">Estado de Facturación (Cobranza)</label>
             <select id="merchant-edit-billing" class="form-input" style="width: 100%; box-sizing: border-box;">
@@ -30945,6 +30956,7 @@ window.showMerchantEditModal = async function(comercioName) {
     const newRepEmail = document.getElementById('merchant-edit-rep-legal-email').value.trim();
     const newEmailColaborador = document.getElementById('merchant-edit-email-colaborador').value.trim();
     const newEnviameId = document.getElementById('merchant-edit-enviame-id').value.trim();
+    const sendE3 = document.getElementById('merchant-edit-send-e3')?.checked || false;
     const newInventory = !isMigration && document.getElementById('merchant-edit-inventory').checked;
     const newCatalogReady = !isMigration && document.getElementById('merchant-edit-catalog-ready')?.checked;
     const newDefaultWh = document.getElementById('merchant-edit-default-warehouse')?.value || null;
@@ -31051,6 +31063,61 @@ window.showMerchantEditModal = async function(comercioName) {
             }
           } catch (emailErr) {
             console.error('Error al enviar correo de catálogo listo:', emailErr);
+          }
+        }
+
+        // Si sendE3 está activo, enviar instrucciones de Enviame (E3)
+        if (sendE3 && newEnviameId) {
+          try {
+            let recipientEmail = newRepEmail || null;
+            if (!recipientEmail) {
+              // Consultar onboarding requests
+              const { data: onbReq } = await supabase
+                .from('onboarding_requests')
+                .select('email, rep_legal_email')
+                .eq('nombre_fantasia', commerce.nombre)
+                .eq('status', 'approved')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (onbReq) {
+                recipientEmail = onbReq.rep_legal_email || onbReq.email;
+              }
+            }
+            if (!recipientEmail) {
+              // Fallback a perfil de usuario del cliente
+              const { data: profData } = await supabase
+                .from('profiles')
+                .select('email')
+                .ilike('comercio', `%${commerce.nombre}%`)
+                .limit(1);
+              if (profData && profData.length > 0) {
+                recipientEmail = profData[0].email;
+              }
+            }
+
+            if (recipientEmail) {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${session.access_token}`
+                  },
+                  body: JSON.stringify({
+                    commerceName: commerce.nombre,
+                    emailType: 'onboarding_enviame_instructions',
+                    emails: [recipientEmail],
+                    enviameId: newEnviameId
+                  })
+                });
+              }
+            } else {
+              console.warn('No se pudo encontrar un correo electrónico válido para enviar el correo E3.');
+            }
+          } catch (emailErr) {
+            console.error('Error al enviar correo de instrucciones Enviame (E3):', emailErr);
           }
         }
 

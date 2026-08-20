@@ -209,7 +209,7 @@ serve(async (req) => {
       .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'shopify_pin_submitted', 'onboarding_contract_received', 'onboarding_catalog_ready'].includes(emailType);
+    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'shopify_pin_submitted', 'onboarding_contract_received', 'onboarding_catalog_ready', 'onboarding_enviame_instructions'].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
     let recipientEmails: string[] = []
@@ -846,6 +846,78 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'onboarding_enviame_instructions') {
+      const envIdVal = payload.enviameId || payload.enviame_id || 'ID_NO_CONFIGURADO';
+      emailSubject = `Instrucciones de Integración y Configuración de Envíos - ${commerceName}`;
+      headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
+      emailTitle = 'Integración de Envíos';
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.5;">
+          Hola equipo de <strong>${commerceName}</strong>,<br><br>
+          Junto con saludarte, te comentamos que ya contamos con el acceso al canal de Shopify. En esta etapa revisaremos la integración para los sistemas de envío de última milla. A continuación, te detallamos las opciones disponibles y los pasos obligatorios para su conexión:
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+            A.- DESPACHOS EN SANTIAGO (RM) - SAME DAY / 24 HRS
+          </strong>
+          En la Región Metropolitana ofrecemos entregas <strong>Same Day</strong> para ventas generadas hasta las <strong>12:00 hrs</strong>. 
+          Te adjuntamos en este correo la presentación de este servicio con el detalle de costos, coberturas y operaciones.
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 16px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+            B.- DESPACHOS A REGIONES - INTEGRACIÓN ENVIAME
+          </strong>
+          Para regiones integramos tu tienda dentro de nuestra cuenta corporativa de <a href="https://enviame.io/" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Enviame</a> de manera personalizada.
+          <br><br>
+          <strong>Pasos para la conexión vía Webhook (REQUERIDO):</strong>
+          <ol style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+            <li>Abre el <strong>manual de integración adjunto</strong> en este correo y dirígete a la <strong>página 3</strong>.</li>
+            <li>Sigue las indicaciones de las <strong>páginas 3, 4 y 5</strong>. En el campo <em>Evento</em> selecciona <strong>"Pedido preparado"</strong>.</li>
+            <li>En la página 4, reemplaza el valor de ejemplo '1111' por tu ID de Enviame definitivo: <strong style="background-color: #ffe4e6; color: #b91c1c; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 14px;">${envIdVal}</strong></li>
+            <li>Una vez creados, copia los códigos generados y compártelos con nosotros <strong>como texto</strong> (no captura de pantalla) respondiendo a este correo para finalizar la activación.</li>
+          </ol>
+          <span style="color: #b91c1c; font-weight: 600; display: block; margin-top: 8px; font-size: 12.5px;">
+            ⚠️ IMPORTANTE: No modifiques o elimines este webhook una vez creado; de lo contrario, la emisión de etiquetas fallará.
+          </span>
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 18px; margin-bottom: 20px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px;">
+            C.- INTEGRACIÓN DE TARIFAS EN TIEMPO REAL EN EL CHECKOUT (OPCIONAL)
+          </strong>
+          Dado que las tarifas logísticas dependen de la comuna y peso del paquete, es vital asegurar que las comunas estén bien estandarizadas en Shopify. Te recomendamos estas opciones:
+          <br><br>
+          <ul style="margin: 8px 0; padding-left: 20px; line-height: 1.6;">
+            <li style="margin-bottom: 8px;">
+              <strong>1. Aplicación Selecty (Opción Recomendada):</strong>
+              Permite mostrar tarifas optimizadas en el checkout en 1 día de implementación. Costo aprox. 12 USD/mes. Requiere cargar una planilla de tarifas que te compartiremos. 
+              Puedes instalarla desde: <a href="https://apps.shopify.com/sector-de-comuna-cl-gratis?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">App Selecty</a>.
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>2. Aplicaciones CCS de Terceros:</strong>
+              Como el <a href="https://haciendola.com/pages/tarificador" target="_blank" style="color: #2563eb; text-decoration: underline;">Tarificador de Haciendola</a> o la app de <a href="https://apps.shopify.com/tarificador-chile?locale=es" target="_blank" style="color: #2563eb; text-decoration: underline;">Lobo Creaciones</a>. Requieren tener activa la función Carrier-Calculated Shipping (CCS) en Shopify. Costo aprox. 40 USD/mes.
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>3. Checkout Gratis de Enviame:</strong>
+              Se solicita al equipo de soporte de Enviame (plazo de implementación 4-7 días). Requiere que nos otorgues permisos de "aplicaciones" en tu tienda Shopify.
+            </li>
+            <li style="margin-bottom: 8px;">
+              <strong>4. Configuración Nativa Simplificada:</strong>
+              Usar las zonas y tarifas de envío manuales/nativas de Shopify a tu criterio.
+            </li>
+          </ul>
+        </div>
+
+        <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 8px; padding: 15px; margin-bottom: 25px; font-size: 13.5px; color: #5b21b6; line-height: 1.5; font-weight: 500;">
+          📂 <strong>Tarifarios y Recursos Útiles:</strong><br>
+          Puedes revisar y descargar la carpeta con las tarifas de Enviame y material de apoyo en el siguiente enlace:<br>
+          <a href="https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH" target="_blank" style="color: #2563eb; font-weight: bold; text-decoration: underline; display: inline-block; margin-top: 6px;">Carpeta de Tarifarios y Recursos Stocka</a>
+        </div>
+      `;
+    }
     else if (emailType === 'onboarding_observed') {
       emailSubject = `Acción requerida: Observaciones en tu solicitud de alta - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #f97316, #d97706)';
@@ -1287,7 +1359,8 @@ serve(async (req) => {
       'volume_alert',
       'weekly_sales_report',
       'monthly_activity_report',
-      'order_no_stock_alert'
+      'order_no_stock_alert',
+      'onboarding_enviame_instructions'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
     const finalRecipients = ['stock_inbound_created', 'shopify_pin_submitted'].includes(emailType) ? ["stockachile@gmail.com"] : recipientEmails;
@@ -1394,7 +1467,7 @@ serve(async (req) => {
     const brevoPayload: any = {
       sender: {
         name: emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"),
-        email: useInfoSender ? "info@stocka.cl" : "finanzas@stocka.cl"
+        email: useInfoSender ? "contacto@stocka.cl" : "finanzas@stocka.cl"
       },
       to: finalRecipients.map(email => ({ email })),
       subject: emailSubject,
@@ -1443,6 +1516,50 @@ serve(async (req) => {
         }
       } catch (err) {
         console.error(`[send-billing-email] Error descargando/adjuntando contrato:`, err);
+      }
+    }
+
+    // Si es onboarding_enviame_instructions (correo E3), descargar y adjuntar los dos documentos correspondientes
+    if (emailType === 'onboarding_enviame_instructions') {
+      const attachmentsToFetch = [
+        {
+          url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/manual_webhook_enviame.pdf',
+          name: 'Manual_Integracion_Webhooks_Enviame.pdf'
+        },
+        {
+          url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/templates/presentacion_same_day.pdf',
+          name: 'Presentacion_Servicio_SameDay_Stocka.pdf'
+        }
+      ];
+
+      for (const att of attachmentsToFetch) {
+        try {
+          console.log(`[send-billing-email] Descargando adjunto E3: ${att.name} desde ${att.url}`);
+          const fileRes = await fetch(att.url);
+          if (fileRes.ok) {
+            const arrayBuffer = await fileRes.arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(arrayBuffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const base64Content = btoa(binary);
+
+            if (!brevoPayload.attachment) {
+              brevoPayload.attachment = [];
+            }
+            brevoPayload.attachment.push({
+              content: base64Content,
+              name: att.name
+            });
+            console.log(`[send-billing-email] Adjunto E3 ${att.name} cargado con éxito!`);
+          } else {
+            console.warn(`[send-billing-email] Adjunto opcional E3 ${att.name} no se pudo descargar: HTTP ${fileRes.status}`);
+          }
+        } catch (err) {
+          console.error(`[send-billing-email] Error descargando adjunto E3 ${att.name}:`, err);
+        }
       }
     }
 
