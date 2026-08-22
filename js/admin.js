@@ -600,16 +600,51 @@ window.validateAndFixOrdersForLabeling = async function(orderIds) {
     return true; // Todo en orden, continuar
   }
 
-  // Si hay problemas, construir las opciones de comunas
+  // Si hay problemas, construir las opciones de comunas con las tildes y grafías exactas
   const allComunas = [
-    ...window.ALPHA_COBERTURA_36.map(c => ({ name: c.charAt(0).toUpperCase() + c.slice(1), hasAlpha: true })),
+    { name: 'Cerrillos', hasAlpha: true },
+    { name: 'Cerro Navia', hasAlpha: true },
+    { name: 'Conchalí', hasAlpha: true },
+    { name: 'El Bosque', hasAlpha: true },
+    { name: 'Estación Central', hasAlpha: true },
+    { name: 'Huechuraba', hasAlpha: true },
+    { name: 'Independencia', hasAlpha: true },
+    { name: 'La Cisterna', hasAlpha: true },
+    { name: 'La Florida', hasAlpha: true },
+    { name: 'La Granja', hasAlpha: true },
+    { name: 'La Pintana', hasAlpha: true },
+    { name: 'La Reina', hasAlpha: true },
+    { name: 'Las Condes', hasAlpha: true },
+    { name: 'Lo Barnechea', hasAlpha: true },
+    { name: 'Lo Espejo', hasAlpha: true },
+    { name: 'Lo Prado', hasAlpha: true },
+    { name: 'Macul', hasAlpha: true },
+    { name: 'Maipú', hasAlpha: true },
+    { name: 'Ñuñoa', hasAlpha: true },
+    { name: 'Pedro Aguirre Cerda', hasAlpha: true },
+    { name: 'Peñalolén', hasAlpha: true },
+    { name: 'Providencia', hasAlpha: true },
+    { name: 'Pudahuel', hasAlpha: true },
+    { name: 'Puente Alto', hasAlpha: true },
+    { name: 'Quilicura', hasAlpha: true },
+    { name: 'Quinta Normal', hasAlpha: true },
+    { name: 'Recoleta', hasAlpha: true },
+    { name: 'Renca', hasAlpha: true },
+    { name: 'San Bernardo', hasAlpha: true },
+    { name: 'San Joaquín', hasAlpha: true },
+    { name: 'San Miguel', hasAlpha: true },
+    { name: 'San Ramón', hasAlpha: true },
+    { name: 'Santiago', hasAlpha: true },
+    { name: 'Vitacura', hasAlpha: true },
+    { name: 'Padre Hurtado', hasAlpha: true },
+    { name: 'Colina', hasAlpha: true },
     { name: 'Buin', hasAlpha: false },
     { name: 'Calera de Tango', hasAlpha: false },
     { name: 'Lampa', hasAlpha: false },
     { name: 'Malloco', hasAlpha: false },
     { name: 'Paine', hasAlpha: false },
     { name: 'Pirque', hasAlpha: false },
-    { name: 'San Jose de Maipo', hasAlpha: false },
+    { name: 'San José de Maipo', hasAlpha: false },
     { name: 'Talagante', hasAlpha: false }
   ].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -1255,6 +1290,11 @@ async function init() {
           } else if (view === 'consolidated_shipments') {
             viewTitle.textContent = 'Envíos Consolidados';
             renderConsolidatedShipments();
+          } else if (view === 'manifests_admin') {
+            viewTitle.textContent = 'Centro de Manifiestos';
+            if (window.renderManifestsAdmin) {
+              window.renderManifestsAdmin();
+            }
           } else if (view === 'optiroute_support') {
             viewTitle.textContent = 'Soporte Optiroute';
             renderOptirouteSupport();
@@ -7659,7 +7699,10 @@ async function renderAdminInventory() {
           <span id="badge-admin-inv-requests" style="display: none; background: #ef4444; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 9999px; margin-left: 0.4rem;">0</span>
         </button>
       </div>
-      <div>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+        <button id="btn-admin-open-dimensions-modal" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; border-color: #059669; color: #059669; background: rgba(5, 150, 105, 0.06); font-weight: 600;" title="Generar Hoja / Planilla de Dimensiones y Pesaje para Bodega">
+          <i class="ri-ruler-2-line"></i> Solicitud de Dimensiones
+        </button>
         <button id="btn-admin-quick-new-request" class="btn btn-primary" style="height: 38px; display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; background: #6366f1; border-color: #6366f1;">
           <i class="ri-add-line"></i> Nueva Solicitud de Inventario
         </button>
@@ -7675,6 +7718,7 @@ async function renderAdminInventory() {
   const tabStock = document.getElementById('tab-admin-inv-stock');
   const tabRequests = document.getElementById('tab-admin-inv-requests');
   const quickNewReq = document.getElementById('btn-admin-quick-new-request');
+  const openDimsBtn = document.getElementById('btn-admin-open-dimensions-modal');
 
   if (tabStock) {
     tabStock.addEventListener('click', () => {
@@ -7687,6 +7731,12 @@ async function renderAdminInventory() {
     tabRequests.addEventListener('click', () => {
       window.activeAdminInventoryTab = 'requests';
       renderAdminInventory();
+    });
+  }
+
+  if (openDimsBtn) {
+    openDimsBtn.addEventListener('click', () => {
+      openAdminProductDimensionsModal(window.activeAdminInventoryCommerce || null, 'missing');
     });
   }
 
@@ -7878,6 +7928,9 @@ async function renderAdminInventoryWorkspace(commerce) {
             <button id="btn-admin-transfer-stock-bulk" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #d97706; color: #d97706; background: transparent; cursor: pointer; border-radius: var(--radius-md);">
               <i class="ri-arrow-left-right-line"></i> Traslado de Stock
             </button>
+            <button id="btn-admin-dimensions-from-workspace" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #059669; color: #059669; background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Generar Hoja / Planilla de Dimensiones y Pesaje para Bodega">
+              <i class="ri-ruler-2-line"></i> Solicitar Dimensiones
+            </button>
             <button id="btn-admin-create-req-from-workspace" class="btn btn-outline" style="height: 38px; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; border-color: #6366f1; color: #6366f1; background: transparent; cursor: pointer; border-radius: var(--radius-md);" title="Generar Solicitud y Hoja de Conteo de Bodega">
               <i class="ri-survey-line"></i> Solicitar Conteo
             </button>
@@ -8026,6 +8079,24 @@ async function renderAdminInventoryWorkspace(commerce) {
         }
 
         openBulkStockTransferModal(commerce, selectedProducts, () => renderAdminInventoryWorkspace(commerce));
+      });
+    }
+
+    const dimensionsBtn = document.getElementById('btn-admin-dimensions-from-workspace');
+    if (dimensionsBtn) {
+      dimensionsBtn.addEventListener('click', () => {
+        const checkedBoxes = document.querySelectorAll('.inventory-row-checkbox:checked');
+        const selectedSkus = [];
+        checkedBoxes.forEach(cb => {
+          const sku = cb.getAttribute('data-prod-sku');
+          if (sku) selectedSkus.push(sku);
+        });
+
+        if (selectedSkus.length > 0) {
+          openAdminProductDimensionsModal(commerce, 'selective', selectedSkus);
+        } else {
+          openAdminProductDimensionsModal(commerce, 'missing');
+        }
       });
     }
 
@@ -10651,6 +10722,1011 @@ window.renderAdminInventoryRequestsWorkspace = renderAdminInventoryRequestsWorks
 window.updateAdminInventoryRequestsTabBadge = updateAdminInventoryRequestsTabBadge;
 window.renderAdminInventoryRequestsTableBody = renderAdminInventoryRequestsTableBody;
 
+// ==========================================================================
+// MÓDULO: SOLICITUD Y LEVANTAMIENTO DE DIMENSIONES Y CUBICAJE DE PRODUCTOS
+// ==========================================================================
+
+async function openAdminProductDimensionsModal(defaultCommerce = null, defaultScope = 'missing', preSelectedSkus = []) {
+  let modal = document.getElementById('modal-admin-product-dimensions');
+  if (modal) modal.remove();
+
+  modal = document.createElement('div');
+  modal.id = 'modal-admin-product-dimensions';
+  modal.className = 'modal-overlay active';
+  modal.style.zIndex = '9999';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 1050px; width: 95vw; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 94vh; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);">
+      <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+          <i class="ri-ruler-2-line" style="color: #059669;"></i> Levantamiento y Carga de Dimensiones de Catálogo
+        </h3>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-product-dimensions').remove()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 2.5rem; text-align: center; color: var(--color-text-muted);">
+        <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: block; margin-bottom: 0.5rem;"></i>
+        <span>Cargando catálogo y parámetros de dimensionamiento...</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  try {
+    // 1. Obtener lista de clientes
+    const { data: configComercios } = await supabase
+      .from('v_comercios_config')
+      .select('nombre, sigla')
+      .order('nombre');
+
+    const uniqueClients = [];
+    const seen = new Set();
+    if (configComercios) {
+      configComercios.forEach(c => {
+        if (c.nombre && !seen.has(c.nombre)) {
+          seen.add(c.nombre);
+          uniqueClients.push({
+            nombre: c.nombre,
+            sigla: c.sigla || ''
+          });
+        }
+      });
+    }
+
+    // 2. Obtener bodegas
+    const { data: warehouses } = await supabase
+      .from('warehouses')
+      .select('id, name')
+      .order('name');
+
+    let currentCommerce = defaultCommerce || window.activeAdminInventoryCommerce || (uniqueClients[0]?.nombre || '');
+    let currentScope = defaultScope || 'missing'; // 'missing', 'all', 'instock', 'selective'
+    let activeModalTab = 'export'; // 'export', 'import', 'direct'
+    let rawCommerceProducts = [];
+    let selectedSkuSet = new Set(preSelectedSkus || []);
+    let parsedImportRows = []; // Para importación Excel
+
+    async function loadCommerceProducts(commerce) {
+      currentCommerce = commerce;
+
+      const modalBody = modal.querySelector('.modal-body');
+      if (modalBody) {
+        modalBody.innerHTML = `
+          <div style="padding: 3rem; text-align: center; color: var(--color-text-muted);">
+            <i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: #059669; display: block; margin-bottom: 0.5rem;"></i>
+            <span>Cargando catálogo para <strong>${escapeHtml(commerce)}</strong>...</span>
+          </div>
+        `;
+      }
+
+      let prods = [];
+      try {
+        const configMatch = (configComercios || []).find(c => c.nombre === commerce || c.sigla === commerce);
+        const searchComs = [commerce];
+        if (configMatch) {
+          if (configMatch.nombre && !searchComs.includes(configMatch.nombre)) searchComs.push(configMatch.nombre);
+          if (configMatch.sigla && !searchComs.includes(configMatch.sigla)) searchComs.push(configMatch.sigla);
+        }
+
+        if (typeof window.fetchAllSupabaseRows === 'function') {
+          prods = await window.fetchAllSupabaseRows('products', '*, inventory(warehouse_id, quantity, warehouses(name))', q => {
+            if (searchComs.length === 1) {
+              return q.eq('comercio', searchComs[0]).order('name');
+            } else {
+              return q.in('comercio', searchComs).order('name');
+            }
+          });
+        } else {
+          const { data, error } = await supabase
+            .from('products')
+            .select('*, inventory(warehouse_id, quantity, warehouses(name))')
+            .in('comercio', searchComs)
+            .order('name');
+          if (error) throw error;
+          prods = data || [];
+        }
+
+        if ((!prods || prods.length === 0) && configMatch && configMatch.sigla) {
+          const { data: siglaData } = await supabase
+            .from('products')
+            .select('*, inventory(warehouse_id, quantity, warehouses(name))')
+            .eq('comercio', configMatch.sigla)
+            .order('name');
+          if (siglaData && siglaData.length > 0) {
+            prods = siglaData;
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching commerce products for dimensions:', error);
+        prods = [];
+      }
+
+      rawCommerceProducts = prods || [];
+      renderModalUI();
+    }
+
+    function getFilteredProducts() {
+      if (currentScope === 'missing') {
+        return rawCommerceProducts.filter(p => {
+          const l = parseFloat(p.length) || 0;
+          const w = parseFloat(p.width) || 0;
+          const h = parseFloat(p.height) || 0;
+          const kg = parseFloat(p.weight) || 0;
+          const vol = parseFloat(p.volumen) || 0;
+          const hasDims = (l > 0 && w > 0 && h > 0);
+          const hasWeight = (kg > 0);
+          const hasVol = (vol > 0);
+          return !hasDims || !hasWeight || !hasVol;
+        });
+      } else if (currentScope === 'instock') {
+        return rawCommerceProducts.filter(p => {
+          const totalStock = (p.inventory || []).reduce((acc, i) => acc + (Number(i.quantity) || 0), 0);
+          return totalStock > 0;
+        });
+      } else if (currentScope === 'selective') {
+        return rawCommerceProducts.filter(p => selectedSkuSet.has(p.sku));
+      }
+      return [...rawCommerceProducts];
+    }
+
+    function getScopeLabel() {
+      if (currentScope === 'missing') return 'Solo Productos Incompletos / Sin Medidas';
+      if (currentScope === 'instock') return 'Solo Productos con Stock en Bodega';
+      if (currentScope === 'selective') return 'Selección Manual de Artículos';
+      return 'Catálogo Completo del Comercio';
+    }
+
+    function renderModalUI() {
+      const totalCount = rawCommerceProducts.length;
+      const missingCount = rawCommerceProducts.filter(p => {
+        const l = parseFloat(p.length) || 0;
+        const w = parseFloat(p.width) || 0;
+        const h = parseFloat(p.height) || 0;
+        const kg = parseFloat(p.weight) || 0;
+        const vol = parseFloat(p.volumen) || 0;
+        const hasDims = (l > 0 && w > 0 && h > 0);
+        const hasWeight = (kg > 0);
+        const hasVol = (vol > 0);
+        return !hasDims || !hasWeight || !hasVol;
+      }).length;
+
+      const inStockCount = rawCommerceProducts.filter(p => {
+        const totalStock = (p.inventory || []).reduce((acc, i) => acc + (Number(i.quantity) || 0), 0);
+        return totalStock > 0;
+      }).length;
+
+      const filtered = getFilteredProducts();
+
+      const clientOptionsHtml = uniqueClients.map(c => `
+        <option value="${c.nombre}" ${c.nombre === currentCommerce ? 'selected' : ''}>${c.nombre} ${c.sigla ? `(${c.sigla})` : ''}</option>
+      `).join('');
+
+      const warehouseOptionsHtml = `
+        <option value="">Todas las bodegas</option>
+        ${(warehouses || []).map(w => `<option value="${w.name}">${w.name}</option>`).join('')}
+      `;
+
+      modal.innerHTML = `
+        <div class="modal-content" style="max-width: 1080px; width: 95vw; padding: 0; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); max-height: 94vh; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3);">
+          
+          <!-- HEADER -->
+          <div class="modal-header" style="padding: 1.15rem 1.5rem; border-bottom: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-lg) var(--radius-lg) 0 0; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main); font-size: 1.15rem;">
+                <i class="ri-ruler-2-line" style="color: #059669;"></i> Solicitud y Levantamiento de Dimensiones de Catálogo
+              </h3>
+              <p style="margin: 0.2rem 0 0 0; font-size: 0.825rem; color: var(--color-text-muted);">
+                Genera hojas de medición para bodega, descarga planillas Excel con catálogo y actualiza cubicajes en WMS.
+              </p>
+            </div>
+            <button type="button" class="modal-close" onclick="document.getElementById('modal-admin-product-dimensions').remove()">&times;</button>
+          </div>
+
+          <!-- BODY -->
+          <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.15rem;">
+            
+            <!-- PANEL DE SELECCIÓN COMERCIO Y ALCANCE -->
+            <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+                <div>
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+                    <i class="ri-store-2-line" style="color: var(--color-primary);"></i> Cliente / Comercio
+                  </label>
+                  <select id="dim-select-comercio" class="form-input" style="width: 100%; height: 38px; font-weight: 600; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer;">
+                    ${clientOptionsHtml}
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-main);">
+                    <i class="ri-building-line" style="color: #6366f1;"></i> Bodega de Referencia (Opcional)
+                  </label>
+                  <select id="dim-select-warehouse" class="form-input" style="width: 100%; height: 38px; background: var(--color-surface); color: var(--color-text-main); border: 1px solid var(--color-border); border-radius: var(--radius-md); cursor: pointer;">
+                    ${warehouseOptionsHtml}
+                  </select>
+                </div>
+              </div>
+
+              <!-- FILTROS DE ALCANCE (BOTONES CON ESTADO) -->
+              <div>
+                <label class="form-label" style="font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; display: block; color: var(--color-text-main);">
+                  Alcance de Productos a Medir / Descargar:
+                </label>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-sm btn-dim-scope ${currentScope === 'missing' ? 'btn-primary' : 'btn-outline'}" data-scope="missing" style="${currentScope === 'missing' ? 'background: #d97706; border-color: #d97706;' : ''}">
+                    <i class="ri-alert-line"></i> Solo Sin Medidas / Peso (${missingCount})
+                  </button>
+                  <button type="button" class="btn btn-sm btn-dim-scope ${currentScope === 'all' ? 'btn-primary' : 'btn-outline'}" data-scope="all" style="${currentScope === 'all' ? 'background: var(--color-primary); border-color: var(--color-primary);' : ''}">
+                    <i class="ri-box-3-line"></i> Todo el Catálogo (${totalCount})
+                  </button>
+                  <button type="button" class="btn btn-sm btn-dim-scope ${currentScope === 'instock' ? 'btn-primary' : 'btn-outline'}" data-scope="instock" style="${currentScope === 'instock' ? 'background: #059669; border-color: #059669;' : ''}">
+                    <i class="ri-checkbox-circle-line"></i> Con Stock en Bodega (${inStockCount})
+                  </button>
+                  <button type="button" class="btn btn-sm btn-dim-scope ${currentScope === 'selective' ? 'btn-primary' : 'btn-outline'}" data-scope="selective" style="${currentScope === 'selective' ? 'background: #6366f1; border-color: #6366f1;' : ''}">
+                    <i class="ri-list-check"></i> Selección Manual (${selectedSkuSet.size})
+                  </button>
+                </div>
+              </div>
+
+              ${currentScope === 'selective' ? `
+                <!-- SELECTOR MANUAL DE SKUS -->
+                <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <input type="text" id="dim-search-skus" class="form-input" placeholder="Buscar por SKU o nombre de producto..." style="height: 34px; font-size: 0.85rem; flex: 1; min-width: 200px;">
+                    <div style="display: flex; gap: 0.35rem;">
+                      <button type="button" id="btn-dim-select-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; height: 34px;">Marcar Todos</button>
+                      <button type="button" id="btn-dim-deselect-all" class="btn btn-outline btn-sm" style="font-size: 0.75rem; height: 34px;">Desmarcar</button>
+                    </div>
+                  </div>
+                  <div id="dim-selective-list" style="max-height: 160px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 0.35rem; background: var(--color-bg); display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.35rem;">
+                    ${rawCommerceProducts.map(p => `
+                      <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; padding: 0.3rem 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; cursor: pointer;">
+                        <input type="checkbox" class="dim-sku-checkbox" data-sku="${p.sku}" ${selectedSkuSet.has(p.sku) ? 'checked' : ''} style="cursor: pointer; accent-color: #6366f1;">
+                        <span style="font-family: monospace; font-weight: 700; color: #6366f1;">${p.sku}</span>
+                        <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px;" title="${p.name}">${p.name}</span>
+                      </label>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+
+            <!-- PESTAÑAS PRINCIPALES DE ACCIÓN -->
+            <div style="display: flex; gap: 0.5rem; border-bottom: 2px solid var(--color-border); padding-bottom: 0.25rem;">
+              <button type="button" class="btn btn-sm btn-dim-tab ${activeModalTab === 'export' ? 'btn-primary' : 'btn-outline'}" data-tab="export" style="font-weight: 600; border-radius: var(--radius-md); ${activeModalTab === 'export' ? 'background: #059669; border-color: #059669;' : ''}">
+                <i class="ri-download-2-line"></i> 1. Exportar Hojas de Medición (PDF & Excel)
+              </button>
+              <button type="button" class="btn btn-sm btn-dim-tab ${activeModalTab === 'import' ? 'btn-primary' : 'btn-outline'}" data-tab="import" style="font-weight: 600; border-radius: var(--radius-md); ${activeModalTab === 'import' ? 'background: #6366f1; border-color: #6366f1;' : ''}">
+                <i class="ri-upload-2-line"></i> 2. Cargar / Importar Planilla Excel
+              </button>
+              <button type="button" class="btn btn-sm btn-dim-tab ${activeModalTab === 'direct' ? 'btn-primary' : 'btn-outline'}" data-tab="direct" style="font-weight: 600; border-radius: var(--radius-md); ${activeModalTab === 'direct' ? 'background: #2563eb; border-color: #2563eb;' : ''}">
+                <i class="ri-edit-line"></i> 3. Ingreso Directo en Pantalla
+              </button>
+            </div>
+
+            <!-- CONTENIDO DE LA PESTAÑA ACTIVA -->
+            <div id="dim-tab-content" style="flex: 1; display: flex; flex-direction: column;">
+              <!-- Se renderiza dinámicamente -->
+            </div>
+
+          </div>
+
+          <!-- FOOTER -->
+          <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 0.85rem; color: var(--color-text-muted);">
+              Productos en lote actual: <strong style="color: var(--color-text-main);">${filtered.length}</strong> SKUs seleccionados
+            </div>
+            <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-admin-product-dimensions').remove()">Cerrar</button>
+          </div>
+        </div>
+      `;
+
+      bindModalEvents();
+      renderTabContent();
+    }
+
+    function renderTabContent() {
+      const tabContainer = modal.querySelector('#dim-tab-content');
+      if (!tabContainer) return;
+
+      const filtered = getFilteredProducts();
+      const warehouseName = modal.querySelector('#dim-select-warehouse')?.value || 'Todas las bodegas';
+
+      if (activeModalTab === 'export') {
+        tabContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+            
+            <!-- TARJETAS DE ACCIÓN DE EXPORTACIÓN -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+              
+              <!-- CARD 1: HOJA OFICIAL PDF -->
+              <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1.5px solid #059669; border-radius: var(--radius-lg); display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                    <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(5, 150, 105, 0.12); color: #059669; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+                      <i class="ri-file-pdf-line"></i>
+                    </div>
+                    <div>
+                      <h4 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">Hoja de Toma en Terreno (PDF)</h4>
+                      <span style="font-size: 0.75rem; color: #059669; font-weight: 600;">Formato A4 Horizontal • Impresión Oficial</span>
+                    </div>
+                  </div>
+                  <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.4;">
+                    Documento con casillas nítidas para que la cuadrilla de bodega mida físicamente con huincha (Largo, Ancho, Alto) y balanza (Peso kg), con guía de embalaje y cuadro de firmas.
+                  </p>
+                </div>
+                <button type="button" id="btn-dim-export-pdf" class="btn btn-primary" style="background: #059669; border-color: #059669; font-weight: 700; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.35rem;">
+                  <i class="ri-printer-line"></i> Descargar Hoja PDF para Bodega (${filtered.length} SKUs)
+                </button>
+              </div>
+
+              <!-- CARD 2: PLANILLA EXCEL CARGA -->
+              <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1.5px solid #10b981; border-radius: var(--radius-lg); display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; box-shadow: var(--shadow-sm);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
+                    <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: rgba(16, 185, 129, 0.12); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">
+                      <i class="ri-file-excel-2-line"></i>
+                    </div>
+                    <div>
+                      <h4 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--color-text-main);">Planilla de Carga (Excel .xlsx)</h4>
+                      <span style="font-size: 0.75rem; color: #10b981; font-weight: 600;">Cálculo Automático de Volumen en m³</span>
+                    </div>
+                  </div>
+                  <p style="margin: 0; font-size: 0.825rem; color: var(--color-text-muted); line-height: 1.4;">
+                    Planilla estructurada con el catálogo seleccionado y fórmulas automáticas de volumen. Puedes llenarla y reimportarla directamente en la pestaña de carga.
+                  </p>
+                </div>
+                <button type="button" id="btn-dim-export-excel" class="btn btn-outline" style="border-color: #10b981; color: #10b981; font-weight: 700; width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.35rem; background: rgba(16, 185, 129, 0.04);">
+                  <i class="ri-download-line"></i> Descargar Planilla Excel (${filtered.length} SKUs)
+                </button>
+              </div>
+
+            </div>
+
+            <!-- INSTRUCCIONES ADICIONALES PARA EL DOCUMENTO -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.825rem; margin-bottom: 0.35rem; display: block; color: var(--color-text-muted);">
+                Instrucciones / Notas a incluir en el encabezado de la hoja (Opcional):
+              </label>
+              <textarea id="dim-export-notes" class="form-input" rows="2" placeholder="Ej: Medir con huincha en cm empaque exterior cerrado. Pesar en balanza en kg..." style="width: 100%; background: var(--color-bg); font-size: 0.85rem; resize: vertical;">Medir largo, ancho y alto en centímetros del empaque cerrado final. Pesar en balanza en kilogramos.</textarea>
+            </div>
+
+          </div>
+        `;
+
+        // Listeners de exportación
+        const pdfBtn = tabContainer.querySelector('#btn-dim-export-pdf');
+        const excelBtn = tabContainer.querySelector('#btn-dim-export-excel');
+        const notesInput = tabContainer.querySelector('#dim-export-notes');
+
+        if (pdfBtn) {
+          pdfBtn.addEventListener('click', () => {
+            if (filtered.length === 0) {
+              alert('No hay productos en el lote seleccionado.');
+              return;
+            }
+            if (typeof window.generateProductDimensionsPdf === 'function') {
+              window.generateProductDimensionsPdf({
+                comercio: currentCommerce,
+                warehouseName: warehouseName,
+                scopeLabel: getScopeLabel(),
+                notes: notesInput ? notesInput.value.trim() : '',
+                products: filtered
+              });
+            }
+          });
+        }
+
+        if (excelBtn) {
+          excelBtn.addEventListener('click', () => {
+            if (filtered.length === 0) {
+              alert('No hay productos en el lote seleccionado.');
+              return;
+            }
+            if (typeof window.generateProductDimensionsExcel === 'function') {
+              window.generateProductDimensionsExcel({
+                comercio: currentCommerce,
+                warehouseName: warehouseName,
+                scopeLabel: getScopeLabel(),
+                notes: notesInput ? notesInput.value.trim() : '',
+                products: filtered
+              });
+            }
+          });
+        }
+
+      } else if (activeModalTab === 'import') {
+        tabContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            
+            <!-- DROPZONE DE ARCHIVO -->
+            <div id="dim-dropzone" style="border: 2px dashed #6366f1; border-radius: var(--radius-md); padding: 1.5rem; text-align: center; background: rgba(99, 102, 241, 0.04); cursor: pointer; transition: all 0.2s;">
+              <i class="ri-file-excel-line" style="font-size: 2.25rem; color: #6366f1; display: block; margin-bottom: 0.5rem;"></i>
+              <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.95rem;">
+                Haz clic aquí o arrastra tu archivo Excel / CSV con las dimensiones
+              </div>
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                Formatos soportados: <strong>.xlsx, .xls, .csv</strong> • Columnas: SKU, Largo, Ancho, Alto, Peso, Volumen, Código de Barras, Embalaje
+              </div>
+              <input type="file" id="dim-file-input" accept=".xlsx,.xls,.csv" style="display: none;">
+            </div>
+
+            <!-- CONTENEDOR DE VISTA PREVIA -->
+            <div id="dim-import-preview-area" style="display: none;">
+              <!-- Se inyecta la vista previa tras cargar el archivo -->
+            </div>
+
+          </div>
+        `;
+
+        const dropzone = tabContainer.querySelector('#dim-dropzone');
+        const fileInput = tabContainer.querySelector('#dim-file-input');
+
+        if (dropzone && fileInput) {
+          dropzone.addEventListener('click', () => fileInput.click());
+          dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.style.borderColor = '#4338ca'; });
+          dropzone.addEventListener('dragleave', () => { dropzone.style.borderColor = '#6366f1'; });
+          dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.style.borderColor = '#6366f1';
+            if (e.dataTransfer.files.length > 0) {
+              fileInput.files = e.dataTransfer.files;
+              handleDimensionFileUpload(e.dataTransfer.files[0]);
+            }
+          });
+
+          fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+              handleDimensionFileUpload(e.target.files[0]);
+            }
+          });
+        }
+
+      } else if (activeModalTab === 'direct') {
+        let rowsDirectHtml = '';
+        if (filtered.length === 0) {
+          rowsDirectHtml = `<tr><td colspan="9" style="text-align: center; padding: 2rem; color: var(--color-text-muted);">No hay productos para mostrar en este alcance.</td></tr>`;
+        } else {
+          filtered.forEach((p, idx) => {
+            const lVal = (p.length !== undefined && p.length !== null && p.length > 0) ? p.length : '';
+            const wVal = (p.width !== undefined && p.width !== null && p.width > 0) ? p.width : '';
+            const hVal = (p.height !== undefined && p.height !== null && p.height > 0) ? p.height : '';
+            const kgVal = (p.weight !== undefined && p.weight !== null && p.weight > 0) ? p.weight : '';
+            const volVal = (p.volumen !== undefined && p.volumen !== null && p.volumen > 0) ? Number(p.volumen).toFixed(5) : '-';
+            const curPkg = p.packaging_type || p.embalaje || '';
+
+            rowsDirectHtml += `
+              <tr class="dim-direct-row" data-prod-id="${p.id}" data-prod-sku="${p.sku}" style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.4rem 0.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${idx + 1}</td>
+                <td style="padding: 0.4rem 0.5rem; font-family: monospace; font-weight: 700; color: var(--color-primary);">${p.sku}</td>
+                <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name}">${p.name}</td>
+                <td style="padding: 0.3rem 0.4rem; width: 80px;">
+                  <input type="number" step="any" min="0" class="form-input dim-input-l" value="${lVal}" placeholder="cm" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-align: center; width: 100%;">
+                </td>
+                <td style="padding: 0.3rem 0.4rem; width: 80px;">
+                  <input type="number" step="any" min="0" class="form-input dim-input-w" value="${wVal}" placeholder="cm" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-align: center; width: 100%;">
+                </td>
+                <td style="padding: 0.3rem 0.4rem; width: 80px;">
+                  <input type="number" step="any" min="0" class="form-input dim-input-h" value="${hVal}" placeholder="cm" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-align: center; width: 100%;">
+                </td>
+                <td style="padding: 0.3rem 0.4rem; width: 85px;">
+                  <input type="number" step="any" min="0" class="form-input dim-input-kg" value="${kgVal}" placeholder="kg" style="height: 30px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-align: center; width: 100%; border-color: #10b981;">
+                </td>
+                <td style="padding: 0.3rem 0.5rem; text-align: center; width: 95px; font-family: monospace; font-size: 0.75rem; color: #475569;">
+                  <span class="dim-badge-vol" style="background: var(--color-bg-alt); padding: 0.2rem 0.4rem; border-radius: 4px; display: inline-block;">${volVal}</span>
+                </td>
+                <td style="padding: 0.3rem 0.4rem; width: 110px;">
+                  <select class="form-input dim-input-pkg" style="height: 30px; font-size: 0.75rem; padding: 0.1rem 0.3rem;">
+                    <option value="" ${!curPkg ? 'selected' : ''}>Sin definir</option>
+                    <option value="Caja" ${curPkg === 'Caja' ? 'selected' : ''}>Caja</option>
+                    <option value="Sobre" ${curPkg === 'Sobre' ? 'selected' : ''}>Sobre</option>
+                    <option value="Bolsa" ${curPkg === 'Bolsa' ? 'selected' : ''}>Bolsa</option>
+                    <option value="Tubo" ${curPkg === 'Tubo' ? 'selected' : ''}>Tubo</option>
+                    <option value="Granel" ${curPkg === 'Granel' ? 'selected' : ''}>Granel</option>
+                  </select>
+                </td>
+              </tr>
+            `;
+          });
+        }
+
+        tabContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.85rem; color: var(--color-text-muted);">
+                Ingresa o corrige las medidas directamente en la tabla. El volumen en m³ se calculará al instante.
+              </span>
+              <button type="button" id="btn-save-direct-dimensions" class="btn btn-primary" style="background: #2563eb; border-color: #2563eb; font-weight: 600; display: inline-flex; align-items: center; gap: 0.3rem;">
+                <i class="ri-save-line"></i> Guardar Mediciones en Sistema
+              </button>
+            </div>
+
+            <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 380px; overflow-y: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.825rem; text-align: left;">
+                <thead>
+                  <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.725rem; position: sticky; top: 0; z-index: 1;">
+                    <th style="padding: 0.5rem; width: 25px; text-align: center;">#</th>
+                    <th style="padding: 0.5rem;">SKU</th>
+                    <th style="padding: 0.5rem;">Producto</th>
+                    <th style="padding: 0.5rem; text-align: center; width: 80px;">Largo (cm)</th>
+                    <th style="padding: 0.5rem; text-align: center; width: 80px;">Ancho (cm)</th>
+                    <th style="padding: 0.5rem; text-align: center; width: 80px;">Alto (cm)</th>
+                    <th style="padding: 0.5rem; text-align: center; width: 85px;">Peso (kg)</th>
+                    <th style="padding: 0.5rem; text-align: center; width: 95px;">Vol. (m³)</th>
+                    <th style="padding: 0.5rem; width: 110px;">Embalaje</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowsDirectHtml}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+
+        // Live calculation of volume on row inputs
+        tabContainer.querySelectorAll('.dim-direct-row').forEach(row => {
+          const lInp = row.querySelector('.dim-input-l');
+          const wInp = row.querySelector('.dim-input-w');
+          const hInp = row.querySelector('.dim-input-h');
+          const volBadge = row.querySelector('.dim-badge-vol');
+
+          const updateVol = () => {
+            const l = parseFloat(lInp.value) || 0;
+            const w = parseFloat(wInp.value) || 0;
+            const h = parseFloat(hInp.value) || 0;
+            if (l > 0 && w > 0 && h > 0) {
+              const m3 = (l * w * h) / 1000000;
+              volBadge.textContent = m3.toFixed(5);
+              volBadge.style.color = '#059669';
+              volBadge.style.fontWeight = '700';
+            } else {
+              volBadge.textContent = '-';
+              volBadge.style.color = '#475569';
+              volBadge.style.fontWeight = 'normal';
+            }
+          };
+
+          lInp?.addEventListener('input', updateVol);
+          wInp?.addEventListener('input', updateVol);
+          hInp?.addEventListener('input', updateVol);
+        });
+
+        // Save direct changes
+        const saveDirectBtn = tabContainer.querySelector('#btn-save-direct-dimensions');
+        if (saveDirectBtn) {
+          saveDirectBtn.addEventListener('click', async () => {
+            saveDirectBtn.disabled = true;
+            saveDirectBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+            try {
+              const rows = tabContainer.querySelectorAll('.dim-direct-row');
+              const updates = [];
+
+              rows.forEach(row => {
+                const prodId = row.getAttribute('data-prod-id');
+                const l = parseFloat(row.querySelector('.dim-input-l')?.value) || null;
+                const w = parseFloat(row.querySelector('.dim-input-w')?.value) || null;
+                const h = parseFloat(row.querySelector('.dim-input-h')?.value) || null;
+                const kg = parseFloat(row.querySelector('.dim-input-kg')?.value) || null;
+                const pkg = row.querySelector('.dim-input-pkg')?.value || null;
+
+                let m3 = null;
+                if (l !== null && w !== null && h !== null && l > 0 && w > 0 && h > 0) {
+                  m3 = (l * w * h) / 1000000;
+                }
+
+                updates.push({
+                  id: prodId,
+                  length: l,
+                  width: w,
+                  height: h,
+                  weight: kg,
+                  volumen: m3,
+                  packaging_type: pkg
+                });
+              });
+
+              for (const u of updates) {
+                const { error: upErr } = await supabase
+                  .from('products')
+                  .update({
+                    length: u.length,
+                    width: u.width,
+                    height: u.height,
+                    weight: u.weight,
+                    volumen: u.volumen,
+                    packaging_type: u.packaging_type,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', u.id);
+
+                if (upErr) console.error('Error updating product direct dimension:', upErr);
+              }
+
+              if (typeof Swal !== 'undefined') {
+                Swal.fire({
+                  icon: 'success',
+                  title: '¡Medidas Actualizadas!',
+                  text: `Se guardaron correctamente las dimensiones para ${updates.length} productos.`,
+                  confirmButtonColor: '#059669'
+                });
+              } else {
+                alert('¡Dimensiones actualizadas con éxito!');
+              }
+
+              // Recargar productos
+              await loadCommerceProducts(currentCommerce);
+
+            } catch (err) {
+              console.error('Error saving direct dimensions:', err);
+              alert('Error al guardar dimensiones: ' + err.message);
+              saveDirectBtn.disabled = false;
+              saveDirectBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Mediciones en Sistema';
+            }
+          });
+        }
+      }
+    }
+
+    function handleDimensionFileUpload(file) {
+      if (!file) return;
+      const previewArea = modal.querySelector('#dim-import-preview-area');
+      if (!previewArea) return;
+
+      previewArea.style.display = 'block';
+      previewArea.innerHTML = `
+        <div style="text-align: center; padding: 1.5rem; color: var(--color-text-muted);">
+          <i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem; color: #6366f1;"></i>
+          <p style="margin-top: 0.5rem;">Leyendo y procesando archivo Excel...</p>
+        </div>
+      `;
+
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const excelRows = XLSX.utils.sheet_to_json(worksheet);
+
+          if (excelRows.length === 0) {
+            previewArea.innerHTML = `<div class="alert alert-danger" style="padding: 1rem; color: red;">El archivo subido no contiene filas con datos.</div>`;
+            return;
+          }
+
+          // Mapa de productos existentes en el comercio
+          const prodMap = {};
+          rawCommerceProducts.forEach(p => {
+            if (p.sku) prodMap[p.sku.toLowerCase().trim()] = p;
+          });
+
+          // Helper para normalizar llaves de columnas
+          const findKey = (row, candidates) => {
+            const keys = Object.keys(row);
+            for (const c of candidates) {
+              const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(c.toLowerCase().replace(/[^a-z0-9]/g, '')));
+              if (match) return match;
+            }
+            return null;
+          };
+
+          const sample = excelRows[0];
+          const kSku = findKey(sample, ['sku', 'codigo', 'cod']);
+          const kLargo = findKey(sample, ['largo_cm', 'largocm', 'largo', 'length', 'longitud']);
+          const kAncho = findKey(sample, ['ancho_cm', 'anchocm', 'ancho', 'width']);
+          const kAlto = findKey(sample, ['alto_cm', 'altocm', 'alto', 'height']);
+          const kPeso = findKey(sample, ['peso_kg', 'pesokg', 'peso', 'weight']);
+          const kVol = findKey(sample, ['volumen_m3', 'volumenm3', 'volumen', 'volume', 'm3']);
+          const kBarcode = findKey(sample, ['codigo_barras', 'codigobarras', 'barcode', 'barras', 'ean']);
+          const kPkg = findKey(sample, ['tipo_embalaje', 'tipoembalaje', 'embalaje', 'packaging', 'empaque']);
+
+          if (!kSku) {
+            previewArea.innerHTML = `<div class="alert alert-danger" style="padding: 1rem; color: red;">No se encontró una columna de <strong>SKU</strong> en el archivo.</div>`;
+            return;
+          }
+
+          parsedImportRows = [];
+          let matchedCount = 0;
+          let newDimsCount = 0;
+
+          excelRows.forEach(r => {
+            const skuVal = String(r[kSku] || '').trim();
+            if (!skuVal) return;
+
+            const existing = prodMap[skuVal.toLowerCase()];
+            const rawL = kLargo ? parseFloat(String(r[kLargo] || '').replace(',', '.')) : null;
+            const rawW = kAncho ? parseFloat(String(r[kAncho] || '').replace(',', '.')) : null;
+            const rawH = kAlto ? parseFloat(String(r[kAlto] || '').replace(',', '.')) : null;
+            const rawKg = kPeso ? parseFloat(String(r[kPeso] || '').replace(',', '.')) : null;
+            let rawVol = kVol ? parseFloat(String(r[kVol] || '').replace(',', '.')) : null;
+            const rawBar = kBarcode ? String(r[kBarcode] || '').trim() : null;
+            const rawPkg = kPkg ? String(r[kPkg] || '').trim() : null;
+
+            const newL = (!isNaN(rawL) && rawL > 0) ? rawL : (existing ? existing.length : null);
+            const newW = (!isNaN(rawW) && rawW > 0) ? rawW : (existing ? existing.width : null);
+            const newH = (!isNaN(rawH) && rawH > 0) ? rawH : (existing ? existing.height : null);
+            const newKg = (!isNaN(rawKg) && rawKg > 0) ? rawKg : (existing ? existing.weight : null);
+            
+            if ((isNaN(rawVol) || rawVol <= 0) && newL > 0 && newW > 0 && newH > 0) {
+              rawVol = (newL * newW * newH) / 1000000;
+            }
+            const newVol = (!isNaN(rawVol) && rawVol > 0) ? rawVol : (existing ? existing.volumen : null);
+
+            let status = 'sin_cambios';
+            if (!existing) {
+              status = 'no_existe';
+            } else if (rawL > 0 || rawW > 0 || rawH > 0 || rawKg > 0 || rawVol > 0 || rawPkg) {
+              status = 'actualizar';
+              newDimsCount++;
+            }
+
+            if (existing) matchedCount++;
+
+            parsedImportRows.push({
+              sku: skuVal,
+              product_id: existing ? existing.id : null,
+              name: existing ? existing.name : (r['Producto_Nombre'] || r['Nombre'] || 'Desconocido'),
+              existing: existing,
+              newL,
+              newW,
+              newH,
+              newKg,
+              newVol,
+              newBar: rawBar || (existing ? existing.barcode : null),
+              newPkg: rawPkg || (existing ? existing.packaging_type : null),
+              status
+            });
+          });
+
+          // Renderizar tabla de vista previa
+          let previewTrs = parsedImportRows.map((row, idx) => {
+            let statusTag = '<span class="badge badge-neutral" style="font-size: 0.7rem;">Sin cambios</span>';
+            if (row.status === 'actualizar') {
+              statusTag = '<span class="badge badge-success" style="font-size: 0.7rem; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0;">✓ Actualizará</span>';
+            } else if (row.status === 'no_existe') {
+              statusTag = '<span class="badge badge-danger" style="font-size: 0.7rem; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;">SKU No existe</span>';
+            }
+
+            const dimsText = (row.newL && row.newW && row.newH) ? `${row.newL} x ${row.newW} x ${row.newH} cm` : '-';
+            const volText = row.newVol ? `${Number(row.newVol).toFixed(5)} m³` : '-';
+            const kgText = row.newKg ? `${row.newKg} kg` : '-';
+
+            return `
+              <tr style="border-bottom: 1px solid var(--color-border);">
+                <td style="padding: 0.4rem 0.5rem; text-align: center; color: var(--color-text-muted); font-size: 0.75rem;">${idx + 1}</td>
+                <td style="padding: 0.4rem 0.5rem; font-family: monospace; font-weight: 700; color: #6366f1;">${row.sku}</td>
+                <td style="padding: 0.4rem 0.5rem; font-size: 0.8rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${row.name}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: 600; color: var(--color-text-main);">${dimsText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-weight: 600; color: #059669;">${kgText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-family: monospace; font-size: 0.75rem;">${volText}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center; font-size: 0.75rem;">${row.newPkg || '-'}</td>
+                <td style="padding: 0.4rem 0.5rem; text-align: center;">${statusTag}</td>
+              </tr>
+            `;
+          }).join('');
+
+          previewArea.innerHTML = `
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">
+                    Vista Previa de Carga (${parsedImportRows.length} filas leídas)
+                  </h4>
+                  <span style="font-size: 0.8rem; color: #059669; font-weight: 600;">
+                    ✓ ${newDimsCount} productos listos para actualizar en el catálogo maestro
+                  </span>
+                </div>
+                <button type="button" id="btn-apply-dimension-import" class="btn btn-primary" style="background: #059669; border-color: #059669; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem;" ${newDimsCount === 0 ? 'disabled' : ''}>
+                  <i class="ri-check-double-line"></i> Aplicar y Actualizar ${newDimsCount} Productos
+                </button>
+              </div>
+
+              <div class="table-responsive" style="border: 1px solid var(--color-border); border-radius: var(--radius-sm); max-height: 280px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
+                  <thead>
+                    <tr style="background: var(--color-bg); border-bottom: 2px solid var(--color-border); color: var(--color-text-muted); text-transform: uppercase; font-size: 0.7rem; position: sticky; top: 0; z-index: 1;">
+                      <th style="padding: 0.4rem; width: 25px; text-align: center;">#</th>
+                      <th style="padding: 0.4rem;">SKU</th>
+                      <th style="padding: 0.4rem;">Producto</th>
+                      <th style="padding: 0.4rem; text-align: center;">Dimensiones (L x W x H)</th>
+                      <th style="padding: 0.4rem; text-align: center;">Peso (kg)</th>
+                      <th style="padding: 0.4rem; text-align: center;">Volumen (m³)</th>
+                      <th style="padding: 0.4rem; text-align: center;">Embalaje</th>
+                      <th style="padding: 0.4rem; text-align: center;">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${previewTrs}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+
+          // Vincular botón de aplicar importación
+          const applyBtn = previewArea.querySelector('#btn-apply-dimension-import');
+          if (applyBtn) {
+            applyBtn.addEventListener('click', async () => {
+              applyBtn.disabled = true;
+              applyBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Aplicando actualizaciones...';
+
+              try {
+                const toUpdate = parsedImportRows.filter(r => r.status === 'actualizar' && r.product_id);
+                let updatedCount = 0;
+
+                for (const item of toUpdate) {
+                  const payload = {
+                    length: item.newL,
+                    width: item.newW,
+                    height: item.newH,
+                    weight: item.newKg,
+                    volumen: item.newVol,
+                    updated_at: new Date().toISOString()
+                  };
+                  if (item.newPkg) payload.packaging_type = item.newPkg;
+                  if (item.newBar) payload.barcode = item.newBar;
+
+                  const { error: updErr } = await supabase
+                    .from('products')
+                    .update(payload)
+                    .eq('id', item.product_id);
+
+                  if (!updErr) updatedCount++;
+                  else console.error('Error updating SKU', item.sku, updErr);
+                }
+
+                if (typeof Swal !== 'undefined') {
+                  Swal.fire({
+                    icon: 'success',
+                    title: '¡Catálogo Actualizado!',
+                    text: `Se actualizaron exitosamente las medidas y cubicajes para ${updatedCount} productos en STOCKA WMS.`,
+                    confirmButtonColor: '#059669'
+                  });
+                } else {
+                  alert(`¡${updatedCount} productos actualizados con éxito!`);
+                }
+
+                // Recargar productos del comercio
+                await loadCommerceProducts(currentCommerce);
+
+              } catch (err) {
+                console.error('Error applying dimension import:', err);
+                alert('Error al aplicar importación: ' + err.message);
+                applyBtn.disabled = false;
+                applyBtn.innerHTML = '<i class="ri-check-double-line"></i> Reintentar';
+              }
+            });
+          }
+
+        } catch (err) {
+          console.error('Error processing dimension excel file:', err);
+          previewArea.innerHTML = `<div class="alert alert-danger" style="padding: 1rem; color: red;">Error al procesar el archivo: ${err.message}</div>`;
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function bindModalEvents() {
+      // Cambio de comercio
+      const comSelect = modal.querySelector('#dim-select-comercio');
+      if (comSelect) {
+        comSelect.addEventListener('change', (e) => {
+          selectedSkuSet.clear();
+          loadCommerceProducts(e.target.value);
+        });
+      }
+
+      // Cambio de bodega (solo re-renderiza para mantener el nombre en la exportación)
+      const whSelect = modal.querySelector('#dim-select-warehouse');
+      if (whSelect) {
+        whSelect.addEventListener('change', () => {
+          renderTabContent();
+        });
+      }
+
+      // Cambio de alcance (scope)
+      modal.querySelectorAll('.btn-dim-scope').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          currentScope = e.currentTarget.getAttribute('data-scope');
+          renderModalUI();
+        });
+      });
+
+      // Cambio de pestaña de acción
+      modal.querySelectorAll('.btn-dim-tab').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          activeModalTab = e.currentTarget.getAttribute('data-tab');
+          modal.querySelectorAll('.btn-dim-tab').forEach(b => {
+            b.classList.remove('btn-primary');
+            b.classList.add('btn-outline');
+            b.style.background = '';
+            b.style.borderColor = '';
+          });
+          e.currentTarget.classList.remove('btn-outline');
+          e.currentTarget.classList.add('btn-primary');
+          if (activeModalTab === 'export') {
+            e.currentTarget.style.background = '#059669';
+            e.currentTarget.style.borderColor = '#059669';
+          } else if (activeModalTab === 'import') {
+            e.currentTarget.style.background = '#6366f1';
+            e.currentTarget.style.borderColor = '#6366f1';
+          } else if (activeModalTab === 'direct') {
+            e.currentTarget.style.background = '#2563eb';
+            e.currentTarget.style.borderColor = '#2563eb';
+          }
+          renderTabContent();
+        });
+      });
+
+      // Buscador dinámico de SKUs en modo manual
+      const skuSearch = modal.querySelector('#dim-search-skus');
+      if (skuSearch) {
+        skuSearch.addEventListener('input', (e) => {
+          const q = e.target.value.toLowerCase().trim();
+          modal.querySelectorAll('#dim-selective-list label').forEach(lbl => {
+            const txt = lbl.textContent.toLowerCase();
+            lbl.style.display = txt.includes(q) ? 'flex' : 'none';
+          });
+        });
+      }
+
+      // Checkboxes individuales de SKU
+      modal.querySelectorAll('.dim-sku-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const sku = e.target.getAttribute('data-sku');
+          if (e.target.checked) selectedSkuSet.add(sku);
+          else selectedSkuSet.delete(sku);
+          const footerCount = modal.querySelector('#dim-footer-count');
+          if (footerCount) footerCount.textContent = getFilteredProducts().length;
+        });
+      });
+
+      // Botón marcar todos en modo manual
+      const selectAllBtn = modal.querySelector('#btn-dim-select-all');
+      if (selectAllBtn) {
+        selectAllBtn.addEventListener('click', () => {
+          modal.querySelectorAll('.dim-sku-checkbox').forEach(cb => {
+            if (cb.closest('label').style.display !== 'none') {
+              cb.checked = true;
+              selectedSkuSet.add(cb.getAttribute('data-sku'));
+            }
+          });
+          const footerCount = modal.querySelector('#dim-footer-count');
+          if (footerCount) footerCount.textContent = getFilteredProducts().length;
+        });
+      }
+
+      // Botón desmarcar todos en modo manual
+      const deselectAllBtn = modal.querySelector('#btn-dim-deselect-all');
+      if (deselectAllBtn) {
+        deselectAllBtn.addEventListener('click', () => {
+          modal.querySelectorAll('.dim-sku-checkbox').forEach(cb => {
+            cb.checked = false;
+            selectedSkuSet.delete(cb.getAttribute('data-sku'));
+          });
+          const footerCount = modal.querySelector('#dim-footer-count');
+          if (footerCount) footerCount.textContent = getFilteredProducts().length;
+        });
+      }
+    }
+
+    // Carga inicial de productos
+    await loadCommerceProducts(currentCommerce);
+
+  } catch (err) {
+    console.error('Error initializing product dimensions modal:', err);
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 500px; padding: 2rem; text-align: center;">
+        <i class="ri-error-warning-line" style="font-size: 2.5rem; color: #ef4444; margin-bottom: 0.5rem;"></i>
+        <h3 style="margin: 0; color: var(--color-text-main);">Error al cargar módulo</h3>
+        <p style="color: var(--color-text-muted); font-size: 0.85rem; margin: 0.5rem 0 1rem 0;">${err.message}</p>
+        <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-admin-product-dimensions').remove()">Cerrar</button>
+      </div>
+    `;
+  }
+}
+
+window.openAdminProductDimensionsModal = openAdminProductDimensionsModal;
+
 async function openAdminProductMovementsModal(productId, sku, name) {
   const modalId = 'modal-inventory-movements-admin';
   let modal = document.getElementById(modalId);
@@ -11484,9 +12560,14 @@ async function renderAdminCatalogWorkspace(commerce) {
             <span style="font-size: 0.825rem; color: var(--color-text-muted); display: block; margin-bottom: 0.5rem; line-height: 1.4;">
               Hay <strong>${missingDimVolProducts.length}</strong> producto(s) en este catálogo con stock disponible que no tienen definidas sus dimensiones ni su volumen.
             </span>
-            <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.75rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.3rem 0.6rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
-              <i class="ri-list-settings-line"></i> Ver y Corregir
-            </button>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.75rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.3rem 0.6rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-list-settings-line"></i> Ver y Corregir
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="window.openAdminProductDimensionsModal('${commerce}', 'missing')" style="font-size: 0.75rem; background: #059669; border-color: #059669; font-weight: 600; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-file-download-line"></i> Emitir Hoja de Dimensiones (PDF / Excel)
+              </button>
+            </div>
           </div>
         </div>
       `;
@@ -16222,9 +17303,14 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
             <span style="font-size: 0.85rem; color: var(--color-text-muted); display: block; margin-bottom: 0.75rem; line-height: 1.5;">
               Hay <strong>${missingDimVolProducts.length}</strong> producto(s) con stock mayor a cero que no tienen definidas sus dimensiones ni su volumen.
             </span>
-            <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
-              <i class="ri-list-settings-line"></i> Ver y Corregir Productos
-            </button>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button class="btn btn-warning btn-sm" onclick="window.showMissingDimensionsModal()" style="font-size: 0.8rem; background: var(--color-warning); color: #000; font-weight: 600; padding: 0.4rem 0.8rem; border: none; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-list-settings-line"></i> Ver y Corregir Productos
+              </button>
+              <button class="btn btn-primary btn-sm" onclick="window.openAdminProductDimensionsModal(null, 'missing')" style="font-size: 0.8rem; background: #059669; border-color: #059669; font-weight: 600; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-file-download-line"></i> Emitir Hoja de Dimensiones (PDF / Excel)
+              </button>
+            </div>
           </div>
         </div>
       `;

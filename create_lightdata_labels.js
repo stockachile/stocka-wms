@@ -85,6 +85,64 @@ function isComunaSupported(comunaName) {
   return SUPPORTED_COMUNAS.includes(normalized);
 }
 
+const LIGHTDATA_EXACT_COMUNAS = {
+  'cerrillos': 'Cerrillos',
+  'cerro navia': 'Cerro Navia',
+  'conchali': 'Conchalí',
+  'el bosque': 'El Bosque',
+  'estacion central': 'Estación Central',
+  'huechuraba': 'Huechuraba',
+  'independencia': 'Independencia',
+  'la cisterna': 'La Cisterna',
+  'la florida': 'La Florida',
+  'la granja': 'La Granja',
+  'la pintana': 'La Pintana',
+  'la reina': 'La Reina',
+  'las condes': 'Las Condes',
+  'lo barnechea': 'Lo Barnechea',
+  'lo espejo': 'Lo Espejo',
+  'lo prado': 'Lo Prado',
+  'macul': 'Macul',
+  'maipu': 'Maipú',
+  'nunoa': 'Ñuñoa',
+  'pedro aguirre cerda': 'Pedro Aguirre Cerda',
+  'penalolen': 'Peñalolén',
+  'providencia': 'Providencia',
+  'pudahuel': 'Pudahuel',
+  'puente alto': 'Puente Alto',
+  'quilicura': 'Quilicura',
+  'quinta normal': 'Quinta Normal',
+  'recoleta': 'Recoleta',
+  'renca': 'Renca',
+  'san bernardo': 'San Bernardo',
+  'san joaquin': 'San Joaquín',
+  'san miguel': 'San Miguel',
+  'san ramon': 'San Ramón',
+  'santiago': 'Santiago',
+  'vitacura': 'Vitacura',
+  'padre hurtado': 'Padre Hurtado',
+  'colina': 'Colina',
+  'buin': 'Buin',
+  'calera de tango': 'Calera de Tango',
+  'lampa': 'Lampa',
+  'malloco': 'Malloco',
+  'paine': 'Paine',
+  'pirque': 'Pirque',
+  'san jose de maipo': 'San José de Maipo',
+  'talagante': 'Talagante'
+};
+
+function resolveExactLightDataComuna(comunaName) {
+  if (!comunaName) return '';
+  const normalized = comunaName.toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '')
+    .trim();
+  return LIGHTDATA_EXACT_COMUNAS[normalized] || comunaName;
+}
+
 /**
  * Configura la interceptación y bloqueo de recursos pesados (imágenes, fuentes, analíticas)
  * para acelerar significativamente la velocidad de carga de la página.
@@ -731,7 +789,7 @@ async function handleBulkMode(limiteCarga) {
     const trackingCode = generateTrackingCode(sigla, order.external_order_number, order.id);
     
     const street = order.shipping_address || '';
-    const comuna = order.shipping_city || '';
+    const comuna = resolveExactLightDataComuna(order.shipping_city || '');
     const phone = String(order.customer_phone || '').replace(/[^\d+]/g, '');
     const email = order.customer_email || 'correo@temp.com';
 
