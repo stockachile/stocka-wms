@@ -393,6 +393,14 @@ async function handleIndividualMode(idPedido) {
     console.log('⏳ Esperando carga de la app...');
     await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
+    console.log('🧹 Limpiando alertas iniciales de la app...');
+    await page.evaluate(() => {
+      if (typeof swal !== 'undefined' && swal.close) swal.close();
+      if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
+      document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(1000);
+
     console.log('📂 Abriendo formulario de Alta Individual...');
     await page.evaluate(() => appEnviosFlexIndividual.open());
     await page.waitForSelector('#envio_altaIndividual_destinatario_nombre', { state: 'visible', timeout: 5000 });
@@ -860,56 +868,41 @@ async function handleBulkMode(limiteCarga) {
     console.log('⏳ Esperando carga de la app...');
     await page.waitForSelector('table tbody tr', { timeout: 15000 });
 
+    console.log('🧹 Limpiando alertas iniciales de la app...');
+    await page.evaluate(() => {
+      if (typeof swal !== 'undefined' && swal.close) swal.close();
+      if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
+      document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert').forEach(el => el.remove());
+    });
+    await page.waitForTimeout(1000);
+
     console.log('📂 Abriendo importador masivo (NoFlex)...');
     await page.evaluate(() => {
+      $(".modulesWin").css("display", "none");
+      $("#enviosNoFlex_listado").css("display", "block");
       appEnviosNoFlex.open();
-      FmenuShow('enviosNoFlex_listado', 16);
     });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
     
     // Cargar archivo
     console.log('📤 Subiendo archivo Excel a LightData...');
     await page.locator('#fileInputSubirEnviosNoflex').first().setInputFiles(excelPath);
 
-    // Esperar a que se oculte cualquier indicador de carga o se cierre el modal SweetAlert
-    console.log('⏳ Esperando procesamiento del archivo...');
-    await page.locator('#loadMe').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-    
-    // Esperar de forma reactiva a que aparezca el SweetAlert del resultado de la subida (soporta SweetAlert 1 y 2)
-    console.log('⏳ Esperando alerta de resultado del Excel...');
-    const swalSelector = '.swal2-container, .swal-overlay, .swal-modal, .sweet-alert';
-    const hasSwal = await page.waitForSelector(swalSelector, { state: 'visible', timeout: 10000 })
-      .then(() => true)
-      .catch(() => false);
-      
-    if (hasSwal) {
-      // Leer el título y texto usando evaluate para soportar ambas versiones de SweetAlert
-      const title = await page.evaluate(() => {
-        const el = document.querySelector('.swal2-title, .swal-title, .sweet-alert h2');
-        return el ? el.innerText.trim() : '';
-      });
-      const text = await page.evaluate(() => {
-        const el = document.querySelector('.swal2-content, .swal2-html-container, .swal-text, .sweet-alert p');
-        return el ? el.innerText.trim() : '';
-      });
-      console.log(`💬 Alerta SweetAlert detectada tras subir Excel: [Título: "${title}"] [Texto: "${text}"]`);
-      
-      // Cerrar SweetAlert (hacer clic en confirmar en SweetAlert 1 o 2)
-      const confirmButton = page.locator('.swal2-container button.swal2-confirm, .swal2-container button, .swal-modal button, button.swal-button--confirm, button.swal-button').first();
-      await confirmButton.click({ timeout: 5000 }).catch(() => {});
-      
-      // Si el título indica error, lanzar una excepción para abortar
-      const lowerTitle = title.toLowerCase();
-      const lowerText = text.toLowerCase();
-      if (lowerTitle.includes('error') || lowerTitle.includes('no va a poder') || lowerTitle.includes('no se puede') || lowerText.includes('error')) {
-        throw new Error(`LightData rechazó el Excel de importación: "${title}" ${text}`);
-      }
-      
-      // Esperar a que se oculten las alertas y overlays de ambas versiones antes de proceder
-      await page.locator('.swal2-container, .swal-overlay').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+    // Esperar a que el Excel sea parseado y cargado en la tabla de pre-subida
+    console.log('⏳ Esperando renderizado de la tabla de pre-subida...');
+    await page.waitForSelector('#listado_enviosNoflex_presubida tr', { timeout: 15000 });
+    const loadedRows = await page.locator('#listado_enviosNoflex_presubida tr').count();
+    console.log(`📋 Filas cargadas en previsualización: ${loadedRows}`);
+
+    // Verificar si el validador interno de LightData marcó errores
+    const hasFormatError = await page.evaluate(() => {
+      const errorCells = document.querySelectorAll('#listado_enviosNoflex_presubida td[style*="background-color:tomato"], #listado_enviosNoflex_presubida td[style*="tomato"]');
+      return errorCells.length > 0;
+    });
+
+    if (hasFormatError) {
+      throw new Error('El archivo Excel contiene celdas marcadas con error por LightData.');
     }
-    
-    await page.waitForTimeout(1000);
 
     // Interceptar llamadas AJAX del procesamiento masivo
     let createdDidsStr = '';
@@ -939,15 +932,15 @@ async function handleBulkMode(limiteCarga) {
     });
 
     console.log('⚙️ Iniciando procesamiento...');
-    // Hacer clic en Procesar usando el selector preciso y .first()
-    await page.locator('a[onclick="appEnviosNoFlex.subirmodelo();"]').first().click();
+    await page.locator('a[onclick*="appEnviosNoFlex.subirmodelo"]').first().click();
     
-    // Esperar a que el SweetAlert aparezca de forma reactiva
-    await page.waitForSelector('.swal2-container, .swal-modal, .sweet-alert', { state: 'visible', timeout: 5000 }).catch(() => {});
+    // Esperar a que el SweetAlert de confirmación aparezca
+    await page.waitForSelector('.swal2-container, .swal-overlay, .swal-modal, .sweet-alert', { state: 'visible', timeout: 10000 });
 
     // Confirmar diálogo Swal
     console.log('🤝 Confirmando alerta SweetAlert...');
-    await page.locator('button:has-text("Si, subir"), button.swal2-confirm').first().click({ timeout: 15000 });
+    const confirmButton = page.locator('button:has-text("Si, subir"), button.swal2-confirm, button.swal-button--confirm, button.swal-button').first();
+    await confirmButton.click({ timeout: 5000 });
 
     // Esperar respuesta de inserción (donde se interceptará el controlador.php) de forma reactiva
     console.log('⏳ Esperando respuesta de la creación masiva (controlador.php)...');
