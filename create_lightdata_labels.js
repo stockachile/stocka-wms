@@ -814,12 +814,16 @@ async function handleBulkMode(limiteCarga) {
     await page.locator('#fileInputSubirEnviosNoflex').first().setInputFiles(excelPath);
 
     // Esperar a que se oculte cualquier indicador de carga o se cierre el modal SweetAlert
-    console.log('⏳ Esperando procesamiento del archivo y cierre de modales de carga...');
+    console.log('⏳ Esperando procesamiento del archivo...');
     await page.locator('#loadMe').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     
-    await page.waitForTimeout(2000);
-    const isSwalVisible = await page.locator('.swal2-container').isVisible().catch(() => false);
-    if (isSwalVisible) {
+    // Esperar de forma reactiva a que aparezca el SweetAlert del resultado de la subida
+    console.log('⏳ Esperando alerta de resultado del Excel...');
+    const hasSwal = await page.waitForSelector('.swal2-container', { state: 'visible', timeout: 10000 })
+      .then(() => true)
+      .catch(() => false);
+      
+    if (hasSwal) {
       const title = await page.locator('.swal2-title').innerText().catch(() => '');
       const text = await page.locator('.swal2-content, .swal2-html-container').innerText().catch(() => '');
       console.log(`💬 Alerta SweetAlert detectada tras subir Excel: [Título: "${title}"] [Texto: "${text}"]`);
@@ -834,9 +838,11 @@ async function handleBulkMode(limiteCarga) {
       if (lowerTitle.includes('error') || lowerTitle.includes('no va a poder') || lowerTitle.includes('no se puede') || lowerText.includes('error')) {
         throw new Error(`LightData rechazó el Excel de importación: "${title}" ${text}`);
       }
+      
+      // Esperar a que se oculte el SweetAlert antes de proceder
+      await page.locator('.swal2-container').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
     }
     
-    await page.locator('.swal2-container').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     await page.waitForTimeout(1000);
 
     // Interceptar llamadas AJAX del procesamiento masivo
