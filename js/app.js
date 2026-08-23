@@ -14417,6 +14417,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       
+      const confirmResult = await Swal.fire({
+        title: '¿Confirmar Solicitud?',
+        text: 'Esta acción realizará ajustes automáticos de stock en el WMS. Las unidades devueltas que tengan habilitado "Regresar Stock" reingresarán a tu inventario disponible al confirmarse, y los reemplazos de salida comprometerán stock inmediatamente.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, continuar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: 'var(--color-primary)',
+        cancelButtonColor: 'var(--color-text-muted)'
+      });
+
+      if (!confirmResult.isConfirmed) {
+        return;
+      }
+      
       const btnSave = document.getElementById('btn-save-rl');
       btnSave.disabled = true;
       btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
