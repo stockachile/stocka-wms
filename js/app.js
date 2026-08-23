@@ -14417,28 +14417,48 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       
-      const confirmResult = await Swal.fire({
-        title: '¿Confirmar Solicitud?',
-        text: 'Esta acción realizará ajustes automáticos de stock en el WMS. Las unidades devueltas que tengan habilitado "Regresar Stock" reingresarán a tu inventario disponible al confirmarse, y los reemplazos de salida comprometerán stock inmediatamente.',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Sí, continuar',
-        cancelButtonText: 'Cancelar',
-        confirmButtonColor: 'var(--color-primary)',
-        cancelButtonColor: 'var(--color-text-muted)'
+      const incomingProducts = [];
+      incomingRows.forEach(row => {
+        let productId = null;
+        let sku = '';
+        let name = '';
+        if (isManual) {
+          sku = row.querySelector('.rl-prod-sku').value.trim();
+          name = row.querySelector('.rl-prod-name').value.trim();
+        } else {
+          const input = row.querySelector('.rl-prod-input');
+          const val = input ? input.value.trim() : '';
+          const datalist = row.querySelector('datalist');
+          const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+          
+          productId = opt ? opt.getAttribute('data-id') || null : null;
+          if (val.includes(' - ')) {
+            const parts = val.split(' - ');
+            sku = parts[0];
+            name = parts.slice(1).join(' - ');
+          } else {
+            sku = val;
+            name = val;
+          }
+        }
+        
+        const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+        const stockReturn = row.querySelector('.rl-prod-stock-return').checked;
+        const itemComment = row.querySelector('.rl-prod-comment').value.trim();
+        
+        incomingProducts.push({
+          product_id: productId,
+          sku,
+          name,
+          cantidad: qty,
+          regresar_a_inventario: stockReturn,
+          comentario: itemComment
+        });
       });
-
-      if (!confirmResult.isConfirmed) {
-        return;
-      }
       
-      const btnSave = document.getElementById('btn-save-rl');
-      btnSave.disabled = true;
-      btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
-      
-      try {
-        const incomingProducts = [];
-        incomingRows.forEach(row => {
+      const outgoingProducts = [];
+      if (type === 'CAMBIO') {
+        outgoingRows.forEach(row => {
           let productId = null;
           let sku = '';
           let name = '';
@@ -14461,57 +14481,123 @@ document.addEventListener('DOMContentLoaded', () => {
               name = val;
             }
           }
-          
           const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
-          const stockReturn = row.querySelector('.rl-prod-stock-return').checked;
-          const itemComment = row.querySelector('.rl-prod-comment').value.trim();
           
-          incomingProducts.push({
+          outgoingProducts.push({
             product_id: productId,
             sku,
             name,
-            cantidad: qty,
-            regresar_a_inventario: stockReturn,
-            comentario: itemComment
+            cantidad: qty
           });
         });
-        
-        const outgoingProducts = [];
-        if (type === 'CAMBIO') {
-          outgoingRows.forEach(row => {
-            let productId = null;
-            let sku = '';
-            let name = '';
-            if (isManual) {
-              sku = row.querySelector('.rl-prod-sku').value.trim();
-              name = row.querySelector('.rl-prod-name').value.trim();
-            } else {
-              const input = row.querySelector('.rl-prod-input');
-              const val = input ? input.value.trim() : '';
-              const datalist = row.querySelector('datalist');
-              const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
-              
-              productId = opt ? opt.getAttribute('data-id') || null : null;
-              if (val.includes(' - ')) {
-                const parts = val.split(' - ');
-                sku = parts[0];
-                name = parts.slice(1).join(' - ');
-              } else {
-                sku = val;
-                name = val;
-              }
-            }
-            const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
-            
-            outgoingProducts.push({
-              product_id: productId,
-              sku,
-              name,
-              cantidad: qty
-            });
-          });
-        }
-        
+      }
+
+      // Generar Resumen HTML para el Modal de Confirmación
+      let summaryHtml = `
+        <div style="text-align: left; font-size: 0.85rem; color: var(--color-text-main); line-height: 1.4; border-top: 1px solid var(--color-border); padding-top: 0.8rem; max-height: 50vh; overflow-y: auto;">
+          <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; color: var(--color-primary); font-weight: 700;">Resumen del Movimiento</h4>
+          
+          <!-- Datos del Cliente -->
+          <div style="background: var(--color-bg-dark, #f1f5f9); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); margin-bottom: 0.8rem; border: 1px solid var(--color-border);">
+            <strong>Cliente:</strong> ${customerName}<br>
+            <strong>Dirección:</strong> ${customerAddress} ${customerComplement ? '(' + customerComplement + ')' : ''}, ${comuna}<br>
+            <strong>Contacto:</strong> ${customerEmail} | ${customerPhone}
+          </div>
+          
+          <!-- Productos que Ingresan -->
+          <div style="margin-bottom: 0.8rem;">
+            <strong style="color: #ef4444; display: block; margin-bottom: 0.25rem;">⬅️ Ingresan (Devolución):</strong>
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+                  <th style="padding: 0.25rem 0;">Producto</th>
+                  <th style="padding: 0.25rem 0; text-align: center; width: 60px;">Cant.</th>
+                  <th style="padding: 0.25rem 0; text-align: right; width: 100px;">Regresa Stock</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${incomingProducts.map(p => `
+                  <tr style="border-bottom: 1px dashed var(--color-border);">
+                    <td style="padding: 0.35rem 0; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      <span style="font-weight: 600;">${p.sku}</span> - ${p.name}
+                    </td>
+                    <td style="padding: 0.35rem 0; text-align: center;">${p.cantidad}</td>
+                    <td style="padding: 0.35rem 0; text-align: right; font-weight: 600; color: ${p.regresar_a_inventario ? '#10b981' : '#6b7280'};">
+                      ${p.regresar_a_inventario ? 'Sí' : 'No'}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+      `;
+
+      if (type === 'CAMBIO') {
+        summaryHtml += `
+          <!-- Productos que Salen -->
+          <div style="margin-bottom: 0.8rem;">
+            <strong style="color: #10b981; display: block; margin-bottom: 0.25rem;">➡️ Salen (Reemplazo):</strong>
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--color-border); text-align: left;">
+                  <th style="padding: 0.25rem 0;">Producto</th>
+                  <th style="padding: 0.25rem 0; text-align: center; width: 60px;">Cant.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${outgoingProducts.map(p => `
+                  <tr style="border-bottom: 1px dashed var(--color-border);">
+                    <td style="padding: 0.35rem 0; max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      <span style="font-weight: 600;">${p.sku}</span> - ${p.name}
+                    </td>
+                    <td style="padding: 0.35rem 0; text-align: center;">${p.cantidad}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      const costText = document.getElementById('rl-cost-value').textContent || '$0 c/IVA';
+
+      summaryHtml += `
+          <!-- Datos del Envío y Costos -->
+          <div style="background: rgba(59, 130, 246, 0.05); padding: 0.6rem 0.8rem; border-radius: var(--radius-md); border: 1px solid rgba(59, 130, 246, 0.15); margin-bottom: 0.8rem;">
+            <strong>Modo de Entrega:</strong> ${modoEntrega === 'sucursal' ? 'Retiro en Punto Ñuñoa' : modoEntrega === 'domicilio_rm' ? 'Domicilio RM' : 'A Regiones'}<br>
+            <strong>Responsable de Pago:</strong> ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por Usuario Final'}<br>
+            ${courier ? `<strong>Courier Asignado:</strong> ${courier}<br>` : ''}
+            <strong>Costo de Envío:</strong> ${costText}
+          </div>
+          
+          <div style="margin-top: 0.8rem; font-size: 0.75rem; color: #d97706; border-top: 1px solid var(--color-border); padding-top: 0.6rem; display: flex; gap: 0.35rem; align-items: flex-start;">
+            <i class="ri-alert-line" style="font-size: 0.95rem; margin-top: 0.05rem;"></i>
+            <span>Esta acción realizará ajustes automáticos de stock e inventario en el WMS. ¿Confirmas el registro?</span>
+          </div>
+        </div>
+      `;
+
+      const confirmResult = await Swal.fire({
+        title: '¿Confirmar Solicitud?',
+        html: summaryHtml,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Sí, registrar',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: 'var(--color-primary)',
+        cancelButtonColor: 'var(--color-text-muted)',
+        width: '600px'
+      });
+
+      if (!confirmResult.isConfirmed) {
+        return;
+      }
+      
+      const btnSave = document.getElementById('btn-save-rl');
+      btnSave.disabled = true;
+      btnSave.innerHTML = 'Guardando... <i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
+      
+      try {
         // Emparejar para la columna productos del WMS (para visualización legacy)
         const productosPayload = [];
         const maxLen = Math.max(incomingProducts.length, outgoingProducts.length);
@@ -15597,15 +15683,67 @@ function validateRlStep(step) {
       return false;
     }
     
-    if (type === 'CAMBIO' && outgoingRows.length === 0) {
-      Swal.fire({
-        title: 'Faltan Productos',
-        text: 'Debe agregar al menos un producto de salida para el cambio.',
-        icon: 'warning',
-        confirmButtonText: 'Entendido',
-        confirmButtonColor: 'var(--color-primary)'
-      });
-      return false;
+    if (type === 'CAMBIO') {
+      if (outgoingRows.length === 0) {
+        Swal.fire({
+          title: 'Faltan Productos',
+          text: 'Debe agregar al menos un producto de salida para el cambio.',
+          icon: 'warning',
+          confirmButtonText: 'Entendido',
+          confirmButtonColor: 'var(--color-primary)'
+        });
+        return false;
+      }
+      
+      const isManual = document.getElementById('rl-manual-mode').checked;
+      if (!isManual) {
+        for (let row of outgoingRows) {
+          const input = row.querySelector('.rl-prod-input');
+          const val = input ? input.value.trim() : '';
+          const qty = parseInt(row.querySelector('.rl-prod-qty').value) || 1;
+          
+          if (!val) {
+            Swal.fire({
+              title: 'Producto no válido',
+              text: 'Debe seleccionar un producto del catálogo para todos los ítems de salida.',
+              icon: 'warning',
+              confirmButtonText: 'Entendido',
+              confirmButtonColor: 'var(--color-primary)'
+            });
+            return false;
+          }
+          
+          const datalist = row.querySelector('datalist');
+          const opt = datalist ? datalist.querySelector(`option[value="${val.replace(/"/g, '\\"')}"]`) : null;
+          const productId = opt ? opt.getAttribute('data-id') || null : null;
+          
+          if (!productId) {
+            Swal.fire({
+              title: 'Producto no válido',
+              text: `El producto "${val}" no pertenece al catálogo o no se encontró.`,
+              icon: 'warning',
+              confirmButtonText: 'Entendido',
+              confirmButtonColor: 'var(--color-primary)'
+            });
+            return false;
+          }
+          
+          const catalogProd = (window.rlCatalogProducts || []).find(p => p.id === productId);
+          if (catalogProd) {
+            const availStock = catalogProd.available_stock || 0;
+            if (qty > availStock) {
+              Swal.fire({
+                title: 'Stock Insuficiente',
+                text: `El producto "${catalogProd.name}" tiene ${availStock} unidades disponibles en WMS, pero solicitaste ${qty}. Por favor, reduce la cantidad o selecciona otro producto.`,
+                icon: 'error',
+                confirmButtonText: 'Entendido',
+                confirmButtonColor: 'var(--color-primary)'
+              });
+              return false;
+            }
+          }
+        }
+      }
     }
   }
   return true;
@@ -15621,12 +15759,26 @@ window.loadRlCatalog = async function(commerceName) {
   try {
     const { data: products, error } = await supabase
       .from('products')
-      .select('id, sku, name, is_pack, is_virtual')
+      .select('id, sku, name, is_pack, is_virtual, inventory(quantity, committed_quantity)')
       .eq('comercio', commerceName)
       .neq('status', 'archived')
       .order('name');
     if (error) throw error;
-    window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
+    
+    const rawProducts = products || [];
+    window.rlCatalogProducts = rawProducts
+      .filter(p => !p.is_pack && !p.is_virtual)
+      .map(p => {
+        const totalAvailable = (p.inventory || []).reduce((acc, inv) => {
+          return acc + ((inv.quantity || 0) - (inv.committed_quantity || 0));
+        }, 0);
+        return {
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          available_stock: totalAvailable
+        };
+      });
   } catch (err) {
     console.error('Error fetching catalog products for modal:', err);
   }
