@@ -15634,10 +15634,17 @@ window.openReverseLogisticsModal = async function(type) {
   document.getElementById('rl-outgoing-tbody').innerHTML = '';
   
   const outgoingSection = document.getElementById('rl-outgoing-section');
+  const productsLayoutGrid = document.getElementById('rl-products-layout-grid');
   if (type === 'CAMBIO') {
     outgoingSection.style.display = 'block';
+    if (productsLayoutGrid) {
+      productsLayoutGrid.style.gridTemplateColumns = '1fr 1fr';
+    }
   } else {
     outgoingSection.style.display = 'none';
+    if (productsLayoutGrid) {
+      productsLayoutGrid.style.gridTemplateColumns = '1fr';
+    }
   }
   
   // Inicializar listeners si no están inicializados
@@ -20693,79 +20700,79 @@ window.renderBillingClient = async function() {
   Promise.resolve(supabase.rpc('check_overdue_payments')).catch(e => console.warn(e));
   
   appContent.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+    <div class="billing-client-header-container">
       <div>
-        <h3 style="margin: 0; font-size: 1.25rem; color: var(--color-text-main);">Mis Facturas</h3>
-        <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: var(--color-text-muted);">Historial mensual y estado de facturación de tus comercios asociados</p>
+        <h3 class="billing-client-title">Mis Facturas</h3>
+        <p class="billing-client-subtitle">Historial mensual y estado de facturación de tus comercios asociados</p>
       </div>
-      <div>
-        <!-- Selector de periodo -->
-        <select id="client-period-select" class="form-input" style="padding: 0.5rem 1rem; min-width: 180px; margin: 0;" onchange="loadClientBillingData(this.value)">
-          <option value="">Cargando periodos...</option>
-        </select>
+      <div class="billing-period-highlight-box">
+        <label for="client-period-select" class="billing-period-badge">
+          <i class="ri-calendar-event-fill"></i>
+          <span>PERIODO</span>
+        </label>
+        <div class="billing-period-select-wrap">
+          <select id="client-period-select" class="billing-period-select-styled" onchange="loadClientBillingData(this.value)">
+            <option value="">Cargando periodos...</option>
+          </select>
+          <i class="ri-arrow-down-s-line billing-period-chevron"></i>
+        </div>
       </div>
     </div>
     
-    <!-- Tarjetas de Resumen -->
+    <!-- Tarjetas de Resumen Compactas (4 Tarjetas en 1 fila) -->
     <div class="billing-summary-grid">
+      <!-- Tarjeta 1: Total Facturado -->
       <div class="billing-summary-card">
-        <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado</span>
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label"><i class="ri-bill-line"></i> Total Facturado</span>
+        </div>
         <span class="billing-summary-value" id="summary-total-facturado">$0</span>
       </div>
-      <div class="billing-summary-card">
-        <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado</span>
+
+      <!-- Tarjeta 2: Total Pagado -->
+      <div class="billing-summary-card card-paid">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: var(--color-success);"><i class="ri-checkbox-circle-line"></i> Total Pagado</span>
+        </div>
         <span class="billing-summary-value" id="summary-total-pagado" style="color: var(--color-success);">$0</span>
       </div>
-      <div class="billing-summary-card">
-        <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-alert-line"></i> Saldo Pendiente</span>
+
+      <!-- Tarjeta 3: Saldo Pendiente -->
+      <div class="billing-summary-card card-pending">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: var(--color-warning);"><i class="ri-alert-line"></i> Saldo Pendiente</span>
+        </div>
         <span class="billing-summary-value" id="summary-saldo-pendiente" style="color: var(--color-warning);">$0</span>
       </div>
-    </div>
-    
-    <!-- Información para Pago / Datos de Transferencia -->
-    <div class="card" style="margin-top: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
-      <div class="card-body" style="padding: 0.75rem 1rem;">
-        <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
-          <i class="ri-bank-line" style="color: var(--color-primary); font-size: 1.1rem;"></i>
-          Datos para Pago y Transferencia Bancaria
-        </h4>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; background: var(--color-bg); padding: 0.6rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Razón Social</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">STOCKA SPA</strong>
+
+      <!-- Tarjeta 4: Datos de Pago -->
+      <div class="billing-summary-card card-bank-info">
+        <div class="billing-summary-card-top">
+          <span class="billing-summary-label" style="color: #6366f1;">
+            <i class="ri-bank-card-line"></i> Datos de Pago
+          </span>
+          <button type="button" class="btn-copy-bank-compact" onclick="copyClientBankDetails(this)" title="Copiar datos bancarios para transferencia">
+            <i class="ri-file-copy-line"></i> <span>Copiar</span>
+          </button>
+        </div>
+        <div class="billing-bank-info-compact">
+          <div class="bank-line-item">
+            <strong>STOCKA SPA</strong> <span class="bank-dot">•</span> RUT <strong>77.524.557-3</strong>
           </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">RUT</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">77.524.557-3</strong>
+          <div class="bank-line-item">
+            <strong>Scotiabank</strong> <span class="bank-dot">•</span> Cta Cte <strong>992369965</strong>
           </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Banco</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">Scotiabank (Sud Americano)</strong>
-          </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Tipo de Cuenta</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">Cuenta Corriente</strong>
-          </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Número de Cuenta</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">992369965</strong>
-          </div>
-          <div>
-            <span style="color: var(--color-text-muted); font-size: 0.7rem; display: block; margin-bottom: 0.1rem; text-transform: uppercase; letter-spacing: 0.05em;">Correo Electrónico</span>
-            <strong style="color: var(--color-text-main); font-size: 0.8rem;">finanzas@stocka.cl</strong>
+          <div class="bank-line-item bank-email">
+            <i class="ri-mail-line"></i> finanzas@stocka.cl
           </div>
         </div>
-        <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
-          <i class="ri-information-line" style="color: var(--color-primary);"></i>
-          Por favor, envíe el comprobante de transferencia al correo indicado o infórmelo directamente en los botones de acción de su período de facturación.
-        </p>
       </div>
     </div>
     
     <!-- Tabla de Facturación -->
-    <div class="card">
-      <div class="card-header">
-        <h3 id="client-table-header-title" style="display: flex; align-items: center; gap: 0.5rem;"><i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Detalle de Cobros</h3>
+    <div class="card" style="margin-top: 0.5rem;">
+      <div class="card-header" style="padding: 0.75rem 1rem;">
+        <h3 id="client-table-header-title" style="display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.05rem;"><i class="ri-file-list-3-line" style="color: var(--color-primary);"></i> Detalle de Cobros</h3>
       </div>
       <div class="card-body table-responsive" id="client-billing-table-body" style="padding: 0;">
         <div class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
@@ -21147,104 +21154,50 @@ window.loadClientBillingData = async function(periodId) {
     updateSummaryCards(totalFacturado, totalPagado, saldoPendiente);
     
     window.switchBillingTabClient = function(tabName, btn) {
-      document.querySelectorAll('.billing-tab-btn').forEach(b => {
+      document.querySelectorAll('.billing-tab-nav-item').forEach(b => {
         b.classList.remove('active');
       });
-      btn.classList.add('active');
+      if (btn) btn.classList.add('active');
       
       const tabServicios = document.getElementById('billing-tab-servicios');
       const tabExtra = document.getElementById('billing-tab-extra');
       const tabReports = document.getElementById('billing-tab-reports');
-      const filtersExtra = document.getElementById('filters-extra');
 
       if (tabName === 'servicios') {
         if (tabServicios) tabServicios.style.display = 'block';
         if (tabExtra) tabExtra.style.display = 'none';
         if (tabReports) tabReports.style.display = 'none';
-        if (filtersExtra) filtersExtra.style.display = 'none';
       } else if (tabName === 'extra') {
         if (tabServicios) tabServicios.style.display = 'none';
         if (tabExtra) tabExtra.style.display = 'block';
         if (tabReports) tabReports.style.display = 'none';
-        if (filtersExtra) filtersExtra.style.display = 'flex';
         window.loadClientExtraCharges(periodId);
       } else if (tabName === 'reports') {
         if (tabServicios) tabServicios.style.display = 'none';
         if (tabExtra) tabExtra.style.display = 'none';
         if (tabReports) tabReports.style.display = 'block';
-        if (filtersExtra) filtersExtra.style.display = 'none';
       }
     };
 
     tableContainer.innerHTML = `
-      <!-- Pestañas -->
-      <div class="billing-tabs-container" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-        <button class="billing-tab-btn active" onclick="switchBillingTabClient('servicios', this)">
-          <i class="ri-dashboard-3-line"></i> Servicios
+      <!-- Pestañas con diseño moderno y destacado -->
+      <div class="billing-client-tabs-nav">
+        <button type="button" class="billing-tab-nav-item active" onclick="switchBillingTabClient('servicios', this)">
+          <i class="ri-dashboard-3-line"></i>
+          <span>Servicios</span>
         </button>
-        <button class="billing-tab-btn" onclick="switchBillingTabClient('extra', this)">
-          <i class="ri-add-circle-line"></i> Saldos Adicionales
+        <button type="button" class="billing-tab-nav-item" onclick="switchBillingTabClient('extra', this)">
+          <i class="ri-add-circle-line"></i>
+          <span>Saldos Adicionales</span>
         </button>
-        <button class="billing-tab-btn" onclick="switchBillingTabClient('reports', this)">
-          <i class="ri-history-line"></i> Historial de Avisos de Pago
+        <button type="button" class="billing-tab-nav-item" onclick="switchBillingTabClient('reports', this)">
+          <i class="ri-history-line"></i>
+          <span>Historial de Avisos de Pago</span>
         </button>
       </div>
 
       <!-- Tab Servicios (Lista de Comercios y sus Grid de servicios) -->
       <div id="billing-tab-servicios" style="display: block;">
-        <!-- Global Filter Bar for Servicios -->
-        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); flex-wrap: wrap; margin-bottom: 1.5rem; box-sizing: border-box;">
-          <span style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted);"><i class="ri-filter-3-line"></i> Filtrar Servicios:</span>
-          
-          <!-- Filtros Fulf -->
-          <div style="display: flex; align-items: center; gap: 0.35rem; border-right: 1px solid var(--color-border); padding-right: 1rem; flex-wrap: wrap;">
-            <span style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted);">Fulfillment:</span>
-            <select class="form-input filter-pago-fulf" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientFulf()">
-              <option value="">Todos los Pagos</option>
-              <option value="Por solicitar">Por solicitar</option>
-              <option value="Recibido">Recibido</option>
-              <option value="En espera">En espera</option>
-              <option value="Atrasado">Atrasado</option>
-              <option value="abono">Abono</option>
-              <option value="aprobado">Aprobado</option>
-              <option value="incobrable">Incobrable</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-            <select class="form-input filter-fact-fulf" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientFulf()">
-              <option value="">Todas las Facturas</option>
-              <option value="Esperando">Esperando</option>
-              <option value="No se factura">No se factura</option>
-              <option value="Emitida">Emitida</option>
-              <option value="Facturar">Facturar</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
-
-          <!-- Filtros Env -->
-          <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-            <span style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted);">Envíame:</span>
-            <select class="form-input filter-pago-env" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientEnv()">
-              <option value="">Todos los Pagos</option>
-              <option value="Por solicitar">Por solicitar</option>
-              <option value="Recibido">Recibido</option>
-              <option value="En espera">En espera</option>
-              <option value="Atrasado">Atrasado</option>
-              <option value="abono">Abono</option>
-              <option value="aprobado">Aprobado</option>
-              <option value="incobrable">Incobrable</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-            <select class="form-input filter-fact-env" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; margin: 0; width: auto; height: auto;" onchange="filterBillingRowsClientEnv()">
-              <option value="">Todas las Facturas</option>
-              <option value="Esperando">Esperando</option>
-              <option value="No se factura">No se factura</option>
-              <option value="Emitida">Emitida</option>
-              <option value="Facturar">Facturar</option>
-              <option value="Sin movimientos">Sin movimientos</option>
-            </select>
-          </div>
-        </div>
-
         <div id="services-groups-list">
           ${commerceGroupsHtml}
         </div>
@@ -21252,12 +21205,6 @@ window.loadClientBillingData = async function(periodId) {
 
       <!-- Tab Saldos Adicionales -->
       <div id="billing-tab-extra" class="table-responsive" style="display: none;">
-        <!-- Filtros Extra -->
-        <div id="filters-extra" class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap; margin-bottom: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-add-circle-line" style="color: var(--color-primary);"></i> Cobros Extraordinarios / Adicionales del Comercio:</span>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Historial de cobros extraordinarios que hayan sido registrados por administración.</span>
-        </div>
-
         <table class="data-table" style="min-width: 800px; font-size: 0.85rem; border-collapse: collapse;">
           <thead>
             <tr>
@@ -21283,11 +21230,6 @@ window.loadClientBillingData = async function(periodId) {
 
       <!-- Tab Historial de Avisos de Pago -->
       <div id="billing-tab-reports" style="display: none;">
-        <div class="billing-filters-bar" style="display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1.25rem; background: var(--color-bg); border-bottom: 1px solid var(--color-border); flex-wrap: wrap; margin-bottom: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border);">
-          <span style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-muted);"><i class="ri-history-line" style="color: var(--color-primary);"></i> Historial de Avisos de Pago:</span>
-          <span style="font-size: 0.8rem; color: var(--color-text-muted);">Registro de comprobantes e informativos de pago enviados para este período.</span>
-        </div>
-
         <div id="client-reports-table-body" class="table-responsive" style="padding: 0;">
           <div style="padding: 2rem; text-align: center; color: var(--color-text-muted);">
             <i class="ri-loader-4-line spin" style="font-size: 1.5rem; display: block; margin-bottom: 0.5rem;"></i>
@@ -21645,6 +21587,73 @@ function updateSummaryCards(facturado, pagado, pendiente) {
   if (peEl) peEl.textContent = window.formatCLP(pendiente);
 }
 
+window.copyClientBankDetails = function(btn) {
+  const textToCopy = `STOCKA SPA
+RUT: 77.524.557-3
+Banco: Scotiabank (Sud Americano)
+Tipo de Cuenta: Cuenta Corriente
+N° de Cuenta: 992369965
+Correo: finanzas@stocka.cl`;
+
+  const showSuccessFeedback = () => {
+    if (btn) {
+      const origHtml = btn.innerHTML;
+      btn.innerHTML = `<i class="ri-check-line"></i> <span>¡Copiado!</span>`;
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.innerHTML = origHtml;
+        btn.classList.remove('copied');
+      }, 2500);
+    }
+    if (window.Swal) {
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2500,
+        timerProgressBar: true
+      });
+      Toast.fire({
+        icon: 'success',
+        title: 'Datos bancarios copiados al portapapeles'
+      });
+    }
+  };
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(textToCopy)
+      .then(showSuccessFeedback)
+      .catch(err => {
+        console.warn('Clipboard writeText failed, using fallback:', err);
+        fallbackCopy();
+      });
+  } else {
+    fallbackCopy();
+  }
+
+  function fallbackCopy() {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = textToCopy;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      showSuccessFeedback();
+    } catch (e) {
+      console.error('Fallback copy failed:', e);
+      if (window.Swal) {
+        Swal.fire('Error', 'No se pudieron copiar los datos automáticamente. Por favor cópialos manualmente.', 'error');
+      }
+    }
+  }
+};
+
 function getClientStatusClass(val) {
   if (!val) return 'client-badge-gray';
   const v = val.toLowerCase();
@@ -21661,29 +21670,149 @@ function getClientStatusClass(val) {
 }
 
 function injectClientBillingStyles() {
-  if (document.getElementById('client-billing-styles')) return;
+  const existing = document.getElementById('client-billing-styles');
+  if (existing) existing.remove();
   
   const style = document.createElement('style');
   style.id = 'client-billing-styles';
   style.innerHTML = `
+    /* Header & Highlighted Period Selector */
+    .billing-client-header-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.85rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .billing-client-title {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+    }
+    .billing-client-subtitle {
+      margin: 0.15rem 0 0 0;
+      font-size: 0.8rem;
+      color: var(--color-text-muted);
+    }
+    .billing-period-highlight-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--color-surface);
+      padding: 0.25rem 0.35rem 0.25rem 0.75rem;
+      border-radius: 50px;
+      border: 1.5px solid rgba(37, 99, 235, 0.4);
+      box-shadow: 0 2px 10px rgba(37, 99, 235, 0.12);
+      transition: all 0.2s ease;
+    }
+    .billing-period-highlight-box:hover,
+    .billing-period-highlight-box:focus-within {
+      border-color: var(--color-primary);
+      box-shadow: 0 4px 16px rgba(37, 99, 235, 0.22);
+      transform: translateY(-1px);
+    }
+    .billing-period-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: var(--color-primary);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin: 0;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .billing-period-badge i {
+      font-size: 0.95rem;
+    }
+    .billing-period-select-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .billing-period-select-styled {
+      appearance: none;
+      -webkit-appearance: none;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: 50px;
+      padding: 0.3rem 1.85rem 0.3rem 0.75rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--color-text-main);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+      min-width: 155px;
+      text-transform: uppercase;
+    }
+    .billing-period-select-styled:focus {
+      border-color: var(--color-primary);
+      background: var(--color-surface);
+    }
+    .billing-period-chevron {
+      position: absolute;
+      right: 0.6rem;
+      pointer-events: none;
+      font-size: 1rem;
+      color: var(--color-text-muted);
+      transition: color 0.2s ease;
+    }
+    .billing-period-select-wrap:hover .billing-period-chevron {
+      color: var(--color-primary);
+    }
+
+    /* 4-Card Compact Summary Grid: Totales más compactos y Datos de Pago más ancha */
     .billing-summary-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 1rem;
-      margin-bottom: 1rem;
+      grid-template-columns: 0.95fr 0.95fr 0.95fr 1.55fr;
+      gap: 0.75rem;
+      margin-bottom: 0.85rem;
+    }
+    @media (max-width: 1200px) {
+      .billing-summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 580px) {
+      .billing-summary-grid {
+        grid-template-columns: 1fr;
+      }
     }
     .billing-summary-card {
-      background: linear-gradient(145deg, var(--color-surface) 0%, rgba(30, 41, 59, 0.3) 100%);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: linear-gradient(145deg, var(--color-surface) 0%, rgba(30, 41, 59, 0.25) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: var(--radius-md);
-      padding: 0.75rem 1.25rem;
+      padding: 0.5rem 0.8rem;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
       backdrop-filter: blur(10px);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
       position: relative;
       overflow: hidden;
+      min-height: 72px;
+      box-sizing: border-box;
+    }
+    [data-theme="light"] .billing-summary-card {
+      background: var(--color-surface);
+      border-color: var(--color-border);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+    [data-theme="dark"] .billing-period-highlight-box {
+      background: rgba(15, 23, 42, 0.85);
+      border-color: rgba(96, 165, 250, 0.4);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    }
+    [data-theme="dark"] .billing-period-select-styled {
+      background: rgba(30, 41, 59, 0.9);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: #f8fafc;
     }
     .billing-summary-card::before {
       content: '';
@@ -21691,74 +21820,186 @@ function injectClientBillingStyles() {
       top: 0; left: 0; width: 100%; height: 3px;
       background: var(--color-primary);
     }
+    .billing-summary-card.card-paid::before,
     .billing-summary-card:nth-child(2)::before {
       background: var(--color-success);
     }
+    .billing-summary-card.card-pending::before,
     .billing-summary-card:nth-child(3)::before {
       background: var(--color-warning);
     }
+    .billing-summary-card.card-bank-info::before,
+    .billing-summary-card:nth-child(4)::before {
+      background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    }
     .billing-summary-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    }
+    .billing-summary-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      margin-bottom: 0.15rem;
     }
     .billing-summary-label {
-      font-size: 0.75rem;
+      font-size: 0.68rem;
       color: var(--color-text-muted);
       text-transform: uppercase;
       font-weight: 700;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.25rem;
-      display: flex;
+      letter-spacing: 0.04em;
+      margin: 0;
+      display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.3rem;
+      line-height: 1;
     }
     .billing-summary-label i {
-      font-size: 1rem;
-      opacity: 0.8;
+      font-size: 0.85rem;
+      opacity: 0.85;
     }
     .billing-summary-value {
-      font-size: 1.35rem;
+      font-size: 1.18rem;
       font-weight: 800;
       color: var(--color-text-main);
       letter-spacing: -0.02em;
-    }
-    
-    /* Modern Pill Tabs */
-    .billing-tabs-container {
-      display: inline-flex;
-      background: var(--color-bg);
-      border-radius: 50px;
-      padding: 0.2rem;
-      margin: 0.5rem 1rem;
-      border: 1px solid var(--color-border);
-      box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .billing-tab-btn {
-      padding: 0.4rem 1.25rem;
-      border-radius: 50px;
-      font-weight: 600;
-      font-size: 0.8rem;
-      color: var(--color-text-muted);
-      cursor: pointer;
-      border: none;
-      background: transparent;
-      transition: all 0.3s ease;
-    }
-    .billing-tab-btn.active {
-      background: var(--color-surface);
-      color: var(--color-text-main);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      line-height: 1.15;
+      margin-top: 0.1rem;
     }
 
-    /* Filters Bar */
-    .billing-filters-bar {
+    /* Compact Bank Info Card */
+    .billing-bank-info-compact {
       display: flex;
-      gap: 1rem;
+      flex-direction: column;
+      gap: 0.12rem;
+      font-size: 0.72rem;
+      color: var(--color-text-muted);
+      line-height: 1.25;
+      margin-top: 0.15rem;
+    }
+    .bank-line-item {
+      display: flex;
       align-items: center;
-      padding: 0.6rem 1rem;
-      background: linear-gradient(90deg, rgba(30,41,59,0.2) 0%, transparent 100%);
-      border-bottom: 1px solid var(--color-border);
+      gap: 0.3rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .bank-line-item strong {
+      color: var(--color-text-main);
+      font-weight: 700;
+    }
+    .bank-dot {
+      color: var(--color-text-muted);
+      opacity: 0.5;
+    }
+    .bank-email {
+      font-size: 0.68rem;
+      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+    .bank-email i {
+      font-size: 0.75rem;
+      color: #6366f1;
+    }
+    .btn-copy-bank-compact {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.18rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: #6366f1;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      line-height: 1;
+    }
+    .btn-copy-bank-compact:hover {
+      background: #6366f1;
+      color: #ffffff;
+      border-color: #6366f1;
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+    }
+    .btn-copy-bank-compact.copied {
+      background: var(--color-success) !important;
+      border-color: var(--color-success) !important;
+      color: #ffffff !important;
+    }
+    
+    /* Modern Tabs Navigation: Pestañas claramente definidas */
+    .billing-client-tabs-nav {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin: 0.35rem 0 1rem 0;
       flex-wrap: wrap;
+      border-bottom: 1.5px solid var(--color-border);
+      padding-bottom: 0.65rem;
+    }
+    .billing-tab-nav-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.48rem 1.1rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      background: var(--color-bg);
+      border: 1.5px solid var(--color-border);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      user-select: none;
+    }
+    .billing-tab-nav-item i {
+      font-size: 0.95rem;
+      color: var(--color-text-muted);
+      transition: color 0.2s ease;
+    }
+    .billing-tab-nav-item:hover {
+      color: var(--color-text-main);
+      border-color: rgba(37, 99, 235, 0.5);
+      background: var(--color-surface);
+      transform: translateY(-1px);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+    }
+    .billing-tab-nav-item:hover i {
+      color: var(--color-primary);
+    }
+    .billing-tab-nav-item.active {
+      background: var(--color-primary) !important;
+      color: #ffffff !important;
+      border-color: var(--color-primary) !important;
+      font-weight: 700;
+      box-shadow: 0 3px 12px rgba(37, 99, 235, 0.35);
+      transform: translateY(-1px);
+    }
+    .billing-tab-nav-item.active i {
+      color: #ffffff !important;
+    }
+    [data-theme="dark"] .billing-tab-nav-item {
+      background: rgba(30, 41, 59, 0.6);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+    }
+    [data-theme="dark"] .billing-tab-nav-item:hover {
+      background: rgba(30, 41, 59, 0.95);
+      border-color: rgba(96, 165, 250, 0.4);
+      color: #f8fafc;
+    }
+    [data-theme="dark"] .billing-tab-nav-item.active {
+      background: var(--color-primary) !important;
+      border-color: var(--color-primary) !important;
+      color: #ffffff !important;
+      box-shadow: 0 3px 14px rgba(37, 99, 235, 0.45);
     }
 
     /* Modern Pill Badges */

@@ -962,7 +962,7 @@
 
   <!-- Modal Registrar Logistica Inversa -->
   <div class="modal-overlay" id="modal-reverse-logistics" style="z-index: 1050;">
-    <div class="modal-content" style="max-width: 900px; width: 95%;">
+    <div class="modal-content" style="max-width: 1200px; width: 95%;">
       <div class="modal-header">
         <h3 id="rl-modal-title" style="display: flex; align-items: center; gap: 0.5rem;">
           <i class="ri-arrow-go-back-line" style="color: var(--color-primary);"></i> Registrar Movimiento
@@ -1051,9 +1051,9 @@
             </div>
 
             <!-- SECCION PRODUCTOS -->
-            <div class="rl-products-container">
+            <div id="rl-products-layout-grid" style="display: grid; grid-template-columns: 1fr; gap: 1.5rem; width: 100%;">
               <!-- Productos que Entran -->
-              <div id="rl-incoming-section" style="margin-bottom: 1.5rem;">
+              <div id="rl-incoming-section" style="margin-bottom: 1.5rem; min-width: 0;">
                 <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
                   <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
                 </h4>
@@ -1079,7 +1079,7 @@
               </div>
 
               <!-- Productos que Salen -->
-              <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none;">
+              <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none; min-width: 0;">
                 <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
                   <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
                 </h4>
