@@ -1010,6 +1010,19 @@
               </div>
             </div>
 
+            <!-- Selector de Comercio (Solo visible/activo si no se pre-cargó pedido anterior o si es multi-compañía) -->
+            <div id="rl-commerce-select-container" style="display: none; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem;">
+                  Comercio de la Solicitud <span class="text-danger">*</span>
+                </label>
+                <select id="rl-select-commerce" class="form-input" style="font-weight: 600; color: var(--color-text-main);">
+                  <!-- Dynamic Options -->
+                </select>
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Seleccione el comercio para el cual se registra la solicitud. Esto determinará la disponibilidad del catálogo de productos.</small>
+              </div>
+            </div>
+
             <!-- Datos del Destinatario / Cliente -->
             <div style="margin-bottom: 1.5rem;">
               <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
@@ -1043,7 +1056,7 @@
           <!-- STEP 2: PRODUCTS SELECTION -->
           <div id="rl-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
             <!-- Checkbox para modo manual -->
-            <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
+            <div id="rl-manual-mode-wrapper" style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
               <input type="checkbox" id="rl-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
               <label for="rl-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
                 Ingreso manual de productos (Comercios sin catálogo configurado)

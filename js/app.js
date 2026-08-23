@@ -14390,7 +14390,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const customerPhone = document.getElementById('rl-customer-phone').value.trim();
       const customerAddress = document.getElementById('rl-customer-address').value.trim();
       const customerComplement = document.getElementById('rl-customer-complement').value.trim();
-      const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
+      const commerce = formRl.dataset.currentCommerce || document.getElementById('rl-select-commerce')?.value || window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
       
       if (!refPedido) {
         alert('Debe ingresar la referencia del pedido.');
@@ -14972,6 +14972,7 @@ async function handleRlSearchOrder() {
       .from('orders')
       .select(`
         id,
+        comercio,
         external_order_number,
         customer_name,
         customer_email,
@@ -15017,6 +15018,15 @@ async function handleRlSearchOrder() {
     
     // Guardar referencia
     document.getElementById('form-reverse-logistics').dataset.origenOrderId = order.id;
+    
+    if (order.comercio) {
+      const selectCommerce = document.getElementById('rl-select-commerce');
+      if (selectCommerce) {
+        selectCommerce.value = order.comercio;
+        selectCommerce.disabled = true;
+      }
+      await window.loadRlCatalog(order.comercio);
+    }
     
     // Ajustar comuna
     const city = order.shipping_city || '';
@@ -15586,6 +15596,65 @@ function validateRlStep(step) {
   return true;
 }
 
+window.loadRlCatalog = async function(commerceName) {
+  const form = document.getElementById('form-reverse-logistics');
+  if (form) {
+    form.dataset.currentCommerce = commerceName;
+  }
+
+  window.rlCatalogProducts = [];
+  try {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('id, sku, name, is_pack, is_virtual')
+      .eq('comercio', commerceName)
+      .neq('status', 'archived')
+      .order('name');
+    if (error) throw error;
+    window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
+  } catch (err) {
+    console.error('Error fetching catalog products for modal:', err);
+  }
+
+  const hasCatalog = window.rlCatalogProducts.length > 0;
+  const manualModeWrapper = document.getElementById('rl-manual-mode-wrapper');
+  const manualModeCheckbox = document.getElementById('rl-manual-mode');
+
+  if (hasCatalog) {
+    if (manualModeWrapper) manualModeWrapper.style.display = 'none';
+    if (manualModeCheckbox) {
+      const wasChecked = manualModeCheckbox.checked;
+      manualModeCheckbox.checked = false;
+      if (wasChecked) {
+        manualModeCheckbox.dispatchEvent(new Event('change'));
+      } else {
+        document.getElementById('rl-incoming-tbody').innerHTML = '';
+        document.getElementById('rl-outgoing-tbody').innerHTML = '';
+        window.addRlRow('incoming', false);
+        if (document.getElementById('rl-type').value === 'CAMBIO') {
+          window.addRlRow('outgoing', false);
+        }
+      }
+    }
+  } else {
+    if (manualModeWrapper) manualModeWrapper.style.display = 'flex';
+    if (manualModeCheckbox) {
+      const wasChecked = manualModeCheckbox.checked;
+      manualModeCheckbox.checked = true;
+      if (!wasChecked) {
+        manualModeCheckbox.dispatchEvent(new Event('change'));
+      } else {
+        document.getElementById('rl-incoming-tbody').innerHTML = '';
+        document.getElementById('rl-outgoing-tbody').innerHTML = '';
+        window.addRlRow('incoming', true);
+        if (document.getElementById('rl-type').value === 'CAMBIO') {
+          window.addRlRow('outgoing', true);
+        }
+      }
+    }
+  }
+};
+
 window.openReverseLogisticsModal = async function(type) {
   const modal = document.getElementById('modal-reverse-logistics');
   const form = document.getElementById('form-reverse-logistics');
@@ -15594,6 +15663,10 @@ window.openReverseLogisticsModal = async function(type) {
   
   // Limpiar dataset de ID de orden previa
   delete form.dataset.origenOrderId;
+  delete form.dataset.currentCommerce;
+  
+  const inputSearch = document.getElementById('rl-search-order');
+  if (inputSearch) inputSearch.value = '';
   
   window.currentRlWizardStep = 1;
   window.updateRlWizardUI();
@@ -15647,6 +15720,29 @@ window.openReverseLogisticsModal = async function(type) {
     }
   }
   
+  // Configurar e inicializar el selector de comercios
+  const companies = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+  const selectCommerce = document.getElementById('rl-select-commerce');
+  const commerceSelectContainer = document.getElementById('rl-commerce-select-container');
+  
+  if (selectCommerce) {
+    selectCommerce.disabled = false;
+    selectCommerce.innerHTML = '';
+  }
+
+  let defaultCommerce = '';
+
+  if (companies.length > 1) {
+    if (commerceSelectContainer) commerceSelectContainer.style.display = 'block';
+    if (selectCommerce) {
+      selectCommerce.innerHTML = companies.map(c => `<option value="${c}">${c}</option>`).join('');
+      defaultCommerce = selectCommerce.value;
+    }
+  } else {
+    if (commerceSelectContainer) commerceSelectContainer.style.display = 'none';
+    defaultCommerce = window.activeIntegrationCommerce || (companies[0] || '');
+  }
+  
   // Inicializar listeners si no están inicializados
   if (!window.rlListenersInitialized) {
     window.rlListenersInitialized = true;
@@ -15656,9 +15752,9 @@ window.openReverseLogisticsModal = async function(type) {
       btnLoad.addEventListener('click', handleRlSearchOrder);
     }
     
-    const inputSearch = document.getElementById('rl-search-order');
-    if (inputSearch) {
-      inputSearch.addEventListener('keypress', (e) => {
+    const inputSearchElement = document.getElementById('rl-search-order');
+    if (inputSearchElement) {
+      inputSearchElement.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           handleRlSearchOrder();
@@ -15686,6 +15782,12 @@ window.openReverseLogisticsModal = async function(type) {
     
     if (comunaSelect) {
       comunaSelect.addEventListener('change', updateRlShippingCost);
+    }
+    
+    if (selectCommerce) {
+      selectCommerce.addEventListener('change', async (e) => {
+        await window.loadRlCatalog(e.target.value);
+      });
     }
     
     for (let i = 1; i <= 3; i++) {
@@ -15717,26 +15819,8 @@ window.openReverseLogisticsModal = async function(type) {
   window.selectRlRadioCard('rl-responsable-pago', 'comercio');
   window.selectRlRadioCard('rl-modo-entrega', 'sucursal');
   
-  const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
-  window.rlCatalogProducts = [];
-  
-  try {
-    const { data: products, error } = await supabase
-      .from('products')
-      .select('id, sku, name, is_pack, is_virtual')
-      .eq('comercio', commerce)
-      .neq('status', 'archived')
-      .order('name');
-    if (error) throw error;
-    window.rlCatalogProducts = (products || []).filter(p => !p.is_pack && !p.is_virtual);
-  } catch (err) {
-    console.error('Error fetching catalog products for modal:', err);
-  }
-  
-  window.addRlRow('incoming', false);
-  if (type === 'CAMBIO') {
-    window.addRlRow('outgoing', false);
-  }
+  // Cargar catálogo de forma asíncrona
+  await window.loadRlCatalog(defaultCommerce);
   
   modal.classList.add('active');
 }
