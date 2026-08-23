@@ -1,3 +1,5 @@
+import supabase from './supabase.js';
+
 export function initChatWidget() {
   // Inject CSS dynamically so we don't need to bloat layout.css with chat-specific code
   const style = document.createElement('style');
@@ -298,16 +300,60 @@ export function initChatWidget() {
     appendUserMessage("Contactar con mi KAM");
     
     const typing = showTypingIndicator();
-    setTimeout(() => {
+    setTimeout(async () => {
       typing.remove();
-      const whatsappMsg = encodeURIComponent("Hola Fernanda, necesito ayuda con mi cuenta de Stocka...");
+
+      let kamData = {
+        hasKam: false,
+        nombre: 'Sin KAM Asignado (Soporte General)',
+        email: 'gestion@stocka.cl',
+        telefono: '+56 9 8135 4550'
+      };
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: profile } = await supabase.from('profiles').select('comercio').eq('id', session.user.id).single();
+          let targetCommerce = window.activeAdminComercio || localStorage.getItem('selectedComercio') || null;
+          if (!targetCommerce && profile?.comercio && profile.comercio !== 'no asignado' && profile.comercio !== 'all') {
+            targetCommerce = profile.comercio.split(',')[0].trim();
+          }
+
+          if (targetCommerce) {
+            const { data: config } = await supabase
+              .from('comercios_adicional_config')
+              .select('kam_nombre, kam_email, kam_telefono')
+              .eq('comercio', targetCommerce)
+              .maybeSingle();
+
+            if (config && config.kam_nombre && config.kam_nombre.trim()) {
+              kamData.hasKam = true;
+              kamData.nombre = config.kam_nombre.trim();
+              if (config.kam_email && config.kam_email.trim()) kamData.email = config.kam_email.trim();
+              if (config.kam_telefono && config.kam_telefono.trim()) kamData.telefono = config.kam_telefono.trim();
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error al obtener datos de KAM para chat:', err);
+      }
+
+      const cleanPhone = kamData.telefono.replace(/[^0-9]/g, '');
+      const firstName = kamData.hasKam ? (kamData.nombre.split(' ')[0] || 'Hola') : 'Soporte';
+      const whatsappMsg = encodeURIComponent(`Hola ${firstName}, necesito ayuda con mi cuenta de Stocka...`);
+      const whatsappUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${whatsappMsg}` : '#';
+
+      const messageHeader = kamData.hasKam 
+        ? 'Claro, aquí tienes los datos de tu KAM asignado:'
+        : 'Tu comercio aún no tiene un KAM asignado. Puedes contactar a Soporte General:';
+
       appendBotMessage(`
-        Claro, aquí tienes los datos de tu KAM asignada:
+        ${messageHeader}
         <div class="kam-card">
-          <h5>Fernanda Castro</h5>
-          <p><i class="ri-mail-line"></i> gestion@stocka.cl</p>
-          <p><i class="ri-phone-line"></i> +56 9 8135 4550</p>
-          <a href="https://wa.me/56981354550?text=${whatsappMsg}" target="_blank" class="kam-whatsapp-btn">
+          <h5>${kamData.nombre}</h5>
+          <p><i class="ri-mail-line"></i> ${kamData.email}</p>
+          <p><i class="ri-phone-line"></i> ${kamData.telefono}</p>
+          <a href="${whatsappUrl}" target="_blank" class="kam-whatsapp-btn">
             <i class="ri-whatsapp-line"></i> Escribir por WhatsApp
           </a>
         </div>

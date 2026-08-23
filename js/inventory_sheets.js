@@ -839,3 +839,383 @@ window.generateInventoryReportExcel = function(req) {
 
   XLSX.writeFile(wb, filename);
 };
+
+/**
+ * Genera y descarga la HOJA OFICIAL DE LEVANTAMIENTO DE DIMENSIONES, PESO Y CUBICAJE en formato PDF
+ * Diseñada en orientación horizontal (Landscape) con cuadrículas para medición física en bodega
+ * @param {Object} options - Parámetros de la solicitud de dimensiones
+ */
+window.generateProductDimensionsPdf = async function(options) {
+  if (!options) {
+    alert('Error: Datos de solicitud de dimensiones no disponibles.');
+    return;
+  }
+
+  const folio = options.folio || `DIM-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(100 + Math.random() * 900)}`;
+  const comercio = options.comercio || 'Todos los Comercios';
+  const warehouseName = options.warehouseName || 'Todas las bodegas';
+  const scopeLabel = options.scopeLabel || 'Catálogo de Productos';
+  const requestedBy = options.requestedBy || 'Administración WMS';
+  const notes = options.notes || 'Medir largo, ancho y alto en centímetros del empaque cerrado final. Pesar en balanza en kilogramos.';
+  const products = Array.isArray(options.products) ? options.products : [];
+
+  const formattedDate = new Date().toLocaleString('es-CL', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
+  });
+
+  // Crear contenedor temporal fuera de pantalla (A4 Landscape = 297mm x 210mm)
+  const container = document.createElement('div');
+  container.id = 'product-dimensions-pdf-container';
+  container.style.position = 'fixed';
+  container.style.top = '-99999px';
+  container.style.left = '-99999px';
+  container.style.width = '297mm'; // A4 Landscape
+  container.style.backgroundColor = '#ffffff';
+  container.style.color = '#1e293b';
+  container.style.fontFamily = "'Inter', Arial, sans-serif";
+  container.style.padding = '10mm 12mm';
+  container.style.boxSizing = 'border-box';
+  container.style.fontSize = '8.5pt';
+  container.style.lineHeight = '1.25';
+
+  // Renderizar filas de productos
+  let rowsHtml = '';
+  if (products.length === 0) {
+    rowsHtml = `
+      <tr>
+        <td colspan="11" style="text-align: center; padding: 25px; color: #64748b; font-style: italic;">
+          No se encontraron productos para los criterios seleccionados.
+        </td>
+      </tr>
+    `;
+  } else {
+    products.forEach((p, idx) => {
+      const isEven = idx % 2 === 0;
+      const bg = isEven ? '#ffffff' : '#f8fafc';
+      const barcode = p.barcode || p.codigo_barra || '-';
+      const pCommerce = p.comercio || comercio;
+      const curL = (p.length !== undefined && p.length !== null && p.length > 0) ? p.length : '';
+      const curW = (p.width !== undefined && p.width !== null && p.width > 0) ? p.width : '';
+      const curH = (p.height !== undefined && p.height !== null && p.height > 0) ? p.height : '';
+      const curKg = (p.weight !== undefined && p.weight !== null && p.weight > 0) ? p.weight : '';
+      const curVol = (p.volumen !== undefined && p.volumen !== null && p.volumen > 0) ? Number(p.volumen).toFixed(5) : '';
+      const curPkg = p.packaging_type || p.embalaje || '';
+
+      rowsHtml += `
+        <tr style="background-color: ${bg}; border-bottom: 1px solid #cbd5e1; page-break-inside: avoid;">
+          <td style="padding: 5px 3px; text-align: center; font-weight: 600; color: #64748b; font-size: 8pt; border-right: 1px solid #e2e8f0;">${idx + 1}</td>
+          <td style="padding: 5px 6px; font-family: 'Courier New', monospace; font-weight: 700; color: #0f172a; font-size: 8pt; border-right: 1px solid #e2e8f0; white-space: nowrap;">${p.sku || '-'}</td>
+          <td style="padding: 5px 6px; font-family: 'Courier New', monospace; color: #475569; font-size: 7.5pt; border-right: 1px solid #e2e8f0;">${barcode}</td>
+          <td style="padding: 5px 6px; color: #0f172a; font-size: 8pt; font-weight: 500; border-right: 1px solid #e2e8f0; line-height: 1.2;">
+            ${p.name || 'Sin nombre'}
+            ${options.comercio === 'Todos los Comercios' && pCommerce ? `<div style="font-size: 7pt; color: #64748b; font-weight: 600;">[${pCommerce}]</div>` : ''}
+          </td>
+          <!-- Casilla Largo (cm) -->
+          <td style="padding: 3px 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 62px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #64748b; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0f172a; font-size: 8pt; background: #fff;">
+              ${curL}
+            </div>
+          </td>
+          <!-- Casilla Ancho (cm) -->
+          <td style="padding: 3px 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 62px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #64748b; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0f172a; font-size: 8pt; background: #fff;">
+              ${curW}
+            </div>
+          </td>
+          <!-- Casilla Alto (cm) -->
+          <td style="padding: 3px 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 62px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #64748b; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #0f172a; font-size: 8pt; background: #fff;">
+              ${curH}
+            </div>
+          </td>
+          <!-- Casilla Peso (kg) -->
+          <td style="padding: 3px 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 65px; background-color: #ffffff;">
+            <div style="border: 1.5px solid #059669; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-weight: 700; color: #065f46; font-size: 8pt; background: #ecfdf5;">
+              ${curKg}
+            </div>
+          </td>
+          <!-- Casilla Volumen Calc (m3) -->
+          <td style="padding: 3px 4px; text-align: center; border-right: 1px solid #cbd5e1; width: 70px; background-color: #f8fafc;">
+            <div style="border: 1.5px dashed #cbd5e1; border-radius: 3px; height: 22px; width: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 7.5pt; color: #475569; font-family: monospace;">
+              ${curVol}
+            </div>
+          </td>
+          <!-- Casilla Tipo Embalaje -->
+          <td style="padding: 3px 5px; width: 85px; border-right: 1px solid #cbd5e1; background-color: #ffffff;">
+            <div style="border-bottom: 1px dotted #64748b; height: 18px; font-size: 7.5pt; color: #334155; padding-top: 2px;">
+              ${curPkg}
+            </div>
+          </td>
+          <!-- Casilla Observaciones -->
+          <td style="padding: 3px 6px; width: 110px; background-color: #ffffff;">
+            <div style="border-bottom: 1px dotted #94a3b8; height: 18px; margin-top: 2px; font-size: 7pt; color: #64748b;">
+              ${p.notes || ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  }
+
+  container.innerHTML = `
+    <div id="pdf-dimensions-area" style="width: 100%;">
+      <!-- ENCABEZADO INSTITUCIONAL -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2.5px solid #0f172a; padding-bottom: 8px; margin-bottom: 10px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <img src="img/newlogotransp.png" alt="STOCKA Logo" style="height: 40px; width: auto; object-fit: contain;" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+          <div>
+            <div style="display: inline-block; background-color: #059669; color: #ffffff; padding: 2px 7px; border-radius: 3px; font-size: 7pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">
+              Control Físico y Cubicaje de Catálogo
+            </div>
+            <h1 style="margin: 0; font-size: 13pt; font-weight: 800; color: #0f172a; letter-spacing: -0.5px; text-transform: uppercase;">
+              Hoja de Toma de Dimensiones, Peso y Embalaje
+            </h1>
+            <p style="margin: 1px 0 0 0; font-size: 7.5pt; color: #64748b; font-weight: 500;">
+              STOCKA WMS & Fulfillment • Registro de Medidas Maestras para Cubicaje y Costeo de Despachos
+            </p>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 4px 10px; border-radius: 4px; font-weight: 800; font-size: 9.5pt; font-family: monospace; letter-spacing: 0.5px;">
+            ${folio}
+          </div>
+          <div style="font-size: 7.5pt; color: #64748b; margin-top: 3px;">
+            Emisión: <strong>${formattedDate}</strong>
+          </div>
+          <div style="font-size: 7pt; color: #059669; font-weight: 700; margin-top: 1px;">
+            TOTAL: ${products.length} ARTÍCULOS
+          </div>
+        </div>
+      </div>
+
+      <!-- METADATOS DEL LEVANTAMIENTO -->
+      <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 10px; margin-bottom: 9px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 8pt;">
+          <tr>
+            <td style="padding: 2px 4px; width: 12%; font-weight: 700; color: #475569;">Cliente / Comercio:</td>
+            <td style="padding: 2px 4px; width: 38%; font-weight: 700; color: #0f172a; font-size: 8.5pt;">${comercio}</td>
+            <td style="padding: 2px 4px; width: 12%; font-weight: 700; color: #475569;">Bodega Asignada:</td>
+            <td style="padding: 2px 4px; width: 38%; font-weight: 600; color: #0f172a;">${warehouseName}</td>
+          </tr>
+          <tr>
+            <td style="padding: 2px 4px; font-weight: 700; color: #475569;">Alcance / Filtro:</td>
+            <td style="padding: 2px 4px; font-weight: 600; color: #0f172a;">${scopeLabel}</td>
+            <td style="padding: 2px 4px; font-weight: 700; color: #475569;">Solicitado Por:</td>
+            <td style="padding: 2px 4px; color: #1e293b;">${requestedBy}</td>
+          </tr>
+          ${notes ? `
+          <tr>
+            <td style="padding: 2px 4px; font-weight: 700; color: #475569; vertical-align: top;">Instrucciones Bodega:</td>
+            <td colspan="3" style="padding: 2px 6px; color: #334155; font-style: italic; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 7.5pt;">
+              ${notes}
+            </td>
+          </tr>
+          ` : ''}
+        </table>
+      </div>
+
+      <!-- GUÍA OPERATIVA RÁPIDA -->
+      <div style="background-color: #ecfdf5; border-left: 3.5px solid #059669; padding: 5px 8px; margin-bottom: 9px; font-size: 7.2pt; color: #065f46; border-radius: 0 4px 4px 0; display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <strong>Norma de Medición:</strong> 
+          1. <strong>Dimensiones:</strong> Medir con huincha en <strong>Centímetros (cm)</strong> el empaque final cerrado (Largo x Ancho x Alto). &nbsp;|&nbsp; 
+          2. <strong>Peso:</strong> Pesar en balanza en <strong>Kilogramos (kg)</strong> con 3 decimales (ej: 0.350 kg). &nbsp;|&nbsp; 
+          3. <strong>Embalaje:</strong> Indicar <em>Caja (CJ), Sobre (SB), Bolsa (BL), Tubo (TB) o Granel (GR)</em>.
+        </div>
+      </div>
+
+      <!-- TABLA PRINCIPAL DE REGISTRO DE DIMENSIONES -->
+      <table style="width: 100%; border-collapse: collapse; border: 1px solid #cbd5e1; font-size: 7.8pt; margin-bottom: 10px;">
+        <thead>
+          <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 7.2pt; text-transform: uppercase; letter-spacing: 0.5px;">
+            <th style="padding: 5px 3px; width: 20px; text-align: center; border-right: 1px solid #334155;">#</th>
+            <th style="padding: 5px 6px; width: 85px; border-right: 1px solid #334155;">SKU</th>
+            <th style="padding: 5px 6px; width: 85px; border-right: 1px solid #334155;">Cód. Barras</th>
+            <th style="padding: 5px 6px; border-right: 1px solid #334155;">Descripción del Producto</th>
+            <th style="padding: 5px 4px; width: 62px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Largo (cm)</th>
+            <th style="padding: 5px 4px; width: 62px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Ancho (cm)</th>
+            <th style="padding: 5px 4px; width: 62px; text-align: center; background-color: #1e3a8a; border-right: 1px solid #334155;">Alto (cm)</th>
+            <th style="padding: 5px 4px; width: 65px; text-align: center; background-color: #065f46; border-right: 1px solid #334155;">Peso (kg)</th>
+            <th style="padding: 5px 4px; width: 70px; text-align: center; background-color: #334155; border-right: 1px solid #334155;">Vol. (m³)</th>
+            <th style="padding: 5px 5px; width: 85px; text-align: center; border-right: 1px solid #334155;">Embalaje</th>
+            <th style="padding: 5px 6px; width: 110px;">Notas / Frágil</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <!-- SECCIÓN DE FIRMAS Y VISTO BUENO -->
+      <div style="page-break-inside: avoid; border-top: 1px solid #cbd5e1; padding-top: 6px; margin-top: 6px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 7.5pt;">
+          <tr>
+            <td style="width: 48%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 5px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 20px; text-transform: uppercase; font-size: 7pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
+                Responsable del Levantamiento / Pesaje (Bodega)
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px; color: #475569; font-size: 7pt;">
+                <div>Nombre: _____________________________________________</div>
+                <div>RUT: _______________________ Fecha: ____/____/________</div>
+                <div style="margin-top: 10px;">Firma: ______________________________________________</div>
+              </div>
+            </td>
+            <td style="width: 4%;"></td>
+            <td style="width: 48%; padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 5px; vertical-align: top; background-color: #ffffff;">
+              <div style="font-weight: 700; color: #0f172a; margin-bottom: 20px; text-transform: uppercase; font-size: 7pt; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px;">
+                Validación y Carga en Sistema (Supervisor WMS STOCKA)
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 2px; color: #475569; font-size: 7pt;">
+                <div>Nombre: _____________________________________________</div>
+                <div>Hora Inicio: _____:_____ &nbsp;&nbsp;|&nbsp;&nbsp; Hora Fin: _____:_____</div>
+                <div style="margin-top: 10px;">Firma V°B°: _________________________________________</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+        
+        <div style="text-align: center; margin-top: 6px; font-size: 6.8pt; color: #94a3b8;">
+          STOCKA WMS • Documento Oficial de Levantamiento de Medidas, Peso y Cubicaje • Impreso para uso en bodega
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(container);
+
+  try {
+    const printableArea = container.querySelector('#pdf-dimensions-area');
+    const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Hoja_Dimensiones_${safeFolio}_${safeCommerce}.pdf`;
+
+    const opt = {
+      margin:       [6, 8, 6, 8],
+      filename:     filename,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0, logging: false },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    if (typeof html2pdf !== 'undefined') {
+      await html2pdf().from(printableArea).set(opt).save();
+    } else {
+      window.print();
+    }
+  } catch (err) {
+    console.error('Error al generar PDF de dimensiones:', err);
+    alert('Error al generar el archivo PDF: ' + err.message);
+  } finally {
+    container.remove();
+  }
+};
+
+/**
+ * Genera y descarga la PLANILLA EXCEL (XLSX) para el levantamiento y carga masiva de dimensiones
+ * @param {Object} options - Parámetros de la solicitud de dimensiones
+ */
+window.generateProductDimensionsExcel = function(options) {
+  if (!options) {
+    alert('Error: Datos de solicitud de dimensiones no disponibles.');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    alert('Error: Librería de exportación Excel (XLSX) no disponible.');
+    return;
+  }
+
+  const folio = options.folio || `DIM-${new Date().toISOString().slice(2,10).replace(/-/g,'')}-${Math.floor(100 + Math.random() * 900)}`;
+  const comercio = options.comercio || 'Todos los Comercios';
+  const warehouseName = options.warehouseName || 'Todas las bodegas';
+  const scopeLabel = options.scopeLabel || 'Catálogo de Productos';
+  const notes = options.notes || 'Completar las columnas Largo_cm, Ancho_cm, Alto_cm y Peso_kg para actualizar el catálogo maestro.';
+  const products = Array.isArray(options.products) ? options.products : [];
+
+  const formattedDate = new Date().toLocaleString('es-CL');
+
+  // Construir filas del libro Excel
+  const excelRows = [
+    ['STOCKA WMS - PLANILLA DE LEVANTAMIENTO Y CARGA DE DIMENSIONES DE PRODUCTOS'],
+    ['Folio Solicitud:', folio, '', 'Fecha Emisión:', formattedDate],
+    ['Comercio:', comercio, '', 'Bodega Asignada:', warehouseName],
+    ['Alcance Catálogo:', scopeLabel, '', 'Total SKUs:', products.length],
+    ['Instrucciones:', notes],
+    [], // Fila en blanco
+    [
+      'N°',
+      'SKU',
+      'Codigo_Barras',
+      'Producto_Nombre',
+      'Comercio',
+      'Largo_cm',
+      'Ancho_cm',
+      'Alto_cm',
+      'Peso_kg',
+      'Volumen_m3',
+      'Tipo_Embalaje',
+      'Observaciones'
+    ]
+  ];
+
+  const dataStartRow = excelRows.length + 1; // 1-indexed
+
+  products.forEach((p, idx) => {
+    const rowIdx = dataStartRow + idx;
+    const curL = (p.length !== undefined && p.length !== null && p.length > 0) ? Number(p.length) : '';
+    const curW = (p.width !== undefined && p.width !== null && p.width > 0) ? Number(p.width) : '';
+    const curH = (p.height !== undefined && p.height !== null && p.height > 0) ? Number(p.height) : '';
+    const curKg = (p.weight !== undefined && p.weight !== null && p.weight > 0) ? Number(p.weight) : '';
+    const curPkg = p.packaging_type || p.embalaje || '';
+    const pCommerce = p.comercio || comercio;
+
+    // Fórmula de Excel para cálculo de volumen en m3 a partir de F(Largo), G(Ancho), H(Alto)
+    const volFormula = { f: `IF(AND(F${rowIdx}>0, G${rowIdx}>0, H${rowIdx}>0), ROUND((F${rowIdx}*G${rowIdx}*H${rowIdx})/1000000, 6), "")` };
+
+    excelRows.push([
+      idx + 1,
+      p.sku || '',
+      p.barcode || p.codigo_barra || '',
+      p.name || '',
+      pCommerce,
+      curL,
+      curW,
+      curH,
+      curKg,
+      volFormula,
+      curPkg,
+      p.notes || ''
+    ]);
+  });
+
+  excelRows.push([]);
+  excelRows.push(['Responsable Medición:', '___________________________', 'Firma:', '___________________________', 'Fecha:', '____/____/________']);
+  excelRows.push(['Supervisor Validación:', '___________________________', 'Firma V°B°:', '___________________________', 'Fecha:', '____/____/________']);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(excelRows);
+
+  ws['!cols'] = [
+    { wch: 6 },  // N°
+    { wch: 18 }, // SKU
+    { wch: 18 }, // Codigo_Barras
+    { wch: 40 }, // Producto_Nombre
+    { wch: 20 }, // Comercio
+    { wch: 14 }, // Largo_cm
+    { wch: 14 }, // Ancho_cm
+    { wch: 14 }, // Alto_cm
+    { wch: 14 }, // Peso_kg
+    { wch: 16 }, // Volumen_m3
+    { wch: 18 }, // Tipo_Embalaje
+    { wch: 30 }  // Observaciones
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Dimensiones Productos');
+
+  const safeCommerce = comercio.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeFolio = folio.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `Planilla_Dimensiones_${safeFolio}_${safeCommerce}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+};

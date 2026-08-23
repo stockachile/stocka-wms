@@ -36,6 +36,7 @@
           <li><a href="#" class="nav-item" data-view="declarations"><i class="ri-inbox-archive-line"></i> <span class="nav-text">Ingresos de Stock</span></a></li>
           <li><a href="#" class="nav-item" data-view="orders"><i class="ri-shopping-cart-2-line"></i> <span class="nav-text">Pedidos</span></a></li>
           <li><a href="#" class="nav-item" data-view="shipments"><i class="ri-truck-line"></i> <span class="nav-text">Despachos</span></a></li>
+          <li><a href="#" class="nav-item" data-view="manifests"><i class="ri-file-paper-2-line"></i> <span class="nav-text">Centro de Manifiestos</span></a></li>
           <li><a href="#" class="nav-item" data-view="movements"><i class="ri-loop-right-line"></i> <span class="nav-text">Movimientos</span></a></li>
           <li><a href="#" class="nav-item" data-view="warehouses"><i class="ri-building-2-line"></i> <span class="nav-text">Bodegas</span></a></li>
           
@@ -54,7 +55,11 @@
            <li><a href="#" class="nav-item" data-view="documentation"><i class="ri-file-text-line"></i> <span class="nav-text">Documentación</span></a></li>
         </ul>
       </nav>
-      <div class="sidebar-footer">
+      <div class="sidebar-footer" style="display: flex; flex-direction: column; gap: 0.5rem;">
+        <a href="#" id="sidebar-support-btn" class="btn btn-accent nav-item" data-view="tickets" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;" title="Soporte y Tickets">
+          <i class="ri-customer-service-2-line"></i>
+          <span class="nav-text">Soporte y Tickets</span>
+        </a>
         <button id="logout-btn" class="btn btn-outline" style="width: 100%; border-color: var(--color-gray); color: var(--color-light); display: flex; align-items: center; justify-content: center; gap: 0.5rem;" title="Cerrar Sesión">
           <i class="ri-logout-box-r-line"></i>
           <span class="nav-text">Cerrar Sesión</span>
@@ -969,117 +974,251 @@
         
         <div class="modal-body" style="max-height: 75vh; overflow-y: auto; padding: 1.5rem;">
           
-          <!-- Datos Generales -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; background: var(--color-surface); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Referencia Pedido <span class="text-danger">*</span></label>
-              <input type="text" id="rl-ref-pedido" class="form-input" required placeholder="Ej: PED-1001">
+          <!-- Wizard Step Indicator -->
+          <div class="rl-wizard-steps-indicator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--color-border); padding-bottom: 1.25rem;">
+            <div class="rl-wizard-step-tab active" id="rl-wizard-tab-1" style="flex: 1; text-align: center; font-weight: bold; color: var(--color-primary); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; box-shadow: 0 0 0 4px rgba(var(--color-primary-rgb), 0.15); font-weight: 700;">1</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Destinatario y Pedido</span>
             </div>
-            
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Modalidad <span class="text-danger">*</span></label>
-              <select id="rl-modalidad" class="form-input" required>
-                <option value="presencial">Presencial (Punto físico de Ñuñoa)</option>
-                <option value="despacho_santiago">Despacho/Retiro en Santiago (Comuna)</option>
-                <option value="envio_cliente">Envío por parte del cliente</option>
-                <option value="envio_comercio">Envío por parte del comercio</option>
-                <option value="envio_stocka">Envío por parte de Stocka</option>
-              </select>
+            <div class="rl-wizard-step-line" id="rl-wizard-line-1" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-tab" id="rl-wizard-tab-2" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">2</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Selección de Productos</span>
             </div>
-
-            <div class="form-group" id="rl-comuna-group" style="margin-bottom: 0; display: none;">
-              <label class="form-label">Comuna <span class="text-danger">*</span></label>
-              <select id="rl-comuna" class="form-input">
-                <option value="">Selecciona comuna...</option>
-                <!-- Comunas will be dynamically rendered -->
-              </select>
-            </div>
-            
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Courier (Opcional)</label>
-              <input type="text" id="rl-courier" class="form-input" placeholder="Ej: Chilexpress">
-            </div>
-
-            <div class="form-group" style="margin-bottom: 0;">
-              <label class="form-label">Tracking / Código (Opcional)</label>
-              <input type="text" id="rl-tracking" class="form-input" placeholder="Ej: 987654321">
+            <div class="rl-wizard-step-line" id="rl-wizard-line-2" style="flex: 0.4; height: 3px; background: var(--color-border); margin-bottom: 1rem; border-radius: 2px;"></div>
+            <div class="rl-wizard-step-tab" id="rl-wizard-tab-3" style="flex: 1; text-align: center; color: var(--color-text-muted); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; cursor: pointer;">
+              <span class="step-num" style="width: 32px; height: 32px; border-radius: 50%; background: var(--color-bg-dark, #cbd5e1); color: var(--color-text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.9rem; transition: all 0.3s; font-weight: 700;">3</span>
+              <span style="font-size: 0.8rem; font-weight: 600;">Costeo y Despacho</span>
             </div>
           </div>
 
-          <div class="form-group" style="margin-bottom: 1.5rem;">
-            <label class="form-label">Observaciones Generales</label>
-            <textarea id="rl-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
-          </div>
-
-          <!-- Checkbox para modo manual -->
-          <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
-            <input type="checkbox" id="rl-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
-            <label for="rl-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
-              Ingreso manual de productos (Comercios sin catálogo configurado)
-            </label>
-          </div>
-
-          <!-- SECCION PRODUCTOS -->
-          <div class="rl-products-container">
-            
-            <!-- Productos que Entran -->
-            <div id="rl-incoming-section" style="margin-bottom: 1.5rem;">
-              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
-              </h4>
-              <div class="table-responsive">
-                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                  <thead>
-                    <tr>
-                      <th style="width: 45%;">Producto</th>
-                      <th style="width: 12%; text-align: center;">Cantidad</th>
-                      <th style="width: 15%; text-align: center;">Regresar Stock</th>
-                      <th style="width: 23%;">Comentario Item</th>
-                      <th style="width: 5%; text-align: center;"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rl-incoming-tbody">
-                    <!-- Dynamic Rows -->
-                  </tbody>
-                </table>
+          <!-- STEP 1: CLIENT AND ORIGINAL ORDER PRELOAD -->
+          <div id="rl-wizard-step-1" class="rl-wizard-step-container">
+            <!-- Buscar y Cargar Pedido Previo -->
+            <div style="display: grid; grid-template-columns: 1fr; gap: 1rem; margin-bottom: 1.5rem; background: var(--color-bg); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="font-weight: 600; color: var(--color-text-main); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-search-eye-line" style="color: var(--color-primary);"></i> Buscar y Pre-cargar desde Pedido Anterior (Opcional)
+                </label>
+                <div style="display: flex; gap: 0.5rem;">
+                  <input type="text" id="rl-search-order" class="form-input" placeholder="Ej: PED-1001 o número de orden Shopify/Woocommerce..." style="flex: 1;">
+                  <button type="button" id="btn-rl-load-order" class="btn btn-outline" style="padding: 0.6rem 1.2rem; border-color: var(--color-primary); color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem; font-weight: 600;">
+                    <i class="ri-search-line"></i> Buscar Pedido
+                  </button>
+                </div>
+                <small class="text-muted" style="margin-top: 0.25rem; display: block;">Al buscar y seleccionar un pedido, se completarán automáticamente los datos del cliente, la dirección, la comuna y los productos asociados.</small>
               </div>
-              <button type="button" id="btn-rl-add-incoming" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-add-line"></i> Agregar Producto
-              </button>
             </div>
 
-            <!-- Productos que Salen -->
-            <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none;">
+            <!-- Datos del Destinatario / Cliente -->
+            <div style="margin-bottom: 1.5rem;">
               <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
-                <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
+                <i class="ri-user-settings-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Datos del Destinatario (Cliente Final)
               </h4>
-              <div class="table-responsive">
-                <table class="data-table" style="font-size: 0.85rem; width: 100%;">
-                  <thead>
-                    <tr>
-                      <th style="width: 75%;">Producto</th>
-                      <th style="width: 20%; text-align: center;">Cantidad</th>
-                      <th style="width: 5%; text-align: center;"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="rl-outgoing-tbody">
-                    <!-- Dynamic Rows -->
-                  </tbody>
-                </table>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Nombre del Cliente <span class="text-danger">*</span></label>
+                  <input type="text" id="rl-customer-name" class="form-input" required placeholder="Ej: Juan Pérez">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Email del Cliente <span class="text-danger">*</span></label>
+                  <input type="email" id="rl-customer-email" class="form-input" required placeholder="Ej: juan@correo.com">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Teléfono del Cliente <span class="text-danger">*</span></label>
+                  <input type="text" id="rl-customer-phone" class="form-input" required placeholder="Ej: +56912345678">
+                </div>
+                <div class="form-group" style="margin-bottom: 0; grid-column: span 2;">
+                  <label class="form-label">Dirección de Despacho (Calle, Número) <span class="text-danger">*</span></label>
+                  <input type="text" id="rl-customer-address" class="form-input" required placeholder="Ej: Av. Providencia 1234">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label">Depto / Oficina / Block (Opcional)</label>
+                  <input type="text" id="rl-customer-complement" class="form-input" placeholder="Ej: Depto 502">
+                </div>
               </div>
-              <button type="button" id="btn-rl-add-outgoing" class="btn btn-outline" style="padding: 0.35rem 0.75rem; font-size: 0.8rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem;">
-                <i class="ri-add-line"></i> Agregar Producto de Salida
-              </button>
             </div>
-            
+          </div>
+
+          <!-- STEP 2: PRODUCTS SELECTION -->
+          <div id="rl-wizard-step-2" class="rl-wizard-step-container" style="display: none;">
+            <!-- Checkbox para modo manual -->
+            <div style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); padding: 0.75rem 1rem; border-radius: var(--radius-sm); border: 1px solid rgba(59, 130, 246, 0.15);">
+              <input type="checkbox" id="rl-manual-mode" style="width: 16px; height: 16px; cursor: pointer;">
+              <label for="rl-manual-mode" style="font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--color-primary);">
+                Ingreso manual de productos (Comercios sin catálogo configurado)
+              </label>
+            </div>
+
+            <!-- SECCION PRODUCTOS -->
+            <div class="rl-products-container">
+              <!-- Productos que Entran -->
+              <div id="rl-incoming-section" style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                  <i class="ri-login-box-line" style="color: var(--color-danger); font-size: 1.1rem;"></i> Productos que Ingresan (Devolución)
+                </h4>
+                <div class="table-responsive">
+                  <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+                    <thead>
+                      <tr>
+                        <th style="width: 45%;">Producto</th>
+                        <th style="width: 12%; text-align: center;">Cantidad</th>
+                        <th style="width: 15%; text-align: center;">Regresar Stock</th>
+                        <th style="width: 23%;">Comentario Item</th>
+                        <th style="width: 5%; text-align: center;"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rl-incoming-tbody">
+                      <!-- Dynamic Rows -->
+                    </tbody>
+                  </table>
+                </div>
+                <button type="button" id="btn-rl-add-incoming" style="border: 1px dashed var(--color-primary); background: rgba(59, 130, 246, 0.03); color: var(--color-primary); border-radius: var(--radius-md); font-weight: 600; padding: 0.45rem 1rem; font-size: 0.8rem; margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
+                  <i class="ri-add-line" style="font-size: 1rem; font-weight: 700;"></i> Agregar Producto
+                </button>
+              </div>
+
+              <!-- Productos que Salen -->
+              <div id="rl-outgoing-section" style="margin-bottom: 1.5rem; display: none;">
+                <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                  <i class="ri-logout-box-line" style="color: var(--color-success); font-size: 1.1rem;"></i> Productos que Salen (Reemplazo / Despacho)
+                </h4>
+                <div class="table-responsive">
+                  <table class="data-table" style="font-size: 0.85rem; width: 100%;">
+                    <thead>
+                      <tr>
+                        <th style="width: 75%;">Producto</th>
+                        <th style="width: 20%; text-align: center;">Cantidad</th>
+                        <th style="width: 5%; text-align: center;"></th>
+                      </tr>
+                    </thead>
+                    <tbody id="rl-outgoing-tbody">
+                      <!-- Dynamic Rows -->
+                    </tbody>
+                  </table>
+                </div>
+                <button type="button" id="btn-rl-add-outgoing" style="border: 1px dashed var(--color-primary); background: rgba(59, 130, 246, 0.03); color: var(--color-primary); border-radius: var(--radius-md); font-weight: 600; padding: 0.45rem 1rem; font-size: 0.8rem; margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
+                  <i class="ri-add-line" style="font-size: 1rem; font-weight: 700;"></i> Agregar Producto de Salida
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 3: COSTING AND DELIVERY METHODS -->
+          <div id="rl-wizard-step-3" class="rl-wizard-step-container" style="display: none;">
+            <div style="margin-bottom: 1.5rem;">
+              <h4 style="margin: 0 0 0.75rem 0; color: var(--color-text-main); font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.35rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.4rem;">
+                <i class="ri-truck-line" style="color: var(--color-primary); font-size: 1.1rem;"></i> Configuración del Despacho y Costos
+              </h4>
+              <div style="display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface); padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Referencia Pedido Original <span class="text-danger">*</span></label>
+                    <input type="text" id="rl-ref-pedido" class="form-input" required placeholder="Ej: PED-1001">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label">Comuna de Destino <span class="text-danger">*</span></label>
+                    <select id="rl-comuna" class="form-input" required>
+                      <option value="">Selecciona comuna...</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Responsable del Pago (Tarjetas Interactivas con Iconos) -->
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Responsable del Pago <span class="text-danger">*</span></label>
+                  <input type="hidden" id="rl-responsable-pago" value="comercio">
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div id="lbl-resp-comercio" onclick="window.selectRlRadioCard('rl-responsable-pago', 'comercio')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                      <div style="width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.1); display: flex; align-items: center; justify-content: center; color: var(--color-primary); font-size: 1.2rem;">
+                        <i class="ri-building-line"></i>
+                      </div>
+                      <div style="text-align: left;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Costeado por Comercio</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Se carga a tu cuenta mensual</span>
+                      </div>
+                    </div>
+                    
+                    <div id="lbl-resp-usuario_final" onclick="window.selectRlRadioCard('rl-responsable-pago', 'usuario_final')" style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
+                      <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--color-bg); display: flex; align-items: center; justify-content: center; color: var(--color-text-muted); font-size: 1.2rem;">
+                        <i class="ri-user-line"></i>
+                      </div>
+                      <div style="text-align: left;">
+                        <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: block;">Usuario Final</span>
+                        <span style="font-size: 0.7rem; color: var(--color-text-muted);">Sin costo directo para ti</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Modo de Entrega (Tarjetas Interactivas con Iconos) -->
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block;">Modo de Entrega <span class="text-danger">*</span></label>
+                  <input type="hidden" id="rl-modo-entrega" value="sucursal">
+                  <div id="rl-delivery-modes-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;">
+                    <div id="lbl-modo-sucursal" onclick="window.selectRlRadioCard('rl-modo-entrega', 'sucursal')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 2px solid var(--color-primary); background: rgba(59, 130, 246, 0.05); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                      <i class="ri-store-2-line" style="font-size: 1.4rem; color: var(--color-primary); margin-bottom: 0.25rem;"></i>
+                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Punto Ñuñoa</span>
+                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Sin costo</span>
+                    </div>
+
+                    <div id="lbl-modo-domicilio_rm" onclick="window.selectRlRadioCard('rl-modo-entrega', 'domicilio_rm')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                      <i class="ri-home-4-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
+                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">Domicilio RM</span>
+                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">$3.200 + IVA</span>
+                    </div>
+
+                    <div id="lbl-modo-regiones" onclick="window.selectRlRadioCard('rl-modo-entrega', 'regiones')" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.85rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                      <i class="ri-earth-line" style="font-size: 1.4rem; color: var(--color-text-muted); margin-bottom: 0.25rem;"></i>
+                      <span style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main);">A Regiones</span>
+                      <span style="font-size: 0.68rem; color: var(--color-text-muted); margin-top: 0.1rem;">Cotización Courier</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="rl-courier-tracking-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                  <div class="form-group" style="margin-bottom: 0;" id="rl-courier-wrapper">
+                    <label class="form-label" id="rl-courier-label">Courier (Opcional)</label>
+                    <input type="text" id="rl-courier" class="form-input" placeholder="Ej: Chilexpress">
+                    <div id="rl-courier-cards" style="display: none; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.25rem;"></div>
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;" id="rl-tracking-wrapper">
+                    <label class="form-label" id="rl-tracking-label">Tracking / Código (Opcional)</label>
+                    <input type="text" id="rl-tracking" class="form-input" placeholder="Ej: 987654321">
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Contenedor Informativo de Costos -->
+              <div id="rl-cost-info-box" style="margin-top: 1rem; padding: 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: rgba(59, 130, 246, 0.03); display: none; box-shadow: var(--shadow-sm);">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem;">
+                  <span style="font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-money-dollar-circle-line" style="color: var(--color-primary); font-size: 1.15rem;"></i> Costo estimado de envío:
+                  </span>
+                  <span id="rl-cost-value" style="font-weight: 700; color: var(--color-primary); font-size: 1.15rem;">$0 c/IVA</span>
+                </div>
+                <small id="rl-cost-note" class="text-muted" style="margin-top: 0.35rem; display: block; line-height: 1.4;"></small>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1.5rem;">
+              <label class="form-label">Observaciones Generales</label>
+              <textarea id="rl-comments" class="form-input" rows="2" placeholder="Notas sobre el estado general del cambio o devolución..."></textarea>
+            </div>
           </div>
           
         </div>
         
-        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem;">
-          <button type="button" class="btn btn-outline" data-close="modal-reverse-logistics">Cancelar</button>
-          <button type="submit" class="btn btn-primary" id="btn-save-rl" style="display: flex; align-items: center; gap: 0.25rem;">
-            Guardar Registro <i class="ri-check-line"></i>
+        <div class="modal-footer" style="background: var(--color-surface); border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1.25rem 1.5rem;">
+          <button type="button" id="btn-rl-prev" style="border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); font-weight: 600; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s;">
+            <i class="ri-arrow-left-s-line" style="font-size: 1.1rem;"></i> Volver
+          </button>
+          <button type="button" id="btn-rl-next" style="border: none; background: var(--color-primary); color: white; border-radius: var(--radius-md); font-weight: 600; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);">
+            Siguiente <i class="ri-arrow-right-s-line" style="font-size: 1.1rem;"></i>
+          </button>
+          <button type="submit" id="btn-save-rl" style="border: none; background: var(--color-success, #10b981); color: white; border-radius: var(--radius-md); font-weight: 700; padding: 0.6rem 1.25rem; font-size: 0.85rem; display: none; align-items: center; gap: 0.3rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);">
+            Enviar Solicitud <i class="ri-check-line" style="font-size: 1.1rem;"></i>
           </button>
         </div>
       </form>
@@ -1125,7 +1264,8 @@
   <script src="./js/calendar.js"></script>
   <script src="./js/inventory_sheets.js"></script>
   <script type="module" src="./js/enviame_billing_importer.js?v=1.0.1"></script>
-  <script type="module" src="./js/app.js?v=1.0.16"></script>
+  <script src="./js/manifests.js"></script>
+  <script type="module" src="./js/app.js?v=1.0.17"></script>
 
   <!-- Floating Support Button -->
   <a href="#" class="floating-support-btn" id="support-chat-btn" title="Soporte y Ayuda">

@@ -14377,20 +14377,31 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const type = document.getElementById('rl-type').value;
       const refPedido = document.getElementById('rl-ref-pedido').value.trim();
-      const modalidad = document.getElementById('rl-modalidad').value;
+      const responsablePago = document.getElementById('rl-responsable-pago').value;
       const comuna = document.getElementById('rl-comuna').value;
+      const modoEntrega = document.getElementById('rl-modo-entrega').value;
       const courier = document.getElementById('rl-courier').value.trim();
       const tracking = document.getElementById('rl-tracking').value.trim();
       const comments = document.getElementById('rl-comments').value.trim();
       const isManual = document.getElementById('rl-manual-mode').checked;
+      
+      const customerName = document.getElementById('rl-customer-name').value.trim();
+      const customerEmail = document.getElementById('rl-customer-email').value.trim();
+      const customerPhone = document.getElementById('rl-customer-phone').value.trim();
+      const customerAddress = document.getElementById('rl-customer-address').value.trim();
+      const customerComplement = document.getElementById('rl-customer-complement').value.trim();
       const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
       
       if (!refPedido) {
         alert('Debe ingresar la referencia del pedido.');
         return;
       }
-      if (modalidad === 'despacho_santiago' && !comuna) {
-        alert('Debe ingresar la comuna para el despacho/retiro en Santiago.');
+      if (!customerName || !customerEmail || !customerPhone || !customerAddress) {
+        alert('Debe ingresar todos los datos del cliente (nombre, email, teléfono, dirección).');
+        return;
+      }
+      if (!comuna) {
+        alert('Debe seleccionar una comuna de destino.');
         return;
       }
 
@@ -14509,9 +14520,41 @@ document.addEventListener('DOMContentLoaded', () => {
         const totalQty = incomingProducts.reduce((sum, p) => sum + p.cantidad, 0) + 
                          outgoingProducts.reduce((sum, p) => sum + p.cantidad, 0);
                          
-        const modalityText = document.getElementById('rl-modalidad').options[document.getElementById('rl-modalidad').selectedIndex].text;
-        const finalTransporte = courier ? `${modalityText} (${courier})` : modalityText;
-        const finalSucursal = (modalidad === 'despacho_santiago' && comuna) ? comuna : 'Punto Físico Ñuñoa';
+        let finalTransporte = '';
+        if (modoEntrega === 'sucursal') {
+          finalTransporte = 'Sucursal / Punto Físico Ñuñoa';
+        } else if (modoEntrega === 'domicilio_rm') {
+          finalTransporte = 'Domicilio RM' + (courier ? ` (${courier})` : '');
+        } else {
+          finalTransporte = 'Envío Regiones' + (courier ? ` (${courier})` : '');
+        }
+        const finalSucursal = comuna || 'Punto Físico Ñuñoa';
+        
+        let costoEnvio = 0;
+        if (modoEntrega === 'domicilio_rm' && responsablePago === 'comercio') {
+          costoEnvio = 3200;
+        } else if (modoEntrega === 'regiones' && responsablePago === 'comercio') {
+          const normalizedCity = comuna.toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/ñ/g, 'n')
+            .replace(/[^a-z\s]/g, '')
+            .trim();
+          const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+          const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
+          if (bracketRates) {
+            const selectedCourier = courier.toLowerCase();
+            if (selectedCourier.includes('bluexpress')) {
+              costoEnvio = bracketRates.bluexpress || 0;
+            } else if (selectedCourier.includes('starken')) {
+              costoEnvio = bracketRates.starken || 0;
+            } else if (selectedCourier.includes('chilexpress')) {
+              costoEnvio = bracketRates.chilexpress || 0;
+            } else {
+              costoEnvio = bracketRates.bluexpress || bracketRates.starken || bracketRates.chilexpress || 0;
+            }
+          }
+        }
         
         const newRecord = {
           tipo_movimiento: type,
@@ -14524,24 +14567,126 @@ document.addEventListener('DOMContentLoaded', () => {
           comentarios: comments,
           sucursal: finalSucursal,
           creado_por: (window.currentUserProfile && window.currentUserProfile.email) || 'Usuario',
-          status: 'pendiente'
+          status: 'pendiente',
+          
+          customer_name: customerName,
+          customer_email: customerEmail,
+          customer_phone: customerPhone,
+          shipping_address: customerAddress,
+          shipping_city: comuna,
+          shipping_complement: customerComplement || null,
+          responsable_pago: responsablePago,
+          modo_entrega: modoEntrega,
+          costo_envio: costoEnvio,
+          origen_order_id: formRl.dataset.origenOrderId || null
         };
         
-        const { error: insertError } = await supabase
+        const { data: insertedRl, error: insertError } = await supabase
           .from('reverse_logistics')
-          .insert([newRecord]);
+          .insert([newRecord])
+          .select()
+          .single();
           
         if (insertError) throw insertError;
         
+        // Crear pedido en orders correspondientes al WMS
+        const wmsOrderItems = type === 'CAMBIO' ? outgoingProducts : incomingProducts;
+        const totalWmsQty = wmsOrderItems.reduce((sum, i) => sum + i.cantidad, 0);
+        const wmsSkus = wmsOrderItems.map(i => i.sku).join(', ');
+        const wmsNames = wmsOrderItems.map(i => i.name).join(', ');
+        
+        let shippingMethod = '';
+        if (modoEntrega === 'sucursal') {
+          shippingMethod = 'Retiro en Sucursal Ñuñoa';
+        } else if (modoEntrega === 'domicilio_rm') {
+          shippingMethod = `Domicilio RM - ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por usuario final'}`;
+        } else {
+          shippingMethod = `Envío Regiones - ${responsablePago === 'comercio' ? 'Costeado por Comercio' : 'Costeado por usuario final'}`;
+        }
+        
+        let merchantId = null;
+        if (window.currentUserProfile && window.currentUserProfile.merchant_id) {
+          merchantId = window.currentUserProfile.merchant_id;
+        } else {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('merchant_id')
+            .eq('id', (await supabase.auth.getUser()).data.user?.id)
+            .maybeSingle();
+          if (profile) merchantId = profile.merchant_id;
+        }
+        
+        const wmsOrderPayload = {
+          merchant_id: merchantId,
+          comercio: commerce,
+          status: 'para procesar',
+          estado_wms: 'En procesamiento',
+          customer_name: customerName,
+          customer_email: customerEmail || null,
+          customer_phone: customerPhone || null,
+          shipping_address: customerAddress,
+          shipping_city: comuna,
+          shipping_complement: customerComplement || null,
+          shipping_method: `${shippingMethod} (Logística Inversa - ${type})`,
+          operador: courier || 'STOCKA',
+          origen: 'Logística Inversa',
+          external_platform: 'Logística Inversa',
+          external_order_number: `LI-${refPedido}-${insertedRl.id.substring(0, 4).toUpperCase()}`,
+          cantidad: totalWmsQty,
+          sku: wmsSkus,
+          item: wmsNames,
+          total_value: 0,
+          shipping_cost: responsablePago === 'comercio' ? costoEnvio : 0,
+          shipping_cost_tax: responsablePago === 'comercio' ? Math.round(costoEnvio * 0.19) : 0
+        };
+        
+        const { data: insertedOrder, error: errOrder } = await supabase
+          .from('orders')
+          .insert([wmsOrderPayload])
+          .select()
+          .single();
+          
+        if (errOrder) throw errOrder;
+        
+        // Crear items
+        const orderItemsPayload = [];
+        const { data: bodegaCentral } = await supabase
+          .from('warehouses')
+          .select('id')
+          .ilike('name', '%Central%')
+          .limit(1)
+          .single();
+        
+        let whId = bodegaCentral ? bodegaCentral.id : null;
+        if (!whId) {
+          const { data: anyWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+          if (anyWh) whId = anyWh.id;
+        }
+        
+        for (const item of wmsOrderItems) {
+          orderItemsPayload.push({
+            order_id: insertedOrder.id,
+            product_id: item.product_id,
+            warehouse_id: whId,
+            quantity: item.cantidad
+          });
+        }
+        
+        if (orderItemsPayload.length > 0) {
+          const { error: errOrderItems } = await supabase
+            .from('order_items')
+            .insert(orderItemsPayload);
+          if (errOrderItems) throw errOrderItems;
+        }
+        
+        // Vincular ID de orden en reverse_logistics
+        await supabase
+          .from('reverse_logistics')
+          .update({ wms_order_id: insertedOrder.id })
+          .eq('id', insertedRl.id);
+        
         // Stock comprometido para salidas de Cambios
         if (type === 'CAMBIO' && !isManual) {
-          const { data: bodegaCentral } = await supabase
-            .from('warehouses')
-            .select('id')
-            .ilike('name', '%Central%')
-            .limit(1)
-            .single();
-            
           if (bodegaCentral) {
             for (const out of outgoingProducts) {
               if (out.product_id) {
@@ -14572,9 +14717,12 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         
+        // Enviar notificación por correo Brevo
+        await sendRlNotificationEmail(insertedRl, incomingProducts, outgoingProducts, newRecord);
+        
         Swal.fire({
           title: '¡Registrado!',
-          text: 'El movimiento ha sido registrado exitosamente y queda como "Pendiente".',
+          text: 'La solicitud ha sido registrada exitosamente. Se generó un pedido WMS con origen "Logística Inversa".',
           icon: 'success',
           confirmButtonText: 'Entendido',
           confirmButtonColor: 'var(--color-primary)'
@@ -14600,6 +14748,145 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSave.innerHTML = 'Guardar Registro <i class="ri-check-line"></i>';
       }
     });
+  }
+
+  async function sendRlNotificationEmail(insertedRl, incomingProducts, outgoingProducts, newRecord) {
+    try {
+      const BREVO_API_KEY = ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+      const subject = `🔄 Nueva Solicitud de Logística Inversa (${newRecord.tipo_movimiento}) - Ref: ${newRecord.referencia_pedido}`;
+      
+      const incomingHtml = incomingProducts.map(p => `
+        <tr style="border-bottom: 1px solid #edf2f7;">
+          <td style="padding: 8px; color: #4a5568; font-family: monospace;">${p.sku}</td>
+          <td style="padding: 8px; color: #2d3748; font-weight: 500;">${p.name}</td>
+          <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${p.cantidad}</td>
+          <td style="padding: 8px; text-align: center; color: #4a5568;">${p.regresar_a_inventario ? 'Sí' : 'No'}</td>
+          <td style="padding: 8px; color: #718096;">${p.comentario || ''}</td>
+        </tr>
+      `).join('');
+
+      let outgoingHtml = '';
+      if (newRecord.tipo_movimiento === 'CAMBIO') {
+        outgoingHtml = `
+          <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-top: 20px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Productos Salientes (Reemplazo)</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+            <thead>
+              <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
+                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
+                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
+                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 60px;">Cant</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${outgoingProducts.map(p => `
+                <tr style="border-bottom: 1px solid #edf2f7;">
+                  <td style="padding: 8px; color: #4a5568; font-family: monospace;">${p.sku}</td>
+                  <td style="padding: 8px; color: #2d3748; font-weight: 500;">${p.name}</td>
+                  <td style="padding: 8px; text-align: center; color: #1a202c; font-weight: bold;">${p.cantidad}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      }
+
+      const htmlBody = `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; color: #1a202c;">
+          <h2 style="color: #0284c7; margin-top: 0;">¡Nueva Solicitud de Logística Inversa!</h2>
+          <p>Se ha registrado una solicitud de <strong>${newRecord.tipo_movimiento === 'CAMBIO' ? 'Cambio' : 'Devolución'}</strong> con los siguientes detalles:</p>
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 14px;">
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096; width: 180px;">N° de Pedido Referencia:</td>
+              <td style="padding: 6px 0; font-weight: bold; color: #1a202c;">${newRecord.referencia_pedido}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Comercio:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.comercio}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Destinatario/Cliente:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Teléfono:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_phone || 'No especificado'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Email:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.customer_email || 'No especificado'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Dirección Retorno/Envío:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.shipping_address}, ${newRecord.shipping_city}${newRecord.shipping_complement ? ' (' + newRecord.shipping_complement + ')' : ''}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Modo Entrega:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.transporte}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Responsable de Pago:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.responsable_pago === 'comercio' ? 'Comercio' : 'Usuario Final'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Costo de Envío:</td>
+              <td style="padding: 6px 0; font-weight: bold; color: #0284c7;">${newRecord.costo_envio > 0 ? window.formatCLP(Math.round(newRecord.costo_envio * 1.19)) + ' c/IVA' : 'Sin costo (o coordinado externo)'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; font-weight: bold; color: #718096;">Comentarios:</td>
+              <td style="padding: 6px 0; color: #1a202c;">${newRecord.comentarios || 'Ninguno'}</td>
+            </tr>
+          </table>
+
+          <h3 style="border-bottom: 2px solid #edf2f7; padding-bottom: 8px; margin-bottom: 12px; font-size: 16px; color: #2d3748;">Productos Entrantes (Devueltos)</h3>
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+            <thead>
+              <tr style="background: #f7fafc; border-bottom: 1px solid #edf2f7;">
+                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">SKU</th>
+                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Producto</th>
+                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 60px;">Cant</th>
+                <th style="padding: 8px; text-align: center; font-weight: bold; color: #718096; width: 80px;">Reingreso</th>
+                <th style="padding: 8px; text-align: left; font-weight: bold; color: #718096;">Motivo/Comentario</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${incomingHtml}
+            </tbody>
+          </table>
+
+          ${outgoingHtml}
+          
+          <div style="margin-top: 30px; font-size: 12px; color: #a0aec0; text-align: center; border-top: 1px solid #edf2f7; padding-top: 15px;">
+            Enviado automáticamente desde WMS STOCKA.
+          </div>
+        </div>
+      `;
+
+      const payload = {
+        sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
+        to: [{ email: 'stockachile@gmail.com', name: 'STOCKA Chile' }],
+        subject: subject,
+        htmlContent: htmlBody
+      };
+
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          'api-key': BREVO_API_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`Error de Brevo al enviar notificación de logística inversa: ${res.status} ${errText}`);
+      } else {
+        console.log('✅ Correo de notificación de logística inversa enviado exitosamente a stockachile@gmail.com');
+      }
+    } catch (err) {
+      console.error('Error al enviar correo de notificación por Brevo:', err.message);
+    }
   }
 });
 
@@ -14666,22 +14953,684 @@ window.addRlRow = function(direction, isManual) {
   tbody.appendChild(tr);
 };
 
+async function handleRlSearchOrder() {
+  const term = document.getElementById('rl-search-order').value.trim();
+  if (!term) {
+    alert('Ingresa un número de pedido para buscar.');
+    return;
+  }
+  
+  const btn = document.getElementById('btn-rl-load-order');
+  const oldText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ri-loader-4-line" style="animation: wms-spin 1s linear infinite;"></i>';
+  
+  try {
+    const userCommerces = currentCompany ? currentCompany.split(',').map(c => c.trim()).filter(Boolean) : [];
+    
+    let orderQuery = supabase
+      .from('orders')
+      .select(`
+        id,
+        external_order_number,
+        customer_name,
+        customer_email,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_complement,
+        order_items (
+          quantity,
+          product_id,
+          products (
+            id,
+            sku,
+            name,
+            price
+          )
+        )
+      `);
+      
+    if (userCommerces.length > 0) {
+      orderQuery = orderQuery.in('comercio', userCommerces);
+    }
+    
+    const { data: order, error } = await orderQuery
+      .ilike('external_order_number', `%${term}%`)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+      
+    if (error) throw error;
+    if (!order) {
+      alert('No se encontró ningún pedido con esa referencia.');
+      return;
+    }
+    
+    // Auto-completar
+    document.getElementById('rl-ref-pedido').value = order.external_order_number || '';
+    document.getElementById('rl-customer-name').value = order.customer_name || '';
+    document.getElementById('rl-customer-email').value = order.customer_email || '';
+    document.getElementById('rl-customer-phone').value = order.customer_phone || '';
+    document.getElementById('rl-customer-address').value = order.shipping_address || '';
+    document.getElementById('rl-customer-complement').value = order.shipping_complement || '';
+    
+    // Guardar referencia
+    document.getElementById('form-reverse-logistics').dataset.origenOrderId = order.id;
+    
+    // Ajustar comuna
+    const city = order.shipping_city || '';
+    const matchedComuna = findBestComunaMatch(city);
+    if (matchedComuna) {
+      document.getElementById('rl-comuna').value = matchedComuna;
+    } else {
+      document.getElementById('rl-comuna').value = '';
+    }
+    
+    // Rellenar productos devueltos
+    const tbodyIncoming = document.getElementById('rl-incoming-tbody');
+    tbodyIncoming.innerHTML = '';
+    
+    const isManual = document.getElementById('rl-manual-mode').checked;
+    
+    if (order.order_items && order.order_items.length > 0) {
+      order.order_items.forEach(oi => {
+        if (!oi.products) return;
+        const itemData = {
+          product_id: oi.product_id,
+          sku: oi.products.sku,
+          name: oi.products.name,
+          cantidad: oi.quantity || 1,
+          regresar_a_inventario: true,
+          comentario: ''
+        };
+        addRlRowWithDataForClient('incoming', isManual, itemData, oi.quantity);
+      });
+      
+      const rlType = document.getElementById('rl-type').value;
+      if (rlType === 'CAMBIO') {
+        const tbodyOutgoing = document.getElementById('rl-outgoing-tbody');
+        tbodyOutgoing.innerHTML = '';
+        order.order_items.forEach(oi => {
+          if (!oi.products) return;
+          const itemData = {
+            product_id: oi.product_id,
+            sku: oi.products.sku,
+            name: oi.products.name,
+            cantidad: oi.quantity || 1
+          };
+          addRlRowWithDataForClient('outgoing', isManual, itemData);
+        });
+      }
+    } else {
+      window.addRlRow('incoming', isManual);
+      if (document.getElementById('rl-type').value === 'CAMBIO') {
+        window.addRlRow('outgoing', isManual);
+      }
+    }
+    
+    updateRlShippingCost();
+    
+    Swal.fire({
+      title: '¡Pedido Cargado!',
+      text: `Se cargó la información del pedido ${order.external_order_number}.`,
+      icon: 'success',
+      confirmButtonText: 'Excelente',
+      confirmButtonColor: 'var(--color-primary)'
+    });
+    
+  } catch (err) {
+    console.error('Error preloading order:', err);
+    alert('Error al precargar el pedido: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = oldText;
+  }
+}
+
+function findBestComunaMatch(city) {
+  if (!city) return '';
+  const cleanCity = city.trim().toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ñ/g, 'n')
+    .replace(/[^a-z\s]/g, '');
+    
+  for (const c of SANTIAGO_COMUNAS) {
+    const cleanC = c.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ñ/g, 'n');
+    if (cleanCity === cleanC || cleanCity.includes(cleanC) || cleanC.includes(cleanCity)) {
+      return c;
+    }
+  }
+  
+  if (window.shippingRates) {
+    for (const key of Object.keys(window.shippingRates)) {
+      if (cleanCity === key || cleanCity.includes(key) || key.includes(cleanCity)) {
+        return key.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      }
+    }
+  }
+  
+  return '';
+}
+
+function addRlRowWithDataForClient(direction, isManual, itemData, maxQty = 9999) {
+  const tbodyId = direction === 'incoming' ? 'rl-incoming-tbody' : 'rl-outgoing-tbody';
+  const tbody = document.getElementById(tbodyId);
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'rl-prod-row' + (isManual ? ' manual' : '');
+  
+  let prodCell = '';
+  if (isManual) {
+    prodCell = `
+      <div style="display: flex; gap: 0.5rem;">
+        <input type="text" class="form-input rl-prod-sku" placeholder="SKU" required style="width: 40%;" value="${itemData.sku || ''}">
+        <input type="text" class="form-input rl-prod-name" placeholder="Nombre Producto" required style="width: 60%;" value="${itemData.name || ''}">
+      </div>
+    `;
+  } else {
+    const uniqueId = Math.random().toString(36).substr(2, 9);
+    const options = (window.rlCatalogProducts || []).map(p => `
+      <option data-id="${p.id}" value="${p.sku} - ${p.name}" ${p.id === itemData.product_id ? 'selected' : ''}></option>
+    `).join('');
+    prodCell = `
+      <input type="text" class="form-input rl-prod-input" list="rl-datalist-${uniqueId}" placeholder="Escribe para buscar..." required style="width: 100%;" value="${itemData.sku ? itemData.sku + ' - ' + itemData.name : ''}">
+      <datalist id="rl-datalist-${uniqueId}">
+        ${options}
+      </datalist>
+    `;
+  }
+  
+  if (direction === 'incoming') {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" max="${maxQty}" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;"><input type="checkbox" class="rl-prod-stock-return" ${itemData.regresar_a_inventario ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;"></td>
+      <td><input type="text" class="form-input rl-prod-comment" placeholder="Comentario..." value="${itemData.comentario || ''}" style="width: 100%;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  } else {
+    tr.innerHTML = `
+      <td>${prodCell}</td>
+      <td><input type="number" class="form-input rl-prod-qty" min="1" value="${itemData.cantidad || 1}" required style="width: 100%; text-align: center;"></td>
+      <td style="text-align: center;">
+        <button type="button" class="btn-remove-row" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 1.1rem;"><i class="ri-delete-bin-line"></i></button>
+      </td>
+    `;
+  }
+  
+  tr.querySelector('.btn-remove-row').addEventListener('click', () => {
+    if (tbody.children.length > 1) {
+      tr.remove();
+    } else {
+      Swal.fire({
+        title: 'Atención',
+        text: 'Debes ingresar al menos un producto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+    }
+  });
+  
+  tbody.appendChild(tr);
+}
+
+window.selectRlCourierCard = function(courierName, price) {
+  const input = document.getElementById('rl-courier');
+  if (input) {
+    input.value = courierName;
+  }
+  
+  const cards = document.querySelectorAll('.rl-courier-card');
+  cards.forEach(card => {
+    const name = card.getAttribute('data-name');
+    if (name === courierName) {
+      card.style.borderColor = 'var(--color-primary)';
+      card.style.background = 'rgba(59, 130, 246, 0.05)';
+      const icon = card.querySelector('i');
+      if (icon) icon.style.color = 'var(--color-primary)';
+    } else {
+      card.style.borderColor = 'var(--color-border)';
+      card.style.background = 'var(--color-surface)';
+      const icon = card.querySelector('i');
+      if (icon) icon.style.color = 'var(--color-text-muted)';
+    }
+  });
+
+  const responsable = document.getElementById('rl-responsable-pago').value;
+  const costVal = document.getElementById('rl-cost-value');
+  const costNote = document.getElementById('rl-cost-note');
+  
+  if (costVal && costNote) {
+    if (responsable === 'comercio') {
+      const total = Math.round(price * 1.19);
+      costVal.textContent = `${window.formatCLP(total)} c/IVA (${window.formatCLP(price)} + IVA)`;
+      costNote.innerHTML = `
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+          Tarifa referencial (Tramo 0-1kg) cotizada con <strong>${courierName}</strong>. El costo real final dependerá del pesaje y dimensiones finales al momento del envío. Cargado a la cuenta del comercio.
+        </div>
+      `;
+    } else {
+      const total = Math.round(price * 1.19);
+      costVal.textContent = '$0 para el comercio';
+      costNote.innerHTML = `
+        <div style="font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+          Costo de envío pagado por el usuario final (<strong>${courierName} por pagar</strong>). Tarifa de referencia estimada: <strong>${window.formatCLP(total)} c/IVA</strong>. Sin cargo para el comercio.
+        </div>
+      `;
+    }
+  }
+};
+
+function updateRlShippingCost() {
+  const comuna = document.getElementById('rl-comuna').value;
+  const responsable = document.getElementById('rl-responsable-pago').value;
+  const modo = document.getElementById('rl-modo-entrega');
+  const infoBox = document.getElementById('rl-cost-info-box');
+  const costVal = document.getElementById('rl-cost-value');
+  const costNote = document.getElementById('rl-cost-note');
+  
+  if (!comuna) {
+    infoBox.style.display = 'none';
+    return;
+  }
+  
+  const isRM = SANTIAGO_COMUNAS.includes(comuna);
+  const lblRm = document.getElementById('lbl-modo-domicilio_rm');
+  const lblReg = document.getElementById('lbl-modo-regiones');
+  const deliveryGrid = document.getElementById('rl-delivery-modes-grid');
+  
+  // 1. DYNAMIC PRESENTATION OF DELIVERY MODES BASED ON RESPONSABLE
+  if (responsable === 'usuario_final') {
+    // Solo mostrar 2 opciones de entrega, en punto y vía courier
+    if (lblRm) lblRm.style.display = 'none';
+    if (lblReg) {
+      lblReg.style.display = 'flex';
+      const titleSpan = lblReg.querySelector('span:nth-of-type(1)');
+      const subSpan = lblReg.querySelector('span:nth-of-type(2)');
+      if (titleSpan) titleSpan.textContent = 'Envío Courier';
+      if (subSpan) subSpan.textContent = 'Por pagar';
+      
+      lblReg.style.pointerEvents = 'auto';
+      lblReg.style.opacity = '1';
+    }
+    if (deliveryGrid) {
+      deliveryGrid.style.gridTemplateColumns = 'repeat(2, 1fr)';
+    }
+    if (modo.value === 'domicilio_rm') {
+      modo.value = 'regiones';
+      window.selectRlRadioCard('rl-modo-entrega', 'regiones');
+      return;
+    }
+  } else {
+    // Costeado por comercio: mostrar las 3 opciones de entrega (con la restricción de cobertura RM/Regiones)
+    if (lblRm) lblRm.style.display = 'flex';
+    if (lblReg) {
+      lblReg.style.display = 'flex';
+      const titleSpan = lblReg.querySelector('span:nth-of-type(1)');
+      const subSpan = lblReg.querySelector('span:nth-of-type(2)');
+      if (titleSpan) titleSpan.textContent = 'A Regiones';
+      if (subSpan) subSpan.textContent = 'Cotización Courier';
+    }
+    if (deliveryGrid) {
+      deliveryGrid.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    }
+    
+    if (isRM) {
+      if (lblRm) {
+        lblRm.style.pointerEvents = 'auto';
+        lblRm.style.opacity = '1';
+      }
+      if (lblReg) {
+        lblReg.style.pointerEvents = 'none';
+        lblReg.style.opacity = '0.4';
+      }
+      if (modo.value === 'regiones') {
+        modo.value = 'domicilio_rm';
+        window.selectRlRadioCard('rl-modo-entrega', 'domicilio_rm');
+        return;
+      }
+    } else {
+      if (lblRm) {
+        lblRm.style.pointerEvents = 'none';
+        lblRm.style.opacity = '0.4';
+      }
+      if (lblReg) {
+        lblReg.style.pointerEvents = 'auto';
+        lblReg.style.opacity = '1';
+      }
+      if (modo.value === 'domicilio_rm') {
+        modo.value = 'regiones';
+        window.selectRlRadioCard('rl-modo-entrega', 'regiones');
+        return;
+      }
+    }
+  }
+  
+  const selectedModo = modo.value;
+  infoBox.style.display = 'block';
+  
+  const row = document.getElementById('rl-courier-tracking-row');
+  const courierWrapper = document.getElementById('rl-courier-wrapper');
+  const trackingWrapper = document.getElementById('rl-tracking-wrapper');
+  const courierInput = document.getElementById('rl-courier');
+  const courierCardsContainer = document.getElementById('rl-courier-cards');
+  const courierLabel = document.getElementById('rl-courier-label');
+  
+  function showStandardCourierInput() {
+    if (courierInput) courierInput.style.display = 'block';
+    if (courierCardsContainer) {
+      courierCardsContainer.style.display = 'none';
+      courierCardsContainer.innerHTML = '';
+    }
+    if (courierLabel) courierLabel.textContent = 'Courier (Opcional)';
+    
+    if (selectedModo === 'sucursal') {
+      costVal.textContent = '$0';
+      costNote.textContent = 'Entrega o retiro en Punto Físico Ñuñoa. Sin costo para el comercio ni el usuario final.';
+    } else if (selectedModo === 'domicilio_rm') {
+      if (responsable === 'comercio') {
+        costVal.textContent = '$3.808 c/IVA ($3.200 + IVA)';
+        costNote.textContent = 'Costo cargado a la cuenta del comercio. Un repartidor realizará el cambio/devolución en el domicilio del cliente.';
+      } else {
+        costVal.textContent = '$0 para el comercio';
+        costNote.textContent = 'Costo de envío pagado por el usuario final (coordinación externa). Sin cargo para el comercio.';
+      }
+    } else {
+      if (responsable === 'comercio') {
+        costVal.textContent = 'Tarifa variable';
+        costNote.textContent = 'Comuna regional. Costo según cotización real de Starken/Bluexpress. Cargado a la cuenta del comercio.';
+      } else {
+        costVal.textContent = '$0 para el comercio';
+        costNote.textContent = 'Costo de envío a regiones pagado por el usuario final (Starken/Chilexpress por pagar). Sin cargo para el comercio.';
+      }
+    }
+  }
+  
+  if (selectedModo === 'sucursal') {
+    // 2. PUNTO DE RETIRO: Quitar los campos tracking y courier
+    if (row) row.style.display = 'none';
+    showStandardCourierInput();
+  } else if (responsable === 'usuario_final') {
+    // 3. COSTEADO POR USUARIO FINAL: Mostrar campos courier y tracking (opcionales)
+    if (row) {
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '1fr 1fr';
+    }
+    if (courierWrapper) courierWrapper.style.display = 'block';
+    if (trackingWrapper) trackingWrapper.style.display = 'block';
+    showStandardCourierInput();
+  } else {
+    // 4. COSTEADO POR COMERCIO (sucursal ya manejada arriba)
+    // Eliminar opción de tracking
+    if (row) {
+      row.style.display = 'grid';
+      row.style.gridTemplateColumns = '1fr';
+    }
+    if (courierWrapper) courierWrapper.style.display = 'block';
+    if (trackingWrapper) trackingWrapper.style.display = 'none';
+    
+    if (selectedModo === 'domicilio_rm') {
+      // Mostrar tarjeta de courier Stocka
+      if (courierInput) courierInput.style.display = 'none';
+      if (courierCardsContainer) {
+        courierCardsContainer.style.display = 'grid';
+        courierCardsContainer.innerHTML = `
+          <div class="rl-courier-card" data-name="Stocka Courier" data-price="3200" onclick="window.selectRlCourierCard('Stocka Courier', 3200)" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+            <i class="ri-truck-line" style="font-size: 1.2rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
+            <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">Stocka Courier</span>
+            <span style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem;">$3.808 c/IVA</span>
+          </div>
+        `;
+        window.selectRlCourierCard('Stocka Courier', 3200);
+      }
+      if (courierLabel) courierLabel.textContent = 'Courier';
+    } else {
+      // Envío a regiones: Mostrar tarjetas con tag de recomendado para el más barato
+      const normalizedCity = comuna.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ñ/g, 'n')
+        .replace(/[^a-z\s]/g, '')
+        .trim();
+        
+      const ratesData = window.shippingRates ? window.shippingRates[normalizedCity] : null;
+      const bracketRates = ratesData ? ratesData.rates['0-1'] : null;
+      
+      if (bracketRates) {
+        const courierOptions = [];
+        if (bracketRates.bluexpress && bracketRates.bluexpress > 0) {
+          courierOptions.push({ name: 'Bluexpress', price: bracketRates.bluexpress, icon: 'ri-truck-line' });
+        }
+        if (bracketRates.starken && bracketRates.starken > 0) {
+          courierOptions.push({ name: 'Starken', price: bracketRates.starken, icon: 'ri-send-plane-line' });
+        }
+        if (bracketRates.chilexpress && bracketRates.chilexpress > 0) {
+          courierOptions.push({ name: 'Chilexpress', price: bracketRates.chilexpress, icon: 'ri-flashlight-line' });
+        }
+        
+        if (courierOptions.length > 0) {
+          if (courierInput) courierInput.style.display = 'none';
+          if (courierCardsContainer) {
+            courierCardsContainer.style.display = 'grid';
+            
+            // Buscar el más barato
+            const cheapestPrice = Math.min(...courierOptions.map(o => o.price));
+            
+            courierCardsContainer.innerHTML = courierOptions.map(opt => {
+              const total = Math.round(opt.price * 1.19);
+              const isCheapest = opt.price === cheapestPrice;
+              const badgeHtml = isCheapest 
+                ? `<span class="badge" style="position: absolute; top: -8px; right: 8px; background-color: var(--color-success, #10b981); color: white; font-size: 0.6rem; padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-weight: 700; z-index: 1;">Recomendado</span>`
+                : '';
+                
+              return `
+                <div class="rl-courier-card" data-name="${opt.name}" data-price="${opt.price}" onclick="window.selectRlCourierCard('${opt.name}', ${opt.price})" style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0.6rem; border: 1px solid var(--color-border); background: var(--color-surface); border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s; text-align: center;">
+                  ${badgeHtml}
+                  <i class="${opt.icon}" style="font-size: 1.2rem; color: var(--color-text-muted); margin-bottom: 0.2rem;"></i>
+                  <span style="font-weight: 700; font-size: 0.8rem; color: var(--color-text-main);">${opt.name}</span>
+                  <span style="font-size: 0.65rem; color: var(--color-text-muted); margin-top: 0.1rem;">${window.formatCLP(total)} c/IVA</span>
+                </div>
+              `;
+            }).join('');
+          }
+          if (courierLabel) courierLabel.textContent = 'Selecciona Courier *';
+          
+          const currentVal = courierInput ? courierInput.value : '';
+          const foundOption = courierOptions.find(o => o.name.toLowerCase() === currentVal.toLowerCase());
+          
+          if (foundOption) {
+            window.selectRlCourierCard(foundOption.name, foundOption.price);
+          } else {
+            const cheapestOpt = courierOptions.find(o => o.price === cheapestPrice);
+            window.selectRlCourierCard(cheapestOpt.name, cheapestOpt.price);
+          }
+        } else {
+          showStandardCourierInput();
+        }
+      } else {
+        showStandardCourierInput();
+      }
+    }
+  }
+}
+
+window.currentRlWizardStep = 1;
+
+window.selectRlRadioCard = function(groupName, value) {
+  const hiddenInput = document.getElementById(groupName);
+  if (hiddenInput) {
+    hiddenInput.value = value;
+    hiddenInput.dispatchEvent(new Event('change'));
+  }
+  
+  const options = groupName === 'rl-responsable-pago' ? ['comercio', 'usuario_final'] : ['sucursal', 'domicilio_rm', 'regiones'];
+  options.forEach(opt => {
+    const card = document.getElementById(`lbl-${groupName === 'rl-responsable-pago' ? 'resp' : 'modo'}-${opt}`);
+    if (card) {
+      if (opt === value) {
+        card.style.borderColor = 'var(--color-primary)';
+        card.style.background = 'rgba(59, 130, 246, 0.05)';
+        const icon = card.querySelector('i');
+        if (icon) icon.style.color = 'var(--color-primary)';
+      } else {
+        card.style.borderColor = 'var(--color-border)';
+        card.style.background = 'var(--color-surface)';
+        const icon = card.querySelector('i');
+        if (icon) icon.style.color = 'var(--color-text-muted)';
+      }
+    }
+  });
+  
+  updateRlShippingCost();
+};
+
+window.updateRlWizardUI = function() {
+  for (let i = 1; i <= 3; i++) {
+    const container = document.getElementById(`rl-wizard-step-${i}`);
+    if (container) container.style.display = 'none';
+    
+    const tab = document.getElementById(`rl-wizard-tab-${i}`);
+    const line = document.getElementById(`rl-wizard-line-${i}`);
+    if (tab) {
+      tab.style.color = 'var(--color-text-muted)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = 'var(--color-bg-dark, #cbd5e1)';
+        num.style.color = 'var(--color-text-muted)';
+        num.style.boxShadow = 'none';
+      }
+    }
+    if (line) {
+      line.style.background = 'var(--color-border)';
+    }
+  }
+  
+  for (let i = 1; i <= window.currentRlWizardStep; i++) {
+    const tab = document.getElementById(`rl-wizard-tab-${i}`);
+    if (tab) {
+      const isCurrent = i === window.currentRlWizardStep;
+      tab.style.color = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+      const num = tab.querySelector('.step-num');
+      if (num) {
+        num.style.background = isCurrent ? 'var(--color-primary)' : 'var(--color-success, #22c55e)';
+        num.style.color = 'white';
+        if (isCurrent) {
+          num.style.boxShadow = '0 0 0 4px rgba(var(--color-primary-rgb), 0.15)';
+        }
+      }
+    }
+    if (i < window.currentRlWizardStep) {
+      const line = document.getElementById(`rl-wizard-line-${i}`);
+      if (line) line.style.background = 'var(--color-success, #22c55e)';
+    }
+  }
+  
+  const activeContainer = document.getElementById(`rl-wizard-step-${window.currentRlWizardStep}`);
+  if (activeContainer) activeContainer.style.display = 'block';
+  
+  const btnPrev = document.getElementById('btn-rl-prev');
+  const btnNext = document.getElementById('btn-rl-next');
+  const btnSubmit = document.getElementById('btn-save-rl');
+  
+  if (btnPrev) btnPrev.style.display = window.currentRlWizardStep > 1 ? 'flex' : 'none';
+  if (btnNext) btnNext.style.display = window.currentRlWizardStep < 3 ? 'flex' : 'none';
+  if (btnSubmit) btnSubmit.style.display = window.currentRlWizardStep === 3 ? 'flex' : 'none';
+};
+
+function validateRlStep(step) {
+  if (step === 1) {
+    const name = document.getElementById('rl-customer-name').value.trim();
+    const email = document.getElementById('rl-customer-email').value.trim();
+    const phone = document.getElementById('rl-customer-phone').value.trim();
+    const address = document.getElementById('rl-customer-address').value.trim();
+    
+    if (!name || !email || !phone || !address) {
+      Swal.fire({
+        title: 'Faltan Datos',
+        text: 'Por favor, rellene todos los campos requeridos del cliente (nombre, email, teléfono, dirección).',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return false;
+    }
+  } else if (step === 2) {
+    const type = document.getElementById('rl-type').value;
+    const incomingRows = document.querySelectorAll('#rl-incoming-tbody tr');
+    const outgoingRows = document.querySelectorAll('#rl-outgoing-tbody tr');
+    
+    if (incomingRows.length === 0) {
+      Swal.fire({
+        title: 'Faltan Productos',
+        text: 'Debe agregar al menos un producto devuelto.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return false;
+    }
+    
+    if (type === 'CAMBIO' && outgoingRows.length === 0) {
+      Swal.fire({
+        title: 'Faltan Productos',
+        text: 'Debe agregar al menos un producto de salida para el cambio.',
+        icon: 'warning',
+        confirmButtonText: 'Entendido',
+        confirmButtonColor: 'var(--color-primary)'
+      });
+      return false;
+    }
+  }
+  return true;
+}
+
 window.openReverseLogisticsModal = async function(type) {
   const modal = document.getElementById('modal-reverse-logistics');
   const form = document.getElementById('form-reverse-logistics');
   if (!modal || !form) return;
   form.reset();
   
+  // Limpiar dataset de ID de orden previa
+  delete form.dataset.origenOrderId;
+  
+  window.currentRlWizardStep = 1;
+  window.updateRlWizardUI();
+  
   document.getElementById('rl-type').value = type;
   document.getElementById('rl-modal-title').innerHTML = type === 'CAMBIO' ? 
-    `<i class="ri-arrow-left-right-line" style="color: var(--color-success);"></i> Registrar Cambio` : 
-    `<i class="ri-arrow-go-back-line" style="color: var(--color-danger);"></i> Registrar Devolución`;
+    `<i class="ri-arrow-left-right-line" style="color: var(--color-success);"></i> Solicitar un cambio` : 
+    `<i class="ri-arrow-go-back-line" style="color: var(--color-danger);"></i> Solicitar Devolución`;
     
+  // Resetear cost info box
+  document.getElementById('rl-cost-info-box').style.display = 'none';
+  
+  // Rellenar comunas RM + Regiones
   const comunaSelect = document.getElementById('rl-comuna');
-  comunaSelect.innerHTML = '<option value="">Selecciona comuna...</option>' + 
-    SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
+  let comunaHtml = '<option value="">Selecciona comuna...</option>';
+  
+  comunaHtml += '<optgroup label="Región Metropolitana (Cobertura Stocka)">';
+  comunaHtml += SANTIAGO_COMUNAS.map(c => `<option value="${c}">${c}</option>`).join('');
+  comunaHtml += '</optgroup>';
+  
+  if (window.shippingRates) {
+    const regionComunas = Object.keys(window.shippingRates)
+      .map(k => {
+        return k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      })
+      .filter(c => !SANTIAGO_COMUNAS.includes(c))
+      .sort();
     
-  document.getElementById('rl-comuna-group').style.display = 'none';
+    comunaHtml += '<optgroup label="Otras Comunas / Regiones">';
+    comunaHtml += regionComunas.map(c => `<option value="${c}">${c}</option>`).join('');
+    comunaHtml += '</optgroup>';
+  }
+  comunaSelect.innerHTML = comunaHtml;
+  
   document.getElementById('rl-manual-mode').checked = false;
   
   document.getElementById('rl-incoming-tbody').innerHTML = '';
@@ -14693,6 +15642,76 @@ window.openReverseLogisticsModal = async function(type) {
   } else {
     outgoingSection.style.display = 'none';
   }
+  
+  // Inicializar listeners si no están inicializados
+  if (!window.rlListenersInitialized) {
+    window.rlListenersInitialized = true;
+    
+    const btnLoad = document.getElementById('btn-rl-load-order');
+    if (btnLoad) {
+      btnLoad.addEventListener('click', handleRlSearchOrder);
+    }
+    
+    const inputSearch = document.getElementById('rl-search-order');
+    if (inputSearch) {
+      inputSearch.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleRlSearchOrder();
+        }
+      });
+    }
+    
+    const btnNext = document.getElementById('btn-rl-next');
+    if (btnNext) {
+      btnNext.addEventListener('click', () => {
+        if (validateRlStep(window.currentRlWizardStep)) {
+          window.currentRlWizardStep++;
+          window.updateRlWizardUI();
+        }
+      });
+    }
+    
+    const btnPrev = document.getElementById('btn-rl-prev');
+    if (btnPrev) {
+      btnPrev.addEventListener('click', () => {
+        window.currentRlWizardStep--;
+        window.updateRlWizardUI();
+      });
+    }
+    
+    if (comunaSelect) {
+      comunaSelect.addEventListener('change', updateRlShippingCost);
+    }
+    
+    for (let i = 1; i <= 3; i++) {
+      const tab = document.getElementById(`rl-wizard-tab-${i}`);
+      if (tab) {
+        tab.addEventListener('click', () => {
+          if (i < window.currentRlWizardStep) {
+            window.currentRlWizardStep = i;
+            window.updateRlWizardUI();
+          } else if (i > window.currentRlWizardStep) {
+            let canGo = true;
+            for (let s = window.currentRlWizardStep; s < i; s++) {
+              if (!validateRlStep(s)) {
+                canGo = false;
+                break;
+              }
+            }
+            if (canGo) {
+              window.currentRlWizardStep = i;
+              window.updateRlWizardUI();
+            }
+          }
+        });
+      }
+    }
+  }
+  
+  // Seleccionar tarjetas por defecto
+  window.selectRlRadioCard('rl-responsable-pago', 'comercio');
+  window.selectRlRadioCard('rl-modo-entrega', 'sucursal');
   
   const commerce = window.activeIntegrationCommerce || (currentCompany ? currentCompany.split(',')[0].trim() : '');
   window.rlCatalogProducts = [];

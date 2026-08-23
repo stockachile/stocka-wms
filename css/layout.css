@@ -254,10 +254,13 @@
 .sidebar.collapsed .sidebar-footer {
   padding: 1rem 0.5rem;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.sidebar.collapsed #logout-btn {
+.sidebar.collapsed #logout-btn,
+.sidebar.collapsed #sidebar-support-btn {
   width: 40px !important;
   height: 40px;
   padding: 0 !important;
@@ -267,11 +270,13 @@
   justify-content: center;
 }
 
-.sidebar.collapsed #logout-btn .nav-text {
+.sidebar.collapsed #logout-btn .nav-text,
+.sidebar.collapsed #sidebar-support-btn .nav-text {
   display: none;
 }
 
-.sidebar.collapsed #logout-btn i {
+.sidebar.collapsed #logout-btn i,
+.sidebar.collapsed #sidebar-support-btn i {
   margin: 0;
   font-size: 1.2rem;
 }
@@ -1347,10 +1352,13 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
   
   .sidebar.collapsed .sidebar-footer {
     padding: 1.25rem 1rem !important;
-    display: block !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.5rem !important;
   }
   
-  .sidebar.collapsed #logout-btn {
+  .sidebar.collapsed #logout-btn,
+  .sidebar.collapsed #sidebar-support-btn {
     width: 100% !important;
     height: auto !important;
     padding: 0.5rem 1rem !important;
@@ -1361,11 +1369,38 @@ tr:nth-child(n+3):nth-last-child(3) .table-action-menu-content {
     gap: 0.5rem !important;
   }
   
-  .sidebar.collapsed #logout-btn .nav-text {
+  .sidebar.collapsed #logout-btn .nav-text,
+  .sidebar.collapsed #sidebar-support-btn .nav-text {
     display: inline !important;
   }
   
-  .sidebar.collapsed #logout-btn i {
+  .sidebar.collapsed #logout-btn i,
+  .sidebar.collapsed #sidebar-support-btn i {
     margin: 0 !important;
   }
+}
+
+/* Styling for Support Button in Sidebar to stand out */
+#sidebar-support-btn.btn-accent {
+  background-color: var(--color-accent) !important;
+  color: var(--color-surface) !important;
+  font-weight: 600 !important;
+  border-left: none !important;
+  border: none !important;
+  transition: all 0.2s ease-in-out !important;
+}
+
+#sidebar-support-btn.btn-accent:hover {
+  background-color: var(--color-accent-hover, #4b12bd) !important;
+  color: var(--color-surface) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+
+#sidebar-support-btn.btn-accent.active {
+  background-color: var(--color-accent) !important;
+  color: var(--color-surface) !important;
+  border-left-color: transparent !important;
+  background-image: none !important;
+  box-shadow: 0 0 12px rgba(94, 23, 235, 0.4) !important;
 }

@@ -746,5 +746,7 @@ window.loadShippingRatesFromSupabase = async function() {
 // Cargar tarifas de manera asíncrona no bloqueante
 window.loadShippingRatesFromSupabase();
 
+window.supabaseClient = supabase;
+
 export { supabase };
 export default supabase;

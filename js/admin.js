@@ -3003,9 +3003,9 @@ window.applyWmsFiltersAndRender = function() {
     }
 
     const platform = order.origen || order.external_platform || 'Manual';
-    const platformColor = platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280'))))))));
-    const platformLower = platform.toLowerCase() === 'manual' ? 'stocka.cap' : platform.toLowerCase();
-    const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase;\\'>${platform}</span>';" />`;
+    const platformColor = platform === 'Logística Inversa' ? '#0284c7' : (platform === 'Paris' ? '#e11d48' : (platform === 'Ripley' ? '#7c3aed' : (platform === 'Shopify' ? '#96bf48' : (platform === 'Falabella' ? '#84cc16' : (platform === 'MercadoLibre' ? '#f59e0b' : (platform === 'Walmart' ? '#0071ce' : (platform === 'WooCommerce' ? '#96588a' : (platform === 'Jumpseller' ? '#0284c7' : (platform === 'Tiendanube' ? '#06b6d4' : '#6b7280')))))))));
+    const platformLower = (platform.toLowerCase() === 'manual' || platform.toLowerCase() === 'logística inversa') ? 'stocka.cap' : platform.toLowerCase();
+    const originHtml = `<img src="./img/${platformLower}.png" alt="${platform}" title="${platform}" style="height: 42px; max-width: 120px; object-fit: contain; vertical-align: middle;" onerror="this.onerror=null; this.outerHTML='<span style=\\'background-color: ${platformColor}15; color: ${platformColor}; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; white-space: nowrap;\\'>${platform}</span>';" />`;
 
     const skuStr = order.sku || order.order_items?.map(oi => oi.products?.sku).filter(Boolean).join(', ') || 'Sin SKU';
     const nameStr = order.item || order.order_items?.map(oi => oi.products?.name).filter(Boolean).join(', ') || 'Sin Nombre';
@@ -20038,6 +20038,12 @@ window.renderDeclarationsAdmin = async function() {
                   <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
                     <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
                   </button>
+                  <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
+                    <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
+                  </button>
+                  <button class="table-action-menu-item" onclick="window.exportDeclarationToPDF('${dec.id}')" title="Comprobante general del ingreso">
+                    <i class="ri-file-pdf-line" style="color: var(--color-primary);"></i> Comprobante PDF
+                  </button>
                   <button class="table-action-menu-item" onclick="downloadBase64File('${dec.file_base64}', '${dec.file_name}')">
                     <i class="ri-file-excel-2-line" style="color: var(--color-success);"></i> Planilla
                   </button>
@@ -36934,19 +36940,72 @@ window.exportDeclarationToPDF = async function(id) {
             <p style="margin: 4px 0;"><strong>Bultos Totales:</strong> ${dec.package_count} (${dec.package_type})</p>
             <p style="margin: 4px 0; font-size: 11px; color: #64748b; margin-left: 10px;">• C: ${dec.container_count || 0} | P: ${dec.pallet_count || 0} | Cx: ${dec.box_count || 0}</p>
             <p style="margin: 4px 0;"><strong>Método de Envío:</strong> ${dec.delivery_method}</p>
-            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado' : 'No solicitado'}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Descarga:</strong> ${dec.requires_unloading ? 'Sí, solicitado (0.1 UF/m³)' : 'No solicitado ($0)'}</p>
+            <p style="margin: 4px 0;"><strong>Servicio Etiquetado:</strong> ${(() => {
+              const lt = dec.labeling_type || 'completely';
+              const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+              const lqConf = (dec.labeling_qty_confirmed !== null && dec.labeling_qty_confirmed !== undefined) ? dec.labeling_qty_confirmed : null;
+              if (lt === 'completely') return 'Completamente Etiquetado (0 uds - Sin costo adicional)';
+              if (lt === 'partially') return `Parcialmente Etiquetado (${lqReq} uds solicitadas${lqConf !== null ? ` | ${lqConf} uds confirmadas` : ''})`;
+              return `Sin Etiquetado - Solicitud Total (${lqReq} uds solicitadas${lqConf !== null ? ` | ${lqConf} uds confirmadas` : ''})`;
+            })()}</p>
           </div>
         </div>
 
-        <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 12px; display: flex; justify-content: space-between; align-items: center; line-height: 1.4;">
-          <div>
-            <h3 style="margin: 0 0 2px 0; font-size: 13px; color: #166534; font-weight: 700;">Resumen Económico Estimado</h3>
-            <span style="color: #475569; font-size: 10px;">* El costo definitivo se liquidará con el volumen físico confirmado en bodega.</span>
-          </div>
-          <div style="text-align: right;">
-            <span style="font-size: 15px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 6px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">Total: ${(dec.estimated_cost || 0).toFixed(2)} UF</span>
-          </div>
-        </div>
+        <!-- Resumen Económico Desglosado -->
+        ${(() => {
+          const vol = Number(dec.volume_declared || 0);
+          const unlEst = dec.requires_unloading ? (0.1 * vol) : 0;
+          let surEst = 0;
+          if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+            const arrDate = new Date(dec.estimated_arrival_date + 'T00:00:00');
+            const creDate = new Date(dec.created_at || new Date());
+            const diffH = (arrDate.getTime() - creDate.getTime()) / (1000 * 60 * 60);
+            if (diffH < 24) surEst = 0.75 * vol;
+          }
+          const lt = dec.labeling_type || 'completely';
+          const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+          const ufR = window.modalUfRate || window.currentUfValue || 38200;
+          const labEstClp = lqReq * 100;
+          const labEstUf = labEstClp / ufR;
+          const totEstUf = (dec.estimated_cost !== undefined && dec.estimated_cost !== null && dec.estimated_cost > 0)
+            ? Number(dec.estimated_cost)
+            : (unlEst + surEst + labEstUf);
+          const totEstClp = Math.round(totEstUf * ufR);
+
+          return `
+            <div style="margin-bottom: 25px; background: #f0fdf4; padding: 15px; border-radius: 8px; border: 1px solid #bbf7d0; font-size: 11px; line-height: 1.5;">
+              <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #bbf7d0; padding-bottom: 8px; margin-bottom: 10px;">
+                <div>
+                  <h3 style="margin: 0; font-size: 13px; color: #166534; font-weight: 700; text-transform: uppercase;">Desglose y Configuración de Costos</h3>
+                  <span style="color: #475569; font-size: 10px;">Valor UF Referencial: $${Math.round(ufR).toLocaleString('es-CL')} CLP</span>
+                </div>
+                <div style="text-align: right;">
+                  <span style="font-size: 14px; font-weight: bold; color: #15803d; background: #dcfce7; padding: 5px 12px; border-radius: 6px; border: 1px solid #bbf7d0;">
+                    Total Estimado: ${totEstUf.toFixed(4)} UF (~ $${totEstClp.toLocaleString('es-CL')} CLP)
+                  </span>
+                </div>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; font-size: 10.5px; color: #334155;">
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">1. Descarga (0.1 UF/m³):</strong><br>
+                  ${dec.requires_unloading ? `${unlEst.toFixed(4)} UF (~ $${Math.round(unlEst * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No requerida)'}
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">2. Recargo Tardío (&lt; 24h):</strong><br>
+                  ${surEst > 0 ? `${surEst.toFixed(4)} UF (~ $${Math.round(surEst * ufR).toLocaleString('es-CL')} CLP)` : '0.00 UF (No aplica)'}
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 8px; border-radius: 6px; border: 1px solid #dcfce7;">
+                  <strong style="color: #166534;">3. Etiquetado ($100 CLP/ud):</strong><br>
+                  ${lqReq > 0 ? `${labEstUf.toFixed(4)} UF ($${labEstClp.toLocaleString('es-CL')} CLP)` : '0.00 UF (0 uds)'}
+                </div>
+              </div>
+              <div style="margin-top: 8px; font-size: 9.5px; color: #64748b;">
+                * El costo definitivo se liquida según el volumen físico y unidades de etiquetado efectivamente confirmadas en bodega.
+              </div>
+            </div>
+          `;
+        })()}
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; font-size: 11px; color: #475569; line-height: 1.5;">
           <div>
@@ -36998,6 +37057,396 @@ window.exportDeclarationToPDF = async function(id) {
   } catch (err) {
     console.error('Error generating PDF:', err);
     alert('Error al generar el PDF: ' + err.message);
+  }
+};
+
+window.exportDeclarationOperationsPDF = async function(id) {
+  try {
+    if (!id) {
+      alert('ID de declaración no válido.');
+      return;
+    }
+
+    // 1. Obtener la declaración y sus datos asociados
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*, warehouses(name, address, comuna, operating_days), profiles(company_name, email, full_name)')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!dec) throw new Error('No se encontró la declaración especificada.');
+
+    // 2. Formatear fechas
+    let etaText = '';
+    if (dec.estimated_arrival_type === 'exact' && dec.estimated_arrival_date) {
+      const [y, m, d] = dec.estimated_arrival_date.split('-');
+      etaText = `${d}/${m}/${y}`;
+    } else {
+      etaText = dec.estimated_arrival_period || 'No especificada';
+    }
+
+    const regDateObj = new Date(dec.created_at || new Date());
+    const regDateStr = `${String(regDateObj.getDate()).padStart(2, '0')}/${String(regDateObj.getMonth() + 1).padStart(2, '0')}/${regDateObj.getFullYear()} ${String(regDateObj.getHours()).padStart(2, '0')}:${String(regDateObj.getMinutes()).padStart(2, '0')}`;
+    const todayObj = new Date();
+    const todayStr = `${String(todayObj.getDate()).padStart(2, '0')}/${String(todayObj.getMonth() + 1).padStart(2, '0')}/${todayObj.getFullYear()} ${String(todayObj.getHours()).padStart(2, '0')}:${String(todayObj.getMinutes()).padStart(2, '0')}`;
+    const decCode = dec.id.substring(0, 8).toUpperCase();
+
+    // 3. Obtener productos de la declaración
+    let products = [];
+    if (dec.products_list && dec.products_list.length > 0) {
+      products = dec.products_list;
+    } else if (dec.file_base64) {
+      try {
+        const binaryString = window.atob(dec.file_base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const workbook = XLSX.read(bytes, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        if (rows && rows.length > 1) {
+          const headerRow = rows[0];
+          const skuIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'sku');
+          const nameIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'nombre producto');
+          const qtyIdx = headerRow.findIndex(h => h && h.toString().trim().toLowerCase() === 'cantidad declarada');
+          const barcodeIdx = headerRow.findIndex(h => h && (h.toString().trim().toLowerCase() === 'codigo de barra' || h.toString().trim().toLowerCase() === 'barcode' || h.toString().trim().toLowerCase() === 'ean'));
+
+          if (skuIdx !== -1 && nameIdx !== -1 && qtyIdx !== -1) {
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i];
+              if (!row || row.length === 0) continue;
+              const isEmptyRow = row.every(val => val === null || val === undefined || val.toString().trim() === '');
+              if (isEmptyRow) continue;
+
+              const sku = row[skuIdx] ? row[skuIdx].toString().trim() : '';
+              const name = row[nameIdx] ? row[nameIdx].toString().trim() : '';
+              const qtyVal = row[qtyIdx];
+              const barcodeVal = barcodeIdx !== -1 && row[barcodeIdx] ? row[barcodeIdx].toString().trim() : '';
+              const qty = parseInt(qtyVal, 10);
+
+              if (sku || name) {
+                products.push({
+                  sku,
+                  name,
+                  barcode: barcodeVal,
+                  qty: isNaN(qty) ? 0 : qty
+                });
+              }
+            }
+          }
+        }
+      } catch (excelErr) {
+        console.error('Error parsing excel for operations PDF:', excelErr);
+      }
+    }
+
+    // 4. Configurar etiquetas de Etiquetado y Descarga
+    const lt = dec.labeling_type || 'completely';
+    const lqReq = (lt === 'completely') ? 0 : (dec.labeling_qty_requested || (lt === 'none' ? dec.quantity_declared : 0));
+    const lqConf = (dec.labeling_qty_confirmed !== null && dec.labeling_qty_confirmed !== undefined) ? dec.labeling_qty_confirmed : null;
+
+    let labelingBadgeBg = '#dcfce7';
+    let labelingBadgeColor = '#15803d';
+    let labelingHeadline = 'COMPLETAMENTE ETIQUETADO';
+    let labelingInst = 'Productos listos con código de barras para lector (0 uds a etiquetar).';
+
+    if (lt === 'partially') {
+      labelingBadgeBg = '#fef3c7';
+      labelingBadgeColor = '#b45309';
+      labelingHeadline = `PARCIALMENTE ETIQUETADO (${lqReq} UDS A ETIQUETAR)`;
+      labelingInst = `ATENCIÓN: Se requiere servicio de etiquetado para ${lqReq} unidades.${lqConf !== null ? ` (Confirmado procesado: ${lqConf} uds).` : ''}`;
+    } else if (lt === 'none') {
+      labelingBadgeBg = '#fee2e2';
+      labelingBadgeColor = '#b91c1c';
+      labelingHeadline = `SIN ETIQUETAR — SOLICITA ETIQUETADO TOTAL (${lqReq} UDS)`;
+      labelingInst = `ATENCIÓN: Todos los artículos requieren etiquetado con código de barras (${lqReq} unidades a procesar).`;
+    }
+
+    let totalQtyCount = 0;
+    let productsHtml = '';
+    if (products.length > 0) {
+      products.forEach((p, idx) => {
+        totalQtyCount += (p.qty || 0);
+        productsHtml += `
+          <tr style="border-bottom: 1px solid #e2e8f0; page-break-inside: avoid; break-inside: avoid; vertical-align: middle;">
+            <td style="padding: 6px 8px; color: #64748b; font-size: 10px; text-align: center;">${idx + 1}</td>
+            <td style="padding: 6px 8px; color: #0f172a; font-weight: 700; font-size: 10px; font-family: monospace; white-space: nowrap;">${p.sku}</td>
+            <td style="padding: 6px 8px; color: #1e293b; font-size: 10px; line-height: 1.3;">
+              <div style="font-weight: 500;">${p.name}</div>
+            </td>
+            <td style="padding: 6px 8px; color: #475569; font-size: 9.5px; font-family: monospace; white-space: nowrap;">
+              ${p.barcode || '<span style="color:#94a3b8; font-style:italic;">Sin registrar</span>'}
+            </td>
+            <td style="padding: 6px 8px; color: #0f172a; text-align: right; font-weight: 700; font-size: 11px;">
+              ${p.qty}
+            </td>
+            <td style="padding: 6px 8px; text-align: center;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 68px; height: 22px; border-radius: 3px; margin: 0 auto;"></div>
+            </td>
+            <td style="padding: 6px 8px; text-align: center;">
+              <div style="border: 1.5px solid #64748b; background: #ffffff; width: 16px; height: 16px; border-radius: 3px; margin: 0 auto;"></div>
+            </td>
+            <td style="padding: 6px 8px; border-left: 1px dashed #e2e8f0;">
+              <div style="border-bottom: 1px dotted #cbd5e1; height: 16px; width: 100%;"></div>
+            </td>
+          </tr>
+        `;
+      });
+    } else {
+      productsHtml = `
+        <tr>
+          <td colspan="8" style="padding: 20px; text-align: center; color: #64748b; font-style: italic;">
+            No se encontraron productos detallados o la planilla no contiene filas legibles.
+          </td>
+        </tr>
+      `;
+    }
+
+    // 5. Crear contenedor de impresión (Optimizado para Landscape A4)
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '0';
+    container.style.top = '0';
+    container.style.width = '100%';
+    container.style.height = '100%';
+    container.style.zIndex = '999999';
+    container.style.background = 'rgba(255, 255, 255, 0.98)';
+    container.style.overflowY = 'auto';
+
+    container.innerHTML = `
+      <div id="pdf-loading-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.98); z-index: 1000000; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; color: #047857;">
+        <div style="border: 4px solid #f3f3f3; border-top: 4px solid #059669; border-radius: 50%; width: 50px; height: 50px; animation: pdfSpin 1s linear infinite; margin-bottom: 20px;"></div>
+        <style>
+          @keyframes pdfSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+        <h2 style="margin: 0 0 8px 0; font-size: 18px; font-weight: bold;">Generando Guía de Recepción Operativa (Horizontal)</h2>
+        <p style="margin: 0; font-size: 14px; color: #475569;">Preparando documento para el equipo de bodega...</p>
+      </div>
+
+      <div id="pdf-content-area" style="padding: 24px 30px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1e293b; background: #ffffff; max-width: 1060px; margin: 0 auto; box-sizing: border-box;">
+        
+        <!-- Header Horizontal -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #059669; padding-bottom: 10px; margin-bottom: 14px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h1 style="margin: 0; font-size: 22px; color: #065f46; font-weight: 800; letter-spacing: 0.5px;">WMS STOCKA</h1>
+              <span style="background: #d1fae5; color: #065f46; font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 4px; text-transform: uppercase;">Operaciones Bodega</span>
+            </div>
+            <span style="font-size: 12px; color: #334155; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-top: 2px;">
+              Guía de Recepción y Control Físico de Stock (Hoja de Conteo)
+            </span>
+          </div>
+          <div style="text-align: right; display: flex; align-items: center; gap: 12px;">
+            <div style="background: #f1f5f9; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 4px 12px; text-align: right;">
+              <span style="font-size: 9px; color: #64748b; font-weight: 700; text-transform: uppercase; display: block;">Código de Ingreso</span>
+              <strong style="font-size: 15px; color: #0f172a; font-family: monospace;">${decCode}</strong>
+            </div>
+            <div style="font-size: 9.5px; color: #64748b; line-height: 1.3; text-align: right;">
+              <span>Emisión: ${todayStr}</span><br>
+              <span>Estado: <strong>${dec.status}</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Tarjetas en 1 Fila Horizontal -->
+        <div style="display: grid; grid-template-columns: 1.2fr 1.2fr 1.1fr 1.4fr; gap: 10px; margin-bottom: 12px;">
+          
+          <!-- Card 1: Cliente y Origen -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3.5px solid #059669; border-radius: 5px; padding: 8px 10px; font-size: 10.5px; line-height: 1.4;">
+            <div style="font-size: 9.5px; font-weight: 800; color: #065f46; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 4px;">
+              Datos del Cliente
+            </div>
+            <p style="margin: 2px 0;"><strong>Comercio:</strong> <span style="font-weight: 700; color: #0f172a;">${dec.comercio}</span> ${dec.profiles?.company_name ? `(${dec.profiles.company_name})` : ''}</p>
+            <p style="margin: 2px 0;"><strong>Título/Ref:</strong> ${dec.title}</p>
+            <p style="margin: 2px 0;"><strong>Fecha Registro:</strong> ${regDateStr}</p>
+            <p style="margin: 2px 0;"><strong>Llegada ETA:</strong> <span style="font-weight: 700; color: #0369a1;">${etaText}</span></p>
+          </div>
+
+          <!-- Card 2: Destino y Logística -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 3.5px solid #0284c7; border-radius: 5px; padding: 8px 10px; font-size: 10.5px; line-height: 1.4;">
+            <div style="font-size: 9.5px; font-weight: 800; color: #0369a1; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; margin-bottom: 4px;">
+              Destino y Carga
+            </div>
+            <p style="margin: 2px 0;"><strong>Bodega Asignada:</strong> <span style="font-weight: 700; color: #0f172a;">${dec.warehouses ? dec.warehouses.name : 'No asignada'}</span></p>
+            <p style="margin: 2px 0;"><strong>Total Unidades:</strong> <span style="font-weight: 800; color: #0f172a;">${dec.quantity_declared} uds</span> | <strong>${dec.volume_declared || 0} m³</strong></p>
+            <p style="margin: 2px 0;"><strong>Bultos:</strong> <strong>${dec.package_count}</strong> (${dec.package_type}) • <span style="font-size: 9.5px; color: #475569;">C:${dec.container_count || 0}|P:${dec.pallet_count || 0}|Cx:${dec.box_count || 0}</span></p>
+            <p style="margin: 2px 0;"><strong>Transporte:</strong> ${dec.delivery_method}</p>
+          </div>
+
+          <!-- Card 3: Maniobra de Descarga -->
+          <div style="background: ${dec.requires_unloading ? '#fffbeb' : '#f8fafc'}; border: 1px solid ${dec.requires_unloading ? '#fde68a' : '#e2e8f0'}; border-left: 3.5px solid ${dec.requires_unloading ? '#d97706' : '#94a3b8'}; border-radius: 5px; padding: 8px 10px; font-size: 10.5px; line-height: 1.35;">
+            <div style="font-size: 9.5px; font-weight: 800; color: ${dec.requires_unloading ? '#92400e' : '#475569'}; text-transform: uppercase; border-bottom: 1px solid ${dec.requires_unloading ? '#fde68a' : '#e2e8f0'}; padding-bottom: 2px; margin-bottom: 4px;">
+              Descarga en Andén
+            </div>
+            <div style="font-weight: 700; font-size: 10.5px; color: ${dec.requires_unloading ? '#b45309' : '#334155'};">
+              ${dec.requires_unloading ? '⚠️ SOLICITADA: Equipo Stocka' : '✔️ NO REQUERIDA: Chofer / Prov.'}
+            </div>
+            <div style="font-size: 9px; color: #64748b; margin-top: 3px;">
+              ${dec.carrier_info ? `Transp: ${dec.carrier_info}` : 'Chofer no registrado'}
+            </div>
+          </div>
+
+          <!-- Card 4: Instrucción de Etiquetado -->
+          <div style="background: ${labelingBadgeBg}; border: 1px solid ${labelingBadgeColor}40; border-left: 3.5px solid ${labelingBadgeColor}; border-radius: 5px; padding: 8px 10px; font-size: 10.5px; line-height: 1.35;">
+            <div style="font-size: 9.5px; font-weight: 800; color: ${labelingBadgeColor}; text-transform: uppercase; border-bottom: 1px solid ${labelingBadgeColor}30; padding-bottom: 2px; margin-bottom: 4px;">
+              Etiquetado de Código
+            </div>
+            <div style="font-weight: 700; font-size: 10.5px; color: ${labelingBadgeColor};">
+              ${labelingHeadline}
+            </div>
+            <div style="font-size: 9px; color: #475569; margin-top: 2px;">
+              ${labelingInst}
+            </div>
+          </div>
+        </div>
+
+        ${dec.notes ? `
+        <!-- Comentarios Cliente -->
+        <div style="background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 6px 10px; margin-bottom: 10px; font-size: 10px;">
+          <strong style="color: #475569; text-transform: uppercase; font-size: 9px;">Observaciones del Cliente:</strong>
+          <span style="font-style: italic; color: #1e293b; margin-left: 5px;">"${dec.notes}"</span>
+        </div>
+        ` : ''}
+
+        <!-- Tabla de Verificación de Productos (Horizontal) -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0f172a; padding-bottom: 4px; margin-bottom: 6px;">
+          <h3 style="margin: 0; font-size: 11.5px; color: #0f172a; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">
+            Detalle de Productos para Conteo Físico Manual
+          </h3>
+          <span style="font-size: 10px; color: #475569; font-weight: 600;">
+            Total SKUs: <strong>${products.length}</strong> | Total Uds Declaradas: <strong>${totalQtyCount || dec.quantity_declared}</strong>
+          </span>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 12px; text-align: left;">
+          <thead>
+            <tr style="background: #f1f5f9; border-bottom: 2px solid #cbd5e1; color: #334155; font-size: 9.5px; text-transform: uppercase;">
+              <th style="padding: 5px 6px; width: 28px; text-align: center;">#</th>
+              <th style="padding: 5px 6px; width: 130px;">SKU</th>
+              <th style="padding: 5px 6px;">Descripción / Producto</th>
+              <th style="padding: 5px 6px; width: 130px;">Cód. Barras</th>
+              <th style="padding: 5px 6px; width: 75px; text-align: right;">Cant. Decl.</th>
+              <th style="padding: 5px 6px; width: 95px; text-align: center; background: #e0f2fe; color: #0369a1;">Conteo Físico</th>
+              <th style="padding: 5px 6px; width: 50px; text-align: center; background: #dcfce7; color: #15803d;">Conf.</th>
+              <th style="padding: 5px 6px; width: 140px;">Incidencias / Ubicación</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${productsHtml}
+          </tbody>
+          <tfoot>
+            <tr style="background: #f8fafc; border-top: 2px solid #94a3b8; font-weight: 700;">
+              <td colspan="4" style="padding: 6px 8px; text-align: right; text-transform: uppercase; font-size: 10px;">Total Unidades Declaradas:</td>
+              <td style="padding: 6px 8px; text-align: right; font-size: 11px; color: #0f172a;">${totalQtyCount || dec.quantity_declared}</td>
+              <td style="padding: 6px 8px; text-align: center;">
+                <div style="border: 1.5px dashed #64748b; background: #ffffff; width: 68px; height: 22px; border-radius: 3px; margin: 0 auto;"></div>
+              </td>
+              <td colspan="2" style="padding: 6px 8px; font-size: 9px; color: #64748b;">&larr; Total Físico Recibido en Bodega</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <!-- Sección de Control de Incidencias & Firmas de Bodega en 3 Columnas -->
+        <div style="page-break-inside: avoid; break-inside: avoid; margin-top: 10px;">
+          
+          <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 10px; font-size: 9.5px;">
+            
+            <!-- Col 1: Control de Calidad / Checkboxes de Incidencias -->
+            <div style="border: 1px solid #cbd5e1; border-radius: 5px; padding: 8px 10px; background: #fafafa;">
+              <strong style="font-size: 9.5px; text-transform: uppercase; color: #334155; display: block; margin-bottom: 4px;">
+                Inspección Visual en Andén:
+              </strong>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px; font-size: 9px; color: #334155; margin-bottom: 5px;">
+                <span>[ &nbsp; ] Carga Conforme</span>
+                <span>[ &nbsp; ] Cajas Dañadas</span>
+                <span>[ &nbsp; ] Embalaje Mojado</span>
+                <span>[ &nbsp; ] Faltante Stock</span>
+                <span>[ &nbsp; ] Sobrante Stock</span>
+                <span>[ &nbsp; ] Sin Código Barras</span>
+              </div>
+              <div style="border-top: 1px dashed #cbd5e1; padding-top: 3px; font-size: 8.5px; color: #64748b;">
+                Obs: _____________________________________________
+              </div>
+            </div>
+
+            <!-- Col 2: Firma Bodega Stocka -->
+            <div style="border: 1px solid #94a3b8; border-radius: 5px; padding: 8px 10px; background: #ffffff;">
+              <strong style="display: block; font-size: 9.5px; color: #065f46; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 5px;">
+                Responsable Bodega (Stocka)
+              </strong>
+              <div style="line-height: 1.6; color: #334155;">
+                <div>Nombre: _______________________________</div>
+                <div>RUT: ________________ Firma: ___________</div>
+                <div>Fecha/Hora: _____/_____/2026 ___:___</div>
+              </div>
+            </div>
+
+            <!-- Col 3: Firma Transportista -->
+            <div style="border: 1px solid #94a3b8; border-radius: 5px; padding: 8px 10px; background: #ffffff;">
+              <strong style="display: block; font-size: 9.5px; color: #0284c7; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; margin-bottom: 5px;">
+                Transportista / Entrega
+              </strong>
+              <div style="line-height: 1.6; color: #334155;">
+                <div>Nombre Chofer: ________________________</div>
+                <div>RUT: ________________ Firma: ___________</div>
+                <div>Patente: _____________ Empresa: ________</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Pie de página informativo -->
+          <div style="margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 4px; display: flex; justify-content: space-between; align-items: center; font-size: 8.5px; color: #94a3b8;">
+            <span>WMS STOCKA • Guía de Recepción Operativa • Folio: <strong>${decCode}</strong></span>
+            <span>Documento de Control Interno para Operaciones de Bodega</span>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(container);
+
+    const contentArea = container.querySelector('#pdf-content-area');
+
+    const opt = {
+      margin:       [8, 8, 12, 8],
+      filename:     `guia_recepcion_operaciones_${(dec.comercio || 'stocka').replace(/[^a-zA-Z0-9]/g, '_')}_${decCode}.pdf`,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true, scrollY: 0, scrollX: 0 },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+    };
+
+    html2pdf().from(contentArea).set(opt).toPdf().get('pdf').then(function(pdf) {
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(8);
+        pdf.setTextColor(100, 116, 139);
+        // Pie de página con código de ingreso y paginación en orientación horizontal (A4 landscape: ancho 297mm, alto 210mm)
+        pdf.text(`WMS STOCKA • Folio Ingreso: ${decCode} • Comercio: ${dec.comercio} • Fecha: ${todayStr}`, 10, 203);
+        pdf.text(`Página ${i} de ${totalPages}`, 287, 203, { align: 'right' });
+      }
+    }).save().then(() => {
+      container.remove();
+    }).catch(err => {
+      console.error('Error saving operations PDF:', err);
+      container.remove();
+      alert('Error al generar el PDF: ' + err.message);
+    });
+
+  } catch (err) {
+    console.error('Error in exportDeclarationOperationsPDF:', err);
+    alert('Error al generar la Guía Operativa de Recepción: ' + err.message);
   }
 };
 
@@ -43739,6 +44188,18 @@ document.addEventListener('DOMContentLoaded', () => {
           .single();
         const centralWhId = centralWh ? centralWh.id : null;
         
+        let selectedWhName = '';
+        const targetFlow = type === 'CAMBIO' ? 'out' : 'in';
+        const targetSel = Array.from(selects).find(sel => sel.getAttribute('data-type') === targetFlow);
+        if (targetSel && targetSel.value) {
+          const { data: wh } = await supabase
+            .from('warehouses')
+            .select('name')
+            .eq('id', targetSel.value)
+            .maybeSingle();
+          if (wh) selectedWhName = wh.name;
+        }
+
         for (const sel of selects) {
           const flow = sel.getAttribute('data-type');
           const prodId = sel.getAttribute('data-prod-id') || null;
@@ -43746,6 +44207,18 @@ document.addEventListener('DOMContentLoaded', () => {
           const qty = parseInt(sel.closest('tr').querySelector('td:nth-child(3)').textContent) || 1;
           
           if (prodId) {
+            // Actualizar warehouse_id del ítem correspondiente en order_items del WMS
+            if (window.activeConfirmRlRecord && window.activeConfirmRlRecord.wms_order_id) {
+              const isWmsItem = (type === 'CAMBIO' && flow === 'out') || (type === 'DEVOLUCION' && flow === 'in');
+              if (isWmsItem) {
+                await supabase
+                  .from('order_items')
+                  .update({ warehouse_id: warehouseId })
+                  .eq('order_id', window.activeConfirmRlRecord.wms_order_id)
+                  .eq('product_id', prodId);
+              }
+            }
+
             if (flow === 'in') {
               const { data: invRecord } = await supabase
                 .from('inventory')
@@ -43833,12 +44306,35 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         
+        const updateRlPayload = { status: 'procesado' };
+        if (selectedWhName) {
+          updateRlPayload.sucursal = selectedWhName;
+        }
         const { error: updateErr } = await supabase
           .from('reverse_logistics')
-          .update({ status: 'procesado' })
+          .update(updateRlPayload)
           .eq('id', recordId);
           
         if (updateErr) throw updateErr;
+
+        // Sincronizar el pedido del WMS en orders
+        if (window.activeConfirmRlRecord && window.activeConfirmRlRecord.wms_order_id) {
+          const newStatus = type === 'CAMBIO' ? 'en preparación' : 'entregado';
+          const newWmsState = type === 'CAMBIO' ? 'En preparación' : 'Despachado';
+          
+          const updatePayload = { 
+            status: newStatus,
+            estado_wms: newWmsState
+          };
+          if (selectedWhName) {
+            updatePayload.sucursal_pickeo = selectedWhName;
+          }
+          
+          await supabase
+            .from('orders')
+            .update(updatePayload)
+            .eq('id', window.activeConfirmRlRecord.wms_order_id);
+        }
         
         Swal.fire({
           title: '¡Procesado!',
