@@ -15414,13 +15414,10 @@ function updateRlShippingCost() {
         }
         
         if (courierOptions.length > 0) {
+          const cheapestPrice = Math.min(...courierOptions.map(o => o.price));
           if (courierInput) courierInput.style.display = 'none';
           if (courierCardsContainer) {
             courierCardsContainer.style.display = 'grid';
-            
-            // Buscar el más barato
-            const cheapestPrice = Math.min(...courierOptions.map(o => o.price));
-            
             courierCardsContainer.innerHTML = courierOptions.map(opt => {
               const total = Math.round(opt.price * 1.19);
               const isCheapest = opt.price === cheapestPrice;
