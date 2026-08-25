@@ -6792,6 +6792,113 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
+  // 6b. Import ONLY NEW from Main Platform handler
+  const btnImportNewOnly = document.getElementById('btn-import-new-only-from-main');
+  if (btnImportNewOnly) {
+    btnImportNewOnly.addEventListener('click', async () => {
+      btnImportNewOnly.disabled = true;
+      btnImportNewOnly.innerHTML = `<i class="ri-loader-4-line ri-spin" style="margin-right: 0.25rem;"></i>Buscando...`;
+      try {
+        const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
+        
+        if (!syncedProds || syncedProds.length === 0) {
+          Swal.fire('Atención', `No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`, 'warning');
+          return;
+        }
+
+        const { data: wmsProds, error: wmsErr } = await supabase
+          .from('products')
+          .select('sku')
+          .eq('comercio', commerce);
+
+        if (wmsErr) throw wmsErr;
+
+        const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
+
+        const newSyncedProds = syncedProds.filter(sp => {
+          const sku = String(sp.sku || '').trim().toUpperCase();
+          return sku && !wmsSkus.has(sku);
+        });
+
+        if (newSyncedProds.length === 0) {
+          Swal.fire('Catálogo al día', `Todos los productos de ${mainPlatform} ya existen en el WMS. No hay nuevos productos para importar.`, 'info');
+          return;
+        }
+
+        const newProdsPreview = newSyncedProds.slice(0, 10).map(p => `${p.sku} - ${p.name}`).join('\n');
+        const previewText = newSyncedProds.length > 10 
+          ? `${newProdsPreview}\n...y ${newSyncedProds.length - 10} productos más.`
+          : newProdsPreview;
+
+        const confirmResult = await Swal.fire({
+          title: `Detectados ${newSyncedProds.length} productos nuevos`,
+          html: `<p>Se encontraron <strong>${newSyncedProds.length}</strong> productos en <strong>${mainPlatform}</strong> que no existen en el WMS. ¿Deseas importarlos?</p>
+                 <pre style="text-align: left; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.8rem; max-height: 150px; overflow-y: auto;">${previewText}</pre>`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Sí, importar nuevos',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#10b981'
+        });
+
+        if (confirmResult.isConfirmed) {
+          const merchantId = await resolveMerchantId(commerce);
+          if (!merchantId) {
+            Swal.fire('Error', 'No se pudo encontrar el merchant_id asociado a este comercio.', 'error');
+            return;
+          }
+
+          const productsToInsert = newSyncedProds.map(sp => {
+            const productRow = {
+              merchant_id: merchantId,
+              comercio: commerce,
+              sku: sp.sku,
+              name: sp.name,
+              price: parseFloat(sp.price) || 0,
+              image_url: sp.image_url || null,
+              barcode: sp.barcode || null,
+              description: `Importado automáticamente de ${mainPlatform}`
+            };
+
+            if (mainPlatform === 'Shopify') {
+              productRow.shopify_product_id = 'imported';
+            } else if (mainPlatform === 'MercadoLibre') {
+              productRow.raw_meli_data = {};
+            } else if (mainPlatform === 'Falabella') {
+              productRow.raw_falabella_data = {};
+            } else if (mainPlatform === 'Paris') {
+              productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'Ripley') {
+              productRow.raw_ripley_data = {};
+            } else if (mainPlatform === 'WooCommerce') {
+              productRow.raw_woocommerce_data = {};
+            } else if (mainPlatform === 'Jumpseller') {
+              productRow.raw_jumpseller_data = {};
+            } else if (mainPlatform === 'Walmart') {
+              productRow.raw_walmart_data = {};
+            }
+
+            return productRow;
+          });
+
+          const { error: insErr } = await supabase
+            .from('products')
+            .insert(productsToInsert);
+
+          if (insErr) throw insErr;
+
+          Swal.fire('¡Éxito!', `Se importaron ${productsToInsert.length} productos nuevos al catálogo master sin alterar los existentes.`, 'success');
+          renderAdminCatalogWorkspace(commerce);
+        }
+      } catch (err) {
+        Swal.fire('Error', 'Error al importar nuevos: ' + err.message, 'error');
+      } finally {
+        btnImportNewOnly.disabled = false;
+        btnImportNewOnly.innerHTML = `<i class="ri-add-circle-line" style="margin-right: 0.25rem;"></i>Importar Nuevos de ${mainPlatform}`;
+      }
+    });
+  }
+
   // 7. Auto-map equivalences
   const btnAutoMap = document.getElementById('btn-auto-map-equivalences');
   if (btnAutoMap) {
@@ -12306,7 +12413,16 @@ async function renderAdminCatalogWorkspace(commerce) {
   window.catalogSelectedProductIds = new Set();
   window.catalogQuickEditMode = false;
   const workspace = document.getElementById('eq-admin-workspace');
-  workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando catálogo del comercio...</p>`;
+  workspace.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 350px; padding: 2rem; background: var(--color-surface); border-radius: var(--radius-lg); border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); margin-top: 1rem;">
+      <div style="position: relative; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: center; width: 80px; height: 80px;">
+        <div style="position: absolute; width: 64px; height: 64px; border: 4px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <i class="ri-list-check" style="position: absolute; font-size: 1.8rem; color: var(--color-primary); display: inline-block; animation: pulse 1.5s ease-in-out infinite;"></i>
+      </div>
+      <h4 style="margin: 0 0 0.5rem 0; color: var(--color-text-main); font-weight: 700; font-size: 1.1rem;">Cargando Catálogo del Comercio</h4>
+      <p style="margin: 0; color: var(--color-text-muted); font-size: 0.875rem; text-align: center;">Por favor espera unos segundos mientras sincronizamos la información...</p>
+    </div>
+  `;
 
   const statsContainer = document.getElementById('catalog-admin-stats-container');
   if (statsContainer) {
@@ -12471,6 +12587,9 @@ async function renderAdminCatalogWorkspace(commerce) {
     const importBtn = mainPlatform
       ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
       : '';
+    const importNewBtn = mainPlatform
+      ? `<button class="btn btn-outline" id="btn-import-new-only-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; border-color: var(--color-success); color: var(--color-success); background: transparent;"><i class="ri-add-circle-line" style="margin-right: 0.25rem;"></i>Importar Nuevos de ${mainPlatform}</button>`
+      : '';
     const excelActionsDropdown = `
       <style>
         .excel-dropdown { position: relative; display: inline-block; margin-right: 0.5rem; }
@@ -12632,6 +12751,7 @@ async function renderAdminCatalogWorkspace(commerce) {
                   <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
                 </div>
                 ${importBtn}
+                ${importNewBtn}
                 ${excelActionsDropdown}
                 ${quickEditBtnHtml}
                 ${createBtn}
@@ -19978,6 +20098,8 @@ window.renderDeclarationsAdmin = async function() {
           `;
         }
 
+        const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+
         rowsHtml += `
           <tr style="transition: background-color 0.2s;">
             <td style="font-weight: 600; color: var(--color-primary);">
@@ -19993,6 +20115,13 @@ window.renderDeclarationsAdmin = async function() {
             <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem;">
               <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
               ${dec.title}
+              ${hasAdminEdit ? `
+              <div style="margin-top: 3px;">
+                <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Registra modificaciones realizadas por Administración">
+                  <i class="ri-shield-check-line"></i> Modificado por Admin
+                </span>
+              </div>
+              ` : ''}
               ${dec.warehouses ? `
               <div style="font-size: 0.75rem; color: var(--color-primary); font-weight: 500; margin-top: 2px;">
                 <i class="ri-map-pin-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.warehouses.name}
@@ -20037,6 +20166,9 @@ window.renderDeclarationsAdmin = async function() {
                 <div class="table-action-menu-content">
                   <button class="table-action-menu-item" onclick="window.viewDeclarationProducts('${dec.id}')">
                     <i class="ri-eye-line" style="color: var(--color-primary);"></i> Ver Productos
+                  </button>
+                  <button class="table-action-menu-item" onclick="window.editDeclarationAdmin('${dec.id}')" style="color: var(--color-primary); font-weight: 600;" title="Editar datos declarados, bultos y productos">
+                    <i class="ri-edit-box-line" style="color: var(--color-primary);"></i> Editar Ingreso
                   </button>
                   <button class="table-action-menu-item" onclick="window.exportDeclarationOperationsPDF('${dec.id}')" title="Hoja de recepción operativa para bodega">
                     <i class="ri-file-list-3-line" style="color: var(--color-success);"></i> PDF Operaciones
@@ -21190,6 +21322,734 @@ document.addEventListener('submit', async (e) => {
     } finally {
       saveBtn.disabled = false;
       saveBtn.textContent = 'Guardar Cambios';
+    }
+  }
+});
+
+// --- EDICIÓN DE DECLARACIONES DE INGRESO (ADMIN 2.0 CON TRANSPARENCIA) ---
+
+window.adminEditingDeclarationProducts = [];
+window.adminEditingDeclarationProducts_id = null;
+window.adminOriginalDeclarationEditing = null;
+
+window.editDeclarationAdmin = async function(id) {
+  try {
+    const alertContainer = document.getElementById('admin-edit-dec-alert-container');
+    if (alertContainer) alertContainer.innerHTML = '';
+
+    // 1. Obtener la declaración completa
+    const { data: dec, error } = await supabase
+      .from('stock_declarations')
+      .select('*, profiles (company_name, full_name, email), warehouses (id, name, address, comuna)')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    if (!dec) throw new Error('No se encontró el ingreso de stock.');
+
+    // Guardar copia original para cálculo de diferencias y auditoría
+    window.adminOriginalDeclarationEditing = JSON.parse(JSON.stringify(dec));
+
+    // Cargar bodegas para el selector
+    const { data: warehouses } = await supabase
+      .from('warehouses')
+      .select('id, name, address, comuna')
+      .order('name');
+
+    const whSelect = document.getElementById('admin-edit-dec-warehouse');
+    if (whSelect) {
+      whSelect.innerHTML = '<option value="">-- Sin asignar --</option>';
+      if (warehouses) {
+        warehouses.forEach(w => {
+          whSelect.innerHTML += `<option value="${w.id}">${w.name} (${w.comuna})</option>`;
+        });
+      }
+      whSelect.value = dec.warehouse_id || '';
+    }
+
+    // Poblar campos informativos y del formulario
+    document.getElementById('admin-edit-dec-id').value = dec.id;
+    document.getElementById('admin-edit-dec-comercio-val').value = dec.comercio || '';
+    document.getElementById('admin-edit-dec-subtitle').textContent = `Ingreso #${dec.id.substring(0, 8).toUpperCase()} | Comercio: ${dec.comercio || 'Sin asignar'} (${dec.profiles?.company_name || 'Desconocido'})`;
+    document.getElementById('admin-edit-dec-comercio-display').innerHTML = `<strong>${dec.comercio || 'no asignado'}</strong> <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: normal;">(${dec.profiles?.company_name || 'Desconocido'})</span>`;
+    document.getElementById('admin-edit-dec-title').value = dec.title || '';
+
+    // Fecha / Plazo
+    const btnExact = document.getElementById('admin-edit-btn-date-exact');
+    const btnEstimate = document.getElementById('admin-edit-btn-date-estimate');
+    const groupExact = document.getElementById('admin-edit-group-date-exact');
+    const groupEstimate = document.getElementById('admin-edit-group-date-estimate');
+
+    if (dec.estimated_arrival_type === 'exact') {
+      if (btnExact && btnEstimate) {
+        btnExact.className = 'btn btn-sm btn-primary';
+        btnExact.style.background = 'var(--color-primary)';
+        btnExact.style.color = 'white';
+        btnEstimate.className = 'btn btn-sm btn-outline';
+        btnEstimate.style.background = 'transparent';
+        btnEstimate.style.color = 'var(--color-text-main)';
+      }
+      if (groupExact) groupExact.style.display = 'block';
+      if (groupEstimate) groupEstimate.style.display = 'none';
+      document.getElementById('admin-edit-dec-date').value = dec.estimated_arrival_date || '';
+    } else {
+      if (btnExact && btnEstimate) {
+        btnEstimate.className = 'btn btn-sm btn-primary';
+        btnEstimate.style.background = 'var(--color-primary)';
+        btnEstimate.style.color = 'white';
+        btnExact.className = 'btn btn-sm btn-outline';
+        btnExact.style.background = 'transparent';
+        btnExact.style.color = 'var(--color-text-main)';
+      }
+      if (groupExact) groupExact.style.display = 'none';
+      if (groupEstimate) groupEstimate.style.display = 'flex';
+      const parts = (dec.estimated_arrival_period || '2 semanas').split(' ');
+      document.getElementById('admin-edit-dec-period-qty').value = parseInt(parts[0], 10) || 1;
+      document.getElementById('admin-edit-dec-period-unit').value = parts[1] || 'semanas';
+    }
+
+    // Configurar listeners de botones ETA
+    if (btnExact && btnEstimate) {
+      btnExact.onclick = () => {
+        btnExact.className = 'btn btn-sm btn-primary';
+        btnExact.style.background = 'var(--color-primary)';
+        btnExact.style.color = 'white';
+        btnEstimate.className = 'btn btn-sm btn-outline';
+        btnEstimate.style.background = 'transparent';
+        btnEstimate.style.color = 'var(--color-text-main)';
+        if (groupExact) groupExact.style.display = 'block';
+        if (groupEstimate) groupEstimate.style.display = 'none';
+      };
+      btnEstimate.onclick = () => {
+        btnEstimate.className = 'btn btn-sm btn-primary';
+        btnEstimate.style.background = 'var(--color-primary)';
+        btnEstimate.style.color = 'white';
+        btnExact.className = 'btn btn-sm btn-outline';
+        btnExact.style.background = 'transparent';
+        btnExact.style.color = 'var(--color-text-main)';
+        if (groupExact) groupExact.style.display = 'none';
+        if (groupEstimate) groupEstimate.style.display = 'flex';
+      };
+    }
+
+    // Bultos, Volumen y Logística
+    document.getElementById('admin-edit-dec-delivery-method').value = dec.delivery_method || 'Transporte particular';
+    document.getElementById('admin-edit-dec-unloading').checked = !!dec.requires_unloading;
+    document.getElementById('admin-edit-dec-package-type').value = dec.package_type || 'Cajas';
+    document.getElementById('admin-edit-dec-package-count').value = dec.package_count || 0;
+    document.getElementById('admin-edit-dec-container-count').value = dec.container_count || 0;
+    document.getElementById('admin-edit-dec-pallet-count').value = dec.pallet_count || 0;
+    document.getElementById('admin-edit-dec-box-count').value = dec.box_count || 0;
+    document.getElementById('admin-edit-dec-volume').value = dec.volume_declared || 0;
+
+    // Etiquetado
+    document.getElementById('admin-edit-dec-labeling-type').value = dec.labeling_type || 'completely';
+    document.getElementById('admin-edit-dec-labeling-qty').value = dec.labeling_qty_requested || 0;
+
+    // Contacto y notas
+    document.getElementById('admin-edit-dec-contact').value = dec.contact_info || '';
+    document.getElementById('admin-edit-dec-carrier').value = dec.carrier_info || '';
+    document.getElementById('admin-edit-dec-notes').value = dec.notes || '';
+    document.getElementById('admin-edit-dec-admin-notes').value = dec.admin_notes || '';
+    document.getElementById('admin-edit-dec-reason').value = '';
+
+    // Cargar productos
+    const prods = getDeclarationProducts(dec) || [];
+    window.adminEditingDeclarationProducts_id = dec.id;
+    window.adminEditingDeclarationProducts = prods.map(p => ({
+      sku: p.sku || '',
+      name: p.name || p.sku || '',
+      qty: parseInt(p.qty, 10) || 0,
+      price: parseFloat(p.price) || 0,
+      volumen: parseFloat(p.volumen || p.vol) || 0,
+      barcode: p.barcode || ''
+    }));
+
+    window.renderAdminEditDeclarationProducts();
+    window.recalculateAdminEditTotals();
+
+    // Precargar catálogo de productos del comercio para búsqueda
+    try {
+      const { data: catProds } = await supabase
+        .from('products')
+        .select('sku, name, volumen, price, barcode')
+        .eq('comercio', dec.comercio)
+        .order('name');
+      window.adminCatalogProductsCache = catProds || [];
+    } catch (e) {
+      console.warn('Error loading catalog cache for admin edit:', e);
+      window.adminCatalogProductsCache = [];
+    }
+
+    // Configurar buscador de productos en modal de edición
+    const searchInput = document.getElementById('admin-edit-dec-prod-search');
+    const searchResults = document.getElementById('admin-edit-dec-search-results');
+    if (searchInput && searchResults) {
+      searchInput.value = '';
+      searchResults.innerHTML = '';
+      searchResults.style.display = 'none';
+
+      searchInput.oninput = function(e) {
+        const term = e.target.value.toLowerCase().trim();
+        if (!term) {
+          searchResults.innerHTML = '';
+          searchResults.style.display = 'none';
+          return;
+        }
+
+        const matches = (window.adminCatalogProductsCache || []).filter(p =>
+          (p.name && p.name.toLowerCase().includes(term)) ||
+          (p.sku && p.sku.toLowerCase().includes(term))
+        );
+
+        let html = '';
+        if (matches.length === 0) {
+          html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias en catálogo</div>';
+        } else {
+          matches.forEach(p => {
+            html += `
+              <div class="admin-edit-search-result-item" 
+                   data-sku="${p.sku}" 
+                   data-name="${(p.name || '').replace(/"/g, '&quot;')}" 
+                   data-vol="${p.volumen || 0}" 
+                   data-price="${p.price || 0}" 
+                   data-barcode="${p.barcode || ''}"
+                   style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                   onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+                   onmouseout="this.style.backgroundColor='transparent'">
+                <strong style="color: var(--color-text-main);">${p.name}</strong>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+              </div>
+            `;
+          });
+        }
+
+        // Opción de producto personalizado
+        html += `
+          <div class="admin-edit-search-result-item" 
+               data-custom="true"
+               style="padding: 0.6rem 1rem; cursor: pointer; font-size: 0.85rem; color: var(--color-primary); font-weight: bold; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
+               onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
+               onmouseout="this.style.backgroundColor='transparent'">
+            <i class="ri-add-line"></i> Crear / Agregar producto personalizado...
+          </div>
+        `;
+
+        searchResults.innerHTML = html;
+        searchResults.style.display = 'block';
+      };
+
+      searchResults.onclick = async function(e) {
+        const item = e.target.closest('.admin-edit-search-result-item');
+        if (!item) return;
+
+        const isCustom = item.getAttribute('data-custom') === 'true';
+        if (isCustom) {
+          const { value: formValues } = await Swal.fire({
+            title: 'Agregar Producto Personalizado',
+            html: `
+              <div style="text-align: left; font-size: 0.9rem;">
+                <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">SKU *</label>
+                <input id="swal-edit-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                
+                <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Nombre / Descripción *</label>
+                <input id="swal-edit-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
+                
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Cantidad Declarada *</label>
+                    <input id="swal-edit-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Código de Barras</label>
+                    <input id="swal-edit-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                </div>
+                
+                <div style="display: flex; gap: 1rem;">
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Volumen Unitario (m³)</label>
+                    <input id="swal-edit-custom-vol" type="number" step="0.000001" class="swal2-input" value="0.000100" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                  <div style="flex: 1;">
+                    <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Precio Unitario ($)</label>
+                    <input id="swal-edit-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box;">
+                  </div>
+                </div>
+              </div>
+            `,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: 'Agregar',
+            cancelButtonText: 'Cancelar',
+            preConfirm: () => {
+              const sku = document.getElementById('swal-edit-custom-sku').value.trim();
+              const name = document.getElementById('swal-edit-custom-name').value.trim();
+              const qty = parseInt(document.getElementById('swal-edit-custom-qty').value, 10);
+              const barcode = document.getElementById('swal-edit-custom-barcode').value.trim();
+              const vol = parseFloat(document.getElementById('swal-edit-custom-vol').value);
+              const price = parseFloat(document.getElementById('swal-edit-custom-price').value);
+
+              if (!sku) {
+                Swal.showValidationMessage('El SKU es obligatorio.');
+                return false;
+              }
+              if (!name) {
+                Swal.showValidationMessage('El nombre/descripción es obligatorio.');
+                return false;
+              }
+              if (isNaN(qty) || qty < 1) {
+                Swal.showValidationMessage('La cantidad debe ser mayor o igual a 1.');
+                return false;
+              }
+              return { sku, name, qty, barcode, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
+            }
+          });
+
+          if (formValues) {
+            const { sku, name, qty, barcode, vol, price } = formValues;
+            const existing = window.adminEditingDeclarationProducts.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+            if (existing) {
+              existing.qty += qty;
+            } else {
+              window.adminEditingDeclarationProducts.push({
+                sku: sku,
+                name: name,
+                qty: qty,
+                price: price,
+                volumen: vol,
+                barcode: barcode
+              });
+            }
+            window.renderAdminEditDeclarationProducts();
+            window.recalculateAdminEditTotals();
+          }
+
+          searchInput.value = '';
+          searchResults.innerHTML = '';
+          searchResults.style.display = 'none';
+          return;
+        }
+
+        const sku = item.getAttribute('data-sku');
+        const name = item.getAttribute('data-name');
+        const vol = parseFloat(item.getAttribute('data-vol') || '0');
+        const price = parseFloat(item.getAttribute('data-price') || '0');
+        const barcode = item.getAttribute('data-barcode') || '';
+
+        const existing = window.adminEditingDeclarationProducts.find(p => p.sku.toUpperCase() === sku.toUpperCase());
+        if (existing) {
+          existing.qty = (existing.qty || 0) + 1;
+        } else {
+          window.adminEditingDeclarationProducts.push({
+            sku: sku,
+            name: name,
+            qty: 1,
+            price: price,
+            volumen: vol,
+            barcode: barcode
+          });
+        }
+
+        window.renderAdminEditDeclarationProducts();
+        window.recalculateAdminEditTotals();
+
+        searchInput.value = '';
+        searchResults.innerHTML = '';
+        searchResults.style.display = 'none';
+      };
+
+      document.addEventListener('click', function(e) {
+        if (e.target !== searchInput && e.target !== searchResults && !searchResults.contains(e.target)) {
+          searchResults.style.display = 'none';
+        }
+      });
+    }
+
+    // Listener para actualizar total de bultos al modificar desglose
+    const containerInp = document.getElementById('admin-edit-dec-container-count');
+    const palletInp = document.getElementById('admin-edit-dec-pallet-count');
+    const boxInp = document.getElementById('admin-edit-dec-box-count');
+    const totalPkgInp = document.getElementById('admin-edit-dec-package-count');
+
+    const updateSumPackages = () => {
+      const c = parseInt(containerInp.value, 10) || 0;
+      const p = parseInt(palletInp.value, 10) || 0;
+      const b = parseInt(boxInp.value, 10) || 0;
+      const sum = c + p + b;
+      if (sum > 0) {
+        totalPkgInp.value = sum;
+      }
+    };
+
+    if (containerInp) containerInp.oninput = updateSumPackages;
+    if (palletInp) palletInp.oninput = updateSumPackages;
+    if (boxInp) boxInp.oninput = updateSumPackages;
+
+    // Mostrar el modal
+    document.getElementById('modal-admin-edit-declaration').classList.add('active');
+
+  } catch (err) {
+    console.error('Error opening admin edit declaration modal:', err);
+    alert('Error al abrir la edición de declaración: ' + err.message);
+  }
+};
+
+window.renderAdminEditDeclarationProducts = function() {
+  const tbody = document.getElementById('admin-edit-dec-products-tbody');
+  if (!tbody) return;
+
+  const prods = window.adminEditingDeclarationProducts || [];
+  if (prods.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="padding: 18px; text-align: center; color: var(--color-text-muted); font-style: italic;">
+          No hay productos en esta declaración. Usa el buscador superior para agregar productos.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let html = '';
+  prods.forEach((p, idx) => {
+    html += `
+      <tr style="border-bottom: 1px solid var(--color-border); vertical-align: middle;">
+        <td style="padding: 8px 12px; max-width: 250px;">
+          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.sku}">${p.sku}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name || ''}">${p.name || 'Sin descripción'}</div>
+        </td>
+        <td style="padding: 8px 12px; text-align: center;">
+          <input type="number" class="form-input" min="0" value="${p.qty || 0}" style="width: 85px; text-align: center; padding: 4px 6px; font-size: 0.85rem; height: 30px; margin: 0 auto; font-weight: 700;" oninput="window.updateAdminEditDeclarationProductQty(${idx}, this.value)">
+        </td>
+        <td style="padding: 8px 12px; text-align: right; font-size: 0.85rem; color: var(--color-text-main);">
+          $${(p.price || 0).toLocaleString('es-CL')}
+        </td>
+        <td style="padding: 8px 12px; text-align: right; font-size: 0.85rem; color: var(--color-text-muted);">
+          ${(p.volumen || 0).toFixed(4)}
+        </td>
+        <td style="padding: 8px 12px; text-align: center;">
+          <button type="button" onclick="window.removeAdminEditDeclarationProduct(${idx})" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 4px; display: inline-flex; align-items: center; font-size: 1rem;" title="Eliminar producto">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  });
+  tbody.innerHTML = html;
+};
+
+window.updateAdminEditDeclarationProductQty = function(idx, val) {
+  const parsed = parseInt(val, 10);
+  if (isNaN(parsed) || parsed < 0) return;
+  if (!window.adminEditingDeclarationProducts || !window.adminEditingDeclarationProducts[idx]) return;
+
+  window.adminEditingDeclarationProducts[idx].qty = parsed;
+  window.recalculateAdminEditTotals();
+};
+
+window.removeAdminEditDeclarationProduct = function(idx) {
+  if (!window.adminEditingDeclarationProducts) return;
+  window.adminEditingDeclarationProducts.splice(idx, 1);
+  window.renderAdminEditDeclarationProducts();
+  window.recalculateAdminEditTotals();
+};
+
+window.recalculateAdminEditTotals = function() {
+  const prods = window.adminEditingDeclarationProducts || [];
+  const totalQty = prods.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
+  
+  const badgeEl = document.getElementById('admin-edit-dec-total-qty-badge');
+  if (badgeEl) badgeEl.textContent = totalQty;
+};
+
+// Event listener para guardar la edición de declaración por Administrador
+document.addEventListener('submit', async (e) => {
+  if (e.target && e.target.id === 'form-admin-edit-declaration') {
+    e.preventDefault();
+
+    const id = document.getElementById('admin-edit-dec-id').value;
+    const title = document.getElementById('admin-edit-dec-title').value.trim();
+    const reason = document.getElementById('admin-edit-dec-reason').value.trim();
+    const alertContainer = document.getElementById('admin-edit-dec-alert-container');
+    const saveBtn = document.getElementById('btn-save-admin-edit-dec');
+
+    if (!title) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">El título de la declaración es obligatorio.</div>';
+      return;
+    }
+
+    if (!reason || reason.length < 5) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes ingresar un motivo o justificación de al menos 5 caracteres para que quede registrado en el historial de transparencia para el cliente.</div>';
+      return;
+    }
+
+    const orig = window.adminOriginalDeclarationEditing;
+    if (!orig) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Error: No se encontró el estado original de la declaración.</div>';
+      return;
+    }
+
+    const btnExact = document.getElementById('admin-edit-btn-date-exact');
+    const isExact = btnExact && btnExact.classList.contains('btn-primary');
+    const etaType = isExact ? 'exact' : 'estimate';
+    const etaDate = isExact ? document.getElementById('admin-edit-dec-date').value : null;
+    const etaPeriod = !isExact ? `${document.getElementById('admin-edit-dec-period-qty').value} ${document.getElementById('admin-edit-dec-period-unit').value}` : null;
+
+    if (isExact && !etaDate) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">Debes especificar la fecha exacta de llegada.</div>';
+      return;
+    }
+
+    const warehouseId = document.getElementById('admin-edit-dec-warehouse').value || null;
+    const deliveryMethod = document.getElementById('admin-edit-dec-delivery-method').value;
+    const requiresUnloading = document.getElementById('admin-edit-dec-unloading').checked;
+    const packageType = document.getElementById('admin-edit-dec-package-type').value;
+    const packageCount = parseInt(document.getElementById('admin-edit-dec-package-count').value, 10) || 0;
+    const containerCount = parseInt(document.getElementById('admin-edit-dec-container-count').value, 10) || 0;
+    const palletCount = parseInt(document.getElementById('admin-edit-dec-pallet-count').value, 10) || 0;
+    const boxCount = parseInt(document.getElementById('admin-edit-dec-box-count').value, 10) || 0;
+    const volumeDeclared = parseFloat(document.getElementById('admin-edit-dec-volume').value) || 0;
+    const labelingType = document.getElementById('admin-edit-dec-labeling-type').value;
+    const labelingQty = (labelingType === 'completely') ? 0 : (parseInt(document.getElementById('admin-edit-dec-labeling-qty').value, 10) || 0);
+
+    const contactInfo = document.getElementById('admin-edit-dec-contact').value.trim();
+    const carrierInfo = document.getElementById('admin-edit-dec-carrier').value.trim();
+    const notes = document.getElementById('admin-edit-dec-notes').value.trim();
+    const adminNotes = document.getElementById('admin-edit-dec-admin-notes').value.trim();
+
+    const prods = window.adminEditingDeclarationProducts || [];
+    const totalQtyDeclared = prods.reduce((acc, p) => acc + (parseInt(p.qty, 10) || 0), 0);
+
+    if (prods.length === 0 || totalQtyDeclared <= 0) {
+      alertContainer.innerHTML = '<div class="alert alert-error" style="display:block;">La declaración debe tener al menos 1 producto con cantidad mayor a 0.</div>';
+      return;
+    }
+
+    // --- CÁLCULO DE DIFERENCIAS (DIFF & AUDITORÍA) ---
+    const changesList = [];
+
+    if (title !== orig.title) {
+      changesList.push(`Título: modificado de "${orig.title}" a "${title}"`);
+    }
+
+    if (etaType !== orig.estimated_arrival_type || (etaType === 'exact' && etaDate !== orig.estimated_arrival_date) || (etaType === 'estimate' && etaPeriod !== orig.estimated_arrival_period)) {
+      const oldEta = orig.estimated_arrival_type === 'exact' ? orig.estimated_arrival_date : orig.estimated_arrival_period;
+      const newEta = etaType === 'exact' ? etaDate : etaPeriod;
+      changesList.push(`Fecha de llegada (ETA): modificada de "${oldEta}" a "${newEta}"`);
+    }
+
+    if (warehouseId !== orig.warehouse_id) {
+      const whSelect = document.getElementById('admin-edit-dec-warehouse');
+      const newWhText = whSelect.options[whSelect.selectedIndex]?.text || 'Sin asignar';
+      const oldWhText = orig.warehouses?.name || 'Sin asignar';
+      changesList.push(`Bodega asignada: modificada de "${oldWhText}" a "${newWhText}"`);
+    }
+
+    if (deliveryMethod !== orig.delivery_method) {
+      changesList.push(`Método de entrega: modificado de "${orig.delivery_method}" a "${deliveryMethod}"`);
+    }
+
+    if (requiresUnloading !== orig.requires_unloading) {
+      changesList.push(`Servicio de descarga: ${requiresUnloading ? 'Activado (Solicitado)' : 'Desactivado (No requerido)'}`);
+    }
+
+    if (totalQtyDeclared !== orig.quantity_declared) {
+      const diffQty = totalQtyDeclared - orig.quantity_declared;
+      const sign = diffQty > 0 ? '+' : '';
+      changesList.push(`Cantidad total declarada: modificada de ${orig.quantity_declared} a ${totalQtyDeclared} unidades (${sign}${diffQty})`);
+    }
+
+    if (packageCount !== orig.package_count || packageType !== orig.package_type) {
+      changesList.push(`Bultos: modificados de ${orig.package_count} (${orig.package_type}) a ${packageCount} (${packageType}) [C:${containerCount}, P:${palletCount}, Cx:${boxCount}]`);
+    }
+
+    if (volumeDeclared !== (orig.volume_declared || 0)) {
+      changesList.push(`Volumen declarado: modificado de ${orig.volume_declared || 0} m³ a ${volumeDeclared} m³`);
+    }
+
+    if (labelingType !== (orig.labeling_type || 'completely') || labelingQty !== (orig.labeling_qty_requested || 0)) {
+      changesList.push(`Servicio de etiquetado: modificado a ${labelingType} (${labelingQty} uds requeridas)`);
+    }
+
+    if (contactInfo !== (orig.contact_info || '')) {
+      changesList.push(`Contacto: actualizado`);
+    }
+
+    if (carrierInfo !== (orig.carrier_info || '')) {
+      changesList.push(`Transportista: actualizado`);
+    }
+
+    // Diferencias en productos individuales
+    const origProds = getDeclarationProducts(orig) || [];
+    const origProdsMap = new Map();
+    origProds.forEach(p => {
+      if (p.sku) origProdsMap.set(p.sku.trim().toUpperCase(), p);
+    });
+
+    const newProdsMap = new Map();
+    prods.forEach(p => {
+      if (p.sku) newProdsMap.set(p.sku.trim().toUpperCase(), p);
+    });
+
+    const prodChanges = [];
+
+    // Revisar modificados y agregados
+    prods.forEach(np => {
+      const skuKey = np.sku.trim().toUpperCase();
+      const op = origProdsMap.get(skuKey);
+      if (!op) {
+        prodChanges.push(`• SKU ${np.sku} (${np.name || 'Sin nombre'}): Agregado con ${np.qty} uds declaradas`);
+      } else if (op.qty !== np.qty) {
+        const pDiff = np.qty - op.qty;
+        const pSign = pDiff > 0 ? '+' : '';
+        prodChanges.push(`• SKU ${np.sku}: Cantidad modificada de ${op.qty} a ${np.qty} uds (${pSign}${pDiff})`);
+      }
+    });
+
+    // Revisar eliminados
+    origProds.forEach(op => {
+      const skuKey = op.sku.trim().toUpperCase();
+      if (!newProdsMap.has(skuKey)) {
+        prodChanges.push(`• SKU ${op.sku} (${op.name || 'Sin nombre'}): Eliminado de la declaración (era ${op.qty} uds)`);
+      }
+    });
+
+    if (prodChanges.length > 0) {
+      changesList.push(`Detalle de productos:\n  ${prodChanges.join('\n  ')}`);
+    }
+
+    if (changesList.length === 0 && notes === (orig.notes || '') && adminNotes === (orig.admin_notes || '')) {
+      alertContainer.innerHTML = '<div class="alert alert-warning" style="display:block;">No se detectaron cambios en los campos de la declaración.</div>';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Guardando cambios...';
+
+    try {
+      // 1. Recalcular costo estimado si se cuenta con la función
+      let newEstimatedCost = orig.estimated_cost || 0;
+      if (typeof window.calculateEntryCost === 'function') {
+        const costCalc = window.calculateEntryCost(volumeDeclared, requiresUnloading, etaType, etaDate, labelingQty);
+        newEstimatedCost = costCalc.totalCost;
+      }
+
+      // 2. Generar planilla virtual Excel en Base64 con los productos actualizados
+      let updatedFileBase64 = orig.file_base64;
+      let updatedFileName = orig.file_name;
+      try {
+        if (typeof XLSX !== 'undefined' && prods.length > 0) {
+          const ws = XLSX.utils.json_to_sheet(prods.map(p => ({
+            'Nombre Producto': p.name || p.sku,
+            'SKU': p.sku,
+            'Cantidad declarada': p.qty,
+            'Valor': p.price || 0,
+            'Volumen (m3)': p.volumen || 0,
+            'Código de barra': p.barcode || ''
+          })));
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, "Productos");
+          updatedFileBase64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+          updatedFileName = `Ingreso_${id.substring(0, 8).toUpperCase()}_Modificado_Admin.xlsx`;
+        }
+      } catch (xlsxErr) {
+        console.warn('Error generating updated Excel Base64:', xlsxErr);
+      }
+
+      // 3. Crear entrada de auditoría y transparencia para el historial
+      const authUser = supabase.auth.user ? supabase.auth.user() : null;
+      const adminEmail = (authUser && authUser.email) || 'administracion@stocka.cl';
+      const adminName = (window.currentAdminProfile && window.currentAdminProfile.full_name) || 'Administración Stocka';
+
+      const changesSummary = changesList.join('\n');
+      const newHistoryEntry = {
+        status: orig.status,
+        timestamp: new Date().toISOString(),
+        type: 'admin_edit',
+        author: `${adminName} (${adminEmail})`,
+        admin_email: adminEmail,
+        admin_name: adminName,
+        reason: reason,
+        changes_list: changesList,
+        changes_summary: changesSummary,
+        comment: `Modificación de declaración por Administración: "${reason}". Cambios: ${changesList.length} ajuste(s) realizado(s).`
+      };
+
+      const updatedHistory = [...(orig.history || []), newHistoryEntry];
+
+      // 4. Preparar payload de actualización
+      const updateData = {
+        title: title,
+        estimated_arrival_type: etaType,
+        estimated_arrival_date: etaDate,
+        estimated_arrival_period: etaPeriod,
+        warehouse_id: warehouseId,
+        delivery_method: deliveryMethod,
+        requires_unloading: requiresUnloading,
+        quantity_declared: totalQtyDeclared,
+        package_count: packageCount,
+        package_type: packageType,
+        container_count: containerCount,
+        pallet_count: palletCount,
+        box_count: boxCount,
+        volume_declared: volumeDeclared,
+        labeling_type: labelingType,
+        labeling_qty_requested: labelingQty,
+        contact_info: contactInfo,
+        carrier_info: carrierInfo,
+        notes: notes,
+        admin_notes: adminNotes,
+        estimated_cost: newEstimatedCost,
+        products_list: prods,
+        file_base64: updatedFileBase64,
+        file_name: updatedFileName,
+        history: updatedHistory,
+        updated_at: new Date().toISOString()
+      };
+
+      // Si el ingreso ya estaba en recepción o finalizado y se cambiaron productos, mantener consistencia
+      const { error: updateError } = await supabase
+        .from('stock_declarations')
+        .update(updateData)
+        .eq('id', id);
+
+      if (updateError) throw updateError;
+
+      // 5. Notificar a los usuarios del comercio sobre los ajustes realizados
+      try {
+        if (typeof notifyCommerceUsers === 'function') {
+          const notifTitle = 'Modificación en Declaración de Ingreso de Stock';
+          const notifMsg = `Administración ha realizado ajustes en la declaración de ingreso "${title}". Motivo: "${reason}". Revisa los detalles en el historial del ingreso.`;
+          await notifyCommerceUsers(orig.comercio, notifTitle, notifMsg);
+        }
+      } catch (notifErr) {
+        console.warn('Error notifying commerce users of admin edit:', notifErr);
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: '¡Declaración Modificada!',
+        html: `<div style="text-align: left; font-size: 0.9rem;"><p>Se han guardado los cambios correctamente y se ha generado la nota de transparencia en el historial para el cliente.</p><div style="background: rgba(0,0,0,0.05); padding: 0.5rem; border-radius: 6px; font-size: 0.8rem;"><strong>${changesList.length} ajuste(s) registrado(s):</strong><br>${changesList.map(c => `• ${c.split('\n')[0]}`).join('<br>')}</div></div>`,
+        confirmButtonText: 'Entendido'
+      });
+
+      document.getElementById('modal-admin-edit-declaration').classList.remove('active');
+      window.adminEditingDeclarationProducts = [];
+      window.adminEditingDeclarationProducts_id = null;
+      window.adminOriginalDeclarationEditing = null;
+
+      // Refrescar tabla del Administrador
+      if (typeof renderDeclarationsAdmin === 'function') {
+        renderDeclarationsAdmin();
+      }
+
+    } catch (err) {
+      console.error('Error saving edited declaration:', err);
+      alertContainer.innerHTML = `<div class="alert alert-error" style="display:block;">Error al guardar modificaciones: ${err.message}</div>`;
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="ri-save-line"></i> Guardar Modificaciones';
     }
   }
 });
@@ -37657,7 +38517,7 @@ window.viewDeclarationProducts = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('title, file_base64')
+      .select('title, products_list, file_base64, history')
       .eq('id', id)
       .single();
 
@@ -37667,7 +38527,9 @@ window.viewDeclarationProducts = async function(id) {
     titleEl.textContent = `Productos: ${dec.title}`;
 
     let products = [];
-    if (dec.file_base64) {
+    if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+      products = dec.products_list;
+    } else if (dec.file_base64) {
       const binaryString = window.atob(dec.file_base64);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
@@ -37705,7 +38567,16 @@ window.viewDeclarationProducts = async function(id) {
       return;
     }
 
+    const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+    const adminNoticeHtml = hasAdminEdit ? `
+      <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.825rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
+        <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+        <span>Los productos y cantidades mostrados reflejan los ajustes realizados por Administración.</span>
+      </div>
+    ` : '';
+
     let tableHtml = `
+      ${adminNoticeHtml}
       <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
         <thead>
           <tr style="border-bottom: 2px solid var(--color-border); text-align: left;">
@@ -37724,7 +38595,7 @@ window.viewDeclarationProducts = async function(id) {
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
           <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
           <td style="padding: 8px;">${p.name}</td>
-          <td style="padding: 8px; text-align: right; font-weight: bold;">${p.qty.toLocaleString()}</td>
+          <td style="padding: 8px; text-align: right; font-weight: bold;">${(p.qty || 0).toLocaleString()}</td>
         </tr>
       `;
     });

@@ -7,6 +7,59 @@ import supabase from './supabase.js';
   // Active print queue for the bulk generator view
   let printQueue = [];
 
+  // Current active tab in the labels module: 'catalog' | 'fragile'
+  let currentLabelTab = 'catalog';
+
+  // Fragile / Warning label generator options
+  const fragileState = {
+    size: '10x15', // '10x15' | '10x10' | '5x5' | '5x2.5'
+    copiesPerSheet: 4, // 1 | 2 | 4 | 6
+    format: 'text+icon', // 'text+icon' | 'text_only' | 'icon_only' | 'text+icon+sub'
+    icon: 'glass', // 'glass' | 'hands' | 'arrows' | 'umbrella' | 'warning'
+    mainText: 'FRÁGIL',
+    subText: 'MANÉJESE CON CUIDADO',
+    style: 'classic', // 'classic' | 'inverted' | 'hazard'
+    includeCommerce: false,
+    sheetsCount: 1
+  };
+
+  // High-contrast vector SVGs for Fragile & Handling logistics symbols (ISO compliant)
+  const FRAGILE_ICONS = {
+    glass: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <path d="M 28,14 L 72,14 C 72,42 54,54 53,62 L 53,82 L 68,82 C 70,82 71,85 71,87 L 71,88 C 71,90 70,91 68,91 L 32,91 C 30,91 29,90 29,88 L 29,87 C 29,85 30,82 32,82 L 47,82 L 47,62 C 46,54 28,42 28,14 Z" fill="currentColor"/>
+      <path d="M 47,13 L 42,26 L 54,33 L 45,45 L 51,52 L 48,58" fill="none" stroke="var(--fragile-bg, #ffffff)" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+
+    hands: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <rect x="36" y="22" width="28" height="28" rx="2" fill="currentColor"/>
+      <line x1="50" y1="22" x2="50" y2="50" stroke="var(--fragile-bg, #ffffff)" stroke-width="2.5"/>
+      <line x1="36" y1="36" x2="64" y2="36" stroke="var(--fragile-bg, #ffffff)" stroke-width="2.5"/>
+      <path d="M 16,74 C 18,60 26,50 34,48 C 36,47 37,50 35,52 C 29,56 25,64 25,74 C 25,78 28,82 34,82 C 40,82 43,76 43,70 L 43,62 C 43,59 46,59 46,62 L 46,72 C 46,82 38,90 28,90 C 18,90 14,82 16,74 Z" fill="currentColor"/>
+      <path d="M 84,74 C 82,60 74,50 66,48 C 64,47 63,50 65,52 C 71,56 75,64 75,74 C 75,78 72,82 66,82 C 60,82 57,76 57,70 L 57,62 C 57,59 54,59 54,62 L 54,72 C 54,82 62,90 72,90 C 82,90 86,82 84,74 Z" fill="currentColor"/>
+    </svg>`,
+
+    arrows: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <polygon points="32,15 16,40 26,40 26,74 38,74 38,40 48,40" fill="currentColor"/>
+      <polygon points="68,15 52,40 62,40 62,74 74,74 74,40 84,40" fill="currentColor"/>
+      <rect x="14" y="82" width="72" height="8" rx="2" fill="currentColor"/>
+    </svg>`,
+
+    umbrella: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <path d="M 12,52 C 12,30 29,15 50,15 C 71,15 88,30 88,52 C 80,48 72,48 64,52 C 56,48 44,48 36,52 C 28,48 20,48 12,52 Z" fill="currentColor"/>
+      <path d="M 47,15 L 53,15 L 53,74 C 53,80 57,84 62,84 C 67,84 71,80 71,75 C 71,73 74,73 74,75 C 74,83 68,89 61,89 C 53,89 47,83 47,74 Z" fill="currentColor"/>
+      <rect x="48" y="9" width="4" height="7" rx="1" fill="currentColor"/>
+      <line x1="24" y1="6" x2="20" y2="16" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="52" y1="2" x2="48" y2="10" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+      <line x1="78" y1="6" x2="74" y2="16" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+    </svg>`,
+
+    warning: `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;max-height:100%;display:block;margin:auto;">
+      <path d="M 45.5,14 C 47.5,10.5 52.5,10.5 54.5,14 L 91.5,78 C 93.5,81.5 91,86 87,86 L 13,86 C 9,86 6.5,81.5 8.5,78 Z" fill="currentColor"/>
+      <path d="M 50,34 L 50,58" stroke="var(--fragile-bg, #ffffff)" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="50" cy="72" r="4.5" fill="var(--fragile-bg, #ffffff)"/>
+    </svg>`
+  };
+
   /**
    * Helper to resolve the active merchant/commerce
    */
@@ -277,137 +330,316 @@ import supabase from './supabase.js';
       console.error("Error loading declarations for labels:", err);
     }
 
-    // Render layout
+    // Render tabbed layout
     workspace.innerHTML = `
-      <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 1rem; align-items: stretch; animation: fadeIn 0.25s ease;">
-        <!-- Left Panel: Configurations -->
-        <div class="card" style="flex: 1 1 300px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-          <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
-            <i class="ri-settings-3-line" style="color: var(--color-primary);"></i> Ajustes de Impresión
-          </h3>
-          
-          <div>
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Tamaño de Etiqueta</label>
-            <select id="global-label-size" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
-              <option value="5x2.5" selected>5 x 2.5 cm (Horizontal chica)</option>
-              <option value="5x5">5 x 5 cm (Cuadrada mediana)</option>
-              <option value="10x15">10 x 15 cm (Vertical grande / Envíos)</option>
-            </select>
-          </div>
-          
-          <div>
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Componentes</label>
-            <select id="global-label-template" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
-              <option value="name+barcode" selected>Nombre + Código de barras</option>
-              <option value="barcode">Sólo Código de barras</option>
-            </select>
-          </div>
-          
-          <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
-            <input type="checkbox" id="global-label-readable" checked style="width: auto; cursor: pointer;">
-            <label for="global-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Lectura humana (texto bajo las barras)</label>
-          </div>
-          
-          <div>
-            <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Origen del Código</label>
-            <select id="global-label-source" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
-              <option value="sku" selected>Usar SKU del Producto</option>
-              <option value="barcode">Usar Campo "Código de Barras" del Catálogo</option>
-            </select>
-            <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
-              * Si un producto no posee código de barra en catálogo, se utilizará su SKU.
-            </span>
-          </div>
+      <!-- Top Navigation Tabs for Labels Module -->
+      <div style="display: flex; gap: 0.75rem; border-bottom: 2px solid var(--color-border); margin-bottom: 1.25rem; padding-bottom: 0.5rem; flex-wrap: wrap;">
+        <button type="button" id="btn-label-tab-catalog" class="btn ${currentLabelTab === 'catalog' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
+          <i class="ri-barcode-box-line" style="font-size: 1.1rem;"></i> Etiquetas de Catálogo / SKU
+        </button>
+        <button type="button" id="btn-label-tab-fragile" class="btn ${currentLabelTab === 'fragile' ? 'btn-primary' : 'btn-outline'}" style="padding: 0.6rem 1.25rem; font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 0.5rem; border-radius: var(--radius-md); transition: all 0.2s;">
+          <i class="ri-alert-line" style="font-size: 1.1rem; color: ${currentLabelTab === 'fragile' ? '#ffffff' : 'var(--color-warning)'};"></i> Etiquetas FRÁGIL / Advertencia
+        </button>
+      </div>
 
-          <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
-            <button id="btn-load-inventory-stock" class="btn btn-outline" style="width: 100%; justify-content: center; gap: 0.5rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent);">
-              <i class="ri-box-3-line"></i> Cargar desde Stock Activo
-            </button>
-            <button id="btn-clear-print-queue" class="btn btn-outline" style="width: 100%; justify-content: center; gap: 0.5rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger);">
-              <i class="ri-delete-bin-line"></i> Limpiar Cola de Impresión
-            </button>
-          </div>
-        </div>
+      <!-- TAB 1: CATALOG PRODUCTS & STOCK INCOMES -->
+      <div id="label-tab-catalog-content" style="display: ${currentLabelTab === 'catalog' ? 'block' : 'none'}; animation: fadeIn 0.2s ease;">
+        <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: stretch;">
+          <!-- Left Panel: Configurations -->
+          <div class="card" style="flex: 1 1 300px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+              <i class="ri-settings-3-line" style="color: var(--color-primary);"></i> Ajustes de Impresión
+            </h3>
+            
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Tamaño de Etiqueta</label>
+              <select id="global-label-size" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
+                <option value="5x2.5" selected>5 x 2.5 cm (Horizontal chica)</option>
+                <option value="5x5">5 x 5 cm (Cuadrada mediana)</option>
+                <option value="10x15">10 x 15 cm (Vertical grande / Envíos)</option>
+              </select>
+            </div>
+            
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Componentes</label>
+              <select id="global-label-template" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
+                <option value="name+barcode" selected>Nombre + Código de barras</option>
+                <option value="barcode">Sólo Código de barras</option>
+              </select>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem;">
+              <input type="checkbox" id="global-label-readable" checked style="width: auto; cursor: pointer;">
+              <label for="global-label-readable" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Lectura humana (texto bajo las barras)</label>
+            </div>
+            
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">Origen del Código</label>
+              <select id="global-label-source" class="form-input" style="width:100%; height:42px; padding:0.5rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md);">
+                <option value="sku" selected>Usar SKU del Producto</option>
+                <option value="barcode">Usar Campo "Código de Barras" del Catálogo</option>
+              </select>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+                * Si un producto no posee código de barra en catálogo, se utilizará su SKU.
+              </span>
+            </div>
 
-        <!-- Center Panel: Print Queue -->
-        <div class="card" style="flex: 2 1 450px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
-          <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Cola de Impresión</h3>
-          
-          <!-- Search box with Autocomplete -->
-          <div style="position: relative;">
-            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
-            <input type="text" id="label-search-input" class="form-input" placeholder="Buscar y agregar producto por SKU o nombre..." style="width: 100%; padding-left: 2.25rem; padding-right: 1rem; height: 42px; border-radius: var(--radius-md);">
-            <div id="label-autocomplete-dropdown" style="display: none; position: absolute; top: 105%; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; max-height: 240px; overflow-y: auto;">
+            <div style="border-top: 1px dashed var(--color-border); padding-top: 1rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.75rem;">
+              <button id="btn-load-inventory-stock" class="btn btn-outline" style="width: 100%; justify-content: center; gap: 0.5rem; font-size: 0.85rem; border-color: var(--color-accent); color: var(--color-accent);">
+                <i class="ri-box-3-line"></i> Cargar desde Stock Activo
+              </button>
+              <button id="btn-clear-print-queue" class="btn btn-outline" style="width: 100%; justify-content: center; gap: 0.5rem; font-size: 0.85rem; border-color: var(--color-danger); color: var(--color-danger);">
+                <i class="ri-delete-bin-line"></i> Limpiar Cola de Impresión
+              </button>
             </div>
           </div>
 
-          <div style="flex: 1; min-height: 250px; max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
-            <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+          <!-- Center Panel: Print Queue -->
+          <div class="card" style="flex: 2 1 450px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main);">Cola de Impresión</h3>
+            
+            <!-- Search box with Autocomplete -->
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="label-search-input" class="form-input" placeholder="Buscar y agregar producto por SKU o nombre..." style="width: 100%; padding-left: 2.25rem; padding-right: 1rem; height: 42px; border-radius: var(--radius-md);">
+              <div id="label-autocomplete-dropdown" style="display: none; position: absolute; top: 105%; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; max-height: 240px; overflow-y: auto;">
+              </div>
+            </div>
+
+            <div style="flex: 1; min-height: 250px; max-height: 400px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+              <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                <thead>
+                  <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); text-align: left;">
+                    <th style="padding: 0.6rem 0.8rem;">Producto</th>
+                    <th style="padding: 0.6rem 0.8rem;">SKU</th>
+                    <th style="padding: 0.6rem 0.8rem; text-align: center;">Código en barras</th>
+                    <th style="padding: 0.6rem 0.8rem; text-align: center; width: 100px;">Copias</th>
+                    <th style="padding: 0.6rem 0.8rem; text-align: center; width: 50px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="label-queue-tbody">
+                  <!-- Dynamic rows -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Right Panel: Live Preview -->
+          <div class="card" style="flex: 1 1 280px; padding: 1.25rem; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 380px;">
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.1rem; width: 100%; text-align: left; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa
+            </h3>
+
+            <!-- Aspect ratio simulation wrapper -->
+            <div id="live-preview-box-wrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 1rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem;">
+              <!-- Rendered label goes here -->
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; width: 100%;">
+              <button id="btn-emit-bulk-labels" class="btn btn-primary" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.35rem; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
+                <i class="ri-printer-line"></i> Imprimir (<span id="bulk-total-count">0</span>)
+              </button>
+              <button id="btn-download-bulk-zpl" class="btn btn-outline" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.35rem; border-radius: var(--radius-md); border-color: var(--color-accent); color: var(--color-accent);">
+                <i class="ri-download-2-line"></i> ZPL (<span id="bulk-total-count-zpl">0</span>)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Stock Incomes -->
+        <div class="card" style="margin-top: 1.5rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; animation: fadeIn 0.3s ease;">
+          <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-history-line" style="color: var(--color-primary);"></i> Ingresos de Stock del Comercio
+          </h3>
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">
+            Selecciona una declaración de ingreso de stock para cargar automáticamente todos sus productos y cantidades declaradas/confirmadas directamente a la cola de impresión.
+          </p>
+          
+          <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
+            <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
               <thead>
-                <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border); text-align: left;">
-                  <th style="padding: 0.6rem 0.8rem;">Producto</th>
-                  <th style="padding: 0.6rem 0.8rem;">SKU</th>
-                  <th style="padding: 0.6rem 0.8rem; text-align: center;">Código en barras</th>
-                  <th style="padding: 0.6rem 0.8rem; text-align: center; width: 100px;">Copias</th>
-                  <th style="padding: 0.6rem 0.8rem; text-align: center; width: 50px;"></th>
+                <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
+                  <th style="padding: 0.75rem 1rem;">ID / Código</th>
+                  <th style="padding: 0.75rem 1rem;">Título / Descripción</th>
+                  <th style="padding: 0.75rem 1rem;">Bodega</th>
+                  <th style="padding: 0.75rem 1rem;">Fecha Creación</th>
+                  <th style="padding: 0.75rem 1rem; text-align: center;">U. Declaradas</th>
+                  <th style="padding: 0.75rem 1rem; text-align: center;">U. Confirmadas</th>
+                  <th style="padding: 0.75rem 1rem;">Estado</th>
+                  <th style="padding: 0.75rem 1rem; text-align: center; width: 180px;">Acción</th>
                 </tr>
               </thead>
-              <tbody id="label-queue-tbody">
-                <!-- Dynamic rows -->
+              <tbody id="label-declarations-tbody">
+                <!-- Dynamically populated -->
               </tbody>
             </table>
           </div>
         </div>
-
-        <!-- Right Panel: Live Preview -->
-        <div class="card" style="flex: 1 1 280px; padding: 1.25rem; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 380px;">
-          <h3 style="margin: 0 0 1rem 0; font-size: 1.1rem; width: 100%; text-align: left; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa
-          </h3>
-
-          <!-- Aspect ratio simulation wrapper -->
-          <div id="live-preview-box-wrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 1rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem;">
-            <!-- Rendered label goes here -->
-          </div>
-
-          <div style="display: flex; gap: 0.75rem; width: 100%;">
-            <button id="btn-emit-bulk-labels" class="btn btn-primary" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.35rem; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
-              <i class="ri-printer-line"></i> Imprimir (<span id="bulk-total-count">0</span>)
-            </button>
-            <button id="btn-download-bulk-zpl" class="btn btn-outline" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.35rem; border-radius: var(--radius-md); border-color: var(--color-accent); color: var(--color-accent);">
-              <i class="ri-download-2-line"></i> ZPL (<span id="bulk-total-count-zpl">0</span>)
-            </button>
-          </div>
-        </div>
       </div>
 
-      <!-- New Section: Stock Incomes -->
-      <div class="card" style="margin-top: 1.5rem; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; animation: fadeIn 0.3s ease;">
-        <h3 style="margin: 0; font-size: 1.15rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-history-line" style="color: var(--color-primary);"></i> Ingresos de Stock del Comercio
-        </h3>
-        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">
-          Selecciona una declaración de ingreso de stock para cargar automáticamente todos sus productos y cantidades declaradas/confirmadas directamente a la cola de impresión.
-        </p>
-        
-        <div style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg);">
-          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
-            <thead>
-              <tr style="background: var(--color-surface); border-bottom: 1px solid var(--color-border);">
-                <th style="padding: 0.75rem 1rem;">ID / Código</th>
-                <th style="padding: 0.75rem 1rem;">Título / Descripción</th>
-                <th style="padding: 0.75rem 1rem;">Bodega</th>
-                <th style="padding: 0.75rem 1rem;">Fecha Creación</th>
-                <th style="padding: 0.75rem 1rem; text-align: center;">U. Declaradas</th>
-                <th style="padding: 0.75rem 1rem; text-align: center;">U. Confirmadas</th>
-                <th style="padding: 0.75rem 1rem;">Estado</th>
-                <th style="padding: 0.75rem 1rem; text-align: center; width: 180px;">Acción</th>
-              </tr>
-            </thead>
-            <tbody id="label-declarations-tbody">
-              <!-- Dynamically populated -->
-            </tbody>
-          </table>
+      <!-- TAB 2: FRAGILE & WARNING LABELS -->
+      <div id="label-tab-fragile-content" style="display: ${currentLabelTab === 'fragile' ? 'block' : 'none'}; animation: fadeIn 0.25s ease;">
+        <div class="label-generator-container" style="display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; align-items: stretch;">
+          <!-- Left Panel: Fragile Settings -->
+          <div class="card" style="flex: 1 1 350px; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+            <h3 style="margin: 0 0 0.25rem 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; color: var(--color-text-main);">
+              <i class="ri-settings-4-line" style="color: var(--color-warning);"></i> Configuración de Etiqueta FRÁGIL
+            </h3>
+
+            <!-- 1. Label Size -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-aspect-ratio-line" style="margin-right: 4px;"></i> Tamaño de Etiqueta Adhesiva (Física)
+              </label>
+              <select id="fragile-label-size" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="10x15" ${fragileState.size === '10x15' ? 'selected' : ''}>10 x 15 cm (Vertical grande / Estándar Courier)</option>
+                <option value="10x10" ${fragileState.size === '10x10' ? 'selected' : ''}>10 x 10 cm (Cuadrada grande)</option>
+                <option value="5x5" ${fragileState.size === '5x5' ? 'selected' : ''}>5 x 5 cm (Cuadrada mediana)</option>
+                <option value="5x2.5" ${fragileState.size === '5x2.5' ? 'selected' : ''}>5 x 2.5 cm (Horizontal chica)</option>
+              </select>
+            </div>
+
+            <!-- 2. Multi-copies per Sheet / Grid -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-grid-fill" style="margin-right: 4px;"></i> Copias dentro de una misma Etiqueta
+              </label>
+              <div id="fragile-copies-btn-group" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                <!-- Populated dynamically by renderCopiesButtonGroup -->
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.35rem;">
+                * Imprime 2, 4 o 6 sub-etiquetas con líneas de corte en el mismo adhesivo 10x10 o 10x15.
+              </span>
+            </div>
+
+            <!-- 3. Format / Composition -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-layout-masonry-line" style="margin-right: 4px;"></i> Formato de Composición
+              </label>
+              <select id="fragile-label-format" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="text+icon" ${fragileState.format === 'text+icon' ? 'selected' : ''}>Ícono + Texto "FRÁGIL" (Recomendado)</option>
+                <option value="text_only" ${fragileState.format === 'text_only' ? 'selected' : ''}>Sólo Texto ("FRÁGIL" Gigante)</option>
+                <option value="icon_only" ${fragileState.format === 'icon_only' ? 'selected' : ''}>Sólo Ícono Representativo</option>
+                <option value="text+icon+sub" ${fragileState.format === 'text+icon+sub' ? 'selected' : ''}>Ícono + FRÁGIL + Subtítulo de Cuidado</option>
+              </select>
+            </div>
+
+            <!-- 4. Icon Selector -->
+            <div id="fragile-icon-selector-section" style="${fragileState.format === 'text_only' ? 'display:none;' : ''}">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-image-line" style="margin-right: 4px;"></i> Ícono de Advertencia (Vectorial ISO)
+              </label>
+              <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.35rem;">
+                <button type="button" class="fragile-icon-opt-btn ${fragileState.icon === 'glass' ? 'active' : ''}" data-icon="glass" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${fragileState.icon === 'glass' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${fragileState.icon === 'glass' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Copa de Cristal / Frágil">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${FRAGILE_ICONS.glass}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Copa</span>
+                </button>
+                <button type="button" class="fragile-icon-opt-btn ${fragileState.icon === 'hands' ? 'active' : ''}" data-icon="hands" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${fragileState.icon === 'hands' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${fragileState.icon === 'hands' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Manejar con cuidado / Manos">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${FRAGILE_ICONS.hands}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Manos</span>
+                </button>
+                <button type="button" class="fragile-icon-opt-btn ${fragileState.icon === 'arrows' ? 'active' : ''}" data-icon="arrows" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${fragileState.icon === 'arrows' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${fragileState.icon === 'arrows' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Hacia arriba / This side up">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${FRAGILE_ICONS.arrows}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Arriba</span>
+                </button>
+                <button type="button" class="fragile-icon-opt-btn ${fragileState.icon === 'umbrella' ? 'active' : ''}" data-icon="umbrella" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${fragileState.icon === 'umbrella' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${fragileState.icon === 'umbrella' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Mantener seco / Paraguas">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${FRAGILE_ICONS.umbrella}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Seco</span>
+                </button>
+                <button type="button" class="fragile-icon-opt-btn ${fragileState.icon === 'warning' ? 'active' : ''}" data-icon="warning" style="padding: 0.35rem 0.2rem; border-radius: var(--radius-md); border: 2px solid ${fragileState.icon === 'warning' ? 'var(--color-primary)' : 'var(--color-border)'}; background: ${fragileState.icon === 'warning' ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)'}; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; transition: all 0.15s;" title="Triángulo de Precaución">
+                  <div style="width: 22px; height: 22px; color: var(--color-text-main);">${FRAGILE_ICONS.warning}</div>
+                  <span style="font-size: 0.65rem; font-weight: 600; color: var(--color-text-muted);">Alerta</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 5. Main Text -->
+            <div id="fragile-main-text-section" style="${fragileState.format === 'icon_only' ? 'display:none;' : ''}">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-text" style="margin-right: 4px;"></i> Texto Principal
+              </label>
+              <input type="text" id="fragile-input-main-text" class="form-input" value="${escapeHtml(fragileState.mainText)}" placeholder="Ej: FRÁGIL" style="width: 100%; height: 38px; padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-weight: 700; text-transform: uppercase;">
+              <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                <button type="button" class="fragile-preset-main-btn" data-val="FRÁGIL" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">FRÁGIL</button>
+                <button type="button" class="fragile-preset-main-btn" data-val="MUY FRÁGIL" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">MUY FRÁGIL</button>
+                <button type="button" class="fragile-preset-main-btn" data-val="FRAGILE" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">FRAGILE</button>
+                <button type="button" class="fragile-preset-main-btn" data-val="VIDRIO" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">VIDRIO</button>
+                <button type="button" class="fragile-preset-main-btn" data-val="THIS SIDE UP" style="font-size: 0.7rem; padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">THIS SIDE UP</button>
+              </div>
+            </div>
+
+            <!-- 6. Subtitle -->
+            <div id="fragile-sub-text-section" style="${(fragileState.format === 'text+icon+sub' || fragileState.format === 'text_only') ? '' : 'display:none;'}">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-subscript" style="margin-right: 4px;"></i> Subtítulo / Mensaje de Cuidado (Opcional)
+              </label>
+              <input type="text" id="fragile-input-sub-text" class="form-input" value="${escapeHtml(fragileState.subText)}" placeholder="Ej: MANÉJESE CON CUIDADO" style="width: 100%; height: 38px; padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-size: 0.82rem;">
+              <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.35rem;">
+                <button type="button" class="fragile-preset-sub-btn" data-val="MANÉJESE CON CUIDADO" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">MANÉJESE CON CUIDADO</button>
+                <button type="button" class="fragile-preset-sub-btn" data-val="HANDLE WITH CARE" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">HANDLE WITH CARE</button>
+                <button type="button" class="fragile-preset-sub-btn" data-val="NO GOLPEAR NI BOTAR" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">NO GOLPEAR NI BOTAR</button>
+                <button type="button" class="fragile-preset-sub-btn" data-val="NO APILAR PESO ENCIMA" style="font-size: 0.68rem; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); cursor: pointer; color: var(--color-text-muted); transition: all 0.15s;">NO APILAR PESO</button>
+              </div>
+            </div>
+
+            <!-- 7. Visual Style -->
+            <div>
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-palette-line" style="margin-right: 4px;"></i> Estilo de Advertencia
+              </label>
+              <select id="fragile-label-style" class="form-input" style="width:100%; height:40px; padding:0.4rem 0.75rem; background:var(--color-bg); color:var(--color-text-main); border:1px solid var(--color-border); border-radius:var(--radius-md); font-weight: 500;">
+                <option value="classic" ${fragileState.style === 'classic' ? 'selected' : ''}>Clásico B&W Alto Contraste (Fondo blanco, marco y barra negra)</option>
+                <option value="inverted" ${fragileState.style === 'inverted' ? 'selected' : ''}>Invertido Alto Impacto (Fondo negro, íconos y texto blanco)</option>
+                <option value="hazard" ${fragileState.style === 'hazard' ? 'selected' : ''}>Franja Diagonal de Advertencia (Zebra Hazard)</option>
+              </select>
+            </div>
+
+            <!-- 8. Options -->
+            <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem;">
+              <input type="checkbox" id="fragile-include-commerce" ${fragileState.includeCommerce ? 'checked' : ''} style="width: auto; cursor: pointer;">
+              <label for="fragile-include-commerce" style="font-size: 0.85rem; cursor: pointer; user-select: none; color: var(--color-text-main);">Incluir nombre del comercio en el pie de página</label>
+            </div>
+
+            <!-- 9. Sheets Count -->
+            <div style="border-top: 1px dashed var(--color-border); padding-top: 0.75rem; margin-top: 0.25rem;">
+              <label style="font-weight: 600; display: block; margin-bottom: 0.35rem; font-size: 0.85rem; color: var(--color-text-muted);">
+                <i class="ri-file-copy-2-line" style="margin-right: 4px;"></i> Cantidad de Hojas Físicas a Imprimir
+              </label>
+              <input type="number" id="fragile-sheets-count" class="form-input" value="${fragileState.sheetsCount}" min="1" max="500" style="width: 100%; height: 40px; padding: 0.4rem 0.75rem; border-radius: var(--radius-md); font-weight: 600;">
+            </div>
+          </div>
+
+          <!-- Right Panel: Live Preview & Emit Actions -->
+          <div class="card" style="flex: 1 1 320px; padding: 1.25rem; display: flex; flex-direction: column; align-items: center; justify-content: space-between; min-height: 480px;">
+            <div style="width: 100%;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  <i class="ri-eye-line" style="color: var(--color-primary);"></i> Vista Previa en Vivo
+                </h3>
+                <span id="fragile-total-stickers-badge" class="badge" style="background: rgba(37,99,235,0.1); color: var(--color-primary); font-weight: 700; font-size: 0.78rem; padding: 0.2rem 0.5rem; border-radius: 6px;">
+                  4 pegatinas por hoja
+                </span>
+              </div>
+              <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0 0 1rem 0;">
+                Previsualización exacta de la etiqueta física con guías de corte y proporciones reales.
+              </p>
+            </div>
+
+            <!-- Aspect ratio simulation wrapper -->
+            <div id="fragile-live-preview-box-wrapper" style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 0.75rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; min-height: 320px; overflow: hidden;">
+              <!-- Rendered sheet goes here -->
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; width: 100%;">
+              <button id="btn-emit-fragile-labels" class="btn btn-primary" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.4rem; border-radius: var(--radius-md); box-shadow: 0 4px 12px rgba(37,99,235,0.25);">
+                <i class="ri-printer-line" style="font-size: 1.1rem;"></i> Imprimir (<span id="fragile-btn-total-count">4</span>)
+              </button>
+              <button id="btn-download-fragile-zpl" class="btn btn-outline" style="flex: 1; height: 46px; justify-content: center; font-size: 0.95rem; font-weight: 600; gap: 0.4rem; border-radius: var(--radius-md); border-color: var(--color-accent); color: var(--color-accent);">
+                <i class="ri-download-2-line" style="font-size: 1.1rem;"></i> ZPL (<span id="fragile-btn-zpl-count">4</span>)
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -487,13 +719,413 @@ import supabase from './supabase.js';
     // Initialize layout event listeners
     initGeneratorListeners();
     updateQueueUI();
+    renderFragileLivePreview();
   }
 
+
+  /**
+   * Helper to get available copies per sheet based on label physical dimensions
+   */
+  function getAvailableCopiesForSize(size) {
+    if (size === '10x15') return [1, 2, 4, 6];
+    if (size === '10x10') return [1, 2, 4];
+    if (size === '5x5') return [1, 2, 4];
+    if (size === '5x2.5') return [1, 2];
+    return [1, 2, 4];
+  }
+
+  /**
+   * Renders the button group for copies per sheet
+   */
+  function renderCopiesButtonGroup() {
+    const group = document.getElementById('fragile-copies-btn-group');
+    if (!group) return;
+
+    const available = getAvailableCopiesForSize(fragileState.size);
+    if (!available.includes(fragileState.copiesPerSheet)) {
+      fragileState.copiesPerSheet = available.includes(4) ? 4 : available[available.length - 1];
+    }
+
+    group.innerHTML = available.map(num => {
+      const isActive = fragileState.copiesPerSheet === num;
+      let label = `${num} por etiqueta`;
+      if (num === 1) label = '1 (Etiqueta Completa)';
+      else if (num === 2) label = '2 copias';
+      else if (num === 4) label = '4 copias (2x2)';
+      else if (num === 6) label = '6 copias (2x3)';
+
+      return `
+        <button type="button" class="fragile-copy-btn ${isActive ? 'active' : ''}" data-copies="${num}" style="
+          padding: 0.35rem 0.75rem;
+          font-size: 0.8rem;
+          font-weight: 600;
+          border-radius: var(--radius-md);
+          border: 1px solid ${isActive ? 'var(--color-primary)' : 'var(--color-border)'};
+          background: ${isActive ? 'var(--color-primary)' : 'var(--color-bg)'};
+          color: ${isActive ? '#ffffff' : 'var(--color-text-main)'};
+          cursor: pointer;
+          transition: all 0.15s;
+          display: inline-flex;
+          align-items: center;
+          gap: 0.3rem;
+        ">
+          ${num > 1 ? '<i class="ri-grid-line" style="font-size:0.85rem;"></i>' : '<i class="ri-square-line" style="font-size:0.85rem;"></i>'}
+          ${label}
+        </button>
+      `;
+    }).join('');
+
+    // Attach click handlers
+    group.querySelectorAll('.fragile-copy-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const val = parseInt(btn.getAttribute('data-copies'), 10) || 1;
+        fragileState.copiesPerSheet = val;
+        renderCopiesButtonGroup();
+        renderFragileLivePreview();
+      });
+    });
+  }
+
+  /**
+   * Generates HTML for a single fragile sub-sticker
+   */
+  function renderSingleFragileSubLabel(opts, isPrint) {
+    const isClassic = opts.style === 'classic' || !opts.style;
+    const isInverted = opts.style === 'inverted';
+    const isHazard = opts.style === 'hazard';
+
+    const bgColor = isInverted ? '#000000' : '#ffffff';
+    const textColor = isInverted ? '#ffffff' : '#000000';
+    const borderColor = '#000000';
+    const subBg = isInverted ? '#000000' : '#ffffff';
+
+    const commerceName = getActiveCommerce();
+    const footerText = opts.includeCommerce && commerceName ? commerceName : 'STOCKA LOGISTICS';
+
+    // Formats: 'text+icon' | 'text_only' | 'icon_only' | 'text+icon+sub'
+    const showIcon = opts.format !== 'text_only';
+    const showMainText = opts.format !== 'icon_only';
+    const showSubText = (opts.format === 'text+icon+sub' || opts.format === 'text_only') && !!opts.subText;
+
+    const iconSvg = FRAGILE_ICONS[opts.icon] || FRAGILE_ICONS.glass;
+
+    // Header styling
+    let headerHtml = '';
+    if (isHazard) {
+      headerHtml = `
+        <div class="fragile-sub-header hazard-header" style="background: repeating-linear-gradient(45deg, #000, #000 8px, #f59e0b 8px, #f59e0b 16px); color: #fff; text-shadow: 0 1px 2px #000; font-weight: 900; font-size: 0.72em; text-align: center; padding: 2px 4px; text-transform: uppercase; width: 100%; box-sizing: border-box; letter-spacing: 1px;">
+          PRECAUCIÓN / CAUTION
+        </div>
+      `;
+    } else if (isInverted) {
+      headerHtml = `
+        <div class="fragile-sub-header" style="background: #ffffff; color: #000000; font-weight: 900; font-size: 0.72em; text-align: center; padding: 2px 4px; text-transform: uppercase; width: 100%; box-sizing: border-box; letter-spacing: 1px;">
+          ★ ATENCIÓN / WARNING ★
+        </div>
+      `;
+    } else {
+      headerHtml = `
+        <div class="fragile-sub-header" style="background: #000000; color: #ffffff; font-weight: 900; font-size: 0.72em; text-align: center; padding: 2px 4px; text-transform: uppercase; width: 100%; box-sizing: border-box; letter-spacing: 1px;">
+          ★ MANEJAR CON CUIDADO ★
+        </div>
+      `;
+    }
+
+    return `
+      <div class="fragile-sub-sticker" style="
+        --fragile-bg: ${bgColor};
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 3px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        background: ${bgColor};
+        color: ${textColor};
+      ">
+        <div class="fragile-inner-card" style="
+          width: 100%;
+          height: 100%;
+          border: 2.5px solid ${borderColor};
+          border-radius: 3px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0;
+          overflow: hidden;
+          background: ${bgColor};
+        ">
+          ${headerHtml}
+          
+          <div class="fragile-center-body" style="
+            flex: 1;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3px 4px;
+            box-sizing: border-box;
+            gap: 2px;
+            overflow: hidden;
+          ">
+            ${showIcon ? `
+              <div class="fragile-icon-wrap" style="
+                flex: ${showMainText ? '1 1 auto' : '2 1 auto'};
+                width: 100%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                max-height: ${showMainText ? (showSubText ? '40%' : '50%') : '85%'};
+                min-height: 20px;
+                color: ${textColor};
+              ">
+                ${iconSvg}
+              </div>
+            ` : ''}
+
+            ${showMainText ? `
+              <div class="fragile-main-title" style="
+                font-family: 'Impact', 'Arial Black', sans-serif, -apple-system;
+                font-weight: 900;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+                line-height: 0.95;
+                text-align: center;
+                width: 100%;
+                color: ${textColor};
+                font-size: ${showIcon ? (opts.copiesPerSheet >= 4 ? '1.3em' : '2.0em') : (opts.copiesPerSheet >= 4 ? '1.8em' : '3.0em')};
+                word-break: break-word;
+              ">
+                ${escapeHtml(opts.mainText || 'FRÁGIL')}
+              </div>
+            ` : ''}
+
+            ${showSubText ? `
+              <div class="fragile-subtitle-box" style="
+                border: 1.2px solid ${textColor};
+                border-radius: 2px;
+                padding: 1px 3px;
+                font-size: 0.62em;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                text-align: center;
+                background: ${subBg};
+                color: ${textColor};
+                width: 92%;
+                max-width: 96%;
+                margin-top: 1px;
+                box-sizing: border-box;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+              ">
+                ${escapeHtml(opts.subText || 'MANÉJESE CON CUIDADO')}
+              </div>
+            ` : ''}
+          </div>
+
+          ${opts.includeCommerce ? `
+            <div class="fragile-footer-bar" style="
+              border-top: 1px dashed ${textColor};
+              font-size: 0.52em;
+              font-weight: 700;
+              text-align: center;
+              padding: 1px 3px;
+              width: 100%;
+              box-sizing: border-box;
+              letter-spacing: 0.5px;
+              color: ${textColor};
+              opacity: 0.85;
+            ">
+              ${escapeHtml(footerText)}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Generates the multi-copy grid layout inside a sheet
+   */
+  function renderFragileSheetHTML(opts, isPrint) {
+    const copies = parseInt(opts.copiesPerSheet, 10) || 1;
+    let gridCols = 1;
+    let gridRows = 1;
+
+    if (copies === 2) {
+      if (opts.size === '5x2.5') {
+        gridCols = 2; gridRows = 1;
+      } else {
+        gridCols = 1; gridRows = 2;
+      }
+    } else if (copies === 4) {
+      gridCols = 2; gridRows = 2;
+    } else if (copies === 6) {
+      gridCols = 2; gridRows = 3;
+    }
+
+    let cellsHtml = '';
+    for (let i = 0; i < copies; i++) {
+      cellsHtml += `
+        <div class="fragile-grid-cell" style="
+          position: relative;
+          width: 100%;
+          height: 100%;
+          box-sizing: border-box;
+          overflow: hidden;
+        ">
+          ${renderSingleFragileSubLabel(opts, isPrint)}
+        </div>
+      `;
+    }
+
+    // Cut lines guide styling if multi-copy
+    let cutGuidesHtml = '';
+    if (copies > 1) {
+      if (gridCols === 2) {
+        cutGuidesHtml += `
+          <div class="cut-guide-vertical" style="position: absolute; top: 0; bottom: 0; left: 50%; width: 0; border-left: 1px dashed #666; z-index: 10; pointer-events: none; transform: translateX(-50%);">
+            <span style="position: absolute; top: 50%; left: -6px; transform: translateY(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+          </div>
+        `;
+      }
+      if (gridRows === 2) {
+        cutGuidesHtml += `
+          <div class="cut-guide-horizontal" style="position: absolute; left: 0; right: 0; top: 50%; height: 0; border-top: 1px dashed #666; z-index: 10; pointer-events: none; transform: translateY(-50%);">
+            <span style="position: absolute; left: 50%; top: -6px; transform: translateX(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+          </div>
+        `;
+      } else if (gridRows === 3) {
+        cutGuidesHtml += `
+          <div class="cut-guide-horizontal" style="position: absolute; left: 0; right: 0; top: 33.33%; height: 0; border-top: 1px dashed #666; z-index: 10; pointer-events: none;">
+            <span style="position: absolute; left: 50%; top: -6px; transform: translateX(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+          </div>
+          <div class="cut-guide-horizontal" style="position: absolute; left: 0; right: 0; top: 66.66%; height: 0; border-top: 1px dashed #666; z-index: 10; pointer-events: none;">
+            <span style="position: absolute; left: 50%; top: -6px; transform: translateX(-50%); font-size: 9px; color: #444; background: #fff; padding: 0 1px; line-height: 1;">✂</span>
+          </div>
+        `;
+      }
+    }
+
+    return `
+      <div class="fragile-sheet-wrapper fragile-size-${opts.size}" style="
+        position: relative;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        display: grid;
+        grid-template-columns: repeat(${gridCols}, 1fr);
+        grid-template-rows: repeat(${gridRows}, 1fr);
+        background: #ffffff;
+        overflow: hidden;
+      ">
+        ${cellsHtml}
+        ${cutGuidesHtml}
+      </div>
+    `;
+  }
+
+  /**
+   * Updates the Live Preview box for Fragile labels
+   */
+  function renderFragileLivePreview() {
+    const previewWrapper = document.getElementById('fragile-live-preview-box-wrapper');
+    const badge = document.getElementById('fragile-total-stickers-badge');
+    const btnCount = document.getElementById('fragile-btn-total-count');
+    const btnZplCount = document.getElementById('fragile-btn-zpl-count');
+
+    if (!previewWrapper) return;
+
+    const totalStickers = (parseInt(fragileState.sheetsCount, 10) || 1) * (parseInt(fragileState.copiesPerSheet, 10) || 1);
+    const sheets = parseInt(fragileState.sheetsCount, 10) || 1;
+
+    if (badge) {
+      badge.textContent = `${fragileState.copiesPerSheet} por hoja (Total: ${totalStickers} sticker${totalStickers > 1 ? 's' : ''})`;
+    }
+    if (btnCount) btnCount.textContent = totalStickers;
+    if (btnZplCount) btnZplCount.textContent = totalStickers;
+
+    // Determine preview dimensions based on aspect ratio
+    let w = '180px';
+    let h = '270px';
+    let fontSizeEm = '12px';
+
+    if (fragileState.size === '10x15') {
+      w = '180px'; h = '270px'; // 2:3 Aspect ratio
+      fontSizeEm = '12px';
+    } else if (fragileState.size === '10x10') {
+      w = '220px'; h = '220px'; // 1:1 Aspect ratio
+      fontSizeEm = '12px';
+    } else if (fragileState.size === '5x5') {
+      w = '160px'; h = '160px'; // 1:1 Aspect ratio
+      fontSizeEm = '10px';
+    } else if (fragileState.size === '5x2.5') {
+      w = '240px'; h = '120px'; // 2:1 Aspect ratio
+      fontSizeEm = '9px';
+    }
+
+    previewWrapper.innerHTML = `
+      <div class="fragile-sticker-sheet-preview" style="
+        position: relative;
+        width: ${w};
+        height: ${h};
+        background: white;
+        color: black;
+        border: 1px solid var(--color-border);
+        box-shadow: var(--shadow-md);
+        border-radius: 4px;
+        box-sizing: border-box;
+        overflow: hidden;
+        font-size: ${fontSizeEm};
+      ">
+        ${renderFragileSheetHTML(fragileState, false)}
+      </div>
+    `;
+  }
 
   /**
    * Bind event listeners for the bulk label generator layout
    */
   function initGeneratorListeners() {
+    // 1. Tab Switching Listeners
+    const btnTabCatalog = document.getElementById('btn-label-tab-catalog');
+    const btnTabFragile = document.getElementById('btn-label-tab-fragile');
+    const tabCatalogContent = document.getElementById('label-tab-catalog-content');
+    const tabFragileContent = document.getElementById('label-tab-fragile-content');
+
+    const switchLabelTab = (tab) => {
+      currentLabelTab = tab;
+      if (tab === 'catalog') {
+        btnTabCatalog?.classList.remove('btn-outline');
+        btnTabCatalog?.classList.add('btn-primary');
+        btnTabFragile?.classList.remove('btn-primary');
+        btnTabFragile?.classList.add('btn-outline');
+        if (tabCatalogContent) tabCatalogContent.style.display = 'block';
+        if (tabFragileContent) tabFragileContent.style.display = 'none';
+        updateQueueUI();
+      } else {
+        btnTabFragile?.classList.remove('btn-outline');
+        btnTabFragile?.classList.add('btn-primary');
+        btnTabCatalog?.classList.remove('btn-primary');
+        btnTabCatalog?.classList.add('btn-outline');
+        if (tabCatalogContent) tabCatalogContent.style.display = 'none';
+        if (tabFragileContent) tabFragileContent.style.display = 'block';
+        renderCopiesButtonGroup();
+        renderFragileLivePreview();
+      }
+    };
+
+    btnTabCatalog?.addEventListener('click', () => switchLabelTab('catalog'));
+    btnTabFragile?.addEventListener('click', () => switchLabelTab('fragile'));
+
+    // 2. Catalog Tab Listeners
     const sizeSelect = document.getElementById('global-label-size');
     const templateSelect = document.getElementById('global-label-template');
     const readableCb = document.getElementById('global-label-readable');
@@ -677,6 +1309,113 @@ import supabase from './supabase.js';
         withHumanReadable,
         dataSource
       });
+    });
+
+    // 3. Fragile Tab Listeners
+    renderCopiesButtonGroup();
+
+    const fragileSizeSelect = document.getElementById('fragile-label-size');
+    const fragileFormatSelect = document.getElementById('fragile-label-format');
+    const fragileMainTextInput = document.getElementById('fragile-input-main-text');
+    const fragileSubTextInput = document.getElementById('fragile-input-sub-text');
+    const fragileStyleSelect = document.getElementById('fragile-label-style');
+    const fragileCommerceCb = document.getElementById('fragile-include-commerce');
+    const fragileSheetsCountInput = document.getElementById('fragile-sheets-count');
+
+    const iconSelectorSec = document.getElementById('fragile-icon-selector-section');
+    const mainTextSec = document.getElementById('fragile-main-text-section');
+    const subTextSec = document.getElementById('fragile-sub-text-section');
+
+    fragileSizeSelect?.addEventListener('change', (e) => {
+      fragileState.size = e.target.value;
+      renderCopiesButtonGroup();
+      renderFragileLivePreview();
+    });
+
+    fragileFormatSelect?.addEventListener('change', (e) => {
+      fragileState.format = e.target.value;
+      if (iconSelectorSec) {
+        iconSelectorSec.style.display = (e.target.value === 'text_only') ? 'none' : 'block';
+      }
+      if (mainTextSec) {
+        mainTextSec.style.display = (e.target.value === 'icon_only') ? 'none' : 'block';
+      }
+      if (subTextSec) {
+        subTextSec.style.display = (e.target.value === 'text+icon+sub' || e.target.value === 'text_only') ? 'block' : 'none';
+      }
+      renderFragileLivePreview();
+    });
+
+    // Icon button selections
+    document.querySelectorAll('.fragile-icon-opt-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const iconKey = btn.getAttribute('data-icon');
+        fragileState.icon = iconKey;
+        document.querySelectorAll('.fragile-icon-opt-btn').forEach(b => {
+          const isTarget = b.getAttribute('data-icon') === iconKey;
+          b.style.borderColor = isTarget ? 'var(--color-primary)' : 'var(--color-border)';
+          b.style.background = isTarget ? 'rgba(37,99,235,0.08)' : 'var(--color-bg)';
+        });
+        renderFragileLivePreview();
+      });
+    });
+
+    fragileMainTextInput?.addEventListener('input', (e) => {
+      fragileState.mainText = e.target.value;
+      renderFragileLivePreview();
+    });
+
+    // Preset chips for Main Text
+    document.querySelectorAll('.fragile-preset-main-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.getAttribute('data-val');
+        fragileState.mainText = val;
+        if (fragileMainTextInput) fragileMainTextInput.value = val;
+        renderFragileLivePreview();
+      });
+    });
+
+    fragileSubTextInput?.addEventListener('input', (e) => {
+      fragileState.subText = e.target.value;
+      renderFragileLivePreview();
+    });
+
+    // Preset chips for Subtitle
+    document.querySelectorAll('.fragile-preset-sub-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const val = btn.getAttribute('data-val');
+        fragileState.subText = val;
+        if (fragileSubTextInput) fragileSubTextInput.value = val;
+        renderFragileLivePreview();
+      });
+    });
+
+    fragileStyleSelect?.addEventListener('change', (e) => {
+      fragileState.style = e.target.value;
+      renderFragileLivePreview();
+    });
+
+    fragileCommerceCb?.addEventListener('change', (e) => {
+      fragileState.includeCommerce = e.target.checked;
+      renderFragileLivePreview();
+    });
+
+    fragileSheetsCountInput?.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10) || 1;
+      fragileState.sheetsCount = Math.max(1, val);
+      renderFragileLivePreview();
+    });
+
+    // Emit fragile labels button
+    const btnEmitFragile = document.getElementById('btn-emit-fragile-labels');
+    btnEmitFragile?.addEventListener('click', () => {
+      window.printFragileLabels(fragileState);
+    });
+
+    // Download fragile ZPL button
+    const btnDownloadFragileZpl = document.getElementById('btn-download-fragile-zpl');
+    btnDownloadFragileZpl?.addEventListener('click', () => {
+      window.showFragileZPLModal(fragileState);
     });
   }
 
@@ -1465,6 +2204,325 @@ import supabase from './supabase.js';
         }, 1000);
       }
     }, 500);
+  };
+
+  /**
+   * Main fragile label printing engine with exact physical boundaries and multi-copy support.
+   */
+  window.printFragileLabels = function (opts) {
+    const sheetsCount = parseInt(opts.sheetsCount, 10) || 1;
+    const selectedSize = opts.size || '10x15';
+
+    let sizeCSS = '10cm 15cm';
+    let sheetWidth = '10cm';
+    let sheetHeight = '15cm';
+
+    if (selectedSize === '10x10') {
+      sizeCSS = '10cm 10cm';
+      sheetWidth = '10cm';
+      sheetHeight = '10cm';
+    } else if (selectedSize === '5x5') {
+      sizeCSS = '5cm 5cm';
+      sheetWidth = '5cm';
+      sheetHeight = '5cm';
+    } else if (selectedSize === '5x2.5') {
+      sizeCSS = '5cm 2.5cm';
+      sheetWidth = '5cm';
+      sheetHeight = '2.5cm';
+    }
+
+    let sheetsHTML = '';
+    for (let s = 0; s < sheetsCount; s++) {
+      sheetsHTML += `
+        <div class="fragile-print-page size-${selectedSize}">
+          ${renderFragileSheetHTML(opts, true)}
+        </div>
+      `;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Imprimir Etiquetas Frágil - WMS Stocka</title>
+        <style>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            color: #000;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          
+          .fragile-print-page {
+            box-sizing: border-box;
+            width: ${sheetWidth};
+            height: ${sheetHeight};
+            position: relative;
+            background: #fff;
+            page-break-after: always;
+            overflow: hidden;
+            display: flex;
+          }
+
+          .fragile-print-page:last-child {
+            page-break-after: avoid;
+          }
+
+          .fragile-sheet-wrapper {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            box-sizing: border-box;
+          }
+
+          .fragile-sub-sticker {
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+            padding: 2mm;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+          }
+
+          .fragile-inner-card {
+            width: 100%;
+            height: 100%;
+            border: 2.5px solid #000;
+            border-radius: 3px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            overflow: hidden;
+          }
+
+          @page {
+            size: ${sizeCSS};
+            margin: 0;
+          }
+
+          @media print {
+            body {
+              background: #fff;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        ${sheetsHTML}
+      </body>
+      </html>
+    `;
+
+    // Deploy hidden print Frame
+    const iframe = document.createElement('iframe');
+    iframe.id = 'wms-print-fragile-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    iframe.style.zIndex = '-9999';
+    document.body.appendChild(iframe);
+
+    // Ingress content
+    const frameDoc = iframe.contentWindow.document || iframe.contentDocument;
+    frameDoc.open();
+    frameDoc.write(htmlContent);
+    frameDoc.close();
+
+    // Trigger printing dialog
+    setTimeout(() => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      } catch (err) {
+        console.error("Failed to open native print dialog for fragile labels:", err);
+        Swal.fire('Error', 'No se pudo abrir el cuadro de impresión nativo del navegador.', 'error');
+      } finally {
+        setTimeout(() => {
+          const element = document.getElementById('wms-print-fragile-iframe');
+          if (element) element.remove();
+        }, 1000);
+      }
+    }, 400);
+  };
+
+  /**
+   * Compiles Zebra ZPL II code for Fragile warning labels with multi-copy support.
+   */
+  window.compileFragileZPL = function (opts) {
+    let zpl = '';
+    let pw = 800; // print width in dots at 203 DPI
+    let ll = 1200; // label length in dots
+
+    if (opts.size === '10x10') {
+      pw = 800;
+      ll = 800;
+    } else if (opts.size === '5x5') {
+      pw = 400;
+      ll = 400;
+    } else if (opts.size === '5x2.5') {
+      pw = 400;
+      ll = 200;
+    }
+
+    const copies = parseInt(opts.copiesPerSheet, 10) || 1;
+    const sheets = parseInt(opts.sheetsCount, 10) || 1;
+    const cleanMain = (opts.mainText || 'FRAGIL').toUpperCase().replace(/[\^\~]/g, '');
+    const cleanSub = (opts.subText || '').toUpperCase().replace(/[\^\~]/g, '');
+
+    let cols = 1;
+    let rows = 1;
+    if (copies === 2) {
+      if (opts.size === '5x2.5') { cols = 2; rows = 1; }
+      else { cols = 1; rows = 2; }
+    } else if (copies === 4) {
+      cols = 2; rows = 2;
+    } else if (copies === 6) {
+      cols = 2; rows = 3;
+    }
+
+    const cellW = Math.floor(pw / cols);
+    const cellH = Math.floor(ll / rows);
+
+    for (let s = 0; s < sheets; s++) {
+      zpl += `^XA\n`;
+      zpl += `^CI28\n`; // UTF-8
+      zpl += `^PW${pw}\n`;
+      zpl += `^LL${ll}\n`;
+      zpl += `^LH0,0\n`;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const ox = c * cellW;
+          const oy = r * cellH;
+          const pad = 12;
+          const boxX = ox + pad;
+          const boxY = oy + pad;
+          const boxW = cellW - (pad * 2);
+          const boxH = cellH - (pad * 2);
+
+          // Outer border
+          zpl += `^FO${boxX},${boxY}^GB${boxW},${boxH},6,B,0^FS\n`;
+
+          // Header banner
+          const headerH = Math.min(Math.floor(boxH * 0.2), 55);
+          zpl += `^FO${boxX},${boxY}^GB${boxW},${headerH},${headerH},B,0^FS\n`;
+          zpl += `^FO${boxX + 8},${boxY + 10}^A0N,${Math.floor(headerH * 0.65)},${Math.floor(headerH * 0.65)}^FR^FD*** CUIDADO / FRAGIL ***^FS\n`;
+
+          // Main Text
+          const fontH = Math.min(Math.floor(boxH * 0.28), Math.floor((boxW / Math.max(cleanMain.length, 1)) * 1.4), 100);
+          const fontW = Math.floor(fontH * 0.85);
+          const textY = boxY + headerH + Math.floor((boxH - headerH - fontH) / 2) - 10;
+          zpl += `^FO${boxX + 10},${textY}^A0N,${fontH},${fontW}^FB${boxW - 20},1,0,C,0^FD${cleanMain}^FS\n`;
+
+          // Subtitle
+          if (cleanSub && boxH > 150) {
+            const subH = Math.min(24, Math.floor(boxH * 0.1));
+            const subY = boxY + boxH - subH - 16;
+            zpl += `^FO${boxX + 10},${subY}^A0N,${subH},${Math.floor(subH * 0.85)}^FB${boxW - 20},1,0,C,0^FD${cleanSub}^FS\n`;
+          }
+        }
+      }
+
+      // Cut guidelines if multi-copy
+      if (cols > 1) {
+        for (let i = 1; i < cols; i++) {
+          zpl += `^FO${i * cellW},0^GB2,${ll},2,B,0^FS\n`;
+        }
+      }
+      if (rows > 1) {
+        for (let i = 1; i < rows; i++) {
+          zpl += `^FO0,${i * cellH}^GB${pw},2,2,B,0^FS\n`;
+        }
+      }
+
+      zpl += `^XZ\n`;
+    }
+
+    return zpl;
+  };
+
+  /**
+   * Compiles and downloads a ZPL file for Fragile labels.
+   */
+  window.downloadFragileZPLFile = function (opts) {
+    const zplCode = window.compileFragileZPL(opts);
+    const blob = new Blob([zplCode], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `etiquetas_fragil_${opts.size}_${Date.now()}.zpl`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  /**
+   * Shows a copyable & downloadable modal for Fragile ZPL code.
+   */
+  window.showFragileZPLModal = function (opts) {
+    const zplCode = window.compileFragileZPL(opts);
+
+    Swal.fire({
+      title: 'Código ZPL II - Etiquetas FRÁGIL',
+      html: `
+        <div style="text-align: left; margin-bottom: 0.75rem;">
+          <span style="font-size: 0.85rem; color: var(--color-text-muted);">Código listo para enviar a impresoras Zebra, Rollo o compatibles con ZPL II:</span>
+        </div>
+        <textarea id="swal-fragile-zpl-code-area" readonly style="
+          width: 100%; 
+          height: 180px; 
+          font-family: monospace; 
+          font-size: 0.8rem; 
+          padding: 0.5rem; 
+          background: var(--color-bg); 
+          color: var(--color-text-main); 
+          border: 1px solid var(--color-border); 
+          border-radius: var(--radius-md); 
+          resize: none;
+          box-sizing: border-box;
+        ">${escapeHtml(zplCode)}</textarea>
+      `,
+      showCancelButton: true,
+      confirmButtonText: '<i class="ri-clipboard-line" style="margin-right:0.25rem;"></i> Copiar Código',
+      cancelButtonText: 'Cerrar',
+      denyButtonText: '<i class="ri-download-2-line" style="margin-right:0.25rem;"></i> Descargar ZPL',
+      showDenyButton: true,
+      confirmButtonColor: 'var(--color-success)',
+      denyButtonColor: 'var(--color-primary)',
+      focusConfirm: false,
+      preConfirm: () => {
+        const textarea = document.getElementById('swal-fragile-zpl-code-area');
+        if (textarea) {
+          textarea.select();
+          document.execCommand('copy');
+        }
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(zplCode);
+        }
+        return true;
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        Swal.fire({
+          title: '¡Copiado!',
+          text: 'Código ZPL copiado al portapapeles.',
+          icon: 'success',
+          timer: 1500,
+          showConfirmButton: false
+        });
+      } else if (result.isDenied) {
+        window.downloadFragileZPLFile(opts);
+      }
+    });
   };
 
   /**

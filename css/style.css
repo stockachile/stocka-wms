@@ -800,7 +800,7 @@ h1, h2, h3, h4, h5, h6 {
   100% { transform: rotate(360deg); }
 }
 
-.spin {
+.spin, .ri-spin {
   animation: spin 1s linear infinite;
   display: inline-block;
 }

@@ -127,6 +127,13 @@ async function syncMerchantJumpseller(integration) {
   
   warehouseId = whRel?.warehouse_id;
   if (!warehouseId) {
+    const { data: defaultWh } = await supabase.from('warehouses').select('id').limit(1).maybeSingle();
+    if (defaultWh) {
+      warehouseId = defaultWh.id;
+    }
+  }
+
+  if (!warehouseId) {
     console.warn('⚠️ Advertencia: No se encontró bodega por defecto asignada para este comercio. Se usará un valor nulo o se omitirá la inserción de ítems.');
   }
 
@@ -375,6 +382,7 @@ async function syncOrders(integration, headers, warehouseId) {
         comercio: integration.comercio,
         external_order_number: finalOrderNumber,
         external_platform: 'Jumpseller',
+        origen: 'Jumpseller',
         payment_status: statusName === 'Paid' ? 'PAID' : 'PENDING',
         total_value: totalValue,
         customer_email: o.customer?.email || o.shipping_address?.email || o.billing_address?.email,
@@ -383,6 +391,10 @@ async function syncOrders(integration, headers, warehouseId) {
         shipping_address: o.shipping_address?.address || o.billing_address?.address,
         shipping_city: o.shipping_address?.city || o.billing_address?.city,
         shipping_complement: o.shipping_address?.municipality || o.shipping_address?.region || '',
+        shipping_method: o.shipping_method_name || (o.shipping_option === 'store_pickup' ? 'Retiro en Tienda' : 'Despacho a Domicilio'),
+        sku: flatSku || 'Sin SKU',
+        item: flatItemName || 'Sin Nombre',
+        cantidad: flatQuantity || 1,
         raw_jumpseller_data: o,
         created_at: new Date(o.created_at).toISOString()
       };

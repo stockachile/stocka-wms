@@ -2307,64 +2307,65 @@ export async function renderOptirouteSupport() {
     }
 
     // Estructura DOM del Modal (Renderizada UNA SOLA VEZ)
+    // Estructura DOM del Modal (Renderizada UNA SOLA VEZ con tamaño amplio y fijo)
     modal.innerHTML = `
-      <div class="card" style="width: 1080px; max-width: 98%; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
+      <div class="card" style="width: 1280px; max-width: 96vw; height: 85vh; min-height: 600px; max-height: 92vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
         
         <!-- Encabezado del Modal -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.9rem 1.4rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem; flex-shrink: 0;">
           <div>
-            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-price-tag-3-line" style="color: #7c3aed;"></i> Generador de Etiquetas de Envío (Optiroute)
+            <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.45rem;">
+              <i class="ri-price-tag-3-line" style="color: #7c3aed; font-size: 1.3rem;"></i> Generador de Etiquetas de Envío (Optiroute)
             </h3>
-            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted);">
               Emisión de etiquetas térmicas estándar (100x150mm) con QR de WhatsApp y código de barras Code128.
             </p>
           </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <button id="modal-btn-add-intermediate" class="btn btn-sm btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.78rem; font-weight: 600; border: 1px solid #7c3aed; color: #7c3aed; border-radius: var(--radius-md); background: transparent; cursor: pointer; display: flex; align-items: center; gap: 0.2rem;" title="Añadir un punto intermedio a la ruta">
-              <i class="ri-add-circle-line"></i> ➕ Punto Intermedio
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <button id="modal-btn-add-intermediate" class="btn btn-outline" style="padding: 0.4rem 0.85rem; font-size: 0.82rem; font-weight: 600; border: 1px solid #7c3aed; color: #7c3aed; border-radius: var(--radius-md); background: transparent; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;" title="Añadir un punto intermedio a la ruta">
+              <i class="ri-add-circle-line" style="font-size: 1rem;"></i> ➕ Punto Intermedio
             </button>
-            <button id="close-labels-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+            <button id="close-labels-modal" style="background: none; border: none; font-size: 1.65rem; cursor: pointer; color: var(--color-text-muted); line-height: 1;">&times;</button>
           </div>
         </div>
 
         <!-- Barra de Filtros y Acciones -->
-        <div style="padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+        <div style="padding: 0.85rem 1.4rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.6rem; flex-shrink: 0;">
           
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; align-items: center;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0.65rem; align-items: center;">
             <!-- Filtro Multi-Comercio con Checkboxes -->
             <div style="position: relative;" id="modal-supplier-dropdown-wrapper">
-              <button id="modal-btn-toggle-supplier" type="button" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left;" title="Seleccionar uno o varios comercios">
+              <button id="modal-btn-toggle-supplier" type="button" class="form-input" style="font-size: 0.84rem; height: 38px; width: 100%; padding: 0 0.8rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left;" title="Seleccionar uno o varios comercios">
                 <span id="modal-supplier-btn-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;">
                   ${getSupplierLabelText()}
                 </span>
-                <i id="modal-supplier-dropdown-arrow" class="ri-arrow-down-s-line" style="font-size: 1rem; color: var(--color-text-muted); flex-shrink: 0; margin-left: 0.35rem; transition: transform 0.2s;"></i>
+                <i id="modal-supplier-dropdown-arrow" class="ri-arrow-down-s-line" style="font-size: 1.15rem; color: var(--color-text-muted); flex-shrink: 0; margin-left: 0.4rem; transition: transform 0.2s;"></i>
               </button>
 
               <!-- Popover Panel con Checkboxes -->
-              <div id="modal-supplier-dropdown-panel" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 250px; width: 100%; max-height: 260px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; padding: 0.4rem; box-sizing: border-box;">
+              <div id="modal-supplier-dropdown-panel" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 290px; width: 100%; max-height: 320px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; padding: 0.5rem; box-sizing: border-box;">
                 
                 <!-- Cabecera de Selección Rápida de Comercios -->
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0.35rem 0.4rem 0.35rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.3rem;">
-                  <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Filtrar Comercios</span>
-                  <div style="display: flex; gap: 0.35rem;">
-                    <button id="modal-supplier-select-all-btn" type="button" style="background: none; border: none; font-size: 0.72rem; font-weight: 700; color: #7c3aed; cursor: pointer; padding: 0.1rem 0.25rem;">Todos</button>
-                    <span style="color: var(--color-border); font-size: 0.7rem;">|</span>
-                    <button id="modal-supplier-deselect-all-btn" type="button" style="background: none; border: none; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; padding: 0.1rem 0.25rem;">Ninguno</button>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0.45rem 0.45rem 0.45rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.35rem;">
+                  <span style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Filtrar Comercios</span>
+                  <div style="display: flex; gap: 0.45rem;">
+                    <button id="modal-supplier-select-all-btn" type="button" style="background: none; border: none; font-size: 0.76rem; font-weight: 700; color: #7c3aed; cursor: pointer; padding: 0.15rem 0.3rem;">Todos</button>
+                    <span style="color: var(--color-border); font-size: 0.75rem;">|</span>
+                    <button id="modal-supplier-deselect-all-btn" type="button" style="background: none; border: none; font-size: 0.76rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; padding: 0.15rem 0.3rem;">Ninguno</button>
                   </div>
                 </div>
 
                 <!-- Lista de Comercios con Checkbox -->
-                <div id="modal-supplier-checkboxes-container" style="display: flex; flex-direction: column; gap: 0.15rem;">
+                <div id="modal-supplier-checkboxes-container" style="display: flex; flex-direction: column; gap: 0.2rem;">
                   ${distinctSuppliers.map(s => {
                     const isChecked = selectedSuppliersSet.has(s.name);
                     return `
-                      <label class="modal-supplier-label" data-supplier="${escapeHtml(s.name)}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.45rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; user-select: none; ${isChecked ? 'background: rgba(124, 58, 237, 0.08);' : ''}">
-                        <div style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; min-width: 0;">
-                          <input type="checkbox" class="modal-supplier-cb" data-supplier="${escapeHtml(s.name)}" ${isChecked ? 'checked' : ''} style="cursor: pointer; transform: scale(1.05);">
+                      <label class="modal-supplier-label" data-supplier="${escapeHtml(s.name)}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.4rem 0.55rem; border-radius: 5px; cursor: pointer; font-size: 0.83rem; user-select: none; ${isChecked ? 'background: rgba(124, 58, 237, 0.08);' : ''}">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; overflow: hidden; min-width: 0;">
+                          <input type="checkbox" class="modal-supplier-cb" data-supplier="${escapeHtml(s.name)}" ${isChecked ? 'checked' : ''} style="cursor: pointer; transform: scale(1.15);">
                           <span style="font-weight: ${isChecked ? '700' : '500'}; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">🏢 ${escapeHtml(s.name)}</span>
                         </div>
-                        <span class="badge" style="font-size: 0.68rem; font-weight: 700; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 0.1rem 0.35rem; border-radius: 10px; flex-shrink: 0;">${s.count}</span>
+                        <span class="badge" style="font-size: 0.72rem; font-weight: 700; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 0.12rem 0.45rem; border-radius: 12px; flex-shrink: 0;">${s.count}</span>
                       </label>
                     `;
                   }).join('')}
@@ -2375,7 +2376,7 @@ export async function renderOptirouteSupport() {
 
             <!-- Filtro Conductor -->
             <div>
-              <select id="modal-select-driver" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <select id="modal-select-driver" class="form-input" style="font-size: 0.84rem; height: 38px; width: 100%; padding: 0 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
                 <option value="">🚚 Todos los Conductores (${allWaypoints.length})</option>
                 ${distinctDrivers.map(d => `<option value="${d.name}">🚚 ${d.name} (${d.count})</option>`).join('')}
               </select>
@@ -2383,28 +2384,28 @@ export async function renderOptirouteSupport() {
 
             <!-- Buscador -->
             <div style="position: relative;">
-              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
-              <input type="text" id="modal-search-text" class="form-input" placeholder="Buscar pedido, cliente, comuna..." value="" style="padding-left: 1.85rem; font-size: 0.78rem; width: 100%; height: 34px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+              <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.95rem;"></i>
+              <input type="text" id="modal-search-text" class="form-input" placeholder="Buscar pedido, cliente, comuna..." value="" style="padding-left: 2.1rem; font-size: 0.84rem; width: 100%; height: 38px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
             </div>
           </div>
 
           <!-- Fila de Selección y Botón Imprimir -->
-          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.25rem;">
-            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-              <button id="modal-btn-select-all" class="btn btn-sm btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem; padding-top: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button id="modal-btn-select-all" class="btn btn-sm btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.78rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
                 ☑️ Seleccionar Filtrados
               </button>
-              <button id="modal-btn-deselect-all" class="btn btn-sm btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+              <button id="modal-btn-deselect-all" class="btn btn-sm btn-outline" style="padding: 0.3rem 0.65rem; font-size: 0.78rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
                 ◻️ Deseleccionar Todo
               </button>
-              <span id="modal-selection-stats" style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 0.25rem;"></span>
+              <span id="modal-selection-stats" style="font-size: 0.82rem; color: var(--color-text-muted); margin-left: 0.35rem;"></span>
             </div>
 
-            <div style="display: flex; gap: 0.4rem; align-items: center;">
-              <button id="modal-btn-print-selected" class="btn btn-primary btn-sm" style="background: #7c3aed; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; cursor: pointer;">
-                <i class="ri-printer-line"></i> Imprimir Selección
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button id="modal-btn-print-selected" class="btn btn-primary" style="background: #7c3aed; color: white; border: none; padding: 0.45rem 1.1rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
+                <i class="ri-printer-line" style="font-size: 1.05rem;"></i> Imprimir Selección
               </button>
-              <button id="modal-btn-print-all-route" class="btn btn-outline btn-sm" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.75rem; border-radius: var(--radius-md); font-weight: 600; display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer;">
+              <button id="modal-btn-print-all-route" class="btn btn-outline" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); padding: 0.45rem 0.95rem; border-radius: var(--radius-md); font-weight: 600; display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; cursor: pointer;">
                 Imprimir Todos (${allWaypoints.length})
               </button>
             </div>
@@ -2412,21 +2413,21 @@ export async function renderOptirouteSupport() {
 
         </div>
 
-        <!-- Tabla de Envíos del Modal -->
-        <div style="flex: 1; overflow-y: auto; padding: 0;">
-          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+        <!-- Tabla de Envíos del Modal con scroll y altura consistente -->
+        <div style="flex: 1; min-height: 360px; overflow-y: auto; padding: 0; background: var(--color-surface);">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.86rem;">
             <thead style="position: sticky; top: 0; background: var(--color-surface); z-index: 10; border-bottom: 2px solid var(--color-border);">
               <tr style="text-align: left;">
-                <th style="padding: 0.6rem 0.5rem; width: 40px; text-align: center;">
-                  <input type="checkbox" id="modal-master-checkbox" style="transform: scale(1.1); cursor: pointer;">
+                <th style="padding: 0.75rem 0.6rem; width: 44px; text-align: center;">
+                  <input type="checkbox" id="modal-master-checkbox" style="transform: scale(1.15); cursor: pointer;">
                 </th>
-                <th style="padding: 0.6rem 0.5rem; width: 70px;"># Orden</th>
-                <th style="padding: 0.6rem 0.5rem; width: 130px;">Pedido</th>
-                <th style="padding: 0.6rem 0.5rem; width: 140px;">Comercio</th>
-                <th style="padding: 0.6rem 0.5rem; min-width: 150px;">Destinatario / Contacto</th>
-                <th style="padding: 0.6rem 0.5rem; min-width: 180px;">Dirección / Comuna</th>
-                <th style="padding: 0.6rem 0.5rem; width: 130px;">Asignación</th>
-                <th style="padding: 0.6rem 0.5rem; width: 110px; text-align: center;">Acciones</th>
+                <th style="padding: 0.75rem 0.6rem; width: 85px;"># Orden</th>
+                <th style="padding: 0.75rem 0.6rem; width: 145px;">Pedido</th>
+                <th style="padding: 0.75rem 0.6rem; width: 155px;">Comercio</th>
+                <th style="padding: 0.75rem 0.6rem; min-width: 190px;">Destinatario / Contacto</th>
+                <th style="padding: 0.75rem 0.6rem; min-width: 220px;">Dirección / Comuna</th>
+                <th style="padding: 0.75rem 0.6rem; width: 145px;">Asignación</th>
+                <th style="padding: 0.75rem 0.6rem; width: 120px; text-align: center;">Acciones</th>
               </tr>
             </thead>
             <tbody id="modal-table-body">
@@ -2436,11 +2437,11 @@ export async function renderOptirouteSupport() {
         </div>
 
         <!-- Pie del Modal -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg);">
-          <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.4rem; border-top: 1px solid var(--color-border); background: var(--color-bg); flex-shrink: 0;">
+          <div style="font-size: 0.82rem; color: var(--color-text-muted);">
             WMS STOCKA - Etiquetas térmicas compatibles con impresoras Zebra, Xprinter y TSC (100x150mm)
           </div>
-          <button id="btn-close-modal-footer" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.85rem; border-radius: var(--radius-md);">
+          <button id="btn-close-modal-footer" class="btn btn-outline" style="padding: 0.4rem 1.1rem; border-radius: var(--radius-md); font-size: 0.85rem;">
             Cerrar
           </button>
         </div>
@@ -2495,7 +2496,8 @@ export async function renderOptirouteSupport() {
       if (filteredIndices.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="8" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+            <td colspan="8" style="text-align: center; padding: 4.5rem 1rem; color: var(--color-text-muted); font-size: 0.95rem;">
+              <i class="ri-inbox-line" style="font-size: 2.2rem; display: block; margin-bottom: 0.5rem; opacity: 0.4;"></i>
               No se encontraron envíos con los filtros especificados.
             </td>
           </tr>
@@ -2508,40 +2510,40 @@ export async function renderOptirouteSupport() {
         const isChecked = modalSelectedIndices.has(idx);
         return `
           <tr style="border-bottom: 1px solid var(--color-border); ${isChecked ? 'background: rgba(124, 58, 237, 0.04);' : ''}">
-            <td style="padding: 0.55rem 0.5rem; text-align: center;">
-              <input type="checkbox" class="modal-row-checkbox" data-idx="${idx}" ${isChecked ? 'checked' : ''} style="transform: scale(1.1); cursor: pointer;">
+            <td style="padding: 0.65rem 0.6rem; text-align: center;">
+              <input type="checkbox" class="modal-row-checkbox" data-idx="${idx}" ${isChecked ? 'checked' : ''} style="transform: scale(1.15); cursor: pointer;">
             </td>
-            <td style="padding: 0.55rem 0.5rem; font-weight: 700; font-family: monospace; color: var(--color-text-main);">
-              <span class="badge" style="background: ${wp.is_intermediate ? '#ede9fe' : 'var(--color-bg)'}; color: ${wp.is_intermediate ? '#6d28d9' : 'var(--color-text-main)'}; border: 1px solid var(--color-border); font-size: 0.75rem; padding: 0.15rem 0.35rem; border-radius: 4px;">
+            <td style="padding: 0.65rem 0.6rem; font-weight: 700; font-family: monospace; color: var(--color-text-main);">
+              <span class="badge" style="background: ${wp.is_intermediate ? '#ede9fe' : 'var(--color-bg)'}; color: ${wp.is_intermediate ? '#6d28d9' : 'var(--color-text-main)'}; border: 1px solid var(--color-border); font-size: 0.82rem; padding: 0.2rem 0.45rem; border-radius: 4px;">
                 #${wp.order} ${wp.is_intermediate ? 'INT' : ''}
               </span>
             </td>
-            <td style="padding: 0.55rem 0.5rem; font-weight: 700; font-family: monospace; color: var(--color-primary);">
+            <td style="padding: 0.65rem 0.6rem; font-weight: 700; font-family: monospace; font-size: 0.92rem; color: var(--color-primary);">
               ${escapeHtml(wp.reference || 'S/R')}
             </td>
-            <td style="padding: 0.55rem 0.5rem;">
-              <span class="badge" style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.35rem; border-radius: 4px;">
+            <td style="padding: 0.65rem 0.6rem;">
+              <span class="badge" style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.78rem; font-weight: 700; padding: 0.2rem 0.45rem; border-radius: 4px;">
                 ${escapeHtml(wp.supplier || 'STOCKA')}
               </span>
             </td>
-            <td style="padding: 0.55rem 0.5rem;">
-              <div style="font-weight: 600; color: var(--color-text-main);">${escapeHtml(wp.name || 'Cliente sin nombre')}</div>
-              <div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace;">${wp.phone ? `+${String(wp.phone).replace(/\D/g, '')}` : 'Sin teléfono'}</div>
+            <td style="padding: 0.65rem 0.6rem;">
+              <div style="font-weight: 600; font-size: 0.88rem; color: var(--color-text-main);">${escapeHtml(wp.name || 'Cliente sin nombre')}</div>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); font-family: monospace; margin-top: 1px;">${wp.phone ? `+${String(wp.phone).replace(/\D/g, '')}` : 'Sin teléfono'}</div>
             </td>
-            <td style="padding: 0.55rem 0.5rem;">
-              <div style="color: var(--color-text-main); line-height: 1.2;">${escapeHtml(wp.address || 'Sin dirección')}</div>
-              <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-top: 1px;">${escapeHtml(wp.comuna || '')}</div>
+            <td style="padding: 0.65rem 0.6rem;">
+              <div style="color: var(--color-text-main); line-height: 1.25; font-size: 0.88rem;">${escapeHtml(wp.address || 'Sin dirección')}</div>
+              <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-top: 2px;">${escapeHtml(wp.comuna || '')}</div>
             </td>
-            <td style="padding: 0.55rem 0.5rem; font-size: 0.75rem;">
-              <div style="font-weight: 600; color: var(--color-text-main);">${escapeHtml(wp.route_driver || 'Sin conductor')}</div>
-              <div style="color: var(--color-text-muted); font-family: monospace;">${escapeHtml(wp.route_vehicle || '')}</div>
+            <td style="padding: 0.65rem 0.6rem; font-size: 0.82rem;">
+              <div style="font-weight: 700; color: var(--color-text-main); font-size: 0.86rem;">${escapeHtml(wp.route_driver || 'Sin conductor')}</div>
+              <div style="color: var(--color-text-muted); font-family: monospace; font-size: 0.78rem;">${escapeHtml(wp.route_vehicle || '')}</div>
             </td>
-            <td style="padding: 0.55rem 0.5rem; text-align: center;">
-              <div style="display: flex; justify-content: center; gap: 0.25rem;">
-                <button class="btn btn-sm btn-outline modal-btn-preview-item" data-idx="${idx}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer;" title="Vista Previa">
+            <td style="padding: 0.65rem 0.6rem; text-align: center;">
+              <div style="display: flex; justify-content: center; gap: 0.35rem;">
+                <button class="btn btn-sm btn-outline modal-btn-preview-item" data-idx="${idx}" style="padding: 0.25rem 0.45rem; font-size: 0.82rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer;" title="Vista Previa">
                   <i class="ri-eye-line"></i>
                 </button>
-                <button class="btn btn-sm btn-primary modal-btn-print-item" data-idx="${idx}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; border-radius: 4px; background: #7c3aed; color: white; border: none; cursor: pointer;" title="Imprimir Etiqueta">
+                <button class="btn btn-sm btn-primary modal-btn-print-item" data-idx="${idx}" style="padding: 0.25rem 0.45rem; font-size: 0.82rem; border-radius: 4px; background: #7c3aed; color: white; border: none; cursor: pointer;" title="Imprimir Etiqueta">
                   <i class="ri-printer-line"></i>
                 </button>
               </div>
@@ -2744,7 +2746,7 @@ export async function renderOptirouteSupport() {
 
     const modal = document.createElement('div');
     modal.id = modalId;
-    modal.style.position = 'fixed';
+modal.style.position = 'fixed';
     modal.style.inset = '0';
     modal.style.background = 'rgba(15, 23, 42, 0.75)';
     modal.style.zIndex = '100001';
@@ -2757,8 +2759,20 @@ export async function renderOptirouteSupport() {
     // Lista de paradas actuales para elegir punto de inserción
     const sortedWaypoints = [...allWaypoints].sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
     
-    // Lista de comercios existentes
-    const distinctSuppliers = Array.from(new Set(allWaypoints.map(w => w.supplier).filter(Boolean)));
+    // Lista inicial de comercios del sistema
+    const systemCommercesSet = new Set([
+      'BACK IN TIME', 'DORMILONES', 'GLOSS', 'MENPRIME', 
+      'RELAJARTE', 'SMILE FOR PETS', 'THE SKIN STORE', 'STOCKA'
+    ]);
+    allWaypoints.forEach(w => {
+      if (w.supplier) systemCommercesSet.add(w.supplier.trim().toUpperCase());
+    });
+    if (typeof currentIntegration !== 'undefined' && currentIntegration?.comercio) {
+      systemCommercesSet.add(currentIntegration.comercio.trim().toUpperCase());
+    }
+
+    const defaultSupplier = (allWaypoints[0]?.supplier || 'BACK IN TIME').toUpperCase();
+    const sortedInitialSuppliers = Array.from(systemCommercesSet).filter(Boolean).sort();
     const defaultDriver = allWaypoints[0]?.route_driver || allWaypoints[0]?.route_vehicle || '';
     const defaultVehicle = allWaypoints[0]?.route_vehicle || '';
     const defaultRouteName = allWaypoints[0]?.route_name || 'Ruta Optiroute';
@@ -2823,10 +2837,13 @@ export async function renderOptirouteSupport() {
             </div>
             <div>
               <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Comercio / Proveedor *</label>
-              <input type="text" id="int-field-supplier" class="form-input" list="int-suppliers-datalist" placeholder="Ej: BACK IN TIME" value="${distinctSuppliers[0] || 'STOCKA'}" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
-              <datalist id="int-suppliers-datalist">
-                ${distinctSuppliers.map(s => `<option value="${s}">`).join('')}
-              </datalist>
+              <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                <select id="int-field-supplier-select" class="form-input" required style="width: 100%; height: 34px; font-size: 0.82rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  ${sortedInitialSuppliers.map(s => `<option value="${escapeHtml(s)}" ${s === defaultSupplier ? 'selected' : ''}>🏢 ${escapeHtml(s)}</option>`).join('')}
+                  <option value="__custom__">➕ Otro comercio (escribir manual)...</option>
+                </select>
+                <input type="text" id="int-field-supplier-custom" class="form-input" placeholder="Escribe el nombre del comercio..." style="display: none; width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid #7c3aed; background: var(--color-surface); color: var(--color-text-main);">
+              </div>
             </div>
           </div>
 
@@ -2863,35 +2880,36 @@ export async function renderOptirouteSupport() {
             </div>
           </div>
 
+          <!-- Asignación Conductor / Vehículo -->
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div>
               <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Conductor / Asignación</label>
-              <input type="text" id="int-field-driver" class="form-input" value="${defaultDriver}" placeholder="Ej: N1 / Nicolás" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <input type="text" id="int-field-driver" class="form-input" value="${escapeHtml(defaultDriver)}" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
             </div>
             <div>
               <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Vehículo</label>
-              <input type="text" id="int-field-vehicle" class="form-input" value="${defaultVehicle}" placeholder="Ej: N1 / Camión 1" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <input type="text" id="int-field-vehicle" class="form-input" value="${escapeHtml(defaultVehicle)}" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
             </div>
           </div>
 
+          <!-- Observaciones / Notas -->
           <div>
             <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Notas / Instrucciones de Entrega</label>
-            <textarea id="int-field-notes" class="form-input" rows="2" placeholder="Ej: Dejar con conserje si no responde el timbre" style="width: 100%; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);"></textarea>
+            <textarea id="int-field-notes" class="form-input" rows="2" placeholder="Ej: Dejar con conserje si no responde el timbre" style="width: 100%; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main); resize: vertical;"></textarea>
           </div>
 
         </div>
 
-        <!-- Pie de Botones -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg); gap: 0.5rem; flex-wrap: wrap;">
-          <button id="btn-cancel-int" class="btn btn-outline btn-sm" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-md);">
+        <!-- Pie de Modal / Botones de Acción -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg);">
+          <button id="btn-cancel-int" class="btn btn-outline btn-sm" style="padding: 0.4rem 0.9rem; border-radius: var(--radius-md);">
             Cancelar
           </button>
-          
           <div style="display: flex; gap: 0.5rem;">
-            <button id="btn-save-int-only" class="btn btn-outline btn-sm" style="border: 1px solid #7c3aed; color: #7c3aed; background: var(--color-surface); padding: 0.4rem 0.9rem; border-radius: var(--radius-md); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+            <button id="btn-save-int-only" class="btn btn-outline btn-sm" style="padding: 0.4rem 0.9rem; border-radius: var(--radius-md); border: 1px solid #7c3aed; color: #7c3aed; font-weight: 600; cursor: pointer;">
               <i class="ri-save-line"></i> Guardar en Ruta
             </button>
-            <button id="btn-save-int-and-print" class="btn btn-primary btn-sm" style="background: #7c3aed; color: white; border: none; padding: 0.4rem 1rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.25rem;">
+            <button id="btn-save-int-and-print" class="btn btn-primary btn-sm" style="padding: 0.4rem 1rem; border-radius: var(--radius-md); background: #7c3aed; color: white; border: none; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
               <i class="ri-printer-line"></i> Guardar e Imprimir Etiqueta
             </button>
           </div>
@@ -2908,6 +2926,51 @@ export async function renderOptirouteSupport() {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) closeModal();
     });
+
+    // Control de Selector de Comercio (Sistema WMS / Custom)
+    const supplierSelect = modal.querySelector('#int-field-supplier-select');
+    const supplierCustomInput = modal.querySelector('#int-field-supplier-custom');
+
+    supplierSelect?.addEventListener('change', (e) => {
+      if (e.target.value === '__custom__') {
+        supplierCustomInput.style.display = 'block';
+        supplierCustomInput.focus();
+      } else {
+        supplierCustomInput.style.display = 'none';
+      }
+    });
+
+    // Cargar asíncronamente todos los comercios registrados en el sistema WMS
+    (async () => {
+      try {
+        const [intRes, envRes, optRes] = await Promise.allSettled([
+          supabase.from('merchant_integrations').select('comercio'),
+          supabase.from('envios_unificados').select('empresa_comercio_proveedor').limit(1000),
+          supabase.from('optiroute_orders').select('empresa_comercio_proveedor').limit(1000)
+        ]);
+
+        if (intRes.status === 'fulfilled' && intRes.value?.data) {
+          intRes.value.data.forEach(i => i.comercio && systemCommercesSet.add(i.comercio.trim().toUpperCase()));
+        }
+        if (envRes.status === 'fulfilled' && envRes.value?.data) {
+          envRes.value.data.forEach(e => e.empresa_comercio_proveedor && systemCommercesSet.add(e.empresa_comercio_proveedor.trim().toUpperCase()));
+        }
+        if (optRes.status === 'fulfilled' && optRes.value?.data) {
+          optRes.value.data.forEach(o => o.empresa_comercio_proveedor && systemCommercesSet.add(o.empresa_comercio_proveedor.trim().toUpperCase()));
+        }
+
+        if (supplierSelect) {
+          const currentSelected = supplierSelect.value;
+          const allSorted = Array.from(systemCommercesSet).filter(Boolean).sort();
+          supplierSelect.innerHTML = `
+            ${allSorted.map(s => `<option value="${escapeHtml(s)}" ${s === currentSelected ? 'selected' : ''}>🏢 ${escapeHtml(s)}</option>`).join('')}
+            <option value="__custom__" ${currentSelected === '__custom__' ? 'selected' : ''}>➕ Otro comercio (escribir manual)...</option>
+          `;
+        }
+      } catch (err) {
+        console.warn('Error cargando lista completa de comercios:', err);
+      }
+    })();
 
     // Cálculo automático del número de orden al cambiar el predecesor
     const predecessorSelect = modal.querySelector('#int-select-predecessor');
@@ -2975,7 +3038,21 @@ export async function renderOptirouteSupport() {
                 const matched = results.find(r => r.id === selId);
                 if (matched) {
                   modal.querySelector('#int-field-reference').value = matched.referencia || matched.id || '';
-                  modal.querySelector('#int-field-supplier').value = matched.empresa_comercio_proveedor || 'STOCKA';
+                  
+                  const suppName = (matched.empresa_comercio_proveedor || 'STOCKA').trim().toUpperCase();
+                  systemCommercesSet.add(suppName);
+                  if (supplierSelect) {
+                    let opt = Array.from(supplierSelect.options).find(o => o.value.toUpperCase() === suppName);
+                    if (!opt) {
+                      opt = document.createElement('option');
+                      opt.value = suppName;
+                      opt.textContent = `🏢 ${suppName}`;
+                      supplierSelect.insertBefore(opt, supplierSelect.lastElementChild);
+                    }
+                    supplierSelect.value = opt.value;
+                    if (supplierCustomInput) supplierCustomInput.style.display = 'none';
+                  }
+
                   modal.querySelector('#int-field-name').value = matched.nombre_destinatario || '';
                   modal.querySelector('#int-field-phone').value = matched.telefono_destino || '';
                   modal.querySelector('#int-field-address').value = matched.direccion_destino || '';
@@ -3000,7 +3077,10 @@ export async function renderOptirouteSupport() {
     // Función para procesar guardado
     async function handleSaveIntermediate(printAfterSave = false) {
       const ref = modal.querySelector('#int-field-reference').value.trim();
-      const supplier = modal.querySelector('#int-field-supplier').value.trim() || 'STOCKA';
+      const rawSupp = supplierSelect?.value === '__custom__' 
+        ? supplierCustomInput?.value.trim() 
+        : supplierSelect?.value.trim();
+      const supplier = rawSupp || 'STOCKA';
       const name = modal.querySelector('#int-field-name').value.trim();
       const phone = modal.querySelector('#int-field-phone').value.trim();
       const address = modal.querySelector('#int-field-address').value.trim();

@@ -2704,6 +2704,9 @@ async function renderCatalog() {
     const importBtn = (mainPlatform && !isObserver)
       ? `<button class="btn btn-outline" id="btn-import-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px;"><i class="ri-download-cloud-2-line" style="margin-right: 0.25rem; color: var(--color-primary);"></i>Importar de ${mainPlatform}</button>`
       : '';
+    const importNewBtn = (mainPlatform && !isObserver)
+      ? `<button class="btn btn-outline" id="btn-import-new-only-from-main" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-right: 0.5rem; height: 38px; border-color: var(--color-success); color: var(--color-success); background: transparent;"><i class="ri-add-circle-line" style="margin-right: 0.25rem;"></i>Importar Nuevos de ${mainPlatform}</button>`
+      : '';
 
     const quickEditBtnStyle = window.catalogQuickEditMode
       ? 'background-color: var(--color-success); color: white; border-color: var(--color-success); font-weight: 600;'
@@ -2856,6 +2859,7 @@ async function renderCatalog() {
                   <input type="text" id="catalog-master-search" class="form-input" placeholder="Buscar SKU o nombre..." style="width: 220px; padding-left: 2.25rem; padding-right: 0.75rem; padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.875rem; height: 38px;">
                 </div>
                 ${importBtn}
+                ${importNewBtn}
                 ${excelActionsDropdown}
                 ${quickEditBtnHtml}
                 ${createBtn}
@@ -17202,10 +17206,10 @@ window.renderDeclarations = async function() {
       </div>
     ` : `
       <div class="slide-over-overlay" id="dec-slide-over-overlay" onclick="if(event.target === this) closeNewDeclarationSlideOver()">
-        <div class="slide-over-panel" id="dec-slide-over-panel" style="max-width: 1050px; width: 90vw;">
+        <div class="slide-over-panel" id="dec-slide-over-panel" style="max-width: 1400px; width: 95vw;">
           <div class="slide-over-header">
             <div>
-              <h3 style="margin: 0; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem;" id="dec-slide-over-title">Declarar Nuevo Ingreso</h3>
+              <h3 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;" id="dec-slide-over-title">Declarar Nuevo Ingreso</h3>
               <p style="margin: 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--color-text-muted);">Completa la información logística</p>
             </div>
             <button class="btn btn-outline" style="border: none; background: transparent; padding: 0.5rem;" onclick="closeNewDeclarationSlideOver()">
@@ -17266,22 +17270,72 @@ window.renderDeclarations = async function() {
                 </div>
 
                 <!-- Contenedor 2: Carga desde Catálogo -->
-                <div id="dec-catalog-container" style="display: none; background: rgba(59, 130, 246, 0.05); padding: 1.25rem; border-radius: var(--radius-md); border: 1px dashed var(--color-primary); margin-bottom: 1.25rem;">
-                  <label class="form-label" style="font-weight: 600; font-size: 0.95rem; margin-bottom: 0.25rem; display: block;">Seleccionar Productos del Catálogo</label>
-                  <p style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Busca y añade los productos que registrarás en este ingreso.</p>
+                <div id="dec-catalog-container" style="display: none; background: rgba(59, 130, 246, 0.04); padding: 1.25rem; border-radius: var(--radius-md); border: 1.5px dashed rgba(59, 130, 246, 0.35); margin-bottom: 1.25rem; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.03);">
+                  <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+                    <div>
+                      <label class="form-label" style="font-weight: 700; font-size: 0.95rem; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 0.4rem; color: var(--color-text-main);">
+                        <i class="ri-folder-open-line" style="color: var(--color-primary);"></i> Productos a Declarar en este Ingreso
+                      </label>
+                      <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0;">Busca y añade los productos de tu catálogo, crea productos nuevos o sincroniza desde tus tiendas.</p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-sm btn-outline" id="btn-dec-create-product" onclick="window.createProductFromDeclaration()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 6px; background: var(--color-surface); cursor: pointer;" title="Registrar un nuevo producto en tu catálogo">
+                        <i class="ri-add-circle-line" style="color: var(--color-primary); font-size: 1.05rem;"></i> Crear Producto
+                      </button>
+                      <button type="button" class="btn btn-sm btn-outline" id="btn-dec-sync-channel-products" onclick="window.syncChannelProductsForDeclaration()" style="display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; font-weight: 600; padding: 0.45rem 0.85rem; border-radius: 6px; background: var(--color-surface); border-color: rgba(37, 99, 235, 0.35); color: var(--color-primary); cursor: pointer;" title="Traer productos nuevos desde Shopify, Jumpseller, MercadoLibre, etc. sin alterar productos existentes">
+                        <i class="ri-refresh-line" style="font-size: 1.05rem;"></i> Consultar Nuevos de Tienda
+                      </button>
+                    </div>
+                  </div>
                   
                   <div style="position: relative; margin-bottom: 1rem;">
                     <div style="position: relative; display: flex; align-items: center; width: 100%;">
-                      <i class="ri-search-line" style="position: absolute; left: 0.75rem; color: var(--color-text-muted); font-size: 0.95rem;"></i>
-                      <input type="text" id="dec-catalog-product-search" class="form-input" placeholder="Buscar por SKU o Nombre..." style="padding-left: 2.25rem; width: 100%; height: 38px; font-size: 0.85rem; background: var(--color-surface); border-radius: 6px; border: 1px solid var(--color-border);" autocomplete="off">
+                      <i class="ri-search-line" style="position: absolute; left: 0.85rem; color: var(--color-text-muted); font-size: 1.05rem;"></i>
+                      <input type="text" id="dec-catalog-product-search" class="form-input" placeholder="Buscar producto en catálogo por SKU, Nombre o Código de barras..." style="padding-left: 2.5rem; width: 100%; height: 40px; font-size: 0.875rem; background: var(--color-surface); border-radius: 6px; border: 1px solid var(--color-border);" autocomplete="off">
                     </div>
                     <!-- Contenedor flotante de sugerencias autocomplete -->
-                    <div id="dec-catalog-search-results" style="display: none; position: absolute; top: 42px; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; max-height: 250px; overflow-y: auto; z-index: 999; box-shadow: 0 10px 25px rgba(0,0,0,0.3); padding: 0.25rem 0;"></div>
+                    <div id="dec-catalog-search-results" style="display: none; position: absolute; top: 45px; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; max-height: 260px; overflow-y: auto; z-index: 999; box-shadow: 0 10px 25px rgba(0,0,0,0.3); padding: 0.25rem 0;"></div>
                   </div>
                   
-                  <label class="form-label" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; display: block;">Productos Seleccionados</label>
-                  <div id="dec-selected-products-list" style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 250px; overflow-y: auto; padding: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-sm);">
-                    <p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>
+                  <!-- Tabla de Productos Seleccionados con Medidas y Volúmenes en Tiempo Real -->
+                  <div id="dec-selected-products-list" style="overflow-x: auto; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); box-shadow: var(--shadow-sm);">
+                    <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-bottom: 0;">
+                      <thead>
+                        <tr style="border-bottom: 1px solid var(--color-border); text-align: left; font-weight: 600; color: var(--color-text-muted); background: var(--color-bg); font-size: 0.775rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                          <th style="padding: 10px 14px; min-width: 220px;">Producto / SKU</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 150px;">Medidas (L × An × Al)</th>
+                          <th style="padding: 10px 12px; text-align: right; width: 120px;">Vol. Unit.</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 110px;">Cant. Declarada</th>
+                          <th style="padding: 10px 12px; text-align: right; width: 140px;">Vol. Total Ítem</th>
+                          <th style="padding: 10px 12px; text-align: center; width: 50px;"></th>
+                        </tr>
+                      </thead>
+                      <tbody id="dec-selected-products-tbody">
+                        <!-- Generado dinámicamente -->
+                      </tbody>
+                    </table>
+                    <div id="dec-selected-products-empty" style="padding: 2.25rem 1rem; text-align: center; color: var(--color-text-muted);">
+                      <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+                      <p style="margin: 0; font-size: 0.875rem; font-weight: 500;">Ningún producto seleccionado</p>
+                      <span style="font-size: 0.75rem; color: var(--color-text-muted);">Usa el buscador superior, crea un producto nuevo o sincroniza productos desde tus canales de venta.</span>
+                    </div>
+                    
+                    <!-- Resumen en Tiempo Real al pie de la tabla -->
+                    <div id="dec-products-summary-footer" style="display: none; padding: 0.75rem 1.25rem; background: var(--color-bg); border-top: 1px solid var(--color-border); justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; font-size: 0.85rem;">
+                      <div style="color: var(--color-text-muted);">
+                        <strong id="dec-summary-count" style="color: var(--color-text-main);">0</strong> productos distintos
+                      </div>
+                      <div style="display: flex; gap: 1.5rem; align-items: center;">
+                        <div>
+                          <span style="color: var(--color-text-muted); font-size: 0.78rem;">Total Unidades:</span>
+                          <strong id="dec-summary-qty" style="color: var(--color-primary); font-size: 0.95rem; margin-left: 4px;">0 uds</strong>
+                        </div>
+                        <div>
+                          <span style="color: var(--color-text-muted); font-size: 0.78rem;">Volumen Total Calculado:</span>
+                          <strong id="dec-summary-vol" style="color: var(--color-success); font-size: 0.95rem; margin-left: 4px;">0.0000 m³</strong>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -18180,7 +18234,8 @@ window.renderDeclarations = async function() {
           const products = window.decCatalogProductsCache || [];
           const matches = products.filter(p => 
             (p.name && p.name.toLowerCase().includes(term)) || 
-            (p.sku && p.sku.toLowerCase().includes(term))
+            (p.sku && p.sku.toLowerCase().includes(term)) ||
+            (p.barcode && p.barcode.toLowerCase().includes(term))
           );
           
           let html = '';
@@ -18188,6 +18243,7 @@ window.renderDeclarations = async function() {
             html += '<div style="padding: 0.75rem 1rem; color: var(--color-text-muted); font-size: 0.85rem; text-align: center; border-bottom: 1px solid var(--color-border);">Sin coincidencias en catálogo</div>';
           } else {
             matches.forEach(p => {
+              const dims = (p.largo && p.ancho && p.alto) ? `${p.largo} × ${p.ancho} × ${p.alto} cm` : 'Sin medidas';
               html += `
                 <div class="search-result-item" 
                      data-sku="${p.sku}" 
@@ -18195,24 +18251,33 @@ window.renderDeclarations = async function() {
                      data-vol="${p.volumen || 0}" 
                      data-price="${p.price || 0}" 
                      data-barcode="${p.barcode || ''}"
-                     style="padding: 0.6rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; transition: background-color 0.15s;"
+                     data-largo="${p.largo || ''}"
+                     data-ancho="${p.ancho || ''}"
+                     data-alto="${p.alto || ''}"
+                     style="padding: 0.65rem 1rem; cursor: pointer; border-bottom: 1px solid var(--color-border); font-size: 0.85rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
                      onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
                      onmouseout="this.style.backgroundColor='transparent'">
-                  <strong style="color: var(--color-text-main);">${p.name}</strong>
-                  <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: ${p.sku} | Vol: ${(p.volumen || 0).toFixed(4)} m³ | Precio: $${(p.price || 0).toLocaleString('es-CL')}</span>
+                  <div style="flex: 1; min-width: 0;">
+                    <strong style="color: var(--color-text-main); display: block; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${p.name}</strong>
+                    <span style="font-size: 0.75rem; color: var(--color-text-muted);">SKU: <strong style="color: var(--color-primary); font-family: monospace;">${p.sku}</strong> ${p.barcode ? `| CB: ${p.barcode}` : ''}</span>
+                  </div>
+                  <div style="text-align: right; font-size: 0.75rem; color: var(--color-text-muted); white-space: nowrap;">
+                    <div>${dims}</div>
+                    <div style="font-family: monospace; font-weight: 600; color: var(--color-primary);">${(p.volumen || 0).toFixed(4)} m³</div>
+                  </div>
                 </div>
               `;
             });
           }
 
-          // Opción para agregar producto personalizado / no en catálogo
+          // Opción para registrar un nuevo producto en catálogo
           html += `
             <div class="search-result-item" 
                  data-custom="true"
-                 style="padding: 0.6rem 1rem; cursor: pointer; font-size: 0.85rem; color: var(--color-primary); font-weight: bold; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.15s;"
-                 onmouseover="this.style.backgroundColor='var(--color-surface-hover)'"
-                 onmouseout="this.style.backgroundColor='transparent'">
-              <i class="ri-add-line"></i> Agregar producto personalizado / no en catálogo...
+                 style="padding: 0.75rem 1rem; cursor: pointer; font-size: 0.85rem; color: var(--color-primary); font-weight: 600; display: flex; align-items: center; gap: 0.5rem; background: rgba(59, 130, 246, 0.05); transition: background-color 0.15s;"
+                 onmouseover="this.style.backgroundColor='rgba(59, 130, 246, 0.12)'"
+                 onmouseout="this.style.backgroundColor='rgba(59, 130, 246, 0.05)'">
+              <i class="ri-add-circle-line" style="font-size: 1.1rem;"></i> ¿No encuentras el producto? Crear nuevo producto en catálogo...
             </div>
           `;
           
@@ -18246,74 +18311,8 @@ window.renderDeclarations = async function() {
           const isCustom = item.getAttribute('data-custom') === 'true';
           if (isCustom) {
             searchResultsDiv.style.display = 'none';
-            const { value: formValues } = await Swal.fire({
-              title: 'Agregar Producto Personalizado',
-              html: `
-                <div style="text-align: left; font-size: 0.9rem;">
-                  <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">SKU *</label>
-                  <input id="swal-client-custom-sku" class="swal2-input" placeholder="Ej: SKU-NUEVO" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-                  
-                  <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Nombre / Descripción *</label>
-                  <input id="swal-client-custom-name" class="swal2-input" placeholder="Ej: Producto Extra" style="width: 100%; margin: 0 0 1rem 0; box-sizing: border-box;">
-                  
-                  <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                    <div style="flex: 1;">
-                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Cantidad a Ingresar *</label>
-                      <input id="swal-client-custom-qty" type="number" class="swal2-input" value="1" min="1" style="width: 100%; margin: 0; box-sizing: border-box;">
-                    </div>
-                    <div style="flex: 1;">
-                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Código de Barras</label>
-                      <input id="swal-client-custom-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box;">
-                    </div>
-                  </div>
-                  
-                  <div style="display: flex; gap: 1rem;">
-                    <div style="flex: 1;">
-                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Volumen Unitario (m³)</label>
-                      <input id="swal-client-custom-vol" type="number" step="0.000001" class="swal2-input" value="0.000100" style="width: 100%; margin: 0; box-sizing: border-box;">
-                    </div>
-                    <div style="flex: 1;">
-                      <label style="font-weight: 600; display: block; margin-bottom: 0.35rem;">Precio Unitario ($)</label>
-                      <input id="swal-client-custom-price" type="number" class="swal2-input" value="0" style="width: 100%; margin: 0; box-sizing: border-box;">
-                    </div>
-                  </div>
-                </div>
-              `,
-              focusConfirm: false,
-              showCancelButton: true,
-              confirmButtonText: 'Agregar',
-              cancelButtonText: 'Cancelar',
-              preConfirm: () => {
-                const sku = document.getElementById('swal-client-custom-sku').value.trim();
-                const name = document.getElementById('swal-client-custom-name').value.trim();
-                const qty = parseInt(document.getElementById('swal-client-custom-qty').value, 10);
-                const barcode = document.getElementById('swal-client-custom-barcode').value.trim();
-                const vol = parseFloat(document.getElementById('swal-client-custom-vol').value);
-                const price = parseFloat(document.getElementById('swal-client-custom-price').value);
-
-                if (!sku) {
-                  Swal.showValidationMessage('El SKU es obligatorio.');
-                  return false;
-                }
-                if (!name) {
-                  Swal.showValidationMessage('El nombre/descripción es obligatorio.');
-                  return false;
-                }
-                if (isNaN(qty) || qty < 1) {
-                  Swal.showValidationMessage('La cantidad debe ser mayor o igual a 1.');
-                  return false;
-                }
-                return { sku, name, qty, barcode, vol: isNaN(vol) ? 0 : vol, price: isNaN(price) ? 0 : price };
-              }
-            });
-
-            if (formValues) {
-              const { sku, name, qty, barcode, vol, price } = formValues;
-              addCatalogProductToDeclarationList(sku, name, vol, price, barcode, qty);
-            }
             searchProdInput.value = '';
-            searchResultsDiv.innerHTML = '';
-            searchResultsDiv.style.display = 'none';
+            await window.createProductFromDeclaration();
             return;
           }
           
@@ -18322,8 +18321,11 @@ window.renderDeclarations = async function() {
           const vol = parseFloat(item.getAttribute('data-vol') || '0');
           const price = parseFloat(item.getAttribute('data-price') || '0');
           const barcode = item.getAttribute('data-barcode') || '';
+          const largo = parseFloat(item.getAttribute('data-largo') || '') || null;
+          const ancho = parseFloat(item.getAttribute('data-ancho') || '') || null;
+          const alto = parseFloat(item.getAttribute('data-alto') || '') || null;
           
-          addCatalogProductToDeclarationList(sku, name, vol, price, barcode, 1);
+          addCatalogProductToDeclarationList(sku, name, vol, price, barcode, 1, largo, ancho, alto);
           
           // Clear and hide suggestions
           searchProdInput.value = '';
@@ -18596,7 +18598,7 @@ window.renderDeclarations = async function() {
         const notes = document.getElementById('dec-notes').value.trim();
 
         const btnCatalog = document.getElementById('btn-source-catalog');
-        const isCatalogSource = btnCatalog && btnCatalog.classList.contains('active');
+        const isCatalogSource = window.isCurrentCommerceCatalogConfigured || (btnCatalog && btnCatalog.classList.contains('active')) || (document.getElementById('dec-catalog-container')?.style.display === 'block');
 
         const fileInput = document.getElementById('dec-file-input');
         if (!isCatalogSource && !editingDeclarationId && (!clientUploadedFileBase64 || !clientUploadedFileName)) {
@@ -18716,9 +18718,12 @@ window.renderDeclarations = async function() {
             const qty = parseInt(qtyInput.value, 10);
             const price = parseFloat(qtyInput.getAttribute('data-price') || '0');
             const barcode = qtyInput.getAttribute('data-barcode') || '';
+            const largo = parseFloat(qtyInput.getAttribute('data-largo') || '') || null;
+            const ancho = parseFloat(qtyInput.getAttribute('data-ancho') || '') || null;
+            const alto = parseFloat(qtyInput.getAttribute('data-alto') || '') || null;
             if (qty > 0) {
               const prodVol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
-              parsedProducts.push({ sku, name, qty, price, barcode, vol: prodVol, volumen: prodVol, subtotal: qty * price });
+              parsedProducts.push({ sku, name, qty, price, barcode, vol: prodVol, volumen: prodVol, largo, ancho, alto, subtotal: qty * price });
               totalQtyFromExcel += qty;
             }
           });
@@ -19300,11 +19305,20 @@ async function fetchAndRenderClientDeclarations() {
         </button>
       ` : '';
 
+      const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+
       html += `
         <tr style="transition: background-color 0.2s;">
           <td style="font-weight: 500; color: var(--color-text-main); font-family: var(--font-family); font-size: 0.9rem; padding: 0.45rem 0.75rem;">
             <span style="font-weight: 600; font-family: monospace; font-size: 0.72rem; background: var(--color-surface); border: 1px solid var(--color-border); padding: 1px 4px; border-radius: 4px; color: var(--color-text-muted); margin-right: 4px;" title="Código Único de Ingreso">#${dec.id.substring(0, 8).toUpperCase()}</span>
             ${dec.title}
+            ${hasAdminEdit ? `
+            <div style="margin-top: 3px;">
+              <span class="badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-primary); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;" title="Este ingreso registra modificaciones realizadas por Administración">
+                <i class="ri-shield-check-line"></i> Modificado por Admin
+              </span>
+            </div>
+            ` : ''}
             <div style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400; margin-top: 2px;">
               <i class="ri-store-2-line" style="vertical-align: text-bottom; margin-right: 2px;"></i> ${dec.comercio || 'STOCKA'}
             </div>
@@ -19451,6 +19465,75 @@ window.viewDeclarationDetail = async function(id) {
       `;
     }
 
+    // --- BLOQUE DE TRANSPARENCIA: Ajustes de Administración ---
+    const adminEditEntries = (dec.history || []).filter(h => h.type === 'admin_edit');
+    let adminEditsHtml = '';
+    if (adminEditEntries.length > 0) {
+      let entriesBlocks = '';
+      adminEditEntries.forEach((entry, idx) => {
+        const dateObj = new Date(entry.timestamp);
+        const day = String(dateObj.getDate()).padStart(2, '0');
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const year = dateObj.getFullYear();
+        const hours = String(dateObj.getHours()).padStart(2, '0');
+        const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+        const formattedDate = `${day}/${month}/${year} ${hours}:${minutes}`;
+
+        let changesHtml = '';
+        if (entry.changes_list && entry.changes_list.length > 0) {
+          changesHtml = `
+            <div style="margin-top: 0.75rem; background: var(--color-surface); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border);">
+              <strong style="font-size: 0.75rem; text-transform: uppercase; color: var(--color-text-muted); display: block; margin-bottom: 0.35rem; letter-spacing: 0.5px;">Desglose de Modificaciones:</strong>
+              <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.825rem; color: var(--color-text-main); line-height: 1.5;">
+                ${entry.changes_list.map(c => `<li>${c.replace(/\n/g, '<br>').replace(/  /g, '&nbsp;&nbsp;')}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        } else if (entry.changes_summary) {
+          changesHtml = `
+            <div style="margin-top: 0.75rem; background: var(--color-surface); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid var(--color-border); font-size: 0.825rem; color: var(--color-text-main); white-space: pre-wrap; line-height: 1.5;">
+              ${entry.changes_summary}
+            </div>
+          `;
+        }
+
+        entriesBlocks += `
+          <div style="background: rgba(37, 99, 235, 0.04); border: 1px solid rgba(37, 99, 235, 0.25); border-radius: 8px; padding: 1rem; margin-bottom: ${idx < adminEditEntries.length - 1 ? '0.85rem' : '0'};">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span class="badge" style="background: rgba(37, 99, 235, 0.15); color: var(--color-primary); font-size: 0.75rem; font-weight: 700; padding: 2px 6px; border-radius: 4px;">
+                  <i class="ri-edit-line"></i> Ajuste #${idx + 1}
+                </span>
+                <span style="font-size: 0.825rem; color: var(--color-text-main); font-weight: 600;">${entry.author || 'Administración Stocka'}</span>
+              </div>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="ri-time-line"></i> ${formattedDate}</span>
+            </div>
+            
+            <div style="background: rgba(245, 158, 11, 0.08); border-left: 3px solid var(--color-warning); padding: 0.6rem 0.85rem; border-radius: 0 6px 6px 0; margin-bottom: 0.5rem;">
+              <strong style="font-size: 0.725rem; text-transform: uppercase; color: var(--color-warning); display: block; margin-bottom: 2px; letter-spacing: 0.5px;">Motivo / Justificación de Administración:</strong>
+              <p style="margin: 0; font-size: 0.875rem; color: var(--color-text-main); font-style: italic; font-weight: 500;">"${entry.reason || 'Sin motivo especificado'}"</p>
+            </div>
+            
+            ${changesHtml}
+          </div>
+        `;
+      });
+
+      adminEditsHtml = `
+        <div style="margin-bottom: 1.5rem; background: var(--color-surface); border: 1.5px solid rgba(37, 99, 235, 0.3); border-radius: 10px; padding: 1.25rem; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.06);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.6rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
+              <i class="ri-shield-user-line" style="font-size: 1.25rem;"></i> Registro de Ajustes de Administración (Transparencia)
+            </h4>
+            <span class="badge" style="background: var(--color-primary); color: white; font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; font-weight: 600;">
+              ${adminEditEntries.length} ajuste(s) registrado(s)
+            </span>
+          </div>
+          ${entriesBlocks}
+        </div>
+      `;
+    }
+
     let historyTimelineHtml = '';
     const history = dec.history || [];
     if (history.length > 0) {
@@ -19466,6 +19549,34 @@ window.viewDeclarationDetail = async function(id) {
         const minutes = String(dateObj.getMinutes()).padStart(2, '0');
         const formattedDate = `${day}/${month}/${year} ${hours}:${minutes}`;
         
+        if (step.type === 'admin_edit') {
+          stepsHtml += `
+            <div style="display: flex; gap: 1rem; position: relative; margin-bottom: 1.25rem; font-family: var(--font-family);">
+              ${!isLast ? `<div style="position: absolute; left: 15px; top: 30px; bottom: -20px; width: 2px; background: var(--color-border); z-index: 1;"></div>` : ''}
+              
+              <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(37, 99, 235, 0.1); border: 2px solid var(--color-primary); display: flex; align-items: center; justify-content: center; z-index: 2; flex-shrink: 0; box-shadow: var(--shadow-sm); color: var(--color-primary);">
+                <i class="ri-edit-box-line" style="font-size: 0.9rem;"></i>
+              </div>
+              
+              <div style="flex: 1; background: var(--color-surface); border: 1px solid rgba(37, 99, 235, 0.3); border-radius: 8px; padding: 0.75rem 1rem; box-shadow: var(--shadow-sm);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+                  <span class="badge" style="background-color: rgba(37, 99, 235, 0.15); color: var(--color-primary); font-size: 0.75rem; font-weight: 700;">Ajuste por Administración</span>
+                  <span style="font-size: 0.75rem; color: var(--color-text-muted);"><i class="ri-time-line"></i> ${formattedDate}</span>
+                </div>
+                <p style="margin: 0 0 0.35rem 0; font-size: 0.85rem; color: var(--color-text-main); font-weight: 600; line-height: 1.4;">
+                  Motivo: <span style="font-weight: 400; font-style: italic;">"${step.reason || step.comment || ''}"</span>
+                </p>
+                ${step.changes_list && step.changes_list.length > 0 ? `
+                  <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-bg); padding: 0.4rem 0.6rem; border-radius: 4px; margin-top: 0.35rem;">
+                    <strong>Cambios:</strong> ${step.changes_list.map(c => c.split('\n')[0]).join('; ')}
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          `;
+          return;
+        }
+
         let statusBadgeColor = 'var(--badge-neutral-bg)';
         let statusTextColor = 'var(--badge-neutral-text)';
         switch (step.status) {
@@ -19648,6 +19759,8 @@ window.viewDeclarationDetail = async function(id) {
           </div>
           
           ${incidentsHtml}
+          
+          ${adminEditsHtml}
           
           ${historyTimelineHtml}
           
@@ -20407,42 +20520,28 @@ window.editDeclaration = async function(id) {
       }
     }
     // Cargar y mostrar productos en el listado de catálogo
-    const catalogList = document.getElementById('dec-selected-products-list');
-    if (catalogList) {
-      catalogList.innerHTML = '';
+    const tbody = document.getElementById('dec-selected-products-tbody');
+    if (tbody) {
+      tbody.innerHTML = '';
     }
     
     // Asegurar que precargamos los productos del catálogo para este comercio
     await loadCatalogProductsForDeclaration(dec.comercio);
 
-    // Habilitar y mostrar el grupo selector de origen para que el cliente pueda cambiar
-    const sourceGroup = document.getElementById('dec-product-source-group');
-    if (sourceGroup) {
-      sourceGroup.style.display = 'block';
-    }
+    await checkSelectedCommerceTracking();
 
     if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
       // Activar origen "catálogo"
       setProductSource('catalog');
 
       dec.products_list.forEach(p => {
-        addCatalogProductToDeclarationList(p.sku, p.name, p.vol || p.volumen || 0, p.price || 0, p.barcode || '');
-        // Ajustar cantidad
-        const row = catalogList.querySelector(`.selected-product-row[data-sku="${p.sku}"]`);
-        if (row) {
-          const qtyInput = row.querySelector('.dec-catalog-qty-input');
-          if (qtyInput) {
-            qtyInput.value = p.qty || p.quantity || p.qty_confirmed || 1;
-          }
-        }
+        addCatalogProductToDeclarationList(p.sku, p.name, p.vol || p.volumen || 0, p.price || 0, p.barcode || '', p.qty || p.quantity || p.qty_confirmed || 1, p.largo, p.ancho, p.alto);
       });
       recalculateCatalogTotals();
-    } else {
-      // Si no tiene productos, setear origen "excel" por defecto
+    } else if (!window.isCurrentCommerceCatalogConfigured) {
+      // Si no tiene productos y no tiene catálogo configurado, setear origen "excel"
       setProductSource('excel');
-      if (catalogList) {
-        catalogList.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
-      }
+      recalculateCatalogTotals();
     }
 
     openNewDeclarationSlideOver();
@@ -20517,10 +20616,6 @@ window.openNewDeclarationSlideOver = async function() {
       labelingQtyInput.value = 0;
     }
 
-    const catalogList = document.getElementById('dec-selected-products-list');
-    if (catalogList) {
-      catalogList.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
-    }
     const selectProd = document.getElementById('dec-catalog-product-select');
     if (selectProd) selectProd.value = '';
     const searchInput = document.getElementById('dec-catalog-product-search');
@@ -20566,10 +20661,11 @@ window.openNewDeclarationSlideOver = async function() {
     if (cancelBtn) {
       cancelBtn.style.display = 'none';
     }
-  }
 
-  // Limpiar/Resetear origen por defecto
-  setProductSource('excel');
+    const tbody = document.getElementById('dec-selected-products-tbody');
+    if (tbody) tbody.innerHTML = '';
+    recalculateCatalogTotals();
+  }
 
   if (window.updateDeliveryMethodVisuals) {
     const val = document.getElementById('dec-delivery-method').value || 'Transporte vía courier';
@@ -20579,7 +20675,7 @@ window.openNewDeclarationSlideOver = async function() {
     window.updateUnloadingVisuals();
   }
   
-  // Ejecutar verificación de seguimiento para el comercio seleccionado
+  // Ejecutar verificación de seguimiento y catálogo para el comercio seleccionado
   await checkSelectedCommerceTracking();
 };
 
@@ -20592,6 +20688,10 @@ window.cancelEditDeclaration = function() {
   editingDeclarationId = null;
   const form = document.getElementById('form-new-declaration');
   if (form) form.reset();
+
+  const tbody = document.getElementById('dec-selected-products-tbody');
+  if (tbody) tbody.innerHTML = '';
+  recalculateCatalogTotals();
 
   const fileInput = document.getElementById('dec-file-input');
   if (fileInput) {
@@ -20643,10 +20743,6 @@ window.cancelEditDeclaration = function() {
     labelingQtyInput.value = 0;
   }
 
-  const catalogList = document.getElementById('dec-selected-products-list');
-  if (catalogList) {
-    catalogList.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
-  }
   const selectProd = document.getElementById('dec-catalog-product-select');
   if (selectProd) selectProd.value = '';
   const searchInput = document.getElementById('dec-catalog-product-search');
@@ -24928,6 +25024,143 @@ function setupCatalogListeners(commerce, mainPlatform) {
     });
   }
 
+  // 6b. Import ONLY NEW from Main Platform handler
+  const btnImportNewOnly = document.getElementById('btn-import-new-only-from-main');
+  if (btnImportNewOnly) {
+    btnImportNewOnly.addEventListener('click', async () => {
+      btnImportNewOnly.disabled = true;
+      btnImportNewOnly.innerHTML = `<i class="ri-loader-4-line ri-spin" style="margin-right: 0.25rem;"></i>Buscando...`;
+      try {
+        const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce).eq('platform', mainPlatform));
+        
+        if (!syncedProds || syncedProds.length === 0) {
+          Swal.fire('Atención', `No se encontraron productos sincronizados de ${mainPlatform}. Por favor realiza una sincronización primero en la pestaña Integraciones.`, 'warning');
+          return;
+        }
+
+        const { data: wmsProds, error: wmsErr } = await supabase
+          .from('products')
+          .select('sku')
+          .eq('comercio', commerce);
+
+        if (wmsErr) throw wmsErr;
+
+        const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
+
+        const newSyncedProds = syncedProds.filter(sp => {
+          const sku = String(sp.sku || '').trim().toUpperCase();
+          return sku && !wmsSkus.has(sku);
+        });
+
+        if (newSyncedProds.length === 0) {
+          Swal.fire('Catálogo al día', `Todos los productos de ${mainPlatform} ya existen en el WMS. No hay nuevos productos para importar.`, 'info');
+          return;
+        }
+
+        const newProdsPreview = newSyncedProds.slice(0, 10).map(p => `${p.sku} - ${p.name}`).join('\n');
+        const previewText = newSyncedProds.length > 10 
+          ? `${newProdsPreview}\n...y ${newSyncedProds.length - 10} productos más.`
+          : newProdsPreview;
+
+        const confirmResult = await Swal.fire({
+          title: `Detectados ${newSyncedProds.length} productos nuevos`,
+          html: `<p>Se encontraron <strong>${newSyncedProds.length}</strong> productos en <strong>${mainPlatform}</strong> que no existen en el WMS. ¿Deseas importarlos?</p>
+                 <pre style="text-align: left; background: var(--color-bg); padding: 0.5rem; border-radius: var(--radius-sm); font-size: 0.8rem; max-height: 150px; overflow-y: auto;">${previewText}</pre>`,
+          icon: 'question',
+          showCancelButton: true,
+          confirmButtonText: 'Sí, importar nuevos',
+          cancelButtonText: 'Cancelar',
+          confirmButtonColor: '#10b981'
+        });
+
+        if (confirmResult.isConfirmed) {
+          let merchantId = null;
+          try {
+            const { data: siblingProd } = await supabase
+              .from('products')
+              .select('merchant_id')
+              .eq('comercio', commerce)
+              .limit(1)
+              .maybeSingle();
+            if (siblingProd && siblingProd.merchant_id) {
+              merchantId = siblingProd.merchant_id;
+            }
+          } catch (err) {
+            console.error('Error al resolver merchant_id desde productos:', err.message);
+          }
+
+          if (!merchantId) {
+            try {
+              const { data: siblingInt } = await supabase
+                .from('merchant_integrations')
+                .select('merchant_id')
+                .eq('comercio', commerce)
+                .limit(1)
+                .maybeSingle();
+              if (siblingInt && siblingInt.merchant_id) {
+                merchantId = siblingInt.merchant_id;
+              }
+            } catch (err) {
+              console.error('Error al resolver merchant_id desde integraciones:', err.message);
+            }
+          }
+
+          if (!merchantId) {
+            const { data: userAuth } = await supabase.auth.getUser();
+            merchantId = userAuth.user.id;
+          }
+
+          const productsToInsert = newSyncedProds.map(sp => {
+            const productRow = {
+              merchant_id: merchantId,
+              comercio: commerce,
+              sku: sp.sku,
+              name: sp.name,
+              price: parseFloat(sp.price) || 0,
+              image_url: sp.image_url || null,
+              barcode: sp.barcode || null,
+              description: `Importado automáticamente de ${mainPlatform}`
+            };
+
+            if (mainPlatform === 'Shopify') {
+              productRow.shopify_product_id = 'imported';
+            } else if (mainPlatform === 'MercadoLibre') {
+              productRow.raw_meli_data = {};
+            } else if (mainPlatform === 'Falabella') {
+              productRow.raw_falabella_data = {};
+            } else if (mainPlatform === 'Paris') {
+              productRow.raw_paris_data = {};
+            } else if (mainPlatform === 'Ripley') {
+              productRow.raw_ripley_data = {};
+            } else if (mainPlatform === 'WooCommerce') {
+              productRow.raw_woocommerce_data = {};
+            } else if (mainPlatform === 'Jumpseller') {
+              productRow.raw_jumpseller_data = {};
+            } else if (mainPlatform === 'Walmart') {
+              productRow.raw_walmart_data = {};
+            }
+
+            return productRow;
+          });
+
+          const { error: insErr } = await supabase
+            .from('products')
+            .insert(productsToInsert);
+
+          if (insErr) throw insErr;
+
+          Swal.fire('¡Éxito!', `Se importaron ${productsToInsert.length} productos nuevos al catálogo master sin alterar los existentes.`, 'success');
+          renderCatalog();
+        }
+      } catch (err) {
+        Swal.fire('Error', 'Error al importar nuevos: ' + err.message, 'error');
+      } finally {
+        btnImportNewOnly.disabled = false;
+        btnImportNewOnly.innerHTML = `<i class="ri-add-circle-line" style="margin-right: 0.25rem;"></i>Importar Nuevos de ${mainPlatform}`;
+      }
+    });
+  }
+
   // 7. Auto-map equivalences
   const btnAutoMap = document.getElementById('btn-auto-map-equivalences');
   if (btnAutoMap) {
@@ -27352,7 +27585,7 @@ window.viewDeclarationProducts = async function(id) {
   try {
     const { data: dec, error } = await supabase
       .from('stock_declarations')
-      .select('title, file_base64')
+      .select('title, products_list, file_base64, history')
       .eq('id', id)
       .single();
 
@@ -27362,7 +27595,9 @@ window.viewDeclarationProducts = async function(id) {
     titleEl.textContent = `Productos: ${dec.title}`;
 
     let products = [];
-    if (dec.file_base64) {
+    if (dec.products_list && Array.isArray(dec.products_list) && dec.products_list.length > 0) {
+      products = dec.products_list;
+    } else if (dec.file_base64) {
       const binaryString = window.atob(dec.file_base64);
       const len = binaryString.length;
       const bytes = new Uint8Array(len);
@@ -27400,7 +27635,16 @@ window.viewDeclarationProducts = async function(id) {
       return;
     }
 
+    const hasAdminEdit = (dec.history || []).some(h => h.type === 'admin_edit');
+    const adminNoticeHtml = hasAdminEdit ? `
+      <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.825rem; color: var(--color-primary); display: flex; align-items: center; gap: 0.5rem;">
+        <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+        <span>Los productos y cantidades mostrados reflejan los ajustes realizados por Administración.</span>
+      </div>
+    ` : '';
+
     let tableHtml = `
+      ${adminNoticeHtml}
       <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
         <thead>
           <tr style="border-bottom: 2px solid var(--color-border); text-align: left;">
@@ -27419,7 +27663,7 @@ window.viewDeclarationProducts = async function(id) {
           <td style="padding: 8px; color: var(--color-text-muted);">${idx + 1}</td>
           <td style="padding: 8px; font-weight: 600;">${p.sku}</td>
           <td style="padding: 8px;">${p.name}</td>
-          <td style="padding: 8px; text-align: right; font-weight: bold;">${p.qty.toLocaleString()}</td>
+          <td style="padding: 8px; text-align: right; font-weight: bold;">${(p.qty || 0).toLocaleString()}</td>
         </tr>
       `;
     });
@@ -28485,6 +28729,8 @@ async function openPendingDetailModal(sku, name) {
   }
 }
 
+window.isCurrentCommerceCatalogConfigured = false;
+
 function setProductSource(source) {
   const btnExcel = document.getElementById('btn-source-excel');
   const btnCatalog = document.getElementById('btn-source-catalog');
@@ -28493,6 +28739,13 @@ function setProductSource(source) {
   const fileInput = document.getElementById('dec-file-input');
   
   if (source === 'excel') {
+    if (window.isCurrentCommerceCatalogConfigured) {
+      // Si el comercio tiene catálogo configurado, no se permite cambiar a planilla
+      if (excelCont) excelCont.style.display = 'none';
+      if (catalogCont) catalogCont.style.display = 'block';
+      if (fileInput) fileInput.removeAttribute('required');
+      return;
+    }
     if (btnExcel) {
       btnExcel.style.background = 'var(--color-primary)';
       btnExcel.style.color = 'white';
@@ -28528,29 +28781,81 @@ async function checkSelectedCommerceTracking() {
   const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
   
   const sourceGroup = document.getElementById('dec-product-source-group');
-  if (!sourceGroup) return;
+  const excelCont = document.getElementById('dec-excel-container');
+  const catalogCont = document.getElementById('dec-catalog-container');
+  const fileInput = document.getElementById('dec-file-input');
   
   try {
     const { data: config } = await supabase
       .from('comercios_adicional_config')
-      .select('inventario_seguimiento')
+      .select('inventario_seguimiento, onboarding_checklist')
       .eq('comercio', commerce)
       .maybeSingle();
-      
-    if (config && config.inventario_seguimiento) {
-      sourceGroup.style.display = 'block';
-      // Pre-cargar productos del catálogo
-      await loadCatalogProductsForDeclaration(commerce);
-      if (!editingDeclarationId) {
-        setProductSource('catalog');
+
+    // Pre-cargar productos del catálogo
+    await loadCatalogProductsForDeclaration(commerce);
+
+    const isCatalogConfigured = !!(
+      (config && (config.inventario_seguimiento || config.onboarding_checklist?.catalog_ready)) ||
+      (window.decCatalogProductsCache && window.decCatalogProductsCache.length > 0)
+    );
+
+    window.isCurrentCommerceCatalogConfigured = isCatalogConfigured;
+
+    if (isCatalogConfigured) {
+      // 1. Quitar totalmente la opción de planilla Excel
+      if (sourceGroup) sourceGroup.style.display = 'none';
+      if (excelCont) excelCont.style.display = 'none';
+      if (fileInput) {
+        fileInput.removeAttribute('required');
+        fileInput.value = '';
       }
+
+      // 2. Activar únicamente el ingreso por catálogo
+      if (catalogCont) {
+        catalogCont.style.display = 'block';
+        
+        let notice = document.getElementById('dec-catalog-exclusive-notice');
+        if (!notice) {
+          notice = document.createElement('div');
+          notice.id = 'dec-catalog-exclusive-notice';
+          notice.style.background = 'rgba(59, 130, 246, 0.08)';
+          notice.style.border = '1px solid rgba(59, 130, 246, 0.25)';
+          notice.style.borderRadius = '6px';
+          notice.style.padding = '0.65rem 0.85rem';
+          notice.style.marginBottom = '1rem';
+          notice.style.fontSize = '0.825rem';
+          notice.style.color = 'var(--color-primary)';
+          notice.style.display = 'flex';
+          notice.style.alignItems = 'center';
+          notice.style.gap = '0.5rem';
+          notice.innerHTML = `
+            <i class="ri-shield-check-line" style="font-size: 1.15rem; flex-shrink: 0;"></i>
+            <span><strong>Ingreso mediante Catálogo:</strong> Tu comercio tiene la configuración de catálogo activa. Selecciona los productos y cantidades a continuación.</span>
+          `;
+          catalogCont.insertBefore(notice, catalogCont.firstChild);
+        }
+      }
+
+      setProductSource('catalog');
     } else {
-      sourceGroup.style.display = 'none';
+      // Si el comercio no tiene catálogo configurado, mostrar solo planilla
+      if (sourceGroup) sourceGroup.style.display = 'none';
+      if (catalogCont) catalogCont.style.display = 'none';
+      if (excelCont) excelCont.style.display = 'block';
+      if (fileInput) fileInput.setAttribute('required', 'required');
+
+      const notice = document.getElementById('dec-catalog-exclusive-notice');
+      if (notice) notice.remove();
+
       setProductSource('excel');
     }
   } catch (e) {
     console.error('Error checking commerce tracking config:', e);
-    sourceGroup.style.display = 'none';
+    window.isCurrentCommerceCatalogConfigured = false;
+    if (sourceGroup) sourceGroup.style.display = 'none';
+    if (catalogCont) catalogCont.style.display = 'none';
+    if (excelCont) excelCont.style.display = 'block';
     setProductSource('excel');
   }
 }
@@ -28559,94 +28864,190 @@ async function loadCatalogProductsForDeclaration(commerce) {
   try {
     const { data: prods, error } = await supabase
       .from('products')
-      .select('sku, name, volumen, price, barcode')
+      .select('id, sku, name, volumen, largo, ancho, alto, weight, price, barcode')
       .eq('comercio', commerce)
       .order('name');
       
     if (error) throw error;
     
-    window.decCatalogProductsCache = prods || [];
-    
-    const selectProd = document.getElementById('dec-catalog-product-select');
-    if (selectProd) {
-      if (!prods || prods.length === 0) {
-        selectProd.innerHTML = '<option value="">-- No hay productos en catálogo --</option>';
-        return;
+    window.decCatalogProductsCache = (prods || []).map(p => {
+      let l = parseFloat(p.largo) || null;
+      let w = parseFloat(p.ancho) || null;
+      let h = parseFloat(p.alto) || null;
+      let vol = parseFloat(p.volumen) || 0;
+      if (vol <= 0 && l && w && h) {
+        vol = (l * w * h) / 1000000;
       }
-      let html = '<option value="">-- Selecciona un Producto --</option>';
-      prods.forEach(p => {
-        html += `<option value="${p.sku}" data-name="${p.name.replace(/"/g, '&quot;')}" data-vol="${p.volumen || 0}" data-barcode="${p.barcode || ''}">${p.name} (${p.sku})</option>`;
-      });
-      selectProd.innerHTML = html;
-    }
+      return {
+        ...p,
+        largo: l,
+        ancho: w,
+        alto: h,
+        volumen: vol
+      };
+    });
   } catch (e) {
     console.error('Error preloading catalog products:', e);
-    const selectProd = document.getElementById('dec-catalog-product-select');
-    if (selectProd) selectProd.innerHTML = '<option value="">Error al cargar productos</option>';
+    window.decCatalogProductsCache = [];
   }
 }
 
-function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '', initialQty = 1) {
-  const container = document.getElementById('dec-selected-products-list');
-  if (!container) return;
+function addCatalogProductToDeclarationList(sku, name, vol, price = 0, barcode = '', initialQty = 1, largo = null, ancho = null, alto = null) {
+  const tbody = document.getElementById('dec-selected-products-tbody');
+  if (!tbody) return;
 
-  const emptyMsg = container.querySelector('p');
-  if (emptyMsg && emptyMsg.textContent.includes('Ningún producto')) {
-    emptyMsg.remove();
+  // Si no pasamos medidas explícitas, intentar buscarlas en la caché del catálogo
+  if ((largo === null || ancho === null || alto === null || vol === 0) && window.decCatalogProductsCache) {
+    const cached = window.decCatalogProductsCache.find(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
+    if (cached) {
+      if (largo === null) largo = cached.largo;
+      if (ancho === null) ancho = cached.ancho;
+      if (alto === null) alto = cached.alto;
+      if (!vol || vol === 0) vol = cached.volumen || 0;
+      if (!price || price === 0) price = cached.price || 0;
+      if (!barcode) barcode = cached.barcode || '';
+    }
   }
 
-  const existingRow = container.querySelector(`.selected-product-row[data-sku="${sku}"]`);
+  let unitVol = parseFloat(vol) || 0;
+  if (unitVol <= 0 && largo && ancho && alto) {
+    unitVol = (largo * ancho * alto) / 1000000;
+  }
+  if (unitVol <= 0) {
+    unitVol = 0.0001; // fallback mínimo
+  }
+
+  const existingRow = tbody.querySelector(`.selected-product-row[data-sku="${sku}"]`);
   if (existingRow) {
     const qtyInput = existingRow.querySelector('.dec-catalog-qty-input');
-    qtyInput.value = parseInt(qtyInput.value, 10) + (parseInt(initialQty, 10) || 1);
-    qtyInput.dispatchEvent(new Event('change'));
+    if (qtyInput) {
+      const currentVal = parseInt(qtyInput.value, 10) || 0;
+      const addVal = parseInt(initialQty, 10) || 1;
+      const newVal = currentVal + addVal;
+      qtyInput.value = newVal;
+      
+      const totalVolSpan = existingRow.querySelector('.dec-row-item-total-vol');
+      if (totalVolSpan) {
+        totalVolSpan.textContent = `${(unitVol * newVal).toFixed(4)} m³`;
+      }
+      recalculateCatalogTotals();
+    }
     return;
   }
 
-  const row = document.createElement('div');
-  row.className = 'selected-product-row';
-  row.setAttribute('data-sku', sku);
-  row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 4px; gap: 0.5rem; margin-bottom: 0.5rem;';
-  row.innerHTML = `
-    <div style="flex: 1; min-width: 0;">
-      <div style="font-size: 0.85rem; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${name}</div>
-      <div style="font-size: 0.72rem; color: var(--color-text-muted);">SKU: ${sku} | Vol: ${vol.toFixed(4)} m³</div>
-    </div>
-    <div style="display: flex; align-items: center; gap: 0.5rem;">
-      <input type="number" class="dec-catalog-qty-input" data-sku="${sku}" data-name="${name.replace(/"/g, '&quot;')}" data-vol="${vol}" data-price="${price}" data-barcode="${barcode}" min="1" value="${initialQty || 1}" style="width: 70px; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border); text-align: center; font-size: 0.8rem; background: var(--color-surface); color: var(--color-text-main);">
-      <button type="button" class="btn-remove-selected-prod" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 0.25rem;"><i class="ri-delete-bin-line"></i></button>
-    </div>
+  const qty = parseInt(initialQty, 10) || 1;
+  const rowTotalVol = (unitVol * qty).toFixed(4);
+
+  const dimsText = (largo && ancho && alto)
+    ? `${largo} × ${ancho} × ${alto} cm`
+    : '<span style="color: var(--color-text-muted); font-style: italic; font-size: 0.75rem;">Sin medidas</span>';
+
+  const tr = document.createElement('tr');
+  tr.className = 'selected-product-row';
+  tr.setAttribute('data-sku', sku);
+  tr.style.cssText = 'border-bottom: 1px solid var(--color-border); vertical-align: middle; transition: background 0.15s;';
+  tr.innerHTML = `
+    <td style="padding: 10px 14px; max-width: 280px;">
+      <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.875rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" title="${name}">${name}</div>
+      <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px;">
+        <span style="font-family: monospace; font-weight: 600; color: var(--color-primary);">${sku}</span>
+        ${barcode ? `<span style="margin-left: 6px; color: var(--color-text-muted);">| CB: ${barcode}</span>` : ''}
+      </div>
+    </td>
+    <td style="padding: 10px 12px; text-align: center; font-size: 0.8rem; color: var(--color-text-main);">
+      ${dimsText}
+    </td>
+    <td style="padding: 10px 12px; text-align: right; font-size: 0.825rem; color: var(--color-text-muted); font-family: monospace;">
+      ${unitVol.toFixed(4)} m³
+    </td>
+    <td style="padding: 10px 12px; text-align: center;">
+      <input type="number" class="dec-catalog-qty-input form-input" 
+             data-sku="${sku}" 
+             data-name="${name.replace(/"/g, '&quot;')}" 
+             data-vol="${unitVol}" 
+             data-price="${price || 0}" 
+             data-barcode="${barcode || ''}" 
+             data-largo="${largo || ''}" 
+             data-ancho="${ancho || ''}" 
+             data-alto="${alto || ''}" 
+             min="1" 
+             value="${qty}" 
+             style="width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--color-border); text-align: center; font-size: 0.85rem; font-weight: 700; height: 32px; margin: 0 auto; background: var(--color-bg); color: var(--color-text-main);">
+    </td>
+    <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: var(--color-text-main); font-family: monospace; font-size: 0.875rem;">
+      <span class="dec-row-item-total-vol">${rowTotalVol} m³</span>
+    </td>
+    <td style="padding: 10px 12px; text-align: center;">
+      <button type="button" class="btn-remove-selected-prod" style="background: none; border: none; color: var(--color-danger); cursor: pointer; padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.05rem;" title="Eliminar producto">
+        <i class="ri-delete-bin-line"></i>
+      </button>
+    </td>
   `;
 
-  const qtyInput = row.querySelector('.dec-catalog-qty-input');
-  qtyInput.addEventListener('change', recalculateCatalogTotals);
-  qtyInput.addEventListener('input', recalculateCatalogTotals);
+  const qtyInput = tr.querySelector('.dec-catalog-qty-input');
+  const totalVolSpan = tr.querySelector('.dec-row-item-total-vol');
 
-  row.querySelector('.btn-remove-selected-prod').addEventListener('click', () => {
-    row.remove();
-    if (container.children.length === 0) {
-      container.innerHTML = '<p class="text-center" style="color: var(--color-text-muted); font-size: 0.8rem; margin: 1rem 0;">Ningún producto seleccionado</p>';
+  const onQtyChange = () => {
+    let q = parseInt(qtyInput.value, 10);
+    if (isNaN(q) || q < 1) {
+      q = 1;
+      qtyInput.value = 1;
     }
+    totalVolSpan.textContent = `${(unitVol * q).toFixed(4)} m³`;
+    recalculateCatalogTotals();
+  };
+
+  qtyInput.addEventListener('change', onQtyChange);
+  qtyInput.addEventListener('input', onQtyChange);
+
+  tr.querySelector('.btn-remove-selected-prod').addEventListener('click', () => {
+    tr.remove();
     recalculateCatalogTotals();
   });
 
-  container.appendChild(row);
+  tbody.appendChild(tr);
   recalculateCatalogTotals();
 }
 
 function recalculateCatalogTotals() {
   let totalQty = 0;
   let totalVolume = 0;
+  let rowCount = 0;
 
-  const rows = document.querySelectorAll('#dec-selected-products-list .selected-product-row');
-  rows.forEach(row => {
-    const qtyInput = row.querySelector('.dec-catalog-qty-input');
-    const vol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
-    const qty = parseInt(qtyInput.value, 10) || 0;
-    
-    totalQty += qty;
-    totalVolume += (qty * vol);
-  });
+  const tbody = document.getElementById('dec-selected-products-tbody');
+  const emptyState = document.getElementById('dec-selected-products-empty');
+  const summaryFooter = document.getElementById('dec-products-summary-footer');
+
+  if (tbody) {
+    const rows = tbody.querySelectorAll('.selected-product-row');
+    rowCount = rows.length;
+
+    rows.forEach(row => {
+      const qtyInput = row.querySelector('.dec-catalog-qty-input');
+      if (qtyInput) {
+        const vol = parseFloat(qtyInput.getAttribute('data-vol') || '0');
+        const qty = parseInt(qtyInput.value, 10) || 0;
+        totalQty += qty;
+        totalVolume += (qty * vol);
+      }
+    });
+  }
+
+  if (emptyState) {
+    emptyState.style.display = rowCount === 0 ? 'block' : 'none';
+  }
+  if (summaryFooter) {
+    summaryFooter.style.display = rowCount > 0 ? 'flex' : 'none';
+  }
+
+  const countEl = document.getElementById('dec-summary-count');
+  if (countEl) countEl.textContent = rowCount;
+
+  const sumQtyEl = document.getElementById('dec-summary-qty');
+  if (sumQtyEl) sumQtyEl.textContent = `${totalQty} uds`;
+
+  const sumVolEl = document.getElementById('dec-summary-vol');
+  if (sumVolEl) sumVolEl.textContent = `${totalVolume.toFixed(4)} m³`;
 
   const qtyEl = document.getElementById('dec-qty-declared');
   if (qtyEl) {
@@ -28655,9 +29056,362 @@ function recalculateCatalogTotals() {
 
   const volEl = document.getElementById('dec-volume-declared');
   if (volEl) {
-    volEl.value = totalVolume > 0 ? totalVolume.toFixed(3) : '';
+    volEl.value = totalVolume > 0 ? totalVolume.toFixed(4) : '';
   }
 }
+
+// Ventana Modal para Crear Producto en Catálogo durante la Declaración
+window.createProductFromDeclaration = async function() {
+  const selectComm = document.getElementById('dec-comercio');
+  const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
+  const { value: formValues } = await Swal.fire({
+    title: 'Crear Producto en Catálogo',
+    html: `
+      <div style="text-align: left; font-size: 0.875rem;">
+        <p style="margin: 0 0 1rem 0; color: var(--color-text-muted); font-size: 0.8rem;">
+          Este producto se registrará en el catálogo del comercio <strong>${commerce}</strong> y se agregará de inmediato a tu declaración de ingreso.
+        </p>
+        
+        <div style="margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">SKU *</label>
+          <input id="swal-new-sku" class="swal2-input" placeholder="Ej: ZAP-ROJO-38" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.875rem; height: 38px;">
+        </div>
+
+        <div style="margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; display: block; margin-bottom: 0.25rem;">Nombre / Descripción *</label>
+          <input id="swal-new-name" class="swal2-input" placeholder="Ej: Zapatilla Urbana Roja Talla 38" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.875rem; height: 38px;">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Largo (cm) *</label>
+            <input id="swal-new-largo" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Ancho (cm) *</label>
+            <input id="swal-new-ancho" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Alto (cm) *</label>
+            <input id="swal-new-alto" type="number" step="0.1" min="0.1" class="swal2-input" placeholder="cm" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.75rem;">
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Volumen Unitario (m³)</label>
+            <input id="swal-new-volumen" type="number" step="0.000001" min="0.000001" class="swal2-input" placeholder="0.001000" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center; background: rgba(0,0,0,0.02);">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Cantidad Inicial a Ingresar *</label>
+            <input id="swal-new-qty" type="number" min="1" value="1" class="swal2-input" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: center; font-weight: 700;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Precio Unitario ($)</label>
+            <input id="swal-new-price" type="number" min="0" value="0" class="swal2-input" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px; text-align: right;">
+          </div>
+          <div>
+            <label style="font-weight: 600; font-size: 0.75rem; display: block; margin-bottom: 0.25rem;">Código de Barras</label>
+            <input id="swal-new-barcode" class="swal2-input" placeholder="Opcional" style="width: 100%; margin: 0; box-sizing: border-box; font-size: 0.85rem; height: 36px;">
+          </div>
+        </div>
+      </div>
+    `,
+    didOpen: () => {
+      const largoInp = document.getElementById('swal-new-largo');
+      const anchoInp = document.getElementById('swal-new-ancho');
+      const altoInp = document.getElementById('swal-new-alto');
+      const volInp = document.getElementById('swal-new-volumen');
+
+      const calcVol = () => {
+        const l = parseFloat(largoInp.value) || 0;
+        const w = parseFloat(anchoInp.value) || 0;
+        const h = parseFloat(altoInp.value) || 0;
+        if (l > 0 && w > 0 && h > 0) {
+          volInp.value = ((l * w * h) / 1000000).toFixed(6);
+        }
+      };
+
+      largoInp.addEventListener('input', calcVol);
+      anchoInp.addEventListener('input', calcVol);
+      altoInp.addEventListener('input', calcVol);
+    },
+    focusConfirm: false,
+    showCancelButton: true,
+    confirmButtonText: '<i class="ri-save-line"></i> Guardar y Agregar',
+    cancelButtonText: 'Cancelar',
+    preConfirm: () => {
+      const sku = document.getElementById('swal-new-sku').value.trim();
+      const name = document.getElementById('swal-new-name').value.trim();
+      const largo = parseFloat(document.getElementById('swal-new-largo').value) || null;
+      const ancho = parseFloat(document.getElementById('swal-new-ancho').value) || null;
+      const alto = parseFloat(document.getElementById('swal-new-alto').value) || null;
+      let volumen = parseFloat(document.getElementById('swal-new-volumen').value) || 0;
+      const qty = parseInt(document.getElementById('swal-new-qty').value, 10);
+      const price = parseFloat(document.getElementById('swal-new-price').value) || 0;
+      const barcode = document.getElementById('swal-new-barcode').value.trim() || null;
+
+      if (!sku) {
+        Swal.showValidationMessage('El SKU es obligatorio.');
+        return false;
+      }
+      if (!name) {
+        Swal.showValidationMessage('El nombre es obligatorio.');
+        return false;
+      }
+      if (isNaN(qty) || qty < 1) {
+        Swal.showValidationMessage('La cantidad a ingresar debe ser al menos 1.');
+        return false;
+      }
+      if (volumen <= 0 && largo && ancho && alto) {
+        volumen = (largo * ancho * alto) / 1000000;
+      }
+      if (volumen <= 0) {
+        volumen = 0.0001; // fallback
+      }
+
+      return { sku, name, largo, ancho, alto, volumen, qty, price, barcode };
+    }
+  });
+
+  if (formValues) {
+    const { sku, name, largo, ancho, alto, volumen, qty, price, barcode } = formValues;
+
+    // Verificar si ya existe en catálogo local
+    const existsInCache = (window.decCatalogProductsCache || []).some(p => p.sku && p.sku.toUpperCase() === sku.toUpperCase());
+    if (existsInCache) {
+      addCatalogProductToDeclarationList(sku, name, volumen, price, barcode, qty, largo, ancho, alto);
+      Swal.fire({
+        icon: 'info',
+        title: 'Producto existente agregado',
+        text: `El SKU ${sku} ya existía en tu catálogo y fue añadido con ${qty} unidades a la declaración.`,
+        timer: 2200,
+        showConfirmButton: false
+      });
+      return;
+    }
+
+    // Resolver merchant_id
+    let merchantId = null;
+    try {
+      const { data: siblingProd } = await supabase
+        .from('products')
+        .select('merchant_id')
+        .eq('comercio', commerce)
+        .limit(1)
+        .maybeSingle();
+      if (siblingProd && siblingProd.merchant_id) merchantId = siblingProd.merchant_id;
+    } catch (e) {}
+
+    if (!merchantId) {
+      try {
+        const { data: siblingInt } = await supabase
+          .from('merchant_integrations')
+          .select('merchant_id')
+          .eq('comercio', commerce)
+          .limit(1)
+          .maybeSingle();
+        if (siblingInt && siblingInt.merchant_id) merchantId = siblingInt.merchant_id;
+      } catch (e) {}
+    }
+
+    if (!merchantId) {
+      const { data: userAuth } = await supabase.auth.getUser();
+      merchantId = userAuth?.user?.id || null;
+    }
+
+    // Insertar en products
+    const newProdData = {
+      merchant_id: merchantId,
+      comercio: commerce,
+      sku: sku,
+      name: name,
+      largo: largo,
+      ancho: ancho,
+      alto: alto,
+      volumen: volumen,
+      price: price,
+      barcode: barcode,
+      status: 'active'
+    };
+
+    const { data: inserted, error: insErr } = await supabase
+      .from('products')
+      .insert([newProdData])
+      .select()
+      .single();
+
+    if (insErr) {
+      console.error('Error creating product in catalog:', insErr);
+      Swal.fire({
+        icon: 'error',
+        title: 'Error al registrar producto',
+        text: insErr.message
+      });
+      return;
+    }
+
+    // Agregar a cache y a la tabla de productos seleccionados
+    const newProdObj = inserted || newProdData;
+    window.decCatalogProductsCache = window.decCatalogProductsCache || [];
+    window.decCatalogProductsCache.push(newProdObj);
+
+    addCatalogProductToDeclarationList(sku, name, volumen, price, barcode, qty, largo, ancho, alto);
+
+    Swal.fire({
+      icon: 'success',
+      title: '¡Producto Creado y Agregado!',
+      text: `El producto ${name} (${sku}) fue guardado en el catálogo y agregado al ingreso.`,
+      timer: 2200,
+      showConfirmButton: false
+    });
+  }
+};
+
+// Sincronizar Nuevos Productos desde Canales de Venta
+window.syncChannelProductsForDeclaration = async function() {
+  const selectComm = document.getElementById('dec-comercio');
+  const commerce = selectComm ? selectComm.value : (currentCompany ? currentCompany.split(',')[0].trim() : 'STOCKA');
+
+  const btn = document.getElementById('btn-dec-sync-channel-products');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line animate-spin"></i> Consultando canales...';
+  }
+
+  try {
+    // 1. Obtener integraciones activas para el comercio
+    const { data: integrations, error: intErr } = await supabase
+      .from('merchant_integrations')
+      .select('id, platform, shop_url, access_token, is_active')
+      .eq('comercio', commerce)
+      .eq('is_active', true);
+
+    if (intErr) throw intErr;
+
+    if (!integrations || integrations.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Sin Canales de Venta Conectados',
+        text: `El comercio "${commerce}" no tiene canales de venta integrados activos (ej: Shopify, Jumpseller, MercadoLibre). Puedes conectar tu tienda en la pestaña Integraciones o crear tus productos manualmente con el botón "+ Crear Producto".`,
+        confirmButtonText: 'Entendido'
+      });
+      return;
+    }
+
+    // 2. Si tiene Shopify integrado, llamar al endpoint para traer los últimos productos a synced_products
+    const shopifyInt = integrations.find(i => i.platform === 'Shopify');
+    if (shopifyInt) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: JSON.stringify({ comercio: commerce })
+          });
+        }
+      } catch (shopErr) {
+        console.warn('Error refreshing Shopify products via edge function:', shopErr);
+      }
+    }
+
+    // 3. Obtener todos los productos externos de synced_products
+    const syncedProds = await window.fetchAllSupabaseRows('synced_products', '*', q => q.eq('comercio', commerce));
+    
+    // 4. Obtener todos los productos existentes en products de este comercio
+    const currentProds = await window.fetchAllSupabaseRows('products', 'id, sku, merchant_id', q => q.eq('comercio', commerce));
+    
+    const existingSkus = new Set((currentProds || []).map(p => (p.sku || '').trim().toUpperCase()));
+    let merchantId = currentProds && currentProds.length > 0 ? currentProds[0].merchant_id : null;
+
+    if (!merchantId) {
+      const { data: userAuth } = await supabase.auth.getUser();
+      merchantId = userAuth?.user?.id || null;
+    }
+
+    // 5. Filtrar EXCLUSIVAMENTE los productos NUEVOS (que NO existen en products)
+    const newItemsToImport = [];
+    const seenNewSkus = new Set();
+
+    (syncedProds || []).forEach(sp => {
+      const skuClean = (sp.sku || '').trim();
+      const skuUpper = skuClean.toUpperCase();
+      if (skuClean && !existingSkus.has(skuUpper) && !seenNewSkus.has(skuUpper)) {
+        seenNewSkus.add(skuUpper);
+        newItemsToImport.push({
+          merchant_id: merchantId,
+          comercio: commerce,
+          sku: skuClean,
+          name: sp.name || sp.sku,
+          price: parseFloat(sp.price) || 0,
+          barcode: sp.barcode || null,
+          image_url: sp.image_url || null,
+          volumen: 0.0001,
+          largo: 10,
+          ancho: 10,
+          alto: 10,
+          status: 'active'
+        });
+      }
+    });
+
+    if (newItemsToImport.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Catálogo al Día',
+        html: `<p style="font-size: 0.9rem;">No se detectaron productos nuevos en tus canales de venta integrados (${integrations.map(i => i.platform).join(', ')}).<br><br>Todos los productos de tus tiendas ya se encuentran sincronizados en el WMS sin alterar sus configuraciones existentes.</p>`,
+        confirmButtonText: 'Entendido'
+      });
+      return;
+    }
+
+    // 6. Insertar en lotes de 100 productos nuevos
+    const batchSize = 100;
+    for (let i = 0; i < newItemsToImport.length; i += batchSize) {
+      const batch = newItemsToImport.slice(i, i + batchSize);
+      const { error: insErr } = await supabase.from('products').insert(batch);
+      if (insErr) throw insErr;
+    }
+
+    // 7. Recargar caché del catálogo
+    await loadCatalogProductsForDeclaration(commerce);
+
+    Swal.fire({
+      icon: 'success',
+      title: `¡${newItemsToImport.length} Productos Nuevos Sincronizados!`,
+      html: `
+        <div style="text-align: left; font-size: 0.9rem;">
+          <p>Se importaron con éxito <strong>${newItemsToImport.length} productos nuevos</strong> desde tus canales de venta al WMS.</p>
+          <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid var(--color-success); padding: 0.6rem 0.8rem; border-radius: 0 4px 4px 0; font-size: 0.8rem; margin-top: 0.5rem;">
+            <i class="ri-shield-check-line" style="color: var(--color-success);"></i> <strong>Configuraciones protegidas:</strong> Ningún producto existente fue sobrescrito, preservando intactas tus medidas y configuraciones previas.
+          </div>
+        </div>
+      `,
+      confirmButtonText: 'Excelente'
+    });
+
+  } catch (err) {
+    console.error('Error syncing sales channel products:', err);
+    Swal.fire({
+      icon: 'error',
+      title: 'Error de Sincronización',
+      text: err.message
+    });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ri-refresh-line"></i> Consultar Nuevos de Tienda';
+    }
+  }
+};
 
 async function updateClientBadges(userId, userComercio) {
   try {
