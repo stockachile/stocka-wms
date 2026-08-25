@@ -3606,6 +3606,54 @@ export async function renderOptirouteSupport() {
       ? `<tr><td style="color:#64748b; font-weight:600; padding: 4px 0;">Recibido por:</td><td style="font-weight:600; color:#0f172a; padding: 4px 0;">${item.reception_name} ${item.reception_rut ? `(${item.reception_rut})` : ''}</td></tr>` 
       : '';
 
+    const rawImgs = item.images || item.raw_data?.images || item.raw_data?.waypoint?.images || [];
+    const deliveryImages = (Array.isArray(rawImgs) ? rawImgs : []).map(img => {
+      if (typeof img === 'string') return { url: img, thumbnail: img };
+      return {
+        url: img.url || img.thumbnail_url || '',
+        thumbnail: img.thumbnail_url || img.url || ''
+      };
+    }).filter(x => x.url && x.url.startsWith('http'));
+
+    let photosSectionHTML = '';
+    if (deliveryImages.length > 0) {
+      photosSectionHTML = `
+              <!-- Delivery Proof Photos Card -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#047857; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                      📷 Comprobante de Entrega / Fotografías
+                    </div>
+                    <p style="margin:0 0 14px 0; font-size:13px; color:#475569; line-height:1.5;">
+                      Adjuntamos la evidencia fotográfica registrada por nuestro móvil al momento de la entrega:
+                    </p>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td style="padding-bottom:12px;">
+                          <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                            ${deliveryImages.map((img, i) => `
+                              <a href="${img.url}" target="_blank" style="display:inline-block; border-radius:8px; overflow:hidden; border:2px solid #059669; text-decoration:none; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+                                <img src="${img.thumbnail || img.url}" alt="Foto ${i+1}" style="width:110px; height:110px; object-fit:cover; display:block;" />
+                              </a>
+                            `).join('')}
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+                    <div style="margin-top:8px; text-align:left;">
+                      ${deliveryImages.map((img, i) => `
+                        <a href="${img.url}" target="_blank" style="display:inline-block; margin-right:8px; margin-bottom:6px; font-size:12px; color:#059669; font-weight:700; text-decoration:none; background:#ecfdf5; border:1px solid #a7f3d0; padding:6px 12px; border-radius:6px;">
+                          🖼️ Ver Foto ${i+1} en Tamaño Completo &rarr;
+                        </a>
+                      `).join('')}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+      `;
+    }
+
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -3673,10 +3721,11 @@ export async function renderOptirouteSupport() {
                 </tr>
               </table>
 
+              ${photosSectionHTML}
+
               <p style="font-size:13px; color:#64748b; line-height:1.5; margin:0 0 16px 0; text-align:center;">
                 Si tienes alguna consulta sobre tu entrega, nuestro equipo de soporte está disponible vía WhatsApp en el <a href="https://api.whatsapp.com/send?phone=56982606602" style="color:#059669; font-weight:700; text-decoration:none;">+56 9 8260 6602</a>.
               </p>
-
             </td>
           </tr>
 
