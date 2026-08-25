@@ -511,6 +511,162 @@ export async function renderOptirouteSupport() {
     }
   }
 
+  // Función centralizada para recuperar e inyectar puntos intermedios persistentes
+  async function injectPersistentIntermediatePoints(routePlanId, defaultRouteName = 'Ruta Optiroute') {
+    if (!routePlanId || routePlanId === 'ALL_DB') return;
+
+    try {
+      const pointsMap = new Map();
+
+      // 1. Cargar desde LocalStorage (instantáneo y 100% resistente a desconexiones o cambios externos)
+      try {
+        const localKeys = [
+          `stk_optiroute_intermediates_${routePlanId}`,
+          'stk_optiroute_intermediates_global'
+        ];
+        localKeys.forEach(k => {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const list = JSON.parse(raw);
+            if (Array.isArray(list)) {
+              list.forEach(p => {
+                if (p && p.reference && (String(p.route_plan_id) === String(routePlanId) || !p.route_plan_id)) {
+                  pointsMap.set(p.id || `${p.reference}_${p.order}`, p);
+                }
+              });
+            }
+          }
+        });
+      } catch (e) {
+        console.warn('Error leyendo puntos intermedios de localStorage:', e);
+      }
+
+      // 2. Cargar desde la tabla dedicada 'optiroute_intermediate_points'
+      try {
+        const { data: dbPoints, error: dbErr } = await supabase
+          .from('optiroute_intermediate_points')
+          .select('*')
+          .eq('route_plan_id', String(routePlanId));
+
+        if (!dbErr && dbPoints && dbPoints.length > 0) {
+          dbPoints.forEach(p => {
+            pointsMap.set(p.id || `${p.reference}_${p.order_num}`, {
+              id: p.id,
+              order: p.order_num,
+              reference: p.reference,
+              name: p.name,
+              phone: p.phone || '',
+              email: p.email || '',
+              address: p.address,
+              complemento: p.complemento || '',
+              comuna: p.comuna,
+              supplier: p.supplier || 'STOCKA',
+              route_vehicle: p.vehicle || '',
+              route_driver: p.driver || '',
+              route_name: p.route_name || defaultRouteName,
+              note: p.note || '',
+              status: p.status || 'Ingresado (Punto Intermedio)',
+              is_intermediate: true,
+              route_plan_id: p.route_plan_id
+            });
+          });
+        }
+      } catch (errDb) {
+        console.warn('Consulta a optiroute_intermediate_points:', errDb);
+      }
+
+      // 3. Fallback: Cargar desde optiroute_orders si existieran registros previos
+      try {
+        const { data: optOrders, error: optErr } = await supabase
+          .from('optiroute_orders')
+          .select('id, referencia, nombre_destinatario, telefono_destino, email_cliente_destino, direccion_destino, complemento_destino, comuna_destino, empresa_comercio_proveedor, status, raw_data')
+          .ilike('id', 'INT-%')
+          .limit(100);
+
+        if (!optErr && optOrders && optOrders.length > 0) {
+          optOrders.forEach(o => {
+            const planId = o.raw_data?.route_plan?.id || o.raw_data?.waypoint?.route_plan?.id;
+            if (String(planId) === String(routePlanId)) {
+              const key = o.id || o.referencia;
+              if (!pointsMap.has(key)) {
+                const wp = o.raw_data?.waypoint || {};
+                pointsMap.set(key, {
+                  id: o.id,
+                  order: wp.customer_order || wp.order || 0,
+                  reference: o.referencia,
+                  name: o.nombre_destinatario || 'Cliente sin nombre',
+                  phone: o.telefono_destino || '',
+                  email: o.email_cliente_destino || '',
+                  address: o.direccion_destino || '',
+                  complemento: o.complemento_destino || '',
+                  comuna: o.comuna_destino || '',
+                  supplier: o.empresa_comercio_proveedor || 'STOCKA',
+                  route_vehicle: wp.route_vehicle || '',
+                  route_driver: wp.route_driver || '',
+                  route_name: wp.route_name || defaultRouteName,
+                  note: wp.note || o.raw_data?.notes || '',
+                  status: o.status || 'Ingresado (Punto Intermedio)',
+                  is_intermediate: true,
+                  route_plan_id: planId
+                });
+              }
+            }
+          });
+        }
+      } catch (errOpt) {
+        console.warn('Fallback optiroute_orders INT:', errOpt);
+      }
+
+      // Inyectar al arreglo allWaypoints evitando duplicados
+      const intermediateList = Array.from(pointsMap.values());
+      intermediateList.forEach(item => {
+        const itemOrder = parseFloat(item.order) || 0;
+        const exists = allWaypoints.some(w => 
+          (w.reference === item.reference && parseFloat(w.order) === itemOrder) ||
+          (item.id && w.id === item.id)
+        );
+
+        if (!exists) {
+          allWaypoints.push({
+            id: item.id,
+            order: itemOrder,
+            reference: item.reference || 'S/R',
+            name: item.name || 'Cliente sin nombre',
+            phone: item.phone || '',
+            email: item.email || '',
+            dispatch_email_notified: false,
+            dispatch_email_at: null,
+            delivery_email_notified: false,
+            delivery_email_at: null,
+            failed_email_notified: false,
+            failed_email_at: null,
+            address: item.address || 'Sin Dirección',
+            complemento: item.complemento || '',
+            address_status: 1,
+            status: item.status || 'Ingresado (Punto Intermedio)',
+            status_code: 0,
+            note: item.note || '',
+            images: [],
+            reception_name: '',
+            reception_rut: '',
+            supplier: item.supplier || 'STOCKA',
+            comuna: item.comuna || '',
+            tracking_url: '',
+            route_vehicle: item.route_vehicle || item.vehicle || '',
+            route_driver: item.route_driver || item.driver || '',
+            route_name: item.route_name || defaultRouteName,
+            is_intermediate: true,
+            route_plan_id: routePlanId
+          });
+        }
+      });
+
+      allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+    } catch (err) {
+      console.warn('Error inyectando puntos intermedios:', err);
+    }
+  }
+
   // Función Principal para Cargar la Ruta (Caché o API)
   async function loadRouteData(routePlanId, forceLive = false) {
     const container = document.getElementById('optiroute-support-container');
@@ -601,11 +757,14 @@ export async function renderOptirouteSupport() {
             };
           });
 
-          // Ordenar por parada
-          allWaypoints.sort((a, b) => a.order - b.order);
-
           // Obtener nombre de ruta
           const routeName = cached[0].raw_data?.route_plan?.name || 'Ruta Optiroute';
+
+          // Recuperar e inyectar puntos intermedios persistentes
+          await injectPersistentIntermediatePoints(routePlanId, routeName);
+
+          // Ordenar por parada
+          allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
 
           // Mostrar Badge
           if (dataSourceBadge) {
@@ -828,56 +987,8 @@ export async function renderOptirouteSupport() {
         };
       });
 
-      // Recuperar puntos intermedios guardados en BD para esta ruta
-      try {
-        const { data: intermediateRows } = await supabase
-          .from('optiroute_orders')
-          .select('*')
-          .or(`raw_data->route_plan->>id.eq.${routePlanId},raw_data->waypoint->route_plan->>id.eq.${routePlanId}`);
-
-        if (intermediateRows && intermediateRows.length > 0) {
-          const onlyIntermediate = intermediateRows.filter(r => r.raw_data?.is_intermediate);
-          onlyIntermediate.forEach(row => {
-            const w = row.raw_data?.waypoint || {};
-            const sr = row.raw_data || {};
-            const ref = row.referencia || 'S/R';
-            if (!allWaypoints.some(item => item.reference === ref && item.order === (w.customer_order || w.order || 0))) {
-              allWaypoints.push({
-                order: w.customer_order || w.order || 0,
-                reference: ref,
-                name: row.nombre_destinatario || 'Cliente sin nombre',
-                phone: row.telefono_destino || '',
-                email: row.email_cliente_destino || '',
-                dispatch_email_notified: false,
-                dispatch_email_at: null,
-                delivery_email_notified: false,
-                delivery_email_at: null,
-                failed_email_notified: false,
-                failed_email_at: null,
-                address: row.direccion_destino || 'Sin Dirección',
-                complemento: row.complemento_destino || '',
-                address_status: 1,
-                status: row.status || 'Ingresado (Punto Intermedio)',
-                status_code: 0,
-                note: w.note || sr.notes || '',
-                images: [],
-                reception_name: '',
-                reception_rut: '',
-                supplier: row.empresa_comercio_proveedor || 'STOCKA',
-                comuna: row.comuna_destino || '',
-                tracking_url: row.tracking_url || '',
-                route_vehicle: w.route_vehicle || '',
-                route_driver: w.route_driver || '',
-                route_name: w.route_name || planDetail.name || 'Ruta Optiroute',
-                is_intermediate: true
-              });
-            }
-          });
-          allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
-        }
-      } catch (errInt) {
-        console.warn('Error recuperando puntos intermedios de BD:', errInt);
-      }
+      // Recuperar e inyectar puntos intermedios persistentes para esta ruta
+      await injectPersistentIntermediatePoints(routePlanId, planDetail.name || 'Ruta Optiroute');
 
       // Mostrar Badge API en Vivo
       if (dataSourceBadge) {
@@ -3121,6 +3232,7 @@ modal.style.position = 'fixed';
       try {
         const uniqueId = `INT-${Date.now()}`;
         const newWaypointObj = {
+          id: uniqueId,
           order: assignedOrder,
           reference: ref,
           name: name,
@@ -3138,62 +3250,112 @@ modal.style.position = 'fixed';
           status: 'Ingresado (Punto Intermedio)',
           status_code: 0,
           images: [],
-          address_status: 1
+          address_status: 1,
+          route_plan_id: String(currentRouteId)
         };
 
-        // Guardar en Supabase optiroute_orders
-        const { error: dbError } = await supabase
-          .from('optiroute_orders')
-          .upsert({
-            id: uniqueId,
-            referencia: ref,
-            empresa_comercio_proveedor: supplier,
-            courier: 'STOCKA X',
-            status: 'SCHEDULED',
-            servicio_tipo_envio: 'SAME DAY/24 HRS',
-            nombre_destinatario: name,
-            telefono_destino: phone,
-            email_cliente_destino: email || null,
-            direccion_destino: address,
-            complemento_destino: complemento || null,
-            comuna_destino: comuna,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            raw_data: {
-              is_intermediate: true,
-              notes: notes,
-              route_plan: { id: currentRouteId, name: defaultRouteName },
-              waypoint: {
-                id: uniqueId,
-                order: assignedOrder,
-                customer_order: assignedOrder,
-                route_vehicle: vehicle,
-                route_driver: driver,
-                route_name: defaultRouteName,
-                note: notes,
-                status_name: 'SCHEDULED',
-                status: 1
-              }
-            }
-          });
+        // 1. Guardar de forma inmediata en LocalStorage (blindaje local garantizado)
+        try {
+          const localKey = `stk_optiroute_intermediates_${currentRouteId}`;
+          const existingList = JSON.parse(localStorage.getItem(localKey) || '[]');
+          existingList.push(newWaypointObj);
+          localStorage.setItem(localKey, JSON.stringify(existingList));
 
-        if (dbError) {
-          console.error('Error guardando punto intermedio en base de datos:', dbError);
-          alert('Hubo un error al guardar en la base de datos: ' + dbError.message);
-          if (saveBtn1) saveBtn1.disabled = false;
-          if (saveBtn2) saveBtn2.disabled = false;
-          return;
+          const globalList = JSON.parse(localStorage.getItem('stk_optiroute_intermediates_global') || '[]');
+          globalList.push(newWaypointObj);
+          localStorage.setItem('stk_optiroute_intermediates_global', JSON.stringify(globalList));
+        } catch (errLocal) {
+          console.warn('Error guardando en localStorage:', errLocal);
+        }
+
+        // 2. Guardar en la tabla dedicada 'optiroute_intermediate_points' (aislada de Optiroute API)
+        try {
+          const { error: dbIntError } = await supabase
+            .from('optiroute_intermediate_points')
+            .upsert({
+              id: uniqueId,
+              route_plan_id: String(currentRouteId),
+              route_name: defaultRouteName,
+              order_num: assignedOrder,
+              reference: ref,
+              supplier: supplier,
+              name: name,
+              phone: phone || null,
+              email: email || null,
+              address: address,
+              complemento: complemento || null,
+              comuna: comuna,
+              driver: driver || null,
+              vehicle: vehicle || null,
+              note: notes || null,
+              status: 'Ingresado (Punto Intermedio)',
+              raw_data: {
+                is_intermediate: true,
+                notes: notes,
+                route_plan: { id: currentRouteId, name: defaultRouteName }
+              },
+              updated_at: new Date().toISOString()
+            });
+
+          if (dbIntError) {
+            console.warn('Aviso guardando en tabla optiroute_intermediate_points:', dbIntError.message);
+          }
+        } catch (errDbInt) {
+          console.warn('Error intentando guardar en optiroute_intermediate_points:', errDbInt);
+        }
+
+        // 3. Guardar en Supabase optiroute_orders (compatibilidad general con el WMS)
+        try {
+          await supabase
+            .from('optiroute_orders')
+            .upsert({
+              id: uniqueId,
+              referencia: ref,
+              empresa_comercio_proveedor: supplier,
+              courier: 'STOCKA X',
+              status: 'SCHEDULED',
+              servicio_tipo_envio: 'SAME DAY/24 HRS',
+              nombre_destinatario: name,
+              telefono_destino: phone,
+              email_cliente_destino: email || null,
+              direccion_destino: address,
+              complemento_destino: complemento || null,
+              comuna_destino: comuna,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              raw_data: {
+                is_intermediate: true,
+                notes: notes,
+                route_plan: { id: currentRouteId, name: defaultRouteName },
+                waypoint: {
+                  id: uniqueId,
+                  order: assignedOrder,
+                  customer_order: assignedOrder,
+                  route_vehicle: vehicle,
+                  route_driver: driver,
+                  route_name: defaultRouteName,
+                  note: notes,
+                  status_name: 'SCHEDULED',
+                  status: 1
+                }
+              }
+            });
+        } catch (errOrders) {
+          console.warn('Aviso guardando en optiroute_orders:', errOrders);
         }
 
         // Agregar al estado global allWaypoints
-        allWaypoints.push(newWaypointObj);
-        allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+        const alreadyInState = allWaypoints.some(w => w.reference === ref && parseFloat(w.order) === parseFloat(assignedOrder));
+        if (!alreadyInState) {
+          allWaypoints.push(newWaypointObj);
+          allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+        }
 
         // Actualizar tabla principal y filtros
         populateFilterDropdowns();
         applyFilters();
 
-        alert(`✅ Pedido intermedio #${assignedOrder} (${ref}) guardado y registrado en la ruta exitosamente.`);
+        alert(`✅ Pedido intermedio #${assignedOrder} (${ref}) guardado de forma permanente en la ruta.`);
         closeModal();
 
         if (typeof onSuccessCallback === 'function') {
@@ -4056,15 +4218,15 @@ modal.style.position = 'fixed';
   async function checkAndAutoSendDispatchEmails(waypoints) {
     const dispatchWaypoints = waypoints.filter(w => {
       const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
-      const isCancelledOrDeleted = st.includes('cancel') || st.includes('eliminad') || st.includes('deleted');
+      const isActiveRoute = st.includes('onroute') || st.includes('ongoing') || st.includes('arrived') || st.includes('en ruta') || st.includes('ruta') || w.status_code === 6 || w.status_code === 2 || w.status_code === 4 || w.status === 6 || w.status === 2 || w.status === 4;
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.dispatch_email_notified;
-      return !isCancelledOrDeleted && hasEmail && notNotified;
+      return isActiveRoute && hasEmail && notNotified;
     });
 
     if (dispatchWaypoints.length === 0) return;
 
-    console.log(`Auto-enviando ${dispatchWaypoints.length} correos de aviso de despacho programado...`);
+    console.log(`Auto-enviando ${dispatchWaypoints.length} correos de aviso de despacho en ruta...`);
     for (const item of dispatchWaypoints) {
       try {
         await sendBrevoNotificationEmail(item, 'dispatch');
@@ -4102,15 +4264,15 @@ modal.style.position = 'fixed';
   async function checkAndAutoSendFailedEmails(waypoints) {
     const failedWaypoints = waypoints.filter(w => {
       const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
-      const isFailed = st.includes('saltado') || st.includes('cancelado') || st.includes('eliminado') || st.includes('skipped') || st.includes('cancelled') || st.includes('deleted') || w.status_code === 5 || w.status === 5;
+      const isSkipped = st.includes('saltado') || st.includes('skipped') || w.status_code === 5 || w.status === 5;
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.failed_email_notified;
-      return isFailed && hasEmail && notNotified;
+      return isSkipped && hasEmail && notNotified;
     });
 
     if (failedWaypoints.length === 0) return;
 
-    console.log(`Auto-enviando ${failedWaypoints.length} correos de novedad de despacho (Saltados/Cancelados)...`);
+    console.log(`Auto-enviando ${failedWaypoints.length} correos de novedad de despacho (Exclusivamente Saltados)...`);
     for (const item of failedWaypoints) {
       try {
         await sendBrevoNotificationEmail(item, 'failed');

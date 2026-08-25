@@ -492,7 +492,7 @@ async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
   const status = item.status;
   const now = new Date().toISOString();
 
-  // 1. ENTREGA EXITOSA (DELIVERED)
+  // 1. ENTREGA EXITOSA (DELIVERED / 3)
   if (status === 'DELIVERED' && !isDeliveryNotified) {
     console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando confirmación de ENTREGA a ${email} (Ref: ${item.referencia || 'S/R'})...`);
     const sent = await sendBrevoNotificationEmailNode(item, 'delivery');
@@ -500,17 +500,17 @@ async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
       currentRaw.delivery_email_notified_at = now;
     }
   } 
-  // 2. NOVEDAD / SALTADO (SKIPPED / FAILED)
-  else if ((status === 'SKIPPED' || status === 'CANCELLED') && !isFailedNotified) {
+  // 2. NOVEDAD / SALTADO (EXCLUSIVAMENTE SKIPPED / 5) - NUNCA EN CANCELADO NI ELIMINADO NI EN REVISIÓN
+  else if (status === 'SKIPPED' && !isFailedNotified) {
     console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de NOVEDAD/SALTADO a ${email} (Ref: ${item.referencia || 'S/R'})...`);
     const sent = await sendBrevoNotificationEmailNode(item, 'failed');
     if (sent) {
       currentRaw.failed_email_notified_at = now;
     }
   } 
-  // 3. ENVÍO PROGRAMADO / EN RUTA (DISPATCH)
-  else if (!TERMINAL_STATUSES.has(status) && status !== 'SKIPPED' && !isDispatchNotified) {
-    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de DESPACHO PROGRAMADO a ${email} (Ref: ${item.referencia || 'S/R'})...`);
+  // 3. ENVÍO PROGRAMADO / EN RUTA (EXCLUSIVAMENTE CUANDO LA RUTA ESTÁ ACTIVA: ONROUTE / ONGOING / ARRIVED)
+  else if ((status === 'ONROUTE' || status === 'ONGOING' || status === 'ARRIVED') && !isDispatchNotified) {
+    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de DESPACHO EN RUTA a ${email} (Ref: ${item.referencia || 'S/R'})...`);
     const sent = await sendBrevoNotificationEmailNode(item, 'dispatch');
     if (sent) {
       currentRaw.email_notified_at = now;
