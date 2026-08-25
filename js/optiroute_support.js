@@ -627,19 +627,28 @@ export async function renderOptirouteSupport() {
         );
 
         if (!exists) {
+          const ref = item.reference || 'S/R';
+          const localDispatchAt = localStorage.getItem(`stk_email_dispatch_${ref}`);
+          const localDeliveryAt = localStorage.getItem(`stk_email_delivery_${ref}`);
+          const localFailedAt = localStorage.getItem(`stk_email_failed_${ref}`);
+
+          const dispatchAt = localDispatchAt || item.dispatch_email_at || item.raw_data?.email_notified_at || null;
+          const deliveryAt = localDeliveryAt || item.delivery_email_at || item.raw_data?.delivery_email_notified_at || null;
+          const failedAt = localFailedAt || item.failed_email_at || item.raw_data?.failed_email_notified_at || null;
+
           allWaypoints.push({
             id: item.id,
             order: itemOrder,
-            reference: item.reference || 'S/R',
+            reference: ref,
             name: item.name || 'Cliente sin nombre',
             phone: item.phone || '',
             email: item.email || '',
-            dispatch_email_notified: false,
-            dispatch_email_at: null,
-            delivery_email_notified: false,
-            delivery_email_at: null,
-            failed_email_notified: false,
-            failed_email_at: null,
+            dispatch_email_notified: Boolean(dispatchAt),
+            dispatch_email_at: dispatchAt,
+            delivery_email_notified: Boolean(deliveryAt),
+            delivery_email_at: deliveryAt,
+            failed_email_notified: Boolean(failedAt),
+            failed_email_at: failedAt,
             address: item.address || 'Sin Dirección',
             complemento: item.complemento || '',
             address_status: 1,
@@ -1367,6 +1376,111 @@ export async function renderOptirouteSupport() {
     `;
   }
 
+  // Actualizar estado manual de un punto intermedio y gestionar envío de correos
+  async function updateIntermediatePointStatus(item, newStatus, triggerEmails = true) {
+    if (!item) return;
+    const oldStatus = item.status;
+    item.status = newStatus;
+
+    const cleanNew = String(newStatus).toLowerCase();
+    const selectRoutePlans = document.getElementById('select-route-plans');
+    const currentRouteId = selectRoutePlans?.value || item.route_plan_id || 'CUSTOM';
+
+    // 1. Actualizar en LocalStorage
+    try {
+      const localKeys = [
+        `stk_optiroute_intermediates_${currentRouteId}`,
+        'stk_optiroute_intermediates_global'
+      ];
+      localKeys.forEach(k => {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const found = list.find(p => p.reference === item.reference || (p.id && p.id === item.id));
+            if (found) {
+              found.status = newStatus;
+              localStorage.setItem(k, JSON.stringify(list));
+            }
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Error actualizando estado en localStorage:', e);
+    }
+
+    // 2. Actualizar en tabla dedicada 'optiroute_intermediate_points'
+    try {
+      if (item.id) {
+        await supabase
+          .from('optiroute_intermediate_points')
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', item.id);
+      } else {
+        await supabase
+          .from('optiroute_intermediate_points')
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq('reference', item.reference);
+      }
+    } catch (e) {
+      console.warn('Error actualizando estado en optiroute_intermediate_points:', e);
+    }
+
+    // 3. Actualizar en 'optiroute_orders'
+    try {
+      await supabase
+        .from('optiroute_orders')
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('referencia', item.reference);
+    } catch (e) {
+      console.warn('Error actualizando estado en optiroute_orders:', e);
+    }
+
+    // 4. Gestión y Disparo de Correos Brevo según el nuevo estado manual
+    let emailSentType = null;
+    if (triggerEmails && item.email && item.email.includes('@')) {
+      try {
+        if (cleanNew.includes('ruta') || cleanNew.includes('tránsito') || cleanNew.includes('onroute')) {
+          if (!item.dispatch_email_notified) {
+            await sendBrevoNotificationEmail(item, 'dispatch');
+            emailSentType = 'Aviso de Despacho (En Ruta)';
+          }
+        } else if (cleanNew.includes('completado') || cleanNew.includes('entregado') || cleanNew.includes('delivered')) {
+          if (!item.delivery_email_notified) {
+            await sendBrevoNotificationEmail(item, 'delivery');
+            emailSentType = 'Confirmación de Entrega';
+          }
+        } else if (cleanNew.includes('saltado') || cleanNew.includes('fallido') || cleanNew.includes('skipped')) {
+          if (!item.failed_email_notified) {
+            await sendBrevoNotificationEmail(item, 'failed');
+            emailSentType = 'Novedad / Intento Fallido';
+          }
+        }
+      } catch (errEmail) {
+        console.warn('Error enviando correo automático por cambio de estado:', errEmail);
+        alert(`Estado actualizado a "${newStatus}", pero falló el envío de correo: ${errEmail.message}`);
+      }
+    }
+
+    // Actualizar KPI resumen y re-renderizar tabla
+    const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || 'Ruta Optiroute';
+    renderSummaryDashboard(routePlanName);
+    renderShipmentsTable(currentFilteredWaypoints && currentFilteredWaypoints.length > 0 ? currentFilteredWaypoints : allWaypoints);
+
+    if (emailSentType) {
+      alert(`✅ Parada #${item.order} (${item.reference}) cambiada a "${newStatus}" y se envió automáticamente el correo de ${emailSentType} a ${item.email}.`);
+    }
+  }
+
   // Renderizar la tabla de envíos filtrada/buscada
   function renderShipmentsTable(data) {
     const tableCard = document.getElementById('route-data-card');
@@ -1487,24 +1601,62 @@ export async function renderOptirouteSupport() {
         </div>
       `;
 
-      // 4. Estado Badge
-      let badgeStyle = 'background: var(--badge-neutral-bg); color: var(--badge-neutral-text);';
-      const cleanStatus = item.status.toLowerCase();
-      if (cleanStatus.includes('completado') || cleanStatus.includes('entregado') || cleanStatus.includes('exito')) {
-        badgeStyle = 'background: var(--badge-success-bg); color: var(--badge-success-text);';
-      } else if (cleanStatus.includes('ruta') || cleanStatus.includes('viaje')) {
-        badgeStyle = 'background: var(--badge-info-bg); color: var(--badge-info-text);';
-      } else if (cleanStatus.includes('saltado') || cleanStatus.includes('cancelado') || cleanStatus.includes('eliminado')) {
-        badgeStyle = 'background: var(--badge-danger-bg); color: var(--badge-danger-text);';
-      } else if (cleanStatus.includes('revisión') || cleanStatus.includes('espera')) {
-        badgeStyle = 'background: var(--badge-warning-bg); color: var(--badge-warning-text);';
-      }
+      // 4. Estado Badge o Selector Manual (para Puntos Intermedios)
+      let statusHTML = '';
+      const isIntermediate = item.is_intermediate || String(item.order).includes('.');
 
-      const statusBadge = `
-        <span class="badge" style="display: inline-block; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; ${badgeStyle}">
-          ${item.status}
-        </span>
-      `;
+      if (isIntermediate) {
+        const cleanSt = (item.status || '').toLowerCase();
+        let borderCol = '#8b5cf6';
+        let bgCol = '#f5f3ff';
+        let textCol = '#6d28d9';
+
+        if (cleanSt.includes('completado') || cleanSt.includes('entregado') || cleanSt.includes('exito')) {
+          borderCol = '#10b981';
+          bgCol = '#ecfdf5';
+          textCol = '#047857';
+        } else if (cleanSt.includes('ruta') || cleanSt.includes('tránsito')) {
+          borderCol = '#3b82f6';
+          bgCol = '#eff6ff';
+          textCol = '#1d4ed8';
+        } else if (cleanSt.includes('saltado') || cleanSt.includes('fallido') || cleanSt.includes('cancelado')) {
+          borderCol = '#ef4444';
+          bgCol = '#fef2f2';
+          textCol = '#b91c1c';
+        }
+
+        statusHTML = `
+          <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+            <select class="form-input int-status-select" data-idx="${idx}" style="font-size: 0.75rem; height: 30px; padding: 0 0.4rem; border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; border: 1.5px solid ${borderCol}; background: ${bgCol}; color: ${textCol};" title="Cambiar estado del punto intermedio">
+              <option value="Ingresado (Punto Intermedio)" ${cleanSt.includes('ingresado') || cleanSt.includes('agendado') || cleanSt.includes('scheduled') ? 'selected' : ''}>⏳ Agendado / Ingresado</option>
+              <option value="En Ruta" ${cleanSt.includes('ruta') || cleanSt.includes('tránsito') || cleanSt.includes('onroute') ? 'selected' : ''}>🚚 En Ruta / Tránsito</option>
+              <option value="Completado" ${cleanSt.includes('completado') || cleanSt.includes('entregado') || cleanSt.includes('delivered') ? 'selected' : ''}>✅ Entregado / Completado</option>
+              <option value="Saltado" ${cleanSt.includes('saltado') || cleanSt.includes('fallido') || cleanSt.includes('skipped') ? 'selected' : ''}>⚠️ No Entregado / Saltado</option>
+            </select>
+            <span style="font-size: 0.65rem; color: #7c3aed; font-weight: 700; display: flex; align-items: center; gap: 0.2rem;">
+              <i class="ri-settings-4-line"></i> Manual (Punto INT)
+            </span>
+          </div>
+        `;
+      } else {
+        let badgeStyle = 'background: var(--badge-neutral-bg); color: var(--badge-neutral-text);';
+        const cleanStatus = item.status.toLowerCase();
+        if (cleanStatus.includes('completado') || cleanStatus.includes('entregado') || cleanStatus.includes('exito')) {
+          badgeStyle = 'background: var(--badge-success-bg); color: var(--badge-success-text);';
+        } else if (cleanStatus.includes('ruta') || cleanStatus.includes('viaje')) {
+          badgeStyle = 'background: var(--badge-info-bg); color: var(--badge-info-text);';
+        } else if (cleanStatus.includes('saltado') || cleanStatus.includes('cancelado') || cleanStatus.includes('eliminado')) {
+          badgeStyle = 'background: var(--badge-danger-bg); color: var(--badge-danger-text);';
+        } else if (cleanStatus.includes('revisión') || cleanStatus.includes('espera')) {
+          badgeStyle = 'background: var(--badge-warning-bg); color: var(--badge-warning-text);';
+        }
+
+        statusHTML = `
+          <span class="badge" style="display: inline-block; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem; font-weight: 700; ${badgeStyle}">
+            ${item.status}
+          </span>
+        `;
+      }
 
       // 5. Notas / Verificaciones
       let notesHTML = '';
@@ -1559,7 +1711,7 @@ export async function renderOptirouteSupport() {
           <td style="padding: 0.75rem 0.5rem;">${contactHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${addressHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${driverHTML}</td>
-          <td style="padding: 0.75rem 0.5rem;">${statusBadge}</td>
+          <td style="padding: 0.75rem 0.5rem;">${statusHTML}</td>
           <td style="padding: 0.75rem 0.5rem;">${verifiedHTML}</td>
         </tr>
       `;
@@ -1581,6 +1733,19 @@ export async function renderOptirouteSupport() {
       thumb.addEventListener('click', () => {
         const url = thumb.getAttribute('data-url');
         if (url) openLightboxModal(url);
+      });
+    });
+
+    // Listener para Cambio de Estado Manual en Puntos Intermedios
+    tableBody.querySelectorAll('.int-status-select').forEach(sel => {
+      sel.addEventListener('change', async (e) => {
+        const idx = parseInt(e.target.getAttribute('data-idx'));
+        const item = data[idx];
+        const newStatus = e.target.value;
+        if (item) {
+          sel.disabled = true;
+          await updateIntermediatePointStatus(item, newStatus, true);
+        }
       });
     });
 
@@ -1672,7 +1837,20 @@ export async function renderOptirouteSupport() {
 
     // Agregar event listener para contactar por whatsapp
     const contactBtns = tableBody.querySelectorAll('.btn-contactar-whatsapp');
-     // Listener para Impresión Individual
+    contactBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
+        if (item && item.phone) {
+          const cleanPhone = String(item.phone).replace(/\D/g, '');
+          const fullPhone = cleanPhone.startsWith('56') ? cleanPhone : `56${cleanPhone}`;
+          const msg = encodeURIComponent(`Hola ${item.name || ''}! Me contacto de STOCKA por la entrega de tu pedido ${item.reference || ''}.`);
+          window.open(`https://api.whatsapp.com/send?phone=${fullPhone}&text=${msg}`, '_blank');
+        }
+      });
+    });
+
+    // Listener para Impresión Individual
     const singlePrintBtns = tableBody.querySelectorAll('.btn-print-single-label');
     singlePrintBtns.forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4210,6 +4388,61 @@ modal.style.position = 'fixed';
               });
           }
         });
+
+      // Si es punto intermedio, persistir también en su tabla dedicada y su caché local
+      if (item.is_intermediate || String(item.order).includes('.')) {
+        try {
+          const selectRoutePlans = document.getElementById('select-route-plans');
+          const currentRouteId = selectRoutePlans?.value || item.route_plan_id || 'CUSTOM';
+          const localKeys = [
+            `stk_optiroute_intermediates_${currentRouteId}`,
+            'stk_optiroute_intermediates_global'
+          ];
+          localKeys.forEach(k => {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const list = JSON.parse(raw);
+              if (Array.isArray(list)) {
+                const found = list.find(p => p.reference === item.reference || (p.id && p.id === item.id));
+                if (found) {
+                  if (isDispatch) {
+                    found.dispatch_email_notified = true;
+                    found.dispatch_email_at = now;
+                  } else if (isDelivery) {
+                    found.delivery_email_notified = true;
+                    found.delivery_email_at = now;
+                  } else if (isFailed) {
+                    found.failed_email_notified = true;
+                    found.failed_email_at = now;
+                  }
+                  localStorage.setItem(k, JSON.stringify(list));
+                }
+              }
+            }
+          });
+
+          supabase
+            .from('optiroute_intermediate_points')
+            .select('raw_data')
+            .or(`reference.eq.${item.reference},id.eq.${item.id || ''}`)
+            .single()
+            .then(({ data: intData }) => {
+              if (intData) {
+                const r = intData.raw_data || {};
+                if (isDispatch) r.email_notified_at = now;
+                else if (isDelivery) r.delivery_email_notified_at = now;
+                else if (isFailed) r.failed_email_notified_at = now;
+                supabase
+                  .from('optiroute_intermediate_points')
+                  .update({ raw_data: r, updated_at: now })
+                  .or(`reference.eq.${item.reference},id.eq.${item.id || ''}`)
+                  .then(() => {});
+              }
+            });
+        } catch (e) {
+          console.warn('Error guardando timestamp de email en intermedios:', e);
+        }
+      }
     }
 
     return resData;

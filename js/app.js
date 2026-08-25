@@ -28868,13 +28868,7 @@ async function checkSelectedCommerceTracking() {
 
 async function loadCatalogProductsForDeclaration(commerce) {
   try {
-    const { data: prods, error } = await supabase
-      .from('products')
-      .select('id, sku, name, volumen, largo, ancho, alto, weight, price, barcode')
-      .eq('comercio', commerce)
-      .order('name');
-      
-    if (error) throw error;
+    const prods = await window.fetchAllSupabaseRows('products', 'id, sku, name, volumen, largo, ancho, alto, weight, price, barcode', q => q.eq('comercio', commerce).order('name'));
     
     window.decCatalogProductsCache = (prods || []).map(p => {
       let l = parseFloat(p.largo) || null;

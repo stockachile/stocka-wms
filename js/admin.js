@@ -9990,16 +9990,10 @@ async function openAdminCreateInventoryRequestModal(onComplete, defaultCommerce 
     tbody.innerHTML = `<tr><td colspan="4" style="padding: 1rem; text-align: center; color: var(--color-text-muted);"><i class="ri-loader-4-line ri-spin"></i> Cargando catálogo...</td></tr>`;
 
     try {
-      const { data: prods, error } = await supabase
-        .from('products')
-        .select(`
-          id, sku, name, barcode, status, is_virtual, is_pack,
-          inventory (warehouse_id, quantity, warehouses(name))
-        `)
-        .eq('comercio', selectedCom)
-        .neq('status', 'archived');
-
-      if (error) throw error;
+      const prods = await window.fetchAllSupabaseRows('products', `
+        id, sku, name, barcode, status, is_virtual, is_pack,
+        inventory (warehouse_id, quantity, warehouses(name))
+      `, q => q.eq('comercio', selectedCom).neq('status', 'archived'));
 
       // Filtrar solo productos físicos activos
       loadedProductsForCommerce = (prods || []).filter(isPhysicalActive);
@@ -10544,16 +10538,10 @@ async function openAdminEditInventoryRequestModal(req, onComplete) {
 
   // Cargar productos del comercio
   try {
-    const { data: prods, error } = await supabase
-      .from('products')
-      .select(`
-        id, sku, name, barcode, status, is_virtual, is_pack,
-        inventory (warehouse_id, quantity, warehouses(name))
-      `)
-      .eq('comercio', req.comercio)
-      .neq('status', 'archived');
-
-    if (error) throw error;
+    const prods = await window.fetchAllSupabaseRows('products', `
+      id, sku, name, barcode, status, is_virtual, is_pack,
+      inventory (warehouse_id, quantity, warehouses(name))
+    `, q => q.eq('comercio', req.comercio).neq('status', 'archived'));
     loadedProducts = (prods || []).filter(isPhysicalActive);
     renderEditProductsTable();
   } catch (e) {
@@ -20563,11 +20551,7 @@ window.manageDeclaration = async function(id) {
 
     // Pre-cargar productos de catálogo para la búsqueda de productos adicionales
     try {
-      const { data: prods } = await supabase
-        .from('products')
-        .select('sku, name, volumen, price, barcode')
-        .eq('comercio', dec.comercio)
-        .order('name');
+      const prods = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
       window.adminCatalogProductsCache = prods || [];
     } catch (e) {
       console.error('Error preloading products for admin:', e);
@@ -21476,11 +21460,7 @@ window.editDeclarationAdmin = async function(id) {
 
     // Precargar catálogo de productos del comercio para búsqueda
     try {
-      const { data: catProds } = await supabase
-        .from('products')
-        .select('sku, name, volumen, price, barcode')
-        .eq('comercio', dec.comercio)
-        .order('name');
+      const catProds = await window.fetchAllSupabaseRows('products', 'sku, name, volumen, price, barcode', q => q.eq('comercio', dec.comercio).order('name'));
       window.adminCatalogProductsCache = catProds || [];
     } catch (e) {
       console.warn('Error loading catalog cache for admin edit:', e);
