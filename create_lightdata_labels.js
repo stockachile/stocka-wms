@@ -395,9 +395,16 @@ async function handleIndividualMode(idPedido) {
 
     console.log('🧹 Limpiando alertas iniciales de la app...');
     await page.evaluate(() => {
-      if (typeof swal !== 'undefined' && swal.close) swal.close();
-      if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
-      document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert').forEach(el => el.remove());
+      try {
+        if (typeof Swal !== 'undefined' && typeof Swal.close === 'function') Swal.close();
+      } catch (e) {}
+      try {
+        const btn = document.querySelector('.swal-button, .swal2-confirm, .swal2-close');
+        if (btn) btn.click();
+      } catch (e) {}
+      try {
+        document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert, .swal-modal').forEach(el => el.remove());
+      } catch (e) {}
     });
     await page.waitForTimeout(1000);
 
@@ -870,9 +877,16 @@ async function handleBulkMode(limiteCarga) {
 
     console.log('🧹 Limpiando alertas iniciales de la app...');
     await page.evaluate(() => {
-      if (typeof swal !== 'undefined' && swal.close) swal.close();
-      if (typeof Swal !== 'undefined' && Swal.close) Swal.close();
-      document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert').forEach(el => el.remove());
+      try {
+        if (typeof Swal !== 'undefined' && typeof Swal.close === 'function') Swal.close();
+      } catch (e) {}
+      try {
+        const btn = document.querySelector('.swal-button, .swal2-confirm, .swal2-close');
+        if (btn) btn.click();
+      } catch (e) {}
+      try {
+        document.querySelectorAll('.swal-overlay, .swal2-container, .sweet-alert, .swal-modal').forEach(el => el.remove());
+      } catch (e) {}
     });
     await page.waitForTimeout(1000);
 
