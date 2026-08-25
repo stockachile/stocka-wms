@@ -25047,10 +25047,16 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
         const wmsSkus = new Set((wmsProds || []).map(p => String(p.sku || '').trim().toUpperCase()));
 
-        const newSyncedProds = syncedProds.filter(sp => {
+        const seenNewSkus = new Set();
+        const newSyncedProds = [];
+
+        for (const sp of syncedProds) {
           const sku = String(sp.sku || '').trim().toUpperCase();
-          return sku && !wmsSkus.has(sku);
-        });
+          if (sku && !wmsSkus.has(sku) && !seenNewSkus.has(sku)) {
+            seenNewSkus.add(sku);
+            newSyncedProds.push(sp);
+          }
+        }
 
         if (newSyncedProds.length === 0) {
           Swal.fire('Catálogo al día', `Todos los productos de ${mainPlatform} ya existen en el WMS. No hay nuevos productos para importar.`, 'info');
@@ -25145,7 +25151,7 @@ function setupCatalogListeners(commerce, mainPlatform) {
 
           const { error: insErr } = await supabase
             .from('products')
-            .insert(productsToInsert);
+            .upsert(productsToInsert, { onConflict: 'comercio,sku', ignoreDuplicates: true });
 
           if (insErr) throw insErr;
 
