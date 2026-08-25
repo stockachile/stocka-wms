@@ -92,7 +92,15 @@ export async function renderOptirouteSupport() {
             <span id="data-source-badge" style="font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.35rem; border-radius: 4px; display: none;"></span>
             <span id="filtered-count-badge" class="badge" style="background: var(--color-bg); color: var(--color-text-muted); font-size: 0.7rem; border: 1px solid var(--color-border); padding: 0.15rem 0.45rem; border-radius: 12px; font-weight: 600;"></span>
           </h3>
-          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center;">
+            <!-- Botón Gestor / Generador de Etiquetas -->
+            <button id="btn-open-labels-modal" class="btn btn-primary" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 700; align-items: center; gap: 0.3rem; background: #7c3aed; color: white; border: none; padding: 0 0.8rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Gestor y Emisión de Etiquetas Térmicas 100x150">
+              <i class="ri-price-tag-3-line"></i> 🏷️ Generar Etiquetas
+            </button>
+            <!-- Botón Añadir Punto Intermedio -->
+            <button id="btn-add-intermediate-point" class="btn btn-outline" style="display: flex; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; border: 1px solid #7c3aed; color: #7c3aed; background: transparent; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;" title="Añadir un pedido intermedio a esta ruta">
+              <i class="ri-add-circle-line"></i> ➕ Punto Intermedio
+            </button>
             <!-- Botón Imprimir Selección (Masivo) -->
             <button id="btn-print-labels" class="btn btn-primary" style="display: none; height: 32px; font-size: 0.8rem; font-weight: 600; align-items: center; gap: 0.25rem; background: var(--color-primary); color: white; border: none; padding: 0 0.75rem; border-radius: var(--radius-md); cursor: pointer; transition: all 0.2s;">
               <i class="ri-printer-line"></i> Imprimir Selección (<span id="print-count">0</span>)
@@ -820,6 +828,57 @@ export async function renderOptirouteSupport() {
         };
       });
 
+      // Recuperar puntos intermedios guardados en BD para esta ruta
+      try {
+        const { data: intermediateRows } = await supabase
+          .from('optiroute_orders')
+          .select('*')
+          .or(`raw_data->route_plan->>id.eq.${routePlanId},raw_data->waypoint->route_plan->>id.eq.${routePlanId}`);
+
+        if (intermediateRows && intermediateRows.length > 0) {
+          const onlyIntermediate = intermediateRows.filter(r => r.raw_data?.is_intermediate);
+          onlyIntermediate.forEach(row => {
+            const w = row.raw_data?.waypoint || {};
+            const sr = row.raw_data || {};
+            const ref = row.referencia || 'S/R';
+            if (!allWaypoints.some(item => item.reference === ref && item.order === (w.customer_order || w.order || 0))) {
+              allWaypoints.push({
+                order: w.customer_order || w.order || 0,
+                reference: ref,
+                name: row.nombre_destinatario || 'Cliente sin nombre',
+                phone: row.telefono_destino || '',
+                email: row.email_cliente_destino || '',
+                dispatch_email_notified: false,
+                dispatch_email_at: null,
+                delivery_email_notified: false,
+                delivery_email_at: null,
+                failed_email_notified: false,
+                failed_email_at: null,
+                address: row.direccion_destino || 'Sin Dirección',
+                complemento: row.complemento_destino || '',
+                address_status: 1,
+                status: row.status || 'Ingresado (Punto Intermedio)',
+                status_code: 0,
+                note: w.note || sr.notes || '',
+                images: [],
+                reception_name: '',
+                reception_rut: '',
+                supplier: row.empresa_comercio_proveedor || 'STOCKA',
+                comuna: row.comuna_destino || '',
+                tracking_url: row.tracking_url || '',
+                route_vehicle: w.route_vehicle || '',
+                route_driver: w.route_driver || '',
+                route_name: w.route_name || planDetail.name || 'Ruta Optiroute',
+                is_intermediate: true
+              });
+            }
+          });
+          allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+        }
+      } catch (errInt) {
+        console.warn('Error recuperando puntos intermedios de BD:', errInt);
+      }
+
       // Mostrar Badge API en Vivo
       if (dataSourceBadge) {
         dataSourceBadge.style.display = 'inline-block';
@@ -1373,9 +1432,13 @@ export async function renderOptirouteSupport() {
         <tr style="border-bottom: 1px solid var(--color-border); align-items: center;">
           <td style="padding: 0.75rem 0.5rem; text-align: center;"><input type="checkbox" class="shipment-checkbox" data-idx="${idx}" style="transform: scale(1.1); cursor: pointer;"></td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 600; color: var(--color-text-muted); font-family: monospace;">
-            <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <div style="display: flex; align-items: center; gap: 0.25rem;">
               <span>#${item.order}</span>
-              <button class="btn btn-sm btn-outline btn-print-single-label" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; gap: 0.1rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
+              ${item.is_intermediate || String(item.order).includes('.') ? '<span class="badge" style="background:#ede9fe; color:#6d28d9; font-size:0.6rem; padding:0.1rem 0.3rem; border-radius:3px; font-weight:700;" title="Punto Intermedio">INT</span>' : ''}
+              <button class="btn btn-sm btn-outline btn-preview-single-label" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Vista Previa de Etiqueta">
+                <i class="ri-eye-line"></i>
+              </button>
+              <button class="btn btn-sm btn-outline btn-print-single-label" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
                 <i class="ri-printer-line"></i>
               </button>
             </div>
@@ -1498,15 +1561,7 @@ export async function renderOptirouteSupport() {
 
     // Agregar event listener para contactar por whatsapp
     const contactBtns = tableBody.querySelectorAll('.btn-contactar-whatsapp');
-    contactBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        const idx = parseInt(btn.getAttribute('data-idx'));
-        const item = data[idx];
-        if (item) openWhatsAppModal(item);
-      });
-    });
-
-    // Listener para Impresión Individual
+     // Listener para Impresión Individual
     const singlePrintBtns = tableBody.querySelectorAll('.btn-print-single-label');
     singlePrintBtns.forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1515,329 +1570,569 @@ export async function renderOptirouteSupport() {
         if (item) printWaypointsLabels([item]);
       });
     });
+
+    // Listener para Vista Previa de Etiqueta Individual
+    const singlePreviewBtns = tableBody.querySelectorAll('.btn-preview-single-label');
+    singlePreviewBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
+        if (item) openLabelPreviewModal(item);
+      });
+    });
+
+    // Listener para Botón Principal Gestor de Etiquetas
+    const btnOpenLabelsModal = document.getElementById('btn-open-labels-modal');
+    if (btnOpenLabelsModal) {
+      const newBtn = btnOpenLabelsModal.cloneNode(true);
+      btnOpenLabelsModal.parentNode.replaceChild(newBtn, btnOpenLabelsModal);
+      newBtn.addEventListener('click', () => {
+        openOptirouteLabelsModal();
+      });
+    }
+
+    // Listener para Botón Añadir Punto Intermedio
+    const btnAddIntermediatePoint = document.getElementById('btn-add-intermediate-point');
+    if (btnAddIntermediatePoint) {
+      const newBtn = btnAddIntermediatePoint.cloneNode(true);
+      btnAddIntermediatePoint.parentNode.replaceChild(newBtn, btnAddIntermediatePoint);
+      newBtn.addEventListener('click', () => {
+        openAddIntermediatePointModal();
+      });
+    }
   }
+
+  // --- MÓDULO DE ETIQUETAS DE ENVÍO TÉRMICAS OPTIROUTE (100mm x 150mm) ---
+
+  // Helper para generar Código de Barras SVG con JsBarcode
+  function getBarcodeSvgString(code) {
+    const cleanVal = String(code || '').trim();
+    if (!cleanVal || cleanVal === 'S/R') {
+      return '<div style="font-size:11px; font-weight:700; text-align:center; color:#475569; padding:4px;">SIN CÓDIGO</div>';
+    }
+    try {
+      if (typeof window.JsBarcode === 'function') {
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        window.JsBarcode(svg, cleanVal, {
+          format: "CODE128",
+          width: 1.8,
+          height: 38,
+          displayValue: false,
+          margin: 0
+        });
+        return svg.outerHTML;
+      }
+    } catch (e) {
+      console.warn("Error generando código de barras:", e);
+    }
+    return `<div style="font-family:monospace; font-size:11pt; font-weight:800; text-align:center; letter-spacing:2px;">*${cleanVal}*</div>`;
+  }
+
+  // Helper para generar QR Code Data URL para WhatsApp
+  function getWhatsAppQrDataUrl(phone, reference) {
+    let cleanPhone = String(phone || '').replace(/\D/g, '');
+    if (cleanPhone.length === 9 && cleanPhone.startsWith('9')) {
+      cleanPhone = '56' + cleanPhone;
+    } else if (cleanPhone.length === 8) {
+      cleanPhone = '569' + cleanPhone;
+    } else if (cleanPhone.length > 0 && !cleanPhone.startsWith('56')) {
+      cleanPhone = '56' + cleanPhone;
+    }
+
+    const message = "Hola!, me contacto por un pedido que tengo para entregar";
+    const waUrl = cleanPhone 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    try {
+      if (typeof window.qrcode === 'function') {
+        const qr = window.qrcode(0, 'M');
+        qr.addData(waUrl);
+        qr.make();
+        return qr.createDataURL(4, 0);
+      }
+    } catch (e) {
+      console.warn("Error generando QR Data URL:", e);
+    }
+    return `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(waUrl)}`;
+  }
+
+  // Helper para fecha de ruta formato STK DD-MM-YY
+  function getFormattedRouteDate(wp) {
+    let d = new Date();
+    if (wp?.departure_datetime) {
+      const parsed = new Date(wp.departure_datetime);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    } else if (wp?.created_at) {
+      const parsed = new Date(wp.created_at);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = String(d.getFullYear()).slice(-2);
+    return `STK ${day}-${month}-${year}`;
+  }
+
+  // Generador del HTML de una sola etiqueta térmica (100x150mm)
+  function generateLabelHtml(wp) {
+    const qrUrl = getWhatsAppQrDataUrl(wp.phone, wp.reference);
+    const barcodeSvg = getBarcodeSvgString(wp.reference !== 'S/R' ? wp.reference : wp.order);
+    // Resolver Asignación y Vehículo de forma clara y sin truncamiento
+    let mainAssignCode = 'N1';
+    let subAssignText = '';
+
+    const driverName = (wp.route_driver || '').trim();
+    const vehicleName = (wp.route_vehicle || '').trim();
+
+    if (vehicleName && driverName) {
+      if (vehicleName.length <= 6) {
+        mainAssignCode = vehicleName;
+        subAssignText = driverName;
+      } else if (driverName.length <= 6) {
+        mainAssignCode = driverName;
+        subAssignText = vehicleName;
+      } else {
+        mainAssignCode = vehicleName;
+        subAssignText = driverName;
+      }
+    } else if (vehicleName) {
+      mainAssignCode = vehicleName;
+    } else if (driverName) {
+      mainAssignCode = driverName;
+    }
+
+    const assignFontSize = mainAssignCode.length > 8 ? '12pt' : (mainAssignCode.length > 5 ? '15pt' : '20pt');
+    const cleanRouteTag = getFormattedRouteDate(wp);
+    const cleanComercio = (wp.supplier || 'STOCKA').toUpperCase();
+    const cleanComuna = (wp.comuna || 'SANTIAGO').toUpperCase();
+
+    return `
+      <div class="label-page">
+        <!-- Fila 1: Orden y Pedido -->
+        <div class="label-row label-row-1">
+          <div class="label-box label-box-order">
+            <div class="label-title-bold" style="text-align: center;">Orden</div>
+            <div class="label-value-order">${wp.order}</div>
+          </div>
+          <div class="label-box label-box-pedido">
+            <div class="label-title-bold">Pedido:</div>
+            <div class="label-value-reference">${wp.reference || 'S/R'}</div>
+            <div class="label-value-comercio">${cleanComercio}</div>
+          </div>
+        </div>
+
+        <!-- Fila 2: Cliente y QR WhatsApp -->
+        <div class="label-row label-row-2">
+          <div class="label-box label-box-cliente">
+            <div class="label-field-group">
+              <div class="label-title-bold">Cliente</div>
+              <div class="label-value-name">${wp.name || 'Cliente sin nombre'}</div>
+            </div>
+            <div class="label-field-group" style="margin-top: 4px;">
+              <div class="label-title-bold">Teléfono</div>
+              <div class="label-value-phone">${wp.phone || 'Sin número'}</div>
+            </div>
+          </div>
+          <div class="label-box label-box-qr">
+            <img class="qr-code-img" src="${qrUrl}" alt="QR WhatsApp">
+          </div>
+        </div>
+
+        <!-- Fila 3: Dirección Completa y Zona Entrega -->
+        <div class="label-row label-row-3">
+          <div class="label-box label-box-direccion">
+            <div class="label-title-bold">Dirección</div>
+            <div class="label-value-address">${wp.address || 'Sin dirección'}</div>
+            
+            <div class="label-title-bold" style="margin-top: 4px;">Complemento:</div>
+            <div class="label-value-complemento">${wp.complemento || 'Casa / Depto'}</div>
+            
+            <div class="label-title-bold" style="margin-top: 6px;">Zona Entrega:</div>
+            <div class="label-value-comuna">${cleanComuna}</div>
+          </div>
+        </div>
+
+        <!-- Fila 4: Notas -->
+        <div class="label-row label-row-4">
+          <div class="label-box label-box-notas">
+            <div class="label-title-bold">Notas:</div>
+            <div class="label-value-notes">${wp.note || ''}</div>
+          </div>
+        </div>
+
+        <!-- Fila 5: Código de Barras (CHECKEO PICKING) -->
+        <div class="label-row label-row-5">
+          <div class="label-box label-box-barcode">
+            <div class="barcode-svg-wrap">
+              ${barcodeSvg}
+            </div>
+            <div class="barcode-caption">CHECKEO PICKING</div>
+          </div>
+        </div>
+
+        <!-- Fila 6: Asignación, Ruta y Logo Stocka -->
+        <div class="label-row label-row-6">
+          <div class="label-box label-box-assign-route">
+            <div class="assign-col">
+              <div class="label-title-bold">ASIGNACIÓN</div>
+              <div class="label-value-assign" style="font-size: ${assignFontSize};">${mainAssignCode}</div>
+              ${subAssignText ? `<div class="label-value-sub-assign">${subAssignText}</div>` : ''}
+            </div>
+            <div class="route-col">
+              <div class="label-title-bold">RUTA</div>
+              <div class="label-value-route">${cleanRouteTag}</div>
+            </div>
+          </div>
+          <div class="label-box label-box-logo">
+            <div class="stocka-logo-container">
+              <img class="stocka-logo-img" src="img/newlogotransp.png" alt="Stocka" onerror="this.onerror=null; this.src='https://cdn.shopify.com/s/files/1/0625/6141/9483/files/newlogotransp.png?v=1779852093';">
+              <div class="stocka-logo-sub">Logística y Fulfillment Ecommerce</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Estilos CSS para impresión térmica y visualización de etiquetas
+  const labelStylesCss = `
+    @page {
+      size: 100mm 150mm;
+      margin: 0;
+    }
+    @media print {
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: white;
+      }
+      .label-page {
+        page-break-after: always;
+        break-after: page;
+      }
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f8fafc;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .label-page {
+      width: 100mm;
+      height: 150mm;
+      max-width: 100mm;
+      max-height: 150mm;
+      padding: 3.5mm 4mm;
+      display: flex;
+      flex-direction: column;
+      gap: 1.8mm;
+      background: white;
+      color: black;
+      margin: 0 auto 10px auto;
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    @media screen {
+      body {
+        padding: 20px;
+      }
+      .label-page {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        border-radius: 6px;
+      }
+    }
+    .label-box {
+      border: 2px solid #000000;
+      border-radius: 8px;
+      padding: 1.8mm 2.8mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      background: #ffffff;
+      box-sizing: border-box;
+    }
+    .label-row {
+      display: flex;
+      gap: 1.8mm;
+      width: 100%;
+    }
+    .label-row-1 { height: 19mm; }
+    .label-box-order {
+      width: 28%;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .label-box-pedido {
+      width: 72%;
+      justify-content: center;
+    }
+    .label-row-2 { height: 26mm; }
+    .label-box-cliente {
+      width: 65%;
+      justify-content: space-between;
+    }
+    .label-box-qr {
+      width: 35%;
+      align-items: center;
+      justify-content: center;
+      padding: 1mm;
+    }
+    .qr-code-img {
+      width: 100%;
+      height: 100%;
+      max-width: 22mm;
+      max-height: 22mm;
+      object-fit: contain;
+      display: block;
+    }
+    .label-row-3 { height: 41mm; }
+    .label-box-direccion {
+      width: 100%;
+      height: 100%;
+      justify-content: flex-start;
+      overflow: hidden;
+    }
+    .label-row-4 { height: 14mm; }
+    .label-box-notas {
+      width: 100%;
+      height: 100%;
+      justify-content: flex-start;
+      overflow: hidden;
+    }
+    .label-row-5 { height: 16mm; }
+    .label-box-barcode {
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      padding: 1mm 2mm;
+    }
+    .barcode-svg-wrap {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 9.5mm;
+    }
+    .barcode-svg-wrap svg {
+      max-width: 100%;
+      height: 9.5mm;
+    }
+    .barcode-caption {
+      font-size: 7pt;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 1px;
+      text-align: center;
+      color: #000000;
+    }
+    .label-row-6 { height: 16mm; }
+    .label-box-assign-route {
+      width: 58%;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.5mm 3mm;
+      overflow: hidden;
+    }
+    .assign-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-width: 0;
+      flex: 1;
+    }
+    .route-col {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      margin-left: 2.5mm;
+      flex-shrink: 0;
+      text-align: right;
+    }
+    .label-box-logo {
+      width: 42%;
+      border: none;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .label-title-bold {
+      font-size: 7.5pt;
+      font-weight: 700;
+      color: #000000;
+      margin: 0;
+      line-height: 1.1;
+    }
+    .label-value-order {
+      font-size: 28pt;
+      font-weight: 800;
+      margin: 0;
+      line-height: 1;
+      color: #000000;
+    }
+    .label-value-reference {
+      font-size: 13pt;
+      font-weight: 800;
+      margin: 0;
+      line-height: 1.15;
+      color: #000000;
+    }
+    .label-value-comercio {
+      font-size: 10pt;
+      font-weight: 800;
+      margin: 1px 0 0 0;
+      text-transform: uppercase;
+      color: #000000;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .label-value-name {
+      font-size: 9.5pt;
+      font-weight: 700;
+      margin: 1px 0 0 0;
+      color: #000000;
+      line-height: 1.15;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .label-value-phone {
+      font-size: 9.5pt;
+      font-weight: 700;
+      margin: 1px 0 0 0;
+      color: #000000;
+    }
+    .label-value-address {
+      font-size: 10.5pt;
+      font-weight: 700;
+      margin: 1px 0 0 0;
+      line-height: 1.15;
+      color: #000000;
+    }
+    .label-value-complemento {
+      font-size: 9pt;
+      font-weight: 600;
+      margin: 1px 0 0 0;
+      color: #000000;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .label-value-comuna {
+      font-size: 17pt;
+      font-weight: 800;
+      margin: 1px 0 0 0;
+      text-transform: uppercase;
+      color: #000000;
+      line-height: 1.1;
+    }
+    .label-value-notes {
+      font-size: 7.5pt;
+      font-weight: 500;
+      margin: 1px 0 0 0;
+      color: #000000;
+      line-height: 1.15;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+    .label-value-assign {
+      font-weight: 800;
+      margin: 0;
+      line-height: 1;
+      color: #000000;
+      word-break: break-word;
+    }
+    .label-value-sub-assign {
+      font-size: 6.8pt;
+      font-weight: 700;
+      color: #374151;
+      margin: 1px 0 0 0;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .label-value-route {
+      font-size: 8.5pt;
+      font-weight: 800;
+      margin: 1px 0 0 0;
+      color: #000000;
+      white-space: nowrap;
+    }
+    .stocka-logo-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      gap: 0.5mm;
+    }
+    .stocka-logo-img {
+      max-height: 10mm;
+      max-width: 100%;
+      object-fit: contain;
+      display: block;
+    }
+    .stocka-logo-sub {
+      font-size: 4.2pt;
+      font-weight: 700;
+      color: #374151;
+      margin: 0;
+      line-height: 1;
+      text-transform: uppercase;
+      letter-spacing: 0.1px;
+      text-align: center;
+      white-space: nowrap;
+    }
+  `;
 
   // Función para Renderizar e Imprimir Etiquetas Térmicas de Envío (100mm x 150mm)
   function printWaypointsLabels(waypoints) {
+    if (!waypoints || waypoints.length === 0) {
+      alert('No hay envíos seleccionados para imprimir.');
+      return;
+    }
+
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       alert('Por favor, permite las ventanas emergentes (popups) para poder imprimir las etiquetas.');
       return;
     }
 
-    const htmlContent = `
+    const labelsHtml = waypoints.map(wp => generateLabelHtml(wp)).join('');
+
+    const fullDocumentHtml = `
       <!DOCTYPE html>
-      <html>
+      <html lang="es">
       <head>
         <meta charset="utf-8">
-        <title>Etiquetas de Envío WMS STOCKA</title>
+        <title>Etiquetas Térmicas Optiroute (${waypoints.length}) - WMS STOCKA</title>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
         <style>
-          @page {
-            size: 100mm 150mm;
-            margin: 0;
-          }
-          @media print {
-            body {
-              margin: 0;
-              padding: 0;
-              background: white;
-            }
-            .label-page {
-              page-break-after: always;
-            }
-          }
-          body {
-            font-family: 'Outfit', 'Segoe UI', Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: white;
-            -webkit-print-color-adjust: exact;
-          }
-          .label-page {
-            width: 100mm;
-            height: 150mm;
-            box-sizing: border-box;
-            padding: 4mm;
-            display: flex;
-            flex-direction: column;
-            gap: 2.5mm;
-            background: white;
-            color: black;
-          }
-          .label-box {
-            border: 2px solid #000000;
-            border-radius: 8px;
-            padding: 2mm 3mm;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            box-sizing: border-box;
-          }
-          .label-row-1 {
-            display: flex;
-            gap: 2.5mm;
-            height: 20mm;
-          }
-          .label-box-order {
-            width: 25%;
-            align-items: center;
-            justify-content: center;
-            background: #ffffff;
-          }
-          .label-box-pedido {
-            width: 75%;
-            justify-content: center;
-          }
-          .label-row-2 {
-            display: flex;
-            gap: 2.5mm;
-            height: 28mm;
-          }
-          .label-box-cliente {
-            width: 65%;
-            justify-content: space-between;
-          }
-          .label-box-qr {
-            width: 35%;
-            align-items: center;
-            justify-content: center;
-            padding: 1mm;
-          }
-          .qr-code {
-            width: 100%;
-            height: 100%;
-            max-width: 22mm;
-            max-height: 22mm;
-            object-fit: contain;
-          }
-          .label-row-3 {
-            height: 44mm;
-          }
-          .label-box-direccion {
-            height: 100%;
-            justify-content: flex-start;
-            gap: 1mm;
-          }
-          .label-row-4 {
-            height: 16mm;
-          }
-          .label-box-notas {
-            height: 100%;
-            justify-content: flex-start;
-            overflow: hidden;
-          }
-          .label-row-5 {
-            display: flex;
-            gap: 2.5mm;
-            height: 16mm;
-          }
-          .label-box-route {
-            width: 55%;
-            flex-direction: row;
-            align-items: center;
-            justify-content: flex-start;
-            gap: 4mm;
-          }
-          .label-box-logo {
-            width: 45%;
-            border: none;
-            padding: 0;
-            align-items: center;
-            justify-content: flex-end;
-          }
-          .label-title {
-            font-size: 7.5pt;
-            font-weight: 700;
-            color: #4b5563;
-            text-transform: uppercase;
-            margin: 0;
-            letter-spacing: 0.5px;
-          }
-          .label-value-order {
-            font-size: 32pt;
-            font-weight: 800;
-            margin: 0;
-            line-height: 1;
-            color: #000;
-          }
-          .label-value-reference {
-            font-size: 13pt;
-            font-weight: 800;
-            margin: 0;
-            line-height: 1.2;
-          }
-          .label-value-comercio {
-            font-size: 10.5pt;
-            font-weight: 700;
-            margin: 2px 0 0 0;
-            text-transform: uppercase;
-            color: #374151;
-            letter-spacing: 0.3px;
-          }
-          .label-value-name {
-            font-size: 10pt;
-            font-weight: 700;
-            margin: 1px 0;
-          }
-          .label-value-phone {
-            font-size: 10.5pt;
-            font-weight: 700;
-            margin: 0;
-            font-family: monospace;
-          }
-          .label-value-address {
-            font-size: 11pt;
-            font-weight: 700;
-            margin: 0;
-            line-height: 1.2;
-          }
-          .label-value-complemento {
-            font-size: 9.5pt;
-            font-weight: 600;
-            margin: 0;
-            color: #1f2937;
-          }
-          .label-value-comuna {
-            font-size: 18pt;
-            font-weight: 800;
-            margin: 0;
-            text-transform: uppercase;
-            color: #000;
-            line-height: 1.1;
-          }
-          .label-value-notes {
-            font-size: 8pt;
-            font-weight: 500;
-            margin: 2px 0 0 0;
-            color: #1f2937;
-            line-height: 1.3;
-          }
-          .label-value-assign {
-            font-size: 20pt;
-            font-weight: 800;
-            margin: 0;
-            line-height: 1;
-          }
-          .label-value-route-name {
-            font-size: 9pt;
-            font-weight: 700;
-            margin: 0;
-            color: #374151;
-          }
-          .stocka-logo-container {
-            display: flex;
-            align-items: center;
-            gap: 2mm;
-          }
-          .stocka-logo-text {
-            font-size: 13.5pt;
-            font-weight: 800;
-            color: #1e1b4b;
-            margin: 0;
-            line-height: 1;
-          }
-          .stocka-logo-sub {
-            font-size: 5pt;
-            font-weight: 600;
-            color: #4b5563;
-            margin: 0.15rem 0 0 0;
-            line-height: 1.2;
-            text-transform: uppercase;
-            letter-spacing: 0.2px;
-          }
+          ${labelStylesCss}
         </style>
       </head>
       <body>
-        ${waypoints.map(wp => {
-          const qrid = wp.reference !== 'S/R' ? wp.reference : wp.order;
-          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(wp.tracking_url || qrid)}`;
-          const cleanVehicle = wp.route_vehicle || 'Sin Asig.';
-          const cleanRouteName = wp.route_name || 'Ruta Optiroute';
-          
-          return `
-            <div class="label-page">
-              <div class="label-row-1">
-                <div class="label-box label-box-order">
-                  <span class="label-title">Orden</span>
-                  <span class="label-value-order">${wp.order}</span>
-                </div>
-                <div class="label-box label-box-pedido">
-                  <span class="label-title">Pedido:</span>
-                  <span class="label-value-reference">${wp.reference}</span>
-                  <span class="label-value-comercio">${wp.supplier}</span>
-                </div>
-              </div>
-              
-              <div class="label-row-2">
-                <div class="label-box label-box-cliente">
-                  <div>
-                    <span class="label-title">Cliente</span>
-                    <div class="label-value-name">${wp.name}</div>
-                  </div>
-                  <div>
-                    <span class="label-title">Teléfono</span>
-                    <div class="label-value-phone">${wp.phone || 'Sin número'}</div>
-                  </div>
-                </div>
-                <div class="label-box label-box-qr">
-                  <img class="qr-code" src="${qrUrl}" alt="QR">
-                </div>
-              </div>
-              
-              <div class="label-row-3">
-                <div class="label-box label-box-direccion">
-                  <span class="label-title">Dirección</span>
-                  <span class="label-value-address">${wp.address}</span>
-                  
-                  <span class="label-title" style="margin-top: 3px;">Complemento:</span>
-                  <span class="label-value-complemento">${wp.complemento || 'Sin complemento'}</span>
-                  
-                  <span class="label-title" style="margin-top: 5px;">Zona Entrega:</span>
-                  <span class="label-value-comuna">${wp.comuna || 'Sin Comuna'}</span>
-                </div>
-              </div>
-              
-              <div class="label-row-4">
-                <div class="label-box label-box-notas">
-                  <span class="label-title">Notas:</span>
-                  <span class="label-value-notes">${wp.note || 'Sin notas del pedido.'}</span>
-                </div>
-              </div>
-              
-              <div class="label-row-5">
-                <div class="label-box label-box-route">
-                  <div>
-                    <span class="label-title">Asignación</span>
-                    <div class="label-value-assign">${cleanVehicle}</div>
-                  </div>
-                  <div>
-                    <span class="label-title">Ruta</span>
-                    <div class="label-value-route-name">${cleanRouteName}</div>
-                  </div>
-                </div>
-                <div class="label-box label-box-logo">
-                  <div class="stocka-logo-container">
-                    <svg viewBox="0 0 100 100" width="28" height="28" style="flex-shrink: 0;">
-                      <polygon points="50,5 95,25 95,75 50,95 5,75 5,25" fill="#6366f1" />
-                      <path d="M35 65 L65 35 M45 35 L65 35 L65 55" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                    </svg>
-                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                      <span class="stocka-logo-text">Stocka</span>
-                      <span class="stocka-logo-sub">Logística y Fulfillment</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join('')}
-        
+        ${labelsHtml}
         <script>
           window.onload = function() {
             setTimeout(function() {
               window.print();
-            }, 500);
+            }, 350);
           };
         </script>
       </body>
@@ -1845,8 +2140,999 @@ export async function renderOptirouteSupport() {
     `;
 
     printWindow.document.open();
-    printWindow.document.write(htmlContent);
+    printWindow.document.write(fullDocumentHtml);
     printWindow.document.close();
+  }
+
+  // Modal para Vista Previa Individual de Etiqueta Térmica
+  function openLabelPreviewModal(waypoint) {
+    const modalId = 'optiroute-label-preview-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(15, 23, 42, 0.75)';
+    modal.style.zIndex = '100000';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.animation = 'fadeIn 0.2s ease';
+    modal.style.padding = '1rem';
+
+    const labelMarkup = generateLabelHtml(waypoint);
+
+    modal.innerHTML = `
+      <div class="card" style="width: 480px; max-width: 95%; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden; animation: scaleUp 0.2s ease;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-eye-line" style="color: #7c3aed; font-size: 1.1rem;"></i>
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--color-text-main);">
+              Vista Previa: Etiqueta #${waypoint.order} (${waypoint.reference})
+            </h4>
+          </div>
+          <button id="close-preview-modal" style="background: none; border: none; font-size: 1.3rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+        </div>
+
+        <div style="flex: 1; overflow-y: auto; padding: 1rem; display: flex; justify-content: center; align-items: center; background: #e2e8f0;">
+          <div style="transform: scale(0.92); transform-origin: center top;">
+            <style>${labelStylesCss}</style>
+            ${labelMarkup}
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-top: 1px solid var(--color-border); background: var(--color-surface); gap: 0.5rem;">
+          <span style="font-size: 0.75rem; color: var(--color-text-muted);">
+            Formato: 100mm x 150mm (Térmico)
+          </span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button id="btn-close-preview" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.8rem; border-radius: var(--radius-md);">
+              Cerrar
+            </button>
+            <button id="btn-print-from-preview" class="btn btn-primary btn-sm" style="background: #7c3aed; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-printer-line"></i> Imprimir Etiqueta
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+    modal.querySelector('#close-preview-modal')?.addEventListener('click', closeModal);
+    modal.querySelector('#btn-close-preview')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    modal.querySelector('#btn-print-from-preview')?.addEventListener('click', () => {
+      printWaypointsLabels([waypoint]);
+    });
+  }
+
+  // Modal Principal: Gestor y Emisión de Etiquetas de Ruta
+  function openOptirouteLabelsModal() {
+    const modalId = 'optiroute-labels-manager-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    if (!allWaypoints || allWaypoints.length === 0) {
+      alert('No hay envíos cargados en la ruta para generar etiquetas.');
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(15, 23, 42, 0.75)';
+    modal.style.zIndex = '99999';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.animation = 'fadeIn 0.2s ease';
+    modal.style.padding = '0.5rem';
+
+    // Obtener lista única de comercios con sus conteos
+    const supplierCounts = new Map();
+    allWaypoints.forEach(w => {
+      const s = w.supplier || 'STOCKA';
+      supplierCounts.set(s, (supplierCounts.get(s) || 0) + 1);
+    });
+    const distinctSuppliers = Array.from(supplierCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Obtener lista única de conductores con sus conteos
+    const driverCounts = new Map();
+    allWaypoints.forEach(w => {
+      const d = w.route_driver || w.route_vehicle || 'Sin Asignación';
+      driverCounts.set(d, (driverCounts.get(d) || 0) + 1);
+    });
+    const distinctDrivers = Array.from(driverCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Estado interno del modal
+    const escapeHtml = (str) => String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    let modalSelectedIndices = new Set(allWaypoints.map((_, i) => i)); // Por defecto todos seleccionados
+    let selectedSuppliersSet = new Set(distinctSuppliers.map(s => s.name)); // Por defecto todos los comercios seleccionados
+    let currentFilterDriver = '';
+    let currentSearchTerm = '';
+
+    function getSupplierLabelText() {
+      if (selectedSuppliersSet.size === distinctSuppliers.length) {
+        return `🏢 Todos los Comercios (${allWaypoints.length})`;
+      }
+      if (selectedSuppliersSet.size === 0) {
+        return `🏢 Ningún Comercio seleccionado (0)`;
+      }
+      if (selectedSuppliersSet.size === 1) {
+        const name = Array.from(selectedSuppliersSet)[0];
+        const count = distinctSuppliers.find(s => s.name === name)?.count || 0;
+        return `🏢 ${name} (${count})`;
+      }
+      const totalCount = distinctSuppliers
+        .filter(s => selectedSuppliersSet.has(s.name))
+        .reduce((sum, s) => sum + s.count, 0);
+      return `🏢 ${selectedSuppliersSet.size} Comercios (${totalCount} envíos)`;
+    }
+
+    function getFilteredIndices() {
+      return allWaypoints.map((w, idx) => ({ w, idx })).filter(({ w }) => {
+        const supp = w.supplier || 'STOCKA';
+        if (selectedSuppliersSet.size === 0 || !selectedSuppliersSet.has(supp)) {
+          return false;
+        }
+        if (currentFilterDriver) {
+          const d = w.route_driver || w.route_vehicle || 'Sin Asignación';
+          if (d !== currentFilterDriver) return false;
+        }
+        if (currentSearchTerm) {
+          const q = currentSearchTerm.toLowerCase();
+          const matchRef = (w.reference || '').toLowerCase().includes(q);
+          const matchName = (w.name || '').toLowerCase().includes(q);
+          const matchAddr = (w.address || '').toLowerCase().includes(q);
+          const matchComuna = (w.comuna || '').toLowerCase().includes(q);
+          const matchOrder = String(w.order).includes(q);
+          if (!matchRef && !matchName && !matchAddr && !matchComuna && !matchOrder) {
+            return false;
+          }
+        }
+        return true;
+      }).map(item => item.idx);
+    }
+
+    // Estructura DOM del Modal (Renderizada UNA SOLA VEZ)
+    modal.innerHTML = `
+      <div class="card" style="width: 1080px; max-width: 98%; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden;">
+        
+        <!-- Encabezado del Modal -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg); flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-price-tag-3-line" style="color: #7c3aed;"></i> Generador de Etiquetas de Envío (Optiroute)
+            </h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+              Emisión de etiquetas térmicas estándar (100x150mm) con QR de WhatsApp y código de barras Code128.
+            </p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button id="modal-btn-add-intermediate" class="btn btn-sm btn-outline" style="padding: 0.35rem 0.7rem; font-size: 0.78rem; font-weight: 600; border: 1px solid #7c3aed; color: #7c3aed; border-radius: var(--radius-md); background: transparent; cursor: pointer; display: flex; align-items: center; gap: 0.2rem;" title="Añadir un punto intermedio a la ruta">
+              <i class="ri-add-circle-line"></i> ➕ Punto Intermedio
+            </button>
+            <button id="close-labels-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+          </div>
+        </div>
+
+        <!-- Barra de Filtros y Acciones -->
+        <div style="padding: 0.75rem 1.25rem; background: var(--color-surface); border-bottom: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.5rem;">
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem; align-items: center;">
+            <!-- Filtro Multi-Comercio con Checkboxes -->
+            <div style="position: relative;" id="modal-supplier-dropdown-wrapper">
+              <button id="modal-btn-toggle-supplier" type="button" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.65rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main); display: flex; align-items: center; justify-content: space-between; cursor: pointer; text-align: left;" title="Seleccionar uno o varios comercios">
+                <span id="modal-supplier-btn-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600;">
+                  ${getSupplierLabelText()}
+                </span>
+                <i id="modal-supplier-dropdown-arrow" class="ri-arrow-down-s-line" style="font-size: 1rem; color: var(--color-text-muted); flex-shrink: 0; margin-left: 0.35rem; transition: transform 0.2s;"></i>
+              </button>
+
+              <!-- Popover Panel con Checkboxes -->
+              <div id="modal-supplier-dropdown-panel" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 250px; width: 100%; max-height: 260px; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 1000; padding: 0.4rem; box-sizing: border-box;">
+                
+                <!-- Cabecera de Selección Rápida de Comercios -->
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0.35rem 0.4rem 0.35rem; border-bottom: 1px solid var(--color-border); margin-bottom: 0.3rem;">
+                  <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Filtrar Comercios</span>
+                  <div style="display: flex; gap: 0.35rem;">
+                    <button id="modal-supplier-select-all-btn" type="button" style="background: none; border: none; font-size: 0.72rem; font-weight: 700; color: #7c3aed; cursor: pointer; padding: 0.1rem 0.25rem;">Todos</button>
+                    <span style="color: var(--color-border); font-size: 0.7rem;">|</span>
+                    <button id="modal-supplier-deselect-all-btn" type="button" style="background: none; border: none; font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); cursor: pointer; padding: 0.1rem 0.25rem;">Ninguno</button>
+                  </div>
+                </div>
+
+                <!-- Lista de Comercios con Checkbox -->
+                <div id="modal-supplier-checkboxes-container" style="display: flex; flex-direction: column; gap: 0.15rem;">
+                  ${distinctSuppliers.map(s => {
+                    const isChecked = selectedSuppliersSet.has(s.name);
+                    return `
+                      <label class="modal-supplier-label" data-supplier="${escapeHtml(s.name)}" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0.45rem; border-radius: 4px; cursor: pointer; font-size: 0.78rem; user-select: none; ${isChecked ? 'background: rgba(124, 58, 237, 0.08);' : ''}">
+                        <div style="display: flex; align-items: center; gap: 0.45rem; overflow: hidden; min-width: 0;">
+                          <input type="checkbox" class="modal-supplier-cb" data-supplier="${escapeHtml(s.name)}" ${isChecked ? 'checked' : ''} style="cursor: pointer; transform: scale(1.05);">
+                          <span style="font-weight: ${isChecked ? '700' : '500'}; color: var(--color-text-main); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">🏢 ${escapeHtml(s.name)}</span>
+                        </div>
+                        <span class="badge" style="font-size: 0.68rem; font-weight: 700; background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-muted); padding: 0.1rem 0.35rem; border-radius: 10px; flex-shrink: 0;">${s.count}</span>
+                      </label>
+                    `;
+                  }).join('')}
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Filtro Conductor -->
+            <div>
+              <select id="modal-select-driver" class="form-input" style="font-size: 0.78rem; height: 34px; width: 100%; padding: 0 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+                <option value="">🚚 Todos los Conductores (${allWaypoints.length})</option>
+                ${distinctDrivers.map(d => `<option value="${d.name}">🚚 ${d.name} (${d.count})</option>`).join('')}
+              </select>
+            </div>
+
+            <!-- Buscador -->
+            <div style="position: relative;">
+              <i class="ri-search-line" style="position: absolute; left: 0.65rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 0.85rem;"></i>
+              <input type="text" id="modal-search-text" class="form-input" placeholder="Buscar pedido, cliente, comuna..." value="" style="padding-left: 1.85rem; font-size: 0.78rem; width: 100%; height: 34px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <!-- Fila de Selección y Botón Imprimir -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding-top: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <button id="modal-btn-select-all" class="btn btn-sm btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+                ☑️ Seleccionar Filtrados
+              </button>
+              <button id="modal-btn-deselect-all" class="btn btn-sm btn-outline" style="padding: 0.25rem 0.55rem; font-size: 0.72rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); cursor: pointer;">
+                ◻️ Deseleccionar Todo
+              </button>
+              <span id="modal-selection-stats" style="font-size: 0.75rem; color: var(--color-text-muted); margin-left: 0.25rem;"></span>
+            </div>
+
+            <div style="display: flex; gap: 0.4rem; align-items: center;">
+              <button id="modal-btn-print-selected" class="btn btn-primary btn-sm" style="background: #7c3aed; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.3rem; font-size: 0.8rem; cursor: pointer;">
+                <i class="ri-printer-line"></i> Imprimir Selección
+              </button>
+              <button id="modal-btn-print-all-route" class="btn btn-outline btn-sm" style="border: 1px solid var(--color-border); color: var(--color-text-main); background: var(--color-bg); padding: 0.35rem 0.75rem; border-radius: var(--radius-md); font-weight: 600; display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer;">
+                Imprimir Todos (${allWaypoints.length})
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Tabla de Envíos del Modal -->
+        <div style="flex: 1; overflow-y: auto; padding: 0;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+            <thead style="position: sticky; top: 0; background: var(--color-surface); z-index: 10; border-bottom: 2px solid var(--color-border);">
+              <tr style="text-align: left;">
+                <th style="padding: 0.6rem 0.5rem; width: 40px; text-align: center;">
+                  <input type="checkbox" id="modal-master-checkbox" style="transform: scale(1.1); cursor: pointer;">
+                </th>
+                <th style="padding: 0.6rem 0.5rem; width: 70px;"># Orden</th>
+                <th style="padding: 0.6rem 0.5rem; width: 130px;">Pedido</th>
+                <th style="padding: 0.6rem 0.5rem; width: 140px;">Comercio</th>
+                <th style="padding: 0.6rem 0.5rem; min-width: 150px;">Destinatario / Contacto</th>
+                <th style="padding: 0.6rem 0.5rem; min-width: 180px;">Dirección / Comuna</th>
+                <th style="padding: 0.6rem 0.5rem; width: 130px;">Asignación</th>
+                <th style="padding: 0.6rem 0.5rem; width: 110px; text-align: center;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="modal-table-body">
+              <!-- Renderizado dinámico -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pie del Modal -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg);">
+          <div style="font-size: 0.75rem; color: var(--color-text-muted);">
+            WMS STOCKA - Etiquetas térmicas compatibles con impresoras Zebra, Xprinter y TSC (100x150mm)
+          </div>
+          <button id="btn-close-modal-footer" class="btn btn-outline btn-sm" style="padding: 0.35rem 0.85rem; border-radius: var(--radius-md);">
+            Cerrar
+          </button>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Referencias a elementos
+    const tbody = modal.querySelector('#modal-table-body');
+    const masterCheckbox = modal.querySelector('#modal-master-checkbox');
+    const selectionStatsSpan = modal.querySelector('#modal-selection-stats');
+    const btnPrintSelected = modal.querySelector('#modal-btn-print-selected');
+    const supplierBtnText = modal.querySelector('#modal-supplier-btn-text');
+    const toggleSupplierBtn = modal.querySelector('#modal-btn-toggle-supplier');
+    const supplierDropdownPanel = modal.querySelector('#modal-supplier-dropdown-panel');
+    const supplierDropdownArrow = modal.querySelector('#modal-supplier-dropdown-arrow');
+    const supplierWrapper = modal.querySelector('#modal-supplier-dropdown-wrapper');
+    const selectDriver = modal.querySelector('#modal-select-driver');
+    const searchInput = modal.querySelector('#modal-search-text');
+
+    // Función para actualizar tabla y contadores sin redibujar el modal
+    function updateTableAndStats() {
+      const filteredIndices = getFilteredIndices();
+      const selectedCount = Array.from(modalSelectedIndices).filter(idx => filteredIndices.includes(idx)).length;
+      const allFilteredChecked = filteredIndices.length > 0 && filteredIndices.every(idx => modalSelectedIndices.has(idx));
+
+      // Actualizar Master Checkbox
+      if (masterCheckbox) {
+        masterCheckbox.checked = allFilteredChecked;
+        masterCheckbox.indeterminate = !allFilteredChecked && selectedCount > 0;
+      }
+
+      // Actualizar Contadores
+      if (selectionStatsSpan) {
+        selectionStatsSpan.innerHTML = `Visibles: <strong>${filteredIndices.length}</strong> | Seleccionados: <strong style="color: #7c3aed;">${selectedCount}</strong>`;
+      }
+      if (btnPrintSelected) {
+        btnPrintSelected.innerHTML = `<i class="ri-printer-line"></i> Imprimir Selección (${selectedCount})`;
+      }
+
+      // Actualizar Botón de Comercio
+      if (supplierBtnText) {
+        supplierBtnText.textContent = getSupplierLabelText();
+      }
+      if (toggleSupplierBtn) {
+        toggleSupplierBtn.style.borderColor = selectedSuppliersSet.size < distinctSuppliers.length ? '#7c3aed' : 'var(--color-border)';
+      }
+
+      // Renderizar Filas de la Tabla
+      if (filteredIndices.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align: center; padding: 2.5rem; color: var(--color-text-muted);">
+              No se encontraron envíos con los filtros especificados.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filteredIndices.map(idx => {
+        const wp = allWaypoints[idx];
+        const isChecked = modalSelectedIndices.has(idx);
+        return `
+          <tr style="border-bottom: 1px solid var(--color-border); ${isChecked ? 'background: rgba(124, 58, 237, 0.04);' : ''}">
+            <td style="padding: 0.55rem 0.5rem; text-align: center;">
+              <input type="checkbox" class="modal-row-checkbox" data-idx="${idx}" ${isChecked ? 'checked' : ''} style="transform: scale(1.1); cursor: pointer;">
+            </td>
+            <td style="padding: 0.55rem 0.5rem; font-weight: 700; font-family: monospace; color: var(--color-text-main);">
+              <span class="badge" style="background: ${wp.is_intermediate ? '#ede9fe' : 'var(--color-bg)'}; color: ${wp.is_intermediate ? '#6d28d9' : 'var(--color-text-main)'}; border: 1px solid var(--color-border); font-size: 0.75rem; padding: 0.15rem 0.35rem; border-radius: 4px;">
+                #${wp.order} ${wp.is_intermediate ? 'INT' : ''}
+              </span>
+            </td>
+            <td style="padding: 0.55rem 0.5rem; font-weight: 700; font-family: monospace; color: var(--color-primary);">
+              ${escapeHtml(wp.reference || 'S/R')}
+            </td>
+            <td style="padding: 0.55rem 0.5rem;">
+              <span class="badge" style="background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-main); font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.35rem; border-radius: 4px;">
+                ${escapeHtml(wp.supplier || 'STOCKA')}
+              </span>
+            </td>
+            <td style="padding: 0.55rem 0.5rem;">
+              <div style="font-weight: 600; color: var(--color-text-main);">${escapeHtml(wp.name || 'Cliente sin nombre')}</div>
+              <div style="font-size: 0.72rem; color: var(--color-text-muted); font-family: monospace;">${wp.phone ? `+${String(wp.phone).replace(/\D/g, '')}` : 'Sin teléfono'}</div>
+            </td>
+            <td style="padding: 0.55rem 0.5rem;">
+              <div style="color: var(--color-text-main); line-height: 1.2;">${escapeHtml(wp.address || 'Sin dirección')}</div>
+              <div style="font-size: 0.72rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-top: 1px;">${escapeHtml(wp.comuna || '')}</div>
+            </td>
+            <td style="padding: 0.55rem 0.5rem; font-size: 0.75rem;">
+              <div style="font-weight: 600; color: var(--color-text-main);">${escapeHtml(wp.route_driver || 'Sin conductor')}</div>
+              <div style="color: var(--color-text-muted); font-family: monospace;">${escapeHtml(wp.route_vehicle || '')}</div>
+            </td>
+            <td style="padding: 0.55rem 0.5rem; text-align: center;">
+              <div style="display: flex; justify-content: center; gap: 0.25rem;">
+                <button class="btn btn-sm btn-outline modal-btn-preview-item" data-idx="${idx}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer;" title="Vista Previa">
+                  <i class="ri-eye-line"></i>
+                </button>
+                <button class="btn btn-sm btn-primary modal-btn-print-item" data-idx="${idx}" style="padding: 0.15rem 0.35rem; font-size: 0.72rem; border-radius: 4px; background: #7c3aed; color: white; border: none; cursor: pointer;" title="Imprimir Etiqueta">
+                  <i class="ri-printer-line"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Listeners para checkboxes de filas
+      tbody.querySelectorAll('.modal-row-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const idx = parseInt(e.target.getAttribute('data-idx'));
+          if (e.target.checked) {
+            modalSelectedIndices.add(idx);
+          } else {
+            modalSelectedIndices.delete(idx);
+          }
+          const tr = cb.closest('tr');
+          if (tr) {
+            tr.style.background = e.target.checked ? 'rgba(124, 58, 237, 0.04)' : '';
+          }
+          // Actualizar solo stats sin redibujar tabla completa
+          const currentFiltered = getFilteredIndices();
+          const currentSelected = Array.from(modalSelectedIndices).filter(i => currentFiltered.includes(i)).length;
+          const isAllChecked = currentFiltered.length > 0 && currentFiltered.every(i => modalSelectedIndices.has(i));
+          if (masterCheckbox) {
+            masterCheckbox.checked = isAllChecked;
+            masterCheckbox.indeterminate = !isAllChecked && currentSelected > 0;
+          }
+          if (selectionStatsSpan) {
+            selectionStatsSpan.innerHTML = `Visibles: <strong>${currentFiltered.length}</strong> | Seleccionados: <strong style="color: #7c3aed;">${currentSelected}</strong>`;
+          }
+          if (btnPrintSelected) {
+            btnPrintSelected.innerHTML = `<i class="ri-printer-line"></i> Imprimir Selección (${currentSelected})`;
+          }
+        });
+      });
+
+      // Listeners para botones de acción por fila
+      tbody.querySelectorAll('.modal-btn-preview-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-idx'));
+          const wp = allWaypoints[idx];
+          if (wp) openLabelPreviewModal(wp);
+        });
+      });
+      tbody.querySelectorAll('.modal-btn-print-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-idx'));
+          const wp = allWaypoints[idx];
+          if (wp) printWaypointsLabels([wp]);
+        });
+      });
+    }
+
+    // Actualizar visualmente los checkboxes del popover de comercio
+    function updateSupplierCheckboxesUI() {
+      modal.querySelectorAll('.modal-supplier-cb').forEach(cb => {
+        const suppName = cb.getAttribute('data-supplier');
+        const isChecked = selectedSuppliersSet.has(suppName);
+        cb.checked = isChecked;
+        const label = cb.closest('.modal-supplier-label');
+        if (label) {
+          label.style.background = isChecked ? 'rgba(124, 58, 237, 0.08)' : '';
+          const nameSpan = label.querySelector('span');
+          if (nameSpan) nameSpan.style.fontWeight = isChecked ? '700' : '500';
+        }
+      });
+    }
+
+    // Render inicial de tabla y contadores
+    updateTableAndStats();
+
+    // --- EVENT LISTENERS DEL MODAL (Registrados 1 sola vez) ---
+    const closeModal = () => modal.remove();
+    modal.querySelector('#close-labels-modal')?.addEventListener('click', closeModal);
+    modal.querySelector('#btn-close-modal-footer')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Toggle Dropdown de Comercio
+    toggleSupplierBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = supplierDropdownPanel.style.display === 'block';
+      supplierDropdownPanel.style.display = isVisible ? 'none' : 'block';
+      if (supplierDropdownArrow) {
+        supplierDropdownArrow.style.transform = isVisible ? 'none' : 'rotate(180deg)';
+      }
+    });
+
+    // Checkboxes individuales del dropdown de comercios
+    modal.querySelectorAll('.modal-supplier-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const suppName = cb.getAttribute('data-supplier');
+        if (cb.checked) {
+          selectedSuppliersSet.add(suppName);
+        } else {
+          selectedSuppliersSet.delete(suppName);
+        }
+        updateSupplierCheckboxesUI();
+        updateTableAndStats();
+      });
+    });
+
+    // Botón "Todos" del dropdown
+    modal.querySelector('#modal-supplier-select-all-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      distinctSuppliers.forEach(s => selectedSuppliersSet.add(s.name));
+      updateSupplierCheckboxesUI();
+      updateTableAndStats();
+    });
+
+    // Botón "Ninguno" del dropdown
+    modal.querySelector('#modal-supplier-deselect-all-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedSuppliersSet.clear();
+      updateSupplierCheckboxesUI();
+      updateTableAndStats();
+    });
+
+    // Cerrar dropdown al hacer click fuera
+    document.addEventListener('click', (e) => {
+      if (supplierWrapper && !supplierWrapper.contains(e.target)) {
+        if (supplierDropdownPanel) supplierDropdownPanel.style.display = 'none';
+        if (supplierDropdownArrow) supplierDropdownArrow.style.transform = 'none';
+      }
+    });
+
+    // Filtro Conductor
+    selectDriver?.addEventListener('change', (e) => {
+      currentFilterDriver = e.target.value;
+      updateTableAndStats();
+    });
+
+    // Buscador
+    searchInput?.addEventListener('input', (e) => {
+      currentSearchTerm = e.target.value;
+      updateTableAndStats();
+    });
+
+    // Master Checkbox
+    masterCheckbox?.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const currentFiltered = getFilteredIndices();
+      if (isChecked) {
+        currentFiltered.forEach(i => modalSelectedIndices.add(i));
+      } else {
+        currentFiltered.forEach(i => modalSelectedIndices.delete(i));
+      }
+      updateTableAndStats();
+    });
+
+    // Botón "Seleccionar Filtrados"
+    modal.querySelector('#modal-btn-select-all')?.addEventListener('click', () => {
+      getFilteredIndices().forEach(i => modalSelectedIndices.add(i));
+      updateTableAndStats();
+    });
+
+    // Botón "Deseleccionar Todo"
+    modal.querySelector('#modal-btn-deselect-all')?.addEventListener('click', () => {
+      modalSelectedIndices.clear();
+      updateTableAndStats();
+    });
+
+    // Botón "Imprimir Selección"
+    btnPrintSelected?.addEventListener('click', () => {
+      const currentFiltered = getFilteredIndices();
+      const selectedWaypoints = Array.from(modalSelectedIndices)
+        .filter(idx => currentFiltered.includes(idx))
+        .map(idx => allWaypoints[idx])
+        .filter(Boolean);
+      
+      if (selectedWaypoints.length === 0) {
+        alert('Por favor selecciona al menos una etiqueta para imprimir.');
+        return;
+      }
+      printWaypointsLabels(selectedWaypoints);
+    });
+
+    // Botón "Imprimir Toda la Ruta"
+    modal.querySelector('#modal-btn-print-all-route')?.addEventListener('click', () => {
+      printWaypointsLabels(allWaypoints);
+    });
+
+    // Botón "➕ Punto Intermedio"
+    modal.querySelector('#modal-btn-add-intermediate')?.addEventListener('click', () => {
+      openAddIntermediatePointModal(() => {
+        closeModal();
+        openOptirouteLabelsModal();
+      });
+    });
+  }
+
+  // Modal para Añadir Pedidos / Puntos Intermedios en la Ruta
+  function openAddIntermediatePointModal(onSuccessCallback) {
+    const modalId = 'optiroute-add-intermediate-modal';
+    const existing = document.getElementById(modalId);
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(15, 23, 42, 0.75)';
+    modal.style.zIndex = '100001';
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.animation = 'fadeIn 0.2s ease';
+    modal.style.padding = '1rem';
+
+    // Lista de paradas actuales para elegir punto de inserción
+    const sortedWaypoints = [...allWaypoints].sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+    
+    // Lista de comercios existentes
+    const distinctSuppliers = Array.from(new Set(allWaypoints.map(w => w.supplier).filter(Boolean)));
+    const defaultDriver = allWaypoints[0]?.route_driver || allWaypoints[0]?.route_vehicle || '';
+    const defaultVehicle = allWaypoints[0]?.route_vehicle || '';
+    const defaultRouteName = allWaypoints[0]?.route_name || 'Ruta Optiroute';
+
+    modal.innerHTML = `
+      <div class="card" style="width: 720px; max-width: 95%; max-height: 94vh; display: flex; flex-direction: column; background: var(--color-surface); border: 1px solid var(--color-border); box-shadow: var(--shadow-lg); border-radius: var(--radius-lg); overflow: hidden; animation: scaleUp 0.2s ease;">
+        
+        <!-- Encabezado -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--color-border); background: var(--color-bg);">
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-add-circle-line" style="color: #7c3aed;"></i> Añadir Pedido / Punto Intermedio a la Ruta
+            </h3>
+            <p style="margin: 0.15rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+              Crea una parada intermedia registrada internamente en el WMS y genera su etiqueta de despacho.
+            </p>
+          </div>
+          <button id="close-int-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--color-text-muted);">&times;</button>
+        </div>
+
+        <!-- Formulario con scroll -->
+        <div style="flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem;">
+          
+          <!-- Sección Posición en la Ruta -->
+          <div style="background: var(--color-bg); padding: 0.85rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); display: flex; flex-direction: column; gap: 0.6rem;">
+            <label style="font-size: 0.8rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.3rem;">
+              <i class="ri-map-pin-range-line" style="color: #7c3aed;"></i> 1. Ubicación y Posición en la Ruta
+            </label>
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem; align-items: flex-end;">
+              <div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">Insertar después de la parada:</span>
+                <select id="int-select-predecessor" class="form-input" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+                  <option value="0">Al inicio (Antes de la parada #1)</option>
+                  ${sortedWaypoints.map((wp, i) => `
+                    <option value="${wp.order}" ${i === 0 ? 'selected' : ''}>
+                      Parada #${wp.order} - ${wp.reference} (${wp.name})
+                    </option>
+                  `).join('')}
+                </select>
+              </div>
+              <div>
+                <span style="font-size: 0.75rem; color: var(--color-text-muted); display: block; margin-bottom: 0.2rem;">N° Parada / Orden:</span>
+                <input type="text" id="int-input-order" class="form-input" value="1.1" style="width: 100%; height: 34px; font-size: 0.85rem; font-weight: 700; text-align: center; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: #7c3aed;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Búsqueda Rápida en WMS (Autocompletado) -->
+          <div style="position: relative;">
+            <label style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.2rem;">
+              🔍 Autocompletar desde Pedidos WMS (Opcional):
+            </label>
+            <input type="text" id="int-input-wms-search" class="form-input" placeholder="Escribe el número de pedido o nombre de cliente para buscar..." style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            <div id="int-wms-search-results" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-lg); z-index: 50; max-height: 180px; overflow-y: auto;"></div>
+          </div>
+
+          <!-- Campos del Pedido en Grid -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">N° Pedido / Referencia *</label>
+              <input type="text" id="int-field-reference" class="form-input" placeholder="Ej: BIT11046996" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Comercio / Proveedor *</label>
+              <input type="text" id="int-field-supplier" class="form-input" list="int-suppliers-datalist" placeholder="Ej: BACK IN TIME" value="${distinctSuppliers[0] || 'STOCKA'}" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+              <datalist id="int-suppliers-datalist">
+                ${distinctSuppliers.map(s => `<option value="${s}">`).join('')}
+              </datalist>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Nombre Destinatario *</label>
+              <input type="text" id="int-field-name" class="form-input" placeholder="Nombre completo" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Teléfono Destino (para WhatsApp) *</label>
+              <input type="text" id="int-field-phone" class="form-input" placeholder="Ej: 954015435" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Dirección de Entrega (Calle y N°) *</label>
+              <input type="text" id="int-field-address" class="form-input" placeholder="Ej: General Dunhan 798" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Complemento (Depto / Casa)</label>
+              <input type="text" id="int-field-complemento" class="form-input" placeholder="Ej: Casa / Depto 402" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Comuna / Zona de Entrega *</label>
+              <input type="text" id="int-field-comuna" class="form-input" placeholder="Ej: ÑUÑOA" required style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Email del Destinatario (Opcional)</label>
+              <input type="email" id="int-field-email" class="form-input" placeholder="cliente@correo.cl" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Conductor / Asignación</label>
+              <input type="text" id="int-field-driver" class="form-input" value="${defaultDriver}" placeholder="Ej: N1 / Nicolás" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Vehículo</label>
+              <input type="text" id="int-field-vehicle" class="form-input" value="${defaultVehicle}" placeholder="Ej: N1 / Camión 1" style="width: 100%; height: 34px; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);">
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-main); display: block; margin-bottom: 0.15rem;">Notas / Instrucciones de Entrega</label>
+            <textarea id="int-field-notes" class="form-input" rows="2" placeholder="Ej: Dejar con conserje si no responde el timbre" style="width: 100%; font-size: 0.8rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-main);"></textarea>
+          </div>
+
+        </div>
+
+        <!-- Pie de Botones -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-bg); gap: 0.5rem; flex-wrap: wrap;">
+          <button id="btn-cancel-int" class="btn btn-outline btn-sm" style="padding: 0.4rem 0.8rem; border-radius: var(--radius-md);">
+            Cancelar
+          </button>
+          
+          <div style="display: flex; gap: 0.5rem;">
+            <button id="btn-save-int-only" class="btn btn-outline btn-sm" style="border: 1px solid #7c3aed; color: #7c3aed; background: var(--color-surface); padding: 0.4rem 0.9rem; border-radius: var(--radius-md); font-weight: 600; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-save-line"></i> Guardar en Ruta
+            </button>
+            <button id="btn-save-int-and-print" class="btn btn-primary btn-sm" style="background: #7c3aed; color: white; border: none; padding: 0.4rem 1rem; border-radius: var(--radius-md); font-weight: 700; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-printer-line"></i> Guardar e Imprimir Etiqueta
+            </button>
+          </div>
+        </div>
+
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+    modal.querySelector('#close-int-modal')?.addEventListener('click', closeModal);
+    modal.querySelector('#btn-cancel-int')?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    // Cálculo automático del número de orden al cambiar el predecesor
+    const predecessorSelect = modal.querySelector('#int-select-predecessor');
+    const orderInput = modal.querySelector('#int-input-order');
+
+    function calculateIntermediateOrder(afterVal) {
+      const parsedAfter = parseFloat(afterVal);
+      if (parsedAfter === 0) {
+        return '0.5';
+      }
+      // Buscar si ya existen decimales con esta base (ej. 1.1, 1.2)
+      const existingDecimals = allWaypoints
+        .map(w => parseFloat(w.order))
+        .filter(o => !isNaN(o) && Math.floor(o) === Math.floor(parsedAfter) && o > parsedAfter)
+        .sort((a, b) => a - b);
+
+      if (existingDecimals.length > 0) {
+        const lastDecimal = existingDecimals[existingDecimals.length - 1];
+        return (lastDecimal + 0.1).toFixed(1);
+      }
+      return (parsedAfter + 0.1).toFixed(1);
+    }
+
+    predecessorSelect?.addEventListener('change', (e) => {
+      orderInput.value = calculateIntermediateOrder(e.target.value);
+    });
+
+    // Búsqueda Rápida en Supabase de pedidos existentes para autocompletar
+    const wmsSearchInput = modal.querySelector('#int-input-wms-search');
+    const wmsSearchResults = modal.querySelector('#int-wms-search-results');
+    let searchDebounce = null;
+
+    wmsSearchInput?.addEventListener('input', (e) => {
+      const q = e.target.value.trim();
+      clearTimeout(searchDebounce);
+      if (q.length < 2) {
+        wmsSearchResults.style.display = 'none';
+        return;
+      }
+      searchDebounce = setTimeout(async () => {
+        try {
+          const { data: results } = await supabase
+            .from('optiroute_orders')
+            .select('*')
+            .or(`referencia.ilike.%${q}%,nombre_destinatario.ilike.%${q}%,id.ilike.%${q}%`)
+            .limit(6);
+
+          if (results && results.length > 0) {
+            wmsSearchResults.innerHTML = results.map(r => `
+              <div class="wms-search-item" data-id="${r.id}" style="padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-border); cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+                <div>
+                  <strong style="color: var(--color-primary);">${r.referencia || r.id}</strong> - ${r.nombre_destinatario || 'Sin nombre'}
+                  <div style="font-size: 0.7rem; color: var(--color-text-muted);">${r.direccion_destino || ''} (${r.comuna_destino || ''})</div>
+                </div>
+                <span class="badge" style="font-size: 0.65rem;">${r.empresa_comercio_proveedor || 'STOCKA'}</span>
+              </div>
+            `).join('');
+            wmsSearchResults.style.display = 'block';
+
+            wmsSearchResults.querySelectorAll('.wms-search-item').forEach(item => {
+              item.addEventListener('mouseenter', () => item.style.background = 'var(--color-bg)');
+              item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+              item.addEventListener('click', () => {
+                const selId = item.getAttribute('data-id');
+                const matched = results.find(r => r.id === selId);
+                if (matched) {
+                  modal.querySelector('#int-field-reference').value = matched.referencia || matched.id || '';
+                  modal.querySelector('#int-field-supplier').value = matched.empresa_comercio_proveedor || 'STOCKA';
+                  modal.querySelector('#int-field-name').value = matched.nombre_destinatario || '';
+                  modal.querySelector('#int-field-phone').value = matched.telefono_destino || '';
+                  modal.querySelector('#int-field-address').value = matched.direccion_destino || '';
+                  modal.querySelector('#int-field-complemento').value = matched.complemento_destino || '';
+                  modal.querySelector('#int-field-comuna').value = matched.comuna_destino || '';
+                  modal.querySelector('#int-field-email').value = matched.email_cliente_destino || '';
+                }
+                wmsSearchResults.style.display = 'none';
+                wmsSearchInput.value = matched ? `${matched.referencia} (${matched.nombre_destinatario})` : '';
+              });
+            });
+          } else {
+            wmsSearchResults.innerHTML = `<div style="padding: 0.5rem; font-size: 0.75rem; color: var(--color-text-muted); text-align: center;">No se encontraron coincidencias.</div>`;
+            wmsSearchResults.style.display = 'block';
+          }
+        } catch (err) {
+          console.warn('Error buscando pedidos en WMS:', err);
+        }
+      }, 300);
+    });
+
+    // Función para procesar guardado
+    async function handleSaveIntermediate(printAfterSave = false) {
+      const ref = modal.querySelector('#int-field-reference').value.trim();
+      const supplier = modal.querySelector('#int-field-supplier').value.trim() || 'STOCKA';
+      const name = modal.querySelector('#int-field-name').value.trim();
+      const phone = modal.querySelector('#int-field-phone').value.trim();
+      const address = modal.querySelector('#int-field-address').value.trim();
+      const complemento = modal.querySelector('#int-field-complemento').value.trim();
+      const comuna = modal.querySelector('#int-field-comuna').value.trim();
+      const email = modal.querySelector('#int-field-email').value.trim();
+      const driver = modal.querySelector('#int-field-driver').value.trim();
+      const vehicle = modal.querySelector('#int-field-vehicle').value.trim();
+      const notes = modal.querySelector('#int-field-notes').value.trim();
+      const rawOrder = modal.querySelector('#int-input-order').value.trim();
+
+      if (!ref) {
+        alert('Por favor ingresa el número de pedido o referencia.');
+        return;
+      }
+      if (!name) {
+        alert('Por favor ingresa el nombre del destinatario.');
+        return;
+      }
+      if (!address) {
+        alert('Por favor ingresa la dirección de entrega.');
+        return;
+      }
+      if (!comuna) {
+        alert('Por favor ingresa la comuna de entrega.');
+        return;
+      }
+
+      const assignedOrder = parseFloat(rawOrder) || rawOrder;
+      const selectRoutePlans = document.getElementById('select-route-plans');
+      const currentRouteId = selectRoutePlans?.value || 'CUSTOM';
+
+      const saveBtn1 = modal.querySelector('#btn-save-int-only');
+      const saveBtn2 = modal.querySelector('#btn-save-int-and-print');
+      if (saveBtn1) saveBtn1.disabled = true;
+      if (saveBtn2) saveBtn2.disabled = true;
+
+      try {
+        const uniqueId = `INT-${Date.now()}`;
+        const newWaypointObj = {
+          order: assignedOrder,
+          reference: ref,
+          name: name,
+          phone: phone,
+          email: email,
+          address: address,
+          complemento: complemento,
+          comuna: comuna,
+          note: notes,
+          supplier: supplier,
+          route_vehicle: vehicle,
+          route_driver: driver,
+          route_name: defaultRouteName,
+          is_intermediate: true,
+          status: 'Ingresado (Punto Intermedio)',
+          status_code: 0,
+          images: [],
+          address_status: 1
+        };
+
+        // Guardar en Supabase optiroute_orders
+        const { error: dbError } = await supabase
+          .from('optiroute_orders')
+          .upsert({
+            id: uniqueId,
+            referencia: ref,
+            empresa_comercio_proveedor: supplier,
+            courier: 'STOCKA X',
+            status: 'SCHEDULED',
+            servicio_tipo_envio: 'SAME DAY/24 HRS',
+            nombre_destinatario: name,
+            telefono_destino: phone,
+            email_cliente_destino: email || null,
+            direccion_destino: address,
+            complemento_destino: complemento || null,
+            comuna_destino: comuna,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            raw_data: {
+              is_intermediate: true,
+              notes: notes,
+              route_plan: { id: currentRouteId, name: defaultRouteName },
+              waypoint: {
+                id: uniqueId,
+                order: assignedOrder,
+                customer_order: assignedOrder,
+                route_vehicle: vehicle,
+                route_driver: driver,
+                route_name: defaultRouteName,
+                note: notes,
+                status_name: 'SCHEDULED',
+                status: 1
+              }
+            }
+          });
+
+        if (dbError) {
+          console.error('Error guardando punto intermedio en base de datos:', dbError);
+          alert('Hubo un error al guardar en la base de datos: ' + dbError.message);
+          if (saveBtn1) saveBtn1.disabled = false;
+          if (saveBtn2) saveBtn2.disabled = false;
+          return;
+        }
+
+        // Agregar al estado global allWaypoints
+        allWaypoints.push(newWaypointObj);
+        allWaypoints.sort((a, b) => parseFloat(a.order || 0) - parseFloat(b.order || 0));
+
+        // Actualizar tabla principal y filtros
+        populateFilterDropdowns();
+        applyFilters();
+
+        alert(`✅ Pedido intermedio #${assignedOrder} (${ref}) guardado y registrado en la ruta exitosamente.`);
+        closeModal();
+
+        if (typeof onSuccessCallback === 'function') {
+          onSuccessCallback();
+        }
+
+        if (printAfterSave) {
+          printWaypointsLabels([newWaypointObj]);
+        }
+      } catch (err) {
+        console.error('Error procesando punto intermedio:', err);
+        alert('Error inesperado: ' + err.message);
+        if (saveBtn1) saveBtn1.disabled = false;
+        if (saveBtn2) saveBtn2.disabled = false;
+      }
+    }
+
+    modal.querySelector('#btn-save-int-only')?.addEventListener('click', () => handleSaveIntermediate(false));
+    modal.querySelector('#btn-save-int-and-print')?.addEventListener('click', () => handleSaveIntermediate(true));
   }
 
   // Lightbox Modal para fotos de entrega
@@ -1855,7 +3141,7 @@ export async function renderOptirouteSupport() {
     lightbox.id = 'optiroute-lightbox-overlay';
     lightbox.style.position = 'fixed';
     lightbox.style.inset = '0';
-    lightbox.style.background = 'rgba(15, 23, 42, 0.9)'; // Dark slate background
+    lightbox.style.background = 'rgba(15, 23, 42, 0.9)';
     lightbox.style.zIndex = '99999';
     lightbox.style.display = 'flex';
     lightbox.style.alignItems = 'center';
@@ -1863,11 +3149,19 @@ export async function renderOptirouteSupport() {
     lightbox.style.animation = 'fadeIn 0.25s ease';
 
     lightbox.innerHTML = `
-      <div style="position: relative; max-width: 90%; max-height: 85vh; border-radius: var(--radius-lg); overflow: hidden; border: 2px solid var(--color-border); box-shadow: var(--shadow-lg); background: black;">
-        <img src="${imageUrl}" style="max-width: 100%; max-height: 80vh; display: block; object-fit: contain;">
+      <div style="position: relative; max-width: 90%; max-height: 90vh; border-radius: var(--radius-lg); overflow: hidden; border: 2px solid var(--color-border); box-shadow: var(--shadow-lg); background: black; display: flex; flex-direction: column; align-items: center;">
+        <img src="${imageUrl}" style="max-width: 100%; max-height: 75vh; display: block; object-fit: contain;">
         <button id="close-lightbox" style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; cursor: pointer; transition: all 0.2s;">&times;</button>
-        <div style="background: rgba(0,0,0,0.7); color: white; padding: 0.75rem 1rem; font-size: 0.8rem; text-align: center; border-top: 1px solid rgba(255,255,255,0.1);">
-          Comprobante de Entrega Optiroute
+        <div style="background: rgba(15, 23, 42, 0.95); color: white; padding: 0.75rem 1.25rem; font-size: 0.85rem; width: 100%; text-align: center; border-top: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+          <span style="color: #94a3b8; font-weight: 600;">📷 Comprobante de Entrega Optiroute</span>
+          <div style="display: flex; gap: 0.5rem;">
+            <button id="btn-copy-photo-url" class="btn btn-sm" style="background: #2563eb; color: white; border: none; padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-file-copy-line"></i> 🔗 Copiar Enlace Público
+            </button>
+            <a href="${imageUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 0.35rem 0.75rem; font-size: 0.75rem; border-radius: 4px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-external-link-line"></i> Abrir en Nueva Pestaña
+            </a>
+          </div>
         </div>
       </div>
     `;
@@ -1876,6 +3170,24 @@ export async function renderOptirouteSupport() {
 
     const closeBtn = lightbox.querySelector('#close-lightbox');
     closeBtn.addEventListener('click', () => lightbox.remove());
+
+    const copyBtn = lightbox.querySelector('#btn-copy-photo-url');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(imageUrl).then(() => {
+          copyBtn.innerHTML = '<i class="ri-check-line"></i> ¡Enlace Copiado!';
+          copyBtn.style.background = '#059669';
+          setTimeout(() => {
+            copyBtn.innerHTML = '<i class="ri-file-copy-line"></i> 🔗 Copiar Enlace Público';
+            copyBtn.style.background = '#2563eb';
+          }, 2500);
+        }).catch(err => {
+          console.error('Error al copiar enlace:', err);
+        });
+      });
+    }
+
     lightbox.addEventListener('click', (e) => {
       if (e.target === lightbox) lightbox.remove();
     });
