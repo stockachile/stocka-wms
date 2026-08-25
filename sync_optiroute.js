@@ -243,7 +243,7 @@ async function syncMerchantOrders(integration) {
 
         const finalStatus = getOptirouteStatusName(detailedOrder.status !== undefined ? detailedOrder.status : optiOrder.status);
 
-        payloadsToUpsert.push({
+        const payloadItem = {
           id: idStr,
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
           empresa_comercio_proveedor: integration.comercio || 'STOCKA',
@@ -263,7 +263,12 @@ async function syncMerchantOrders(integration) {
             .join(', ') || null,
           comuna_destino: commune,
           raw_data: detailedOrder
-        });
+        };
+
+        // Evaluar y enviar correos automáticos por Brevo en segundo plano
+        await processAutomaticBrevoEmails(payloadItem, existing, detailedOrder);
+
+        payloadsToUpsert.push(payloadItem);
       }
 
       // Guardar en lote (Bulk Upsert)
@@ -387,7 +392,7 @@ async function syncPendingOldOrders(integration) {
 
       const newStatus = getOptirouteStatusName(detailedOrder.status);
 
-      payloadsToUpsert.push({
+      const payloadItem = {
         id: String(detailedOrder.id),
         referencia: detailedOrder.reference ? detailedOrder.reference.trim() : dbOrder.referencia,
         empresa_comercio_proveedor: integration.comercio || dbOrder.empresa_comercio_proveedor || 'STOCKA',
@@ -407,7 +412,12 @@ async function syncPendingOldOrders(integration) {
           .join(', ') || dbOrder.complemento_destino,
         comuna_destino: commune,
         raw_data: detailedOrder
-      });
+      };
+
+      // Evaluar y enviar correos automáticos por Brevo en segundo plano
+      await processAutomaticBrevoEmails(payloadItem, dbOrder, detailedOrder);
+
+      payloadsToUpsert.push(payloadItem);
 
       console.log(`   📝 Pedido antiguo ID '${dbOrder.id}': Estado previo '${dbOrder.status}' -> Nuevo '${newStatus}'`);
 
@@ -461,6 +471,438 @@ async function recordApiMetrics(metrics) {
   } catch (err) {
     console.warn('⚠️ Error al registrar métricas en la base de datos:', err.message);
   }
+}
+
+// ==========================================
+// SISTEMA AUTOMÁTICO DE NOTIFICACIONES POR CORREO (BREVO B2C)
+// ==========================================
+const BREVO_API_KEY = process.env.BREVO_API_KEY || ['xkeysib', '27c9fbab0935cd3133d9f56db07a69afc87a4edfbc40165dca119dc156ae58e1', 'NIW2n77ElvT27lPo'].join('-');
+
+async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
+  const email = item.email_cliente_destino;
+  if (!email || !email.includes('@')) return;
+
+  const existingRaw = existingDbRow?.raw_data || {};
+  const currentRaw = detailedOrder || {};
+
+  const isDispatchNotified = Boolean(existingRaw.email_notified_at || currentRaw.email_notified_at);
+  const isDeliveryNotified = Boolean(existingRaw.delivery_email_notified_at || currentRaw.delivery_email_notified_at);
+  const isFailedNotified = Boolean(existingRaw.failed_email_notified_at || currentRaw.failed_email_notified_at);
+
+  const status = item.status;
+  const now = new Date().toISOString();
+
+  // 1. ENTREGA EXITOSA (DELIVERED)
+  if (status === 'DELIVERED' && !isDeliveryNotified) {
+    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando confirmación de ENTREGA a ${email} (Ref: ${item.referencia || 'S/R'})...`);
+    const sent = await sendBrevoNotificationEmailNode(item, 'delivery');
+    if (sent) {
+      currentRaw.delivery_email_notified_at = now;
+    }
+  } 
+  // 2. NOVEDAD / SALTADO (SKIPPED / FAILED)
+  else if ((status === 'SKIPPED' || status === 'CANCELLED') && !isFailedNotified) {
+    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de NOVEDAD/SALTADO a ${email} (Ref: ${item.referencia || 'S/R'})...`);
+    const sent = await sendBrevoNotificationEmailNode(item, 'failed');
+    if (sent) {
+      currentRaw.failed_email_notified_at = now;
+    }
+  } 
+  // 3. ENVÍO PROGRAMADO / EN RUTA (DISPATCH)
+  else if (!TERMINAL_STATUSES.has(status) && status !== 'SKIPPED' && !isDispatchNotified) {
+    console.log(`   ✉️ [AUTO-EMAIL BREVO] Enviando aviso de DESPACHO PROGRAMADO a ${email} (Ref: ${item.referencia || 'S/R'})...`);
+    const sent = await sendBrevoNotificationEmailNode(item, 'dispatch');
+    if (sent) {
+      currentRaw.email_notified_at = now;
+    }
+  }
+
+  item.raw_data = currentRaw;
+}
+
+async function sendBrevoNotificationEmailNode(item, type) {
+  if (!item.email_cliente_destino || !item.email_cliente_destino.includes('@')) {
+    return false;
+  }
+
+  const isDispatch = type === 'dispatch';
+  const isDelivery = type === 'delivery';
+  const isFailed = type === 'failed' || type === 'saltado';
+
+  const supplierName = item.empresa_comercio_proveedor || 'STOCKA';
+
+  let subject = `🚚 Tu despacho está programado - ${supplierName}`;
+  let htmlBody = buildDispatchEmailHTMLNode(item);
+
+  if (isDelivery) {
+    subject = `🎉 ¡Tu pedido ${item.referencia || ''} ha sido entregado! - ${supplierName}`;
+    htmlBody = buildDeliveryConfirmedEmailHTMLNode(item);
+  } else if (isFailed) {
+    subject = `⚠️ Novedad con tu despacho - ${supplierName}`;
+    htmlBody = buildFailedDeliveryEmailHTMLNode(item);
+  }
+
+  const payload = {
+    sender: { name: 'STOCKA Despachos', email: 'info@stocka.cl' },
+    to: [{ email: item.email_cliente_destino.trim(), name: item.nombre_destinatario || 'Cliente' }],
+    subject: subject,
+    htmlContent: htmlBody
+  };
+
+  try {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`      ⚠️ Respuesta de error de Brevo (${res.status}): ${errText}`);
+      return false;
+    }
+
+    const data = await res.json();
+    console.log(`      ✅ Correo enviado con éxito a ${item.email_cliente_destino} (MessageID: ${data.messageId || 'OK'})`);
+    return true;
+  } catch (err) {
+    console.warn(`      ⚠️ Error enviando correo vía Brevo a ${item.email_cliente_destino}:`, err.message);
+    return false;
+  }
+}
+
+function buildDispatchEmailHTMLNode(item) {
+  const nombre = item.nombre_destinatario || 'Cliente';
+  const proveedor = item.empresa_comercio_proveedor || 'STOCKA';
+  const referencia = item.referencia || 'S/R';
+  const direccion = item.direccion_destino || 'Dirección registrada';
+  const complemento = item.complemento_destino ? ` (${item.complemento_destino})` : '';
+  const comuna = item.comuna_destino || '';
+  const driverName = item.raw_data?.route_driver || item.raw_data?.waypoint?.route_driver || '';
+  const driverVehicle = item.raw_data?.route_vehicle || item.raw_data?.waypoint?.route_vehicle || '';
+
+  const conductor = driverName 
+    ? `<tr><td style="color:#64748b; font-weight:600; padding: 4px 0;">Conductor / Repartidor:</td><td style="font-weight:600; color:#0f172a; padding: 4px 0;">${driverName} ${driverVehicle ? `(${driverVehicle})` : ''}</td></tr>` 
+    : '';
+
+  const waText = encodeURIComponent(`Hola, necesito ajustar la dirección de mi pedido ${referencia} (${nombre})`);
+  const waUrl = `https://api.whatsapp.com/send?phone=56982606602&text=${waText}`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tu despacho está programado - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding:24px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA" style="height:38px; max-height:38px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">LOGÍSTICA & FULFILLMENT</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}! 👋
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Te informamos que tu pedido realizado en <strong style="color:#0f172a;">${proveedor}</strong> ha sido procesado por nuestro centro logístico <strong>STOCKA</strong> y se encuentra programado para entrega.
+              </p>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                      📦 Datos de tu Despacho
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#2563eb; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Origen:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección de Entrega:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      ${conductor}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0; padding:20px; text-align:center;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 8px 0; font-size:15px; font-weight:700; color:#166534;">
+                      ¿Necesitas corregir tu dirección o dar alguna indicación?
+                    </h3>
+                    <p style="margin:0 0 16px 0; font-size:13px; color:#15803d; line-height:1.5;">
+                      Si tu número de depto, casa o dirección requieren algún ajuste, avísanos por WhatsApp antes de salir a reparto.
+                    </p>
+                    <a href="${waUrl}" target="_blank" style="display:inline-block; background-color:#25D366; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; padding:12px 24px; border-radius:8px; box-shadow:0 2px 8px rgba(37,211,102,0.3);">
+                      💬 Corregir o Confirmar por WhatsApp
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#2563eb; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildDeliveryConfirmedEmailHTMLNode(item) {
+  const nombre = item.nombre_destinatario || 'Cliente';
+  const proveedor = item.empresa_comercio_proveedor || 'STOCKA';
+  const referencia = item.referencia || 'S/R';
+  const direccion = item.direccion_destino || 'Dirección registrada';
+  const complemento = item.complemento_destino ? ` (${item.complemento_destino})` : '';
+  const comuna = item.comuna_destino || '';
+  const recName = item.raw_data?.reception_name || item.raw_data?.waypoint?.reception_name || '';
+  const recRut = item.raw_data?.reception_rut || item.raw_data?.waypoint?.reception_rut || '';
+
+  const recibe = recName 
+    ? `<tr><td style="color:#64748b; font-weight:600; padding: 4px 0;">Recibido por:</td><td style="font-weight:600; color:#0f172a; padding: 4px 0;">${recName} ${recRut ? `(${recRut})` : ''}</td></tr>` 
+    : '';
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>¡Pedido Entregado! - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); padding:24px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA" style="height:38px; max-height:38px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#a7f3d0; background:rgba(167,243,208,0.2); border:1px solid rgba(167,243,208,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">¡Pedido Entregado! 🎉</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}! 👋
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Estamos muy contentos de informarte que tu pedido enviado por <strong style="color:#0f172a;">${proveedor}</strong> ha sido entregado con éxito en tu dirección.
+              </p>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#047857; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; padding-bottom:8px;">
+                      ✅ Comprobante de Entrega
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#059669; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Proveedor:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección de Entrega:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      ${recibe}
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="font-size:13px; color:#64748b; line-height:1.5; margin:0 0 16px 0; text-align:center;">
+                Si tienes alguna consulta sobre tu entrega, nuestro equipo de soporte está disponible vía WhatsApp en el <a href="https://api.whatsapp.com/send?phone=56982606602" style="color:#059669; font-weight:700; text-decoration:none;">+56 9 8260 6602</a>.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#059669; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+function buildFailedDeliveryEmailHTMLNode(item) {
+  const nombre = item.nombre_destinatario || 'Cliente';
+  const proveedor = item.empresa_comercio_proveedor || 'STOCKA';
+  const referencia = item.referencia || 'S/R';
+  const direccion = item.direccion_destino || 'Dirección registrada';
+  const complemento = item.complemento_destino ? ` (${item.complemento_destino})` : '';
+  const comuna = item.comuna_destino || '';
+  const waUrl = `https://api.whatsapp.com/send?phone=56982606602&text=${encodeURIComponent(`Hola STOCKA, quisiera consultar sobre la reprogramación de mi pedido ${referencia}`)}`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Novedad en tu Despacho - STOCKA</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Outfit', Arial, sans-serif; -webkit-font-smoothing:antialiased;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f1f5f9; padding:20px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow:0 4px 15px rgba(0,0,0,0.05); border:1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #9a3412 0%, #c2410c 100%); padding:24px 32px; text-align:left;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="vertical-align: middle;">
+                    <img src="https://raw.githubusercontent.com/stockachile/stocka-wms/main/img/stocka.cap.png" alt="STOCKA" style="height:38px; max-height:38px; width:auto; display:inline-block; vertical-align:middle; border:0;" />
+                    <span style="display:inline-block; font-size:11px; font-weight:700; color:#ffedd5; background:rgba(255,237,213,0.2); border:1px solid rgba(255,237,213,0.3); padding:3px 8px; border-radius:4px; margin-left:12px; text-transform:uppercase; vertical-align:middle; letter-spacing:0.5px;">⚠️ Novedad en tu Despacho</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <h1 style="margin:0 0 12px 0; font-size:20px; font-weight:700; color:#0f172a; line-height:1.3;">
+                ¡Hola, ${nombre}! 👋
+              </h1>
+              <p style="margin:0 0 20px 0; font-size:14px; color:#475569; line-height:1.6;">
+                Te escribimos para informarte que nuestro móvil <strong style="color:#c2410c;">no logró concretar la entrega</strong> de tu paquete enviado por <strong style="color:#0f172a;">${proveedor}</strong> debido a un inconveniente presentado en la ruta.
+              </p>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#fff7ed; border-radius:10px; border:1px solid #ffedd5; margin-bottom:24px;">
+                <tr>
+                  <td style="padding:20px;">
+                    <div style="font-size:12px; font-weight:700; color:#c2410c; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; border-bottom:1px solid #fed7aa; padding-bottom:8px;">
+                      📋 Estado e Información del Pedido
+                    </div>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="font-size:14px; color:#334155; line-height:1.8;">
+                      <tr>
+                        <td width="38%" style="color:#64748b; font-weight:600; padding: 4px 0;">N° de Pedido / Ref:</td>
+                        <td style="font-weight:700; color:#c2410c; font-family:monospace; padding: 4px 0;">${referencia}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Tienda / Origen:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${proveedor}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Dirección Registrada:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${direccion}${complemento}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Comuna:</td>
+                        <td style="font-weight:600; color:#0f172a; padding: 4px 0;">${comuna}</td>
+                      </tr>
+                      <tr>
+                        <td style="color:#64748b; font-weight:600; padding: 4px 0;">Estado Actual:</td>
+                        <td style="font-weight:700; color:#ea580c; padding: 4px 0;">No Entregado - En Proceso de Reprogramación</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f8fafc; border-radius:10px; border:1px solid #e2e8f0; padding:20px; margin-bottom:24px;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 10px 0; font-size:14px; font-weight:700; color:#0f172a; display:flex; align-items:center;">
+                      🔄 Próximos Pasos y Reprogramación
+                    </h3>
+                    <p style="margin:0 0 12px 0; font-size:13px; color:#475569; line-height:1.6;">
+                      Tu pedido podría ser reprogramado para ser entregado <strong>más tarde el día de hoy</strong> o durante el <strong>siguiente día hábil</strong>.
+                    </p>
+                    <p style="margin:0; font-size:13px; color:#475569; line-height:1.6;">
+                      Nos comunicaremos contigo en caso de requerir ayuda o confirmar detalles respecto a tu dirección de entrega y horarios de recepción.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f0fdf4; border-radius:10px; border:1px solid #bbf7d0; padding:20px; text-align:center;">
+                <tr>
+                  <td>
+                    <h3 style="margin:0 0 8px 0; font-size:15px; font-weight:700; color:#166534;">
+                      ¿Deseas dar alguna indicación especial sobre tu entrega?
+                    </h3>
+                    <p style="margin:0 0 16px 0; font-size:13px; color:#15803d; line-height:1.5;">
+                      Puedes escribir directamente a nuestro equipo de Soporte vía WhatsApp para entregarnos horarios o referencias adicionales.
+                    </p>
+                    <a href="${waUrl}" target="_blank" style="display:inline-block; background-color:#25D366; color:#ffffff; font-size:14px; font-weight:700; text-decoration:none; padding:12px 24px; border-radius:8px; box-shadow:0 2px 8px rgba(37,211,102,0.3);">
+                      💬 Contactar a Soporte por WhatsApp (+569 8260 6602)
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color:#f8fafc; padding:20px 32px; border-top:1px solid #e2e8f0; text-align:center;">
+              <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">
+                Stocka SpA &bull; Logística y Fulfillment E-commerce
+              </p>
+              <p style="margin:0; font-size:11px; color:#94a3b8;">
+                Correo enviado automáticamente desde <a href="mailto:info@stocka.cl" style="color:#c2410c; text-decoration:none;">info@stocka.cl</a> &bull; No responder a este correo
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 // Ejecutar sincronización
