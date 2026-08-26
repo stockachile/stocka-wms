@@ -4368,30 +4368,30 @@ modal.style.position = 'fixed';
     }
 
     if (item.reference) {
-      supabase
-        .from('optiroute_orders')
-        .select('raw_data')
-        .eq('referencia', item.reference)
-        .single()
-        .then(({ data: rowData }) => {
-          if (rowData && rowData.raw_data) {
-            const currentRaw = rowData.raw_data || {};
-            if (isDispatch) {
-              currentRaw.email_notified_at = now;
-            } else if (isDelivery) {
-              currentRaw.delivery_email_notified_at = now;
-            } else if (isFailed) {
-              currentRaw.failed_email_notified_at = now;
-            }
-            supabase
-              .from('optiroute_orders')
-              .update({ raw_data: currentRaw })
-              .eq('referencia', item.reference)
-              .then(({ error }) => {
-                if (error) console.warn('Error actualizando raw_data en Supabase:', error.message);
-              });
+      try {
+        const { data: rowData } = await supabase
+          .from('optiroute_orders')
+          .select('raw_data')
+          .eq('referencia', item.reference)
+          .single();
+
+        if (rowData && rowData.raw_data) {
+          const currentRaw = rowData.raw_data || {};
+          if (isDispatch) {
+            currentRaw.email_notified_at = now;
+          } else if (isDelivery) {
+            currentRaw.delivery_email_notified_at = now;
+          } else if (isFailed) {
+            currentRaw.failed_email_notified_at = now;
           }
-        });
+          await supabase
+            .from('optiroute_orders')
+            .update({ raw_data: currentRaw })
+            .eq('referencia', item.reference);
+        }
+      } catch (errDb) {
+        console.warn('Error actualizando raw_data en Supabase:', errDb);
+      }
 
       // Si es punto intermedio, persistir también en su tabla dedicada y su caché local
       if (item.is_intermediate || String(item.order).includes('.')) {

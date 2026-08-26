@@ -243,6 +243,13 @@ async function syncMerchantOrders(integration) {
 
         const finalStatus = getOptirouteStatusName(detailedOrder.status !== undefined ? detailedOrder.status : optiOrder.status);
 
+        // Preservar siempre las marcas de correo previo guardadas en la base de datos
+        if (existing?.raw_data) {
+          if (existing.raw_data.email_notified_at) detailedOrder.email_notified_at = existing.raw_data.email_notified_at;
+          if (existing.raw_data.delivery_email_notified_at) detailedOrder.delivery_email_notified_at = existing.raw_data.delivery_email_notified_at;
+          if (existing.raw_data.failed_email_notified_at) detailedOrder.failed_email_notified_at = existing.raw_data.failed_email_notified_at;
+        }
+
         const payloadItem = {
           id: idStr,
           referencia: optiOrder.reference ? optiOrder.reference.trim() : null,
@@ -391,6 +398,13 @@ async function syncPendingOldOrders(integration) {
                     dbOrder.comuna_destino;
 
       const newStatus = getOptirouteStatusName(detailedOrder.status);
+
+      // Preservar marcas de correo previo guardadas en dbOrder
+      if (dbOrder?.raw_data) {
+        if (dbOrder.raw_data.email_notified_at) detailedOrder.email_notified_at = dbOrder.raw_data.email_notified_at;
+        if (dbOrder.raw_data.delivery_email_notified_at) detailedOrder.delivery_email_notified_at = dbOrder.raw_data.delivery_email_notified_at;
+        if (dbOrder.raw_data.failed_email_notified_at) detailedOrder.failed_email_notified_at = dbOrder.raw_data.failed_email_notified_at;
+      }
 
       const payloadItem = {
         id: String(detailedOrder.id),
