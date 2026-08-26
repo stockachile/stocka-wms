@@ -1,2 +1,11 @@
 /vcard /vcard.html 200
 /vcard.html /vcard.html 200
+/cotizar /cotizaciones.html 200
+/cotizador /cotizaciones.html 200
+/cotizaciones /cotizaciones.html 200
+/presentacion-fulfillment /downloads/presentacion_fulfillment_360.pdf 200
+/presentacion-despachos /downloads/presentacion_despachos_rm.pdf 200
+/presentacion-fulfillment.pdf /downloads/presentacion_fulfillment_360.pdf 200
+/presentacion-despachos.pdf /downloads/presentacion_despachos_rm.pdf 200
+/downloads/Tarifarios* /downloads/presentacion_fulfillment_360.pdf 200
+

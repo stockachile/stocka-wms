@@ -4,6 +4,7 @@ import { initChatWidget } from './chat.js';
 import { renderIncidenciasAdmin } from './incidencias.js?v=1.0.1';
 import { renderOptirouteSupport } from './optiroute_support.js';
 import { renderIdentityQRAdmin } from './identity_qr.js';
+import { renderPricingConfigAdmin } from './pricing_admin.js';
 
 window.ALPHA_COBERTURA_36 = [
   'cerrillos', 'cerro navia', 'conchali', 'el bosque', 'estacion central',
@@ -1337,6 +1338,9 @@ async function init() {
           } else if (view === 'visibility_rules_admin') {
             viewTitle.textContent = 'Reglas de Visibilidad';
             renderVisibilityRulesAdmin();
+          } else if (view === 'pricing_config_admin') {
+            viewTitle.textContent = 'Tarifas y Cotizador';
+            renderPricingConfigAdmin();
           } else if (view === 'integrations') {
             viewTitle.textContent = 'Integraciones';
             renderIntegrations();
@@ -28027,6 +28031,9 @@ function renderFoldersSidebar() {
     </li>
     
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
+    <li class="folder-item ${adminSelectedFolder === 'presentations_docs' ? 'active' : ''}" data-folder="presentations_docs" style="font-weight: 600;">
+      <span><i class="ri-slideshow-3-line folder-icon" style="color: #6366f1;"></i> Presentaciones Comerciales</span>
+    </li>
     <li class="folder-item ${adminSelectedFolder === 'contractual_docs' ? 'active' : ''}" data-folder="contractual_docs" style="font-weight: 600;">
       <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
     </li>
@@ -28081,6 +28088,9 @@ function filterAndRenderDocsTable() {
   if (fileListCard) {
     if (adminSelectedFolder === 'contractual_docs') {
       renderContractualDocsManager(fileListCard);
+      return;
+    } else if (adminSelectedFolder === 'presentations_docs') {
+      renderPresentationsDocsManager(fileListCard);
       return;
     } else {
       const isCustomRendered = !document.getElementById('admin-docs-table-body');
@@ -42699,6 +42709,292 @@ function showNewVersionAnnexModal(annex) {
       Swal.fire('Error', `No se pudo subir la nueva versión: ${err.message}`, 'error');
     }
   });
+}
+
+// ================================================================
+// Gestor Exclusivo de Presentaciones Comerciales (Cotizador y Email)
+// ================================================================
+
+async function renderPresentationsDocsManager(container) {
+  let pricingConfig = null;
+  try {
+    const { loadPricingConfig } = await import('./pricing_manager.js');
+    pricingConfig = await loadPricingConfig();
+  } catch (e) {
+    console.warn('Error loading pricing config for presentations:', e);
+    const local = localStorage.getItem('stocka_wms_pricing_config_v1');
+    pricingConfig = local ? JSON.parse(local) : null;
+  }
+
+  const pres = (pricingConfig && pricingConfig.presentations) ? pricingConfig.presentations : {
+    fulfillment_url: 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf',
+    fulfillment_name: 'Presentación de Servicio Fulfillment 360 (PDF)',
+    fulfillment_updated_at: '2026-08-25',
+    despachos_rm_url: 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf',
+    despachos_rm_name: 'Presentación de Despachos RM y Cobertura (PDF)',
+    despachos_rm_updated_at: '2026-08-25'
+  };
+
+  container.innerHTML = `
+    <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+      <div>
+        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-slideshow-3-line" style="color: #6366f1;"></i> Presentaciones Comerciales (Cotizador y Correo)
+        </h3>
+        <p style="margin: 0.25rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
+          Espacio exclusivo para cargar y actualizar los documentos oficiales que se adjuntan automáticamente en las cotizaciones por email y en el cotizador público.
+        </p>
+      </div>
+      <a href="./cotizaciones.html" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+        <i class="ri-external-link-line"></i> Abrir Cotizador Web
+      </a>
+    </div>
+
+    <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
+      <!-- TARJETA 1: PRESENTACIÓN FULFILLMENT 360 -->
+      <div class="card" style="padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 1.05rem; font-weight: 700; color: #5e17eb; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-box-3-fill"></i> 1. Presentación de Servicio Fulfillment 360
+            </h4>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              Documento explicativo de bodegaje, recepción, preparación Pick & Pack y tarifas por rangos.
+            </p>
+          </div>
+          <a href="${pres.fulfillment_url}" target="_blank" class="btn btn-outline" id="pres-fulfillment-preview-btn" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #5e17eb; border-color: #5e17eb; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-file-pdf-fill"></i> Ver Documento Actual
+          </a>
+        </div>
+
+        <div style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+            <span><strong style="color: var(--color-text-muted);">Enlace / Archivo Actual:</strong></span>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Actualizado: <strong id="pres-fulfillment-date-badge">${pres.fulfillment_updated_at || 'Reciente'}</strong></span>
+          </div>
+          <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.75rem; background: var(--color-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-xs); border: 1px solid var(--color-border);" id="pres-fulfillment-url-display">
+            ${pres.fulfillment_url}
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+          <div>
+            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
+              <i class="ri-upload-2-line"></i> Opción A: Cargar nuevo archivo PDF
+            </label>
+            <input type="file" id="pres-fulfillment-file-input" accept=".pdf" class="form-input" style="font-size: 0.8rem; padding: 0.4rem 0.6rem; width: 100%;">
+          </div>
+          <div>
+            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
+              <i class="ri-link"></i> Opción B: O ingresar URL Externa (Google Drive, Canva, etc.)
+            </label>
+            <input type="url" id="pres-fulfillment-url-input" class="form-input" placeholder="https://..." value="${pres.fulfillment_url.startsWith('http') ? pres.fulfillment_url : ''}" style="font-size: 0.8rem; width: 100%;">
+          </div>
+        </div>
+
+        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+          <button id="btn-save-pres-fulfillment" class="btn btn-primary" style="background-color: #5e17eb; color: #fff; font-weight: 600; font-size: 0.82rem; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-save-line"></i> Guardar Presentación Fulfillment
+          </button>
+        </div>
+      </div>
+
+      <!-- TARJETA 2: PRESENTACIÓN DESPACHOS RM Y FLEX -->
+      <div class="card" style="padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 1.05rem; font-weight: 700; color: #2563eb; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-truck-fill"></i> 2. Presentación de Despachos RM y Cobertura
+            </h4>
+            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
+              Documento explicativo del servicio Same Day RM, MercadoLibre Flex, horarios de corte y comunas de cobertura.
+            </p>
+          </div>
+          <a href="${pres.despachos_rm_url}" target="_blank" class="btn btn-outline" id="pres-despachos-preview-btn" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #2563eb; border-color: #2563eb; display: inline-flex; align-items: center; gap: 0.25rem;">
+            <i class="ri-file-pdf-fill"></i> Ver Documento Actual
+          </a>
+        </div>
+
+        <div style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
+            <span><strong style="color: var(--color-text-muted);">Enlace / Archivo Actual:</strong></span>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Actualizado: <strong id="pres-despachos-date-badge">${pres.despachos_rm_updated_at || 'Reciente'}</strong></span>
+          </div>
+          <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.75rem; background: var(--color-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-xs); border: 1px solid var(--color-border);" id="pres-despachos-url-display">
+            ${pres.despachos_rm_url}
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+          <div>
+            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
+              <i class="ri-upload-2-line"></i> Opción A: Cargar nuevo archivo PDF
+            </label>
+            <input type="file" id="pres-despachos-file-input" accept=".pdf" class="form-input" style="font-size: 0.8rem; padding: 0.4rem 0.6rem; width: 100%;">
+          </div>
+          <div>
+            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
+              <i class="ri-link"></i> Opción B: O ingresar URL Externa (Google Drive, Canva, etc.)
+            </label>
+            <input type="url" id="pres-despachos-url-input" class="form-input" placeholder="https://..." value="${pres.despachos_rm_url.startsWith('http') ? pres.despachos_rm_url : ''}" style="font-size: 0.8rem; width: 100%;">
+          </div>
+        </div>
+
+        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+          <button id="btn-save-pres-despachos" class="btn btn-primary" style="background-color: #2563eb; color: #fff; font-weight: 600; font-size: 0.82rem; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-save-line"></i> Guardar Presentación Despachos RM
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Bind handlers
+  const btnFulfillment = document.getElementById('btn-save-pres-fulfillment');
+  if (btnFulfillment) {
+    btnFulfillment.addEventListener('click', async () => {
+      const fileInput = document.getElementById('pres-fulfillment-file-input');
+      const urlInput = document.getElementById('pres-fulfillment-url-input');
+      const file = fileInput.files[0];
+      const rawUrl = urlInput.value.trim();
+
+      if (!file && !rawUrl) {
+        Swal.fire('Atención', 'Selecciona un archivo PDF o ingresa una URL válida.', 'warning');
+        return;
+      }
+
+      const originalHtml = btnFulfillment.innerHTML;
+      btnFulfillment.disabled = true;
+      btnFulfillment.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+      try {
+        let finalUrl = rawUrl;
+        let storagePath = null;
+
+        if (file) {
+          const timestamp = Date.now();
+          storagePath = `presentations/presentacion_fulfillment_360_${timestamp}.pdf`;
+          const { error: uploadError } = await supabase.storage
+            .from('service_docs')
+            .upload(storagePath, file, { upsert: true });
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage
+            .from('service_docs')
+            .getPublicUrl(storagePath);
+
+          finalUrl = urlData.publicUrl;
+        }
+
+        const { loadPricingConfig, savePricingConfig } = await import('./pricing_manager.js');
+        const currentConfig = await loadPricingConfig();
+        if (!currentConfig.presentations) currentConfig.presentations = {};
+
+        currentConfig.presentations.fulfillment_url = finalUrl;
+        currentConfig.presentations.fulfillment_storage_path = storagePath;
+        currentConfig.presentations.fulfillment_updated_at = new Date().toLocaleDateString('es-CL');
+
+        await savePricingConfig(currentConfig);
+
+        try {
+          await supabase.from('service_docs').upsert({
+            name: 'Presentación Servicio Fulfillment 360 (Oficial)',
+            description: 'Documento oficial adjuntado automáticamente en cotizaciones y correos.',
+            folder: 'PRESENTACIONES',
+            file_url: finalUrl,
+            storage_path: storagePath,
+            updated_at: new Date().toISOString(),
+            is_pinned: true
+          });
+        } catch (dbE) {
+          console.warn('Aviso registrando en service_docs:', dbE);
+        }
+
+        await Swal.fire('¡Actualizado!', 'La Presentación de Fulfillment 360 se ha actualizado con éxito. Las nuevas cotizaciones por correo y el cotizador web ya incluyen este documento.', 'success');
+        await renderPresentationsDocsManager(container);
+      } catch (err) {
+        console.error('Error guardando presentación fulfillment:', err);
+        Swal.fire('Error', 'No se pudo guardar la presentación: ' + err.message, 'error');
+      } finally {
+        btnFulfillment.disabled = false;
+        btnFulfillment.innerHTML = originalHtml;
+      }
+    });
+  }
+
+  const btnDespachos = document.getElementById('btn-save-pres-despachos');
+  if (btnDespachos) {
+    btnDespachos.addEventListener('click', async () => {
+      const fileInput = document.getElementById('pres-despachos-file-input');
+      const urlInput = document.getElementById('pres-despachos-url-input');
+      const file = fileInput.files[0];
+      const rawUrl = urlInput.value.trim();
+
+      if (!file && !rawUrl) {
+        Swal.fire('Atención', 'Selecciona un archivo PDF o ingresa una URL válida.', 'warning');
+        return;
+      }
+
+      const originalHtml = btnDespachos.innerHTML;
+      btnDespachos.disabled = true;
+      btnDespachos.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+
+      try {
+        let finalUrl = rawUrl;
+        let storagePath = null;
+
+        if (file) {
+          const timestamp = Date.now();
+          storagePath = `presentations/presentacion_despachos_rm_${timestamp}.pdf`;
+          const { error: uploadError } = await supabase.storage
+            .from('service_docs')
+            .upload(storagePath, file, { upsert: true });
+
+          if (uploadError) throw uploadError;
+
+          const { data: urlData } = supabase.storage
+            .from('service_docs')
+            .getPublicUrl(storagePath);
+
+          finalUrl = urlData.publicUrl;
+        }
+
+        const { loadPricingConfig, savePricingConfig } = await import('./pricing_manager.js');
+        const currentConfig = await loadPricingConfig();
+        if (!currentConfig.presentations) currentConfig.presentations = {};
+
+        currentConfig.presentations.despachos_rm_url = finalUrl;
+        currentConfig.presentations.despachos_rm_storage_path = storagePath;
+        currentConfig.presentations.despachos_rm_updated_at = new Date().toLocaleDateString('es-CL');
+
+        await savePricingConfig(currentConfig);
+
+        try {
+          await supabase.from('service_docs').upsert({
+            name: 'Presentación Despachos RM y Cobertura (Oficial)',
+            description: 'Documento oficial adjuntado automáticamente en cotizaciones y correos.',
+            folder: 'PRESENTACIONES',
+            file_url: finalUrl,
+            storage_path: storagePath,
+            updated_at: new Date().toISOString(),
+            is_pinned: true
+          });
+        } catch (dbE) {
+          console.warn('Aviso registrando en service_docs:', dbE);
+        }
+
+        await Swal.fire('¡Actualizado!', 'La Presentación de Despachos RM se ha actualizado con éxito. Las nuevas cotizaciones por correo y el cotizador web ya incluyen este documento.', 'success');
+        await renderPresentationsDocsManager(container);
+      } catch (err) {
+        console.error('Error guardando presentación despachos:', err);
+        Swal.fire('Error', 'No se pudo guardar la presentación: ' + err.message, 'error');
+      } finally {
+        btnDespachos.disabled = false;
+        btnDespachos.innerHTML = originalHtml;
+      }
+    });
+  }
 }
 
 

@@ -68,6 +68,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const fileRemoveBtn = document.getElementById('file-remove-btn');
   let selectedFile = null;
 
+  // Pre-selección desde Cotizador Público (?pedidos=X&volumen=Y&canales=Z)
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('canales')) {
+      const canales = urlParams.get('canales').toLowerCase().split(',');
+      document.querySelectorAll('input[name="plataformas"], input[name="marketplaces"]').forEach(chk => {
+        const val = chk.value.toLowerCase();
+        if (canales.some(c => val.includes(c) || c.includes(val))) {
+          chk.checked = true;
+          chk.closest('.option-card')?.classList.add('selected');
+        }
+      });
+      if (canales.includes('mercadolibre') && meliCheckbox && meliOptionsContainer) {
+        meliCheckbox.checked = true;
+        meliCheckbox.closest('.option-card')?.classList.add('selected');
+        meliOptionsContainer.style.display = 'block';
+      }
+    }
+  } catch (e) {
+    console.warn("No se pudieron pre-cargar parámetros del cotizador:", e);
+  }
+
   // --- MÉTODOS DE UTILIDAD Y VALIDACIÓN ---
 
   // Mostrar Alerta

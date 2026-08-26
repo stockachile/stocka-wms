@@ -26,4 +26,8 @@ scratch/
 *.txt
 !documentacion*.txt
 !documentacion *.txt
+# WhatsApp Bot Session Credentials
+auth_info_baileys/
+whatsapp-service/auth_info_baileys/
+downloads/*.png
 
