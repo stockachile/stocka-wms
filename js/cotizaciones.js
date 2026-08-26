@@ -592,6 +592,19 @@ async function handleLeadSubmission(e) {
         status: 'nuevo'
       };
 
+      // Guardar en localStorage como respaldo inmediato
+      try {
+        const localLeads = JSON.parse(localStorage.getItem('stocka_wms_quote_leads_cache') || '[]');
+        localLeads.unshift({
+          ...leadPayload,
+          id: 'lead_' + Date.now(),
+          created_at: new Date().toISOString()
+        });
+        localStorage.setItem('stocka_wms_quote_leads_cache', JSON.stringify(localLeads.slice(0, 100)));
+      } catch (lsErr) {
+        console.warn("Aviso guardando en localStorage:", lsErr);
+      }
+
       if (supabaseClient) {
         await supabaseClient.from('quote_leads').insert([leadPayload]);
       }

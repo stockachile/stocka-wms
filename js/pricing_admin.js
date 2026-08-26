@@ -28,16 +28,35 @@ export async function renderPricingConfigAdmin() {
   try {
     const config = await loadPricingConfig(supabase);
 
-    // Cargar leads de cotizaciones
+    // Cargar leads de cotizaciones (Supabase + Respaldo Local)
     let leads = [];
     try {
       const { data, error } = await supabase
         .from('quote_leads')
         .select('*')
         .order('created_at', { ascending: false });
-      if (!error && data) leads = data;
+      if (!error && data && data.length > 0) {
+        leads = data;
+      }
     } catch (e) {
       console.warn("No se pudieron cargar quote_leads de Supabase:", e);
+    }
+
+    // Merge con respaldo de localStorage
+    try {
+      const localLeads = JSON.parse(localStorage.getItem('stocka_wms_quote_leads_cache') || '[]');
+      if (localLeads.length > 0) {
+        const existingSignatures = new Set(leads.map(l => `${l.email}_${new Date(l.created_at).getTime()}`));
+        localLeads.forEach(ll => {
+          const sig = `${ll.email}_${new Date(ll.created_at).getTime()}`;
+          if (!existingSignatures.has(sig)) {
+            leads.push(ll);
+          }
+        });
+        leads.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      }
+    } catch (lsErr) {
+      console.warn("Error leyendo quote_leads de localStorage:", lsErr);
     }
 
     renderAdminUI(config, leads);
@@ -344,10 +363,15 @@ function renderAdminUI(config, leads) {
         <!-- PESTAÑA 4: LEADS DE COTIZACIONES -->
         <div id="tab-content-leads" class="admin-pricing-tab-content" style="display: ${activeTab === 'leads' ? 'block' : 'none'};">
           <div class="card" style="padding: 1.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
               <div>
                 <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--color-text-main); margin: 0;">Leads y Cotizaciones de Usuarios Públicos</h3>
                 <p style="font-size: 0.8rem; color: var(--color-text-muted); margin: 0.25rem 0 0 0;">Personas y marcas que han simulado y solicitado su cotización desde el portal web.</p>
+              </div>
+              <div style="display: flex; gap: 0.5rem;">
+                <button type="button" id="btn-refresh-leads" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+                  <i class="ri-refresh-line"></i> Actualizar Leads
+                </button>
               </div>
             </div>
 
@@ -526,6 +550,15 @@ function renderAdminUI(config, leads) {
           alert(`Enlace copiado: ${url}`);
         }
       });
+    });
+  }
+
+  // Refrescar Leads
+  const btnRefreshLeads = document.getElementById('btn-refresh-leads');
+  if (btnRefreshLeads) {
+    btnRefreshLeads.addEventListener('click', () => {
+      activeTab = 'leads';
+      renderPricingConfigAdmin();
     });
   }
 
