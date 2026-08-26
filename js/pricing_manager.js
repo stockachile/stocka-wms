@@ -7,7 +7,7 @@
 export const DEFAULT_PRICING_CONFIG = {
   version: "1.2 (2024-2025)",
   updated_at: "2026-08-25",
-  uf_value: 38500, // Valor UF de referencia en CLP
+  uf_value: 40867, // Valor UF de referencia en CLP actualizado en vivo
 
   // 1. Rangos de Pedidos Mensuales (fijan tarifa base de pick & pack y costo por m3)
   order_ranges: [
@@ -129,9 +129,65 @@ export const DEFAULT_PRICING_CONFIG = {
 const STORAGE_KEY = "stocka_wms_pricing_config_v1";
 
 /**
+ * Obtiene el valor real en vivo de la UF desde mindicador.cl o caché local del día
+ */
+export async function getLiveUfValue() {
+  const today = new Date().toISOString().slice(0, 10);
+  
+  // 1. Intentar desde caché local si corresponde a hoy
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const cached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
+      if (cached && cached.date === today && cached.numericValue && cached.numericValue > 30000) {
+        return cached.numericValue;
+      }
+    }
+  } catch (e) {}
+
+  // 2. Fetch desde API oficial mindicador.cl
+  try {
+    const res = await fetch('https://mindicador.cl/api/uf');
+    if (res.ok) {
+      const data = await res.json();
+      const val = data?.serie?.[0]?.valor;
+      if (val && !isNaN(val) && val > 30000) {
+        const numVal = Math.round(parseFloat(val));
+        const formatted = numVal.toLocaleString('es-CL');
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('stocka-uf', JSON.stringify({
+            date: today,
+            value: `$${formatted}`,
+            numericValue: numVal
+          }));
+          localStorage.setItem('stocka-last-uf-backup', numVal.toString());
+        }
+        return numVal;
+      }
+    }
+  } catch (e) {
+    console.warn('No se pudo obtener UF en vivo de mindicador.cl:', e);
+  }
+
+  // 3. Respaldo previo en localStorage
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const backup = localStorage.getItem('stocka-last-uf-backup');
+      if (backup && !isNaN(backup) && parseFloat(backup) > 30000) {
+        return Math.round(parseFloat(backup));
+      }
+    }
+  } catch (e) {}
+
+  // 4. Fallback oficial actualizado
+  return 40867;
+}
+
+/**
  * Carga la configuración de precios desde Supabase o localStorage con fallback a la configuración por defecto.
  */
 export async function loadPricingConfig(supabaseClient = null) {
+  let loadedConfig = null;
+
   // Intentar cargar desde Supabase si hay cliente disponible
   if (supabaseClient) {
     try {
@@ -142,9 +198,8 @@ export async function loadPricingConfig(supabaseClient = null) {
         .maybeSingle();
 
       if (!error && data && data.data) {
-        // Guardar copia local en caché
         localStorage.setItem(STORAGE_KEY, JSON.stringify(data.data));
-        return data.data;
+        loadedConfig = data.data;
       }
     } catch (e) {
       console.warn("No se pudo conectar a pricing_config en Supabase, usando almacenamiento local:", e);
@@ -152,20 +207,34 @@ export async function loadPricingConfig(supabaseClient = null) {
   }
 
   // Fallback a localStorage
-  try {
-    const local = localStorage.getItem(STORAGE_KEY);
-    if (local) {
-      const parsed = JSON.parse(local);
-      if (parsed && parsed.order_ranges) {
-        return parsed;
+  if (!loadedConfig) {
+    try {
+      const local = localStorage.getItem(STORAGE_KEY);
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed && parsed.order_ranges) {
+          loadedConfig = parsed;
+        }
       }
+    } catch (e) {
+      console.warn("Error leyendo pricing config de localStorage:", e);
     }
-  } catch (e) {
-    console.warn("Error leyendo pricing config de localStorage:", e);
   }
 
   // Fallback definitivo a defaults oficiales
-  return JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG));
+  if (!loadedConfig) {
+    loadedConfig = JSON.parse(JSON.stringify(DEFAULT_PRICING_CONFIG));
+  }
+
+  // Actualizar UF en vivo para garantizar cálculo exacto con la UF real del día
+  try {
+    const liveUf = await getLiveUfValue();
+    if (liveUf && liveUf > 30000) {
+      loadedConfig.uf_value = liveUf;
+    }
+  } catch (e) {}
+
+  return loadedConfig;
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   loadPricingConfig, 
   savePricingConfig, 
   resetPricingConfigToDefaults, 
+  getLiveUfValue,
   DEFAULT_PRICING_CONFIG, 
   formatCLP 
 } from './pricing_manager.js';
@@ -208,9 +209,14 @@ function renderAdminUI(config, leads) {
 
               <div class="form-group">
                 <label class="form-label">Valor UF de Referencia (CLP)</label>
-                <div style="display: flex; align-items: center; gap: 0.35rem;">
-                  <span>$</span>
-                  <input type="number" class="form-input" id="input-admin-uf" name="uf_value" value="${config.uf_value || 38500}" required style="font-weight: 700;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.35rem; flex: 1;">
+                    <span>$</span>
+                    <input type="number" class="form-input" id="input-admin-uf" name="uf_value" value="${config.uf_value || 40867}" required style="font-weight: 700;">
+                  </div>
+                  <button type="button" id="btn-sync-live-uf" class="btn btn-outline btn-sm" style="white-space: nowrap; font-size: 0.75rem; border-color: var(--color-accent); color: var(--color-accent);">
+                    <i class="ri-refresh-line"></i> Sincronizar UF en Vivo
+                  </button>
                 </div>
               </div>
 
@@ -749,6 +755,27 @@ function renderAdminUI(config, leads) {
         }
       } else {
         alert(`Error al guardar tarifas: ${saveRes.error}`);
+      }
+    });
+  }
+
+  // Sincronizar UF en vivo al hacer click
+  const btnSyncUf = document.getElementById('btn-sync-live-uf');
+  if (btnSyncUf) {
+    btnSyncUf.addEventListener('click', async () => {
+      btnSyncUf.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Consultando...';
+      try {
+        const liveUf = await getLiveUfValue();
+        const inputUf = document.getElementById('input-admin-uf');
+        if (inputUf && liveUf) {
+          inputUf.value = liveUf;
+        }
+        btnSyncUf.innerHTML = `<i class="ri-check-line"></i> $${liveUf.toLocaleString('es-CL')}`;
+        setTimeout(() => {
+          btnSyncUf.innerHTML = '<i class="ri-refresh-line"></i> Sincronizar UF en Vivo';
+        }, 2500);
+      } catch (e) {
+        btnSyncUf.innerHTML = '<i class="ri-error-warning-line"></i> Error';
       }
     });
   }

@@ -59,27 +59,35 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Fetch UF del día desde mindicador.cl
-  const ufValueEl = document.getElementById('uf-value');
-  if (ufValueEl) {
+  const ufValueEls = document.querySelectorAll('#uf-value, #uf-display-val, .uf-display-text');
+  if (ufValueEls.length > 0) {
+    const updateAllUfDisplays = (text, title = '') => {
+      ufValueEls.forEach(el => {
+        el.textContent = text;
+        if (title) el.title = title;
+      });
+    };
+
     // Intentar desde caché primero (dura el mismo día)
     const cached = JSON.parse(localStorage.getItem('stocka-uf') || 'null');
     const today = new Date().toISOString().slice(0, 10);
-    if (cached && cached.date === today) {
-      ufValueEl.textContent = cached.value;
+    if (cached && cached.date === today && cached.value) {
+      updateAllUfDisplays(cached.value);
     } else {
       fetch('https://mindicador.cl/api/uf')
         .then(r => r.json())
         .then(data => {
           const val = data?.serie?.[0]?.valor;
           if (val) {
-            const formatted = val.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            ufValueEl.textContent = `$${formatted}`;
+            const formatted = Math.round(parseFloat(val)).toLocaleString('es-CL');
+            const displayStr = `$${formatted}`;
+            updateAllUfDisplays(displayStr);
             localStorage.setItem('stocka-uf', JSON.stringify({ 
               date: today, 
-              value: `$${formatted}`,
-              numericValue: parseFloat(val)
+              value: displayStr,
+              numericValue: Math.round(parseFloat(val))
             }));
-            localStorage.setItem('stocka-last-uf-backup', val.toString());
+            localStorage.setItem('stocka-last-uf-backup', Math.round(parseFloat(val)).toString());
           } else {
             throw new Error('Datos no válidos');
           }
@@ -89,11 +97,10 @@ document.addEventListener('DOMContentLoaded', () => {
           const backupVal = localStorage.getItem('stocka-last-uf-backup');
           if (backupVal) {
             const valNum = parseFloat(backupVal);
-            const formatted = valNum.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            ufValueEl.textContent = `$${formatted}*`;
-            ufValueEl.title = 'Valor de respaldo (última UF conocida offline)';
+            const formatted = Math.round(valNum).toLocaleString('es-CL');
+            updateAllUfDisplays(`$${formatted}*`, 'Valor de respaldo (última UF conocida offline)');
           } else {
-            ufValueEl.textContent = 'N/D';
+            updateAllUfDisplays('$40.867*');
           }
         });
     }
