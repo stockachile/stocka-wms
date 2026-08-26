@@ -939,6 +939,182 @@
   object-position: center 25%;
 }
 
+/* ==========================================================================
+   SECCIÓN DE AGENDAMIENTO DE REUNIONES (HUBSPOT / MEET)
+   ========================================================================== */
+.meeting-schedule-section {
+  margin-top: 3.5rem;
+  width: 100%;
+}
+
+.meeting-card-container {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 3rem 2.5rem;
+  box-shadow: var(--shadow-sm);
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 3rem;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.meeting-card-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(180deg, var(--color-accent) 0%, #3b82f6 100%);
+}
+
+.meeting-duration-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.8rem;
+  background: rgba(94, 23, 235, 0.08);
+  color: var(--color-accent);
+  border: 1px solid rgba(94, 23, 235, 0.2);
+  border-radius: var(--radius-full);
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 1.25rem;
+}
+
+.meeting-title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--color-text-main);
+  line-height: 1.2;
+  margin: 0 0 1rem 0;
+  letter-spacing: -0.02em;
+}
+
+.meeting-desc {
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  line-height: 1.55;
+  margin: 0 0 1.75rem 0;
+}
+
+.meeting-host-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.meeting-avatar-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid var(--color-accent);
+  flex-shrink: 0;
+}
+
+.meeting-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.meeting-host-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-text-main);
+}
+
+.meeting-host-type {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 2px;
+}
+
+.btn-meeting-schedule {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--color-accent);
+  color: #ffffff !important;
+  text-decoration: none;
+  padding: 0.9rem 1.8rem;
+  border-radius: var(--radius-full);
+  font-weight: 700;
+  font-size: 0.98rem;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 14px rgba(94, 23, 235, 0.3);
+  border: 2px solid transparent;
+}
+
+.btn-meeting-schedule:hover {
+  background: var(--color-accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(94, 23, 235, 0.4);
+}
+
+.meeting-benefits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.meeting-benefit-item {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.meeting-benefit-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  background: rgba(94, 23, 235, 0.1);
+  color: var(--color-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.meeting-benefit-item strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--color-text-main);
+  margin-bottom: 0.2rem;
+}
+
+.meeting-benefit-item p {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 900px) {
+  .meeting-card-container {
+    grid-template-columns: 1fr;
+    padding: 2rem 1.5rem;
+    gap: 2rem;
+  }
+  .meeting-title {
+    font-size: 1.45rem;
+  }
+}
+
 /* Estilos de Impresión / PDF */
 @media print {
   body {

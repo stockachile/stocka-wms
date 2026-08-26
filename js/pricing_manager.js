@@ -533,6 +533,7 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
 
   const onboardingUrl = `https://wms.stocka.cl/onboarding.html?pedidos=${quoteResult.pickPack.monthlyOrders}&volumen=${quoteResult.storage.volumeM3}`;
   const cotizadorUrl = `https://wms.stocka.cl/cotizaciones.html?pedidos=${quoteResult.pickPack.monthlyOrders}&volumen=${quoteResult.storage.volumeM3}`;
+  const meetingUrl = 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const whatsappUrl = generateWhatsAppLink(quoteResult, contactInfo);
 
   return `
@@ -708,6 +709,22 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
         </p>
         <a href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
           🔄 Abrir Cotizador Público Fulfillment 360 ↗
+        </a>
+      </div>
+
+      <!-- Agenda una reunión para conocernos mejor -->
+      <div style="margin: 20px 0; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
+        <div style="display: inline-block; font-size: 11px; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 3px 10px; border-radius: 20px; margin-bottom: 8px;">
+          ⏱ 20–30 min.
+        </div>
+        <div style="font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+          Agenda una reunión para conocernos mejor
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
+          Conversa directamente con <strong>Felipe de Stocka.cl</strong> vía Google Meet para revisar requerimientos de tu comercio, resolver dudas y coordinar el inicio de operaciones:
+        </p>
+        <a href="${meetingUrl}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 2px 6px rgba(94,23,235,0.25); margin-bottom: 10px;">
+          📅 Programar una reunión vía Meet ↗
         </a>
       </div>
 
