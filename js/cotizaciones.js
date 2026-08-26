@@ -125,6 +125,7 @@ function setupEventListeners() {
     'switch-marketplace-collect',
     'input-shipments-sameday',
     'input-shipments-courier',
+    'select-regional-weight',
     'input-pickups-express',
     'input-bubble-wrap',
     'input-box-s',
@@ -356,6 +357,7 @@ function recalculateAndRender() {
     isMarketplaceCollect: document.getElementById('switch-marketplace-collect')?.checked || false,
     shipmentsSameDay: parseInt(document.getElementById('input-shipments-sameday')?.value, 10) || 0,
     shipmentsCourier: parseInt(document.getElementById('input-shipments-courier')?.value, 10) || 0,
+    regionalWeightBracket: document.getElementById('select-regional-weight')?.value || '1_3kg',
     pickupsExpress: parseInt(document.getElementById('input-pickups-express')?.value, 10) || 0,
     bubbleWrapSqm: parseFloat(document.getElementById('input-bubble-wrap')?.value) || 0,
     boxesS: parseInt(document.getElementById('input-box-s')?.value, 10) || 0,
@@ -477,6 +479,12 @@ function renderQuotation(res) {
     }
   }
 
+  // Actualizar Badge de Tarifa Regional Estimada
+  const badgeRegionalRate = document.getElementById('badge-regional-courier-rate');
+  if (badgeRegionalRate && res.shipping.regionalAvgCourierRate) {
+    badgeRegionalRate.textContent = `Tarifa promedio: ~${formatCLP(res.shipping.regionalAvgCourierRate)} + IVA / envío (${res.shipping.activeWeightBracket?.cheapest_courier || 'Starken'})`;
+  }
+
   // Desglose Despachos
   const rowShipping = document.getElementById('row-shipping');
   const summaryShippingSub = document.getElementById('summary-shipping-subtext');
@@ -484,7 +492,17 @@ function renderQuotation(res) {
   if (rowShipping && summaryShippingSub && summaryShippingVal) {
     if (res.shipping.totalCost > 0) {
       rowShipping.style.display = 'flex';
-      summaryShippingSub.textContent = `Envíos RM y Couriers proyectados`;
+      const parts = [];
+      if (res.shipping.shipmentsSameDay > 0) {
+        parts.push(`${res.shipping.shipmentsSameDay} RM Same Day`);
+      }
+      if (res.shipping.shipmentsCourier > 0) {
+        parts.push(`${res.shipping.shipmentsCourier} Regiones (${res.shipping.activeWeightBracket?.label || '1 a 3 kg'})`);
+      }
+      if (res.shipping.pickupsExpress > 0) {
+        parts.push(`${res.shipping.pickupsExpress} Retiros Express`);
+      }
+      summaryShippingSub.textContent = parts.join(' + ') || 'Envíos RM y Couriers proyectados';
       summaryShippingVal.textContent = formatCLP(res.shipping.totalCost);
     } else {
       rowShipping.style.display = 'none';

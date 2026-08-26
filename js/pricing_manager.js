@@ -102,6 +102,27 @@ export const DEFAULT_PRICING_CONFIG = {
     despachos_rm_name: "Presentación de Despachos RM y Cobertura (PDF)",
     despachos_rm_storage_path: "presentations/presentacion_despachos_rm.pdf",
     despachos_rm_updated_at: "2026-08-25"
+  },
+
+  // 10. Estimaciones de Envíos a Regiones por Peso Promedio y Zonas Populares (Vía Envíame)
+  regional_shipping: {
+    enviame_integration_fee: 35,
+    default_weight_bracket: '1_3kg',
+    weight_brackets: [
+      { id: '0_1kg', label: 'Hasta 1 kg (Paquete Ligero)', avg_rate: 3950, cheapest_courier: 'Starken / Envíame' },
+      { id: '1_3kg', label: '1 a 3 kg (Estándar E-commerce)', avg_rate: 4050, cheapest_courier: 'Starken / Envíame' },
+      { id: '3_6kg', label: '3 a 6 kg (Paquete Mediano)', avg_rate: 6450, cheapest_courier: 'Starken / Envíame' },
+      { id: '6_9kg', label: '6 a 9 kg (Paquete Grande)', avg_rate: 6790, cheapest_courier: 'Starken / Envíame' }
+    ],
+    popular_destinations: [
+      { city: 'Valparaíso / Viña del Mar', zone: 'Zona Centro', rate_1_3kg: 3335, courier: 'Starken' },
+      { city: 'Coquimbo / La Serena', zone: 'Norte Chico', rate_1_3kg: 3748, courier: 'Starken' },
+      { city: 'Concepción / Biobío', zone: 'Zona Sur', rate_1_3kg: 4174, courier: 'Starken' },
+      { city: 'Antofagasta / Calama', zone: 'Zona Norte', rate_1_3kg: 5294, courier: 'Starken' },
+      { city: 'Rancagua / Machalí', zone: 'Centro-Sur', rate_1_3kg: 3460, courier: 'Starken' },
+      { city: 'Temuco / Araucanía', zone: 'Zona Sur', rate_1_3kg: 4038, courier: 'Starken' },
+      { city: 'Puerto Montt / Los Lagos', zone: 'Sur Austral', rate_1_3kg: 4223, courier: 'Starken' }
+    ]
   }
 };
 
@@ -295,10 +316,27 @@ export function calculateQuotation(inputs, config = DEFAULT_PRICING_CONFIG) {
   const shipmentsCourier = Math.max(0, parseInt(inputs.shipmentsCourier, 10) || 0);
   const pickupsExpress = Math.max(0, parseInt(inputs.pickupsExpress, 10) || 0);
 
+  // Envíos a Regiones por Peso Promedio y Courier más económico
+  const regionalWeightBracketId = inputs.regionalWeightBracket || config.regional_shipping?.default_weight_bracket || '1_3kg';
+  const weightBrackets = config.regional_shipping?.weight_brackets || [
+    { id: '0_1kg', label: 'Hasta 1 kg (Paquete Ligero)', avg_rate: 3950, cheapest_courier: 'Starken / Envíame' },
+    { id: '1_3kg', label: '1 a 3 kg (Estándar E-commerce)', avg_rate: 4050, cheapest_courier: 'Starken / Envíame' },
+    { id: '3_6kg', label: '3 a 6 kg (Paquete Mediano)', avg_rate: 6450, cheapest_courier: 'Starken / Envíame' },
+    { id: '6_9kg', label: '6 a 9 kg (Paquete Grande)', avg_rate: 6790, cheapest_courier: 'Starken / Envíame' }
+  ];
+  const activeWeightBracket = weightBrackets.find(w => w.id === regionalWeightBracketId) || weightBrackets[1];
+  
+  const regionalAvgCourierRate = activeWeightBracket.avg_rate || 4050;
+  const enviameFeePerOrder = config.shipping.enviame_integration_fee || 35;
+  const unitRegionalShipmentRate = regionalAvgCourierRate + enviameFeePerOrder;
+
   const costShipmentsSameDay = shipmentsSameDay * (config.shipping.same_day_rm || 3200);
-  const costCourierIntegration = shipmentsCourier * (config.shipping.enviame_integration_fee || 35);
+  const costCourierIntegration = shipmentsCourier * enviameFeePerOrder;
+  const costCourierFreight = shipmentsCourier * regionalAvgCourierRate;
+  const costCourierTotal = shipmentsCourier * unitRegionalShipmentRate;
   const costPickupsExpress = pickupsExpress * (config.shipping.pickup_express_base || 1490);
-  const totalShippingServices = costShipmentsSameDay + costCourierIntegration + costPickupsExpress;
+  
+  const totalShippingServices = costShipmentsSameDay + costCourierTotal + costPickupsExpress;
 
   // 6. Insumos y Servicios Adicionales
   const bubbleWrapSqm = Math.max(0, parseFloat(inputs.bubbleWrapSqm) || 0);
@@ -385,7 +423,14 @@ export function calculateQuotation(inputs, config = DEFAULT_PRICING_CONFIG) {
       shipmentsSameDay,
       costShipmentsSameDay,
       shipmentsCourier,
+      regionalWeightBracketId,
+      activeWeightBracket,
+      regionalAvgCourierRate,
+      enviameFeePerOrder,
+      unitRegionalShipmentRate,
+      costCourierFreight,
       costCourierIntegration,
+      costCourierTotal,
       pickupsExpress,
       costPickupsExpress,
       totalCost: totalShippingServices

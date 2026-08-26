@@ -343,6 +343,50 @@ function renderAdminUI(config, leads) {
               </div>
 
               <hr style="border: 0; border-top: 1px dashed var(--color-border); margin: 1.25rem 0;">
+
+              <!-- Tarifas Promedio a Regiones por Peso (Vía Envíame / Starken) -->
+              <div style="margin-bottom: 1rem;">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--color-primary); margin: 0 0 0.35rem 0; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-road-map-fill"></i> Tarifas Promedio a Regiones por Rango de Peso (Zonas Populares)
+                </h4>
+                <p style="font-size: 0.78rem; color: var(--color-text-muted); margin: 0 0 0.75rem 0;">Valores referenciales optimizados con el courier más económico (Starken / Envíame) para destinos principales (Valparaíso, Concepción, Coquimbo, Antofagasta, etc.).</p>
+
+                <div class="form-grid-2">
+                  <div class="form-group">
+                    <label class="form-label" style="font-size: 0.78rem;">Hasta 1 kg (Paquete Ligero)</label>
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                      <span>$</span>
+                      <input type="number" class="form-input" name="regional_rate_0_1kg" value="${config.regional_shipping?.weight_brackets?.find(w => w.id === '0_1kg')?.avg_rate || 3950}">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" style="font-size: 0.78rem;">1 a 3 kg (Estándar E-commerce)</label>
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                      <span>$</span>
+                      <input type="number" class="form-input" name="regional_rate_1_3kg" value="${config.regional_shipping?.weight_brackets?.find(w => w.id === '1_3kg')?.avg_rate || 4050}" style="font-weight: 700;">
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-grid-2" style="margin-top: 0.5rem;">
+                  <div class="form-group">
+                    <label class="form-label" style="font-size: 0.78rem;">3 a 6 kg (Paquete Mediano)</label>
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                      <span>$</span>
+                      <input type="number" class="form-input" name="regional_rate_3_6kg" value="${config.regional_shipping?.weight_brackets?.find(w => w.id === '3_6kg')?.avg_rate || 6450}">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" style="font-size: 0.78rem;">6 a 9 kg (Paquete Grande)</label>
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                      <span>$</span>
+                      <input type="number" class="form-input" name="regional_rate_6_9kg" value="${config.regional_shipping?.weight_brackets?.find(w => w.id === '6_9kg')?.avg_rate || 6790}">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <hr style="border: 0; border-top: 1px dashed var(--color-border); margin: 1.25rem 0;">
               
               <div class="form-grid-2">
                 <div class="form-group">
@@ -618,6 +662,25 @@ function renderAdminUI(config, leads) {
       updatedConfig.shipping.colina = parseInt(formData.get('shipping_colina'), 10) || 3490;
       updatedConfig.shipping.enviame_integration_fee = parseInt(formData.get('shipping_enviame_fee'), 10) || 35;
       updatedConfig.shipping.pickup_express_base = parseInt(formData.get('shipping_pickup_express'), 10) || 1490;
+
+      // Actualizar Tarifas Promedio a Regiones
+      if (!updatedConfig.regional_shipping) updatedConfig.regional_shipping = {};
+      if (!updatedConfig.regional_shipping.weight_brackets) {
+        updatedConfig.regional_shipping.weight_brackets = [
+          { id: '0_1kg', label: 'Hasta 1 kg (Paquete Ligero)', avg_rate: 3950, cheapest_courier: 'Starken / Envíame' },
+          { id: '1_3kg', label: '1 a 3 kg (Estándar E-commerce)', avg_rate: 4050, cheapest_courier: 'Starken / Envíame' },
+          { id: '3_6kg', label: '3 a 6 kg (Paquete Mediano)', avg_rate: 6450, cheapest_courier: 'Starken / Envíame' },
+          { id: '6_9kg', label: '6 a 9 kg (Paquete Grande)', avg_rate: 6790, cheapest_courier: 'Starken / Envíame' }
+        ];
+      }
+      const b0 = updatedConfig.regional_shipping.weight_brackets.find(w => w.id === '0_1kg');
+      const b1 = updatedConfig.regional_shipping.weight_brackets.find(w => w.id === '1_3kg');
+      const b2 = updatedConfig.regional_shipping.weight_brackets.find(w => w.id === '3_6kg');
+      const b3 = updatedConfig.regional_shipping.weight_brackets.find(w => w.id === '6_9kg');
+      if (b0) b0.avg_rate = parseInt(formData.get('regional_rate_0_1kg'), 10) || 3950;
+      if (b1) b1.avg_rate = parseInt(formData.get('regional_rate_1_3kg'), 10) || 4050;
+      if (b2) b2.avg_rate = parseInt(formData.get('regional_rate_3_6kg'), 10) || 6450;
+      if (b3) b3.avg_rate = parseInt(formData.get('regional_rate_6_9kg'), 10) || 6790;
 
       // Actualizar Servicios
       updatedConfig.services.pos_monthly_uf = parseFloat(formData.get('service_pos_uf')) || 0.2;
