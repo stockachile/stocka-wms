@@ -751,8 +751,10 @@ export async function renderOptirouteSupport() {
               address: c.direccion_destino || 'Sin Dirección',
               complemento: c.complemento_destino || [sr.address?.apartment_number, sr.address?.address_more_info, sr.address?.apartment].filter(Boolean).join(', ') || '',
               address_status: sr.address?.status !== undefined ? sr.address.status : 1,
-              status: c.status || 'Desconocido',
-              status_code: w.status !== undefined ? w.status : 0,
+              status: (c.status === 'SKIPPED' || w.reason || w.reason_name) ? 'Saltado' : (c.status || 'Desconocido'),
+              status_code: (c.status === 'SKIPPED' || w.reason || w.reason_name) ? 5 : (c.status === 'DELIVERED' ? 3 : (w.status !== undefined ? w.status : 0)),
+              reason: w.reason || null,
+              reason_name: w.reason_name || null,
               note: w.note || '',
               images: w.images || [],
               reception_name: w.reception_name || '',
@@ -981,8 +983,10 @@ export async function renderOptirouteSupport() {
           address: w.address?.full_address || w.address?.short_address || 'Dirección no disponible',
           complemento: complemento,
           address_status: w.address?.status !== undefined ? w.address.status : 1,
-          status: getStatusName(w.status_name || w.status),
-          status_code: w.status,
+          status: (w.reason || w.reason_name || detOrder?.status === 5 || dbInfo?.status === 'SKIPPED') ? 'Saltado' : getStatusName(w.status_name || w.status),
+          status_code: (w.reason || w.reason_name || detOrder?.status === 5 || dbInfo?.status === 'SKIPPED') ? 5 : (w.status !== undefined ? w.status : 0),
+          reason: w.reason || null,
+          reason_name: w.reason_name || null,
           note: w.note || '',
           images: w.images || [],
           reception_name: w.reception_name || '',
@@ -4473,8 +4477,8 @@ modal.style.position = 'fixed';
 
   async function checkAndAutoSendDeliveryEmails(waypoints) {
     const delivered = waypoints.filter(w => {
-      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
-      const isDelivered = st.includes('completado') || st.includes('entregado') || st.includes('exito') || st.includes('delivered') || w.status_code === 3 || w.status === 3;
+      const isSkippedOrReason = w.status_code === 5 || Boolean(w.reason) || Boolean(w.reason_name) || String(w.status || '').toLowerCase().includes('saltad') || String(w.status || '').toLowerCase().includes('skipped');
+      const isDelivered = (w.status_code === 3 || String(w.status || '').toLowerCase().includes('entregad')) && !isSkippedOrReason;
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.delivery_email_notified;
       return isDelivered && hasEmail && notNotified;
@@ -4496,8 +4500,7 @@ modal.style.position = 'fixed';
 
   async function checkAndAutoSendFailedEmails(waypoints) {
     const failedWaypoints = waypoints.filter(w => {
-      const st = (String(w.status || '') + ' ' + String(w.status_name || '')).toLowerCase();
-      const isSkipped = st.includes('saltado') || st.includes('skipped') || w.status_code === 5 || w.status === 5;
+      const isSkipped = w.status_code === 5 || Boolean(w.reason) || Boolean(w.reason_name) || String(w.status || '').toLowerCase().includes('saltad') || String(w.status || '').toLowerCase().includes('skipped');
       const hasEmail = w.email && w.email.includes('@');
       const notNotified = !w.failed_email_notified;
       return isSkipped && hasEmail && notNotified;
