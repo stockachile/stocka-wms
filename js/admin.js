@@ -28019,11 +28019,12 @@ function renderFoldersSidebar() {
   const folders = {};
   adminDocsList.forEach(doc => {
     const f = doc.folder || 'General';
-    if (!f.startsWith('E3') && f !== 'contractual_docs') {
+    if (!f.startsWith('E3') && !f.startsWith('E1') && f !== 'contractual_docs' && f !== 'presentations_docs') {
       folders[f] = (folders[f] || 0) + 1;
     }
   });
 
+  const e1Count = adminDocsList.filter(doc => doc.folder === 'E1' || doc.folder === 'E1_General' || doc.folder === 'E1_Onboarding' || doc.folder === 'ONBOARDING_E1').length;
   const e3GeneralCount = adminDocsList.filter(doc => doc.folder === 'E3' || doc.folder === 'E3_General').length;
   const e3ShopifyCount = adminDocsList.filter(doc => doc.folder === 'E3_Shopify').length;
   const e3WooCount = adminDocsList.filter(doc => doc.folder === 'E3_WooCommerce').length;
@@ -28044,6 +28045,12 @@ function renderFoldersSidebar() {
       <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
     </li>
     
+    <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
+    <li class="folder-item ${adminSelectedFolder === 'E1' ? 'active' : ''}" data-folder="E1" style="font-weight: 600;">
+      <span><i class="ri-mail-send-line folder-icon" style="color: #6366f1;"></i> E1 (Onboarding Inicial)</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: var(--color-border); color: var(--color-text-main); font-weight: 600;">${e1Count}</span>
+    </li>
+
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
     <li class="folder-item ${adminSelectedFolder === 'E3' ? 'active' : ''}" data-folder="E3" style="font-weight: 600;">
       <span><i class="ri-mail-send-line folder-icon" style="color: var(--color-primary);"></i> E3 (Comunes)</span>
@@ -28133,7 +28140,10 @@ function filterAndRenderDocsTable() {
   let filtered = adminDocsList;
 
   if (adminSelectedFolder !== 'all') {
-    if (adminSelectedFolder === 'E3') {
+    if (adminSelectedFolder === 'E1') {
+      filtered = filtered.filter(doc => doc.folder === 'E1' || doc.folder === 'E1_General' || doc.folder === 'E1_Onboarding' || doc.folder === 'ONBOARDING_E1');
+      if (folderTitle) folderTitle.textContent = `Carpeta: E1 - Onboarding Inicial (Adjuntos de Bienvenida)`;
+    } else if (adminSelectedFolder === 'E3') {
       filtered = filtered.filter(doc => doc.folder === 'E3' || doc.folder === 'E3_General');
       if (folderTitle) folderTitle.textContent = `Carpeta: E3 - Comunes`;
     } else {
@@ -28298,6 +28308,7 @@ function openUploadDocModal() {
       'ENVIAME',
       'ONBOARDING',
       'OPERACIONES',
+      'E1',
       'E3',
       'E3_Shopify',
       'E3_WooCommerce',
@@ -28306,6 +28317,7 @@ function openUploadDocModal() {
       'contractual_docs'
     ];
     const getFolderLabel = (f) => {
+      if (f === 'E1') return 'E1 (Onboarding Inicial)';
       if (f === 'E3') return 'E3 (Comunes)';
       if (f === 'E3_Shopify') return 'E3 - Shopify';
       if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
@@ -28371,6 +28383,7 @@ function openEditDocModal(id) {
       'ENVIAME',
       'ONBOARDING',
       'OPERACIONES',
+      'E1',
       'E3',
       'E3_Shopify',
       'E3_WooCommerce',
@@ -28379,6 +28392,7 @@ function openEditDocModal(id) {
       'contractual_docs'
     ];
     const getFolderLabel = (f) => {
+      if (f === 'E1') return 'E1 (Onboarding Inicial)';
       if (f === 'E3') return 'E3 (Comunes)';
       if (f === 'E3_Shopify') return 'E3 - Shopify';
       if (f === 'E3_WooCommerce') return 'E3 - WooCommerce';
@@ -39551,14 +39565,19 @@ async function renderOnboardingAdmin() {
           <h4 style="margin: 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main);">
             <i class="ri-git-pull-request-line" style="color: var(--color-accent); margin-right: 0.25rem;"></i> Solicitudes de Alta Comercial
           </h4>
-          <div style="display: flex; gap: 0.5rem;" id="onboarding-tabs">
-            <button class="btn btn-primary onboarding-tab-btn" data-status="all" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Todas</button>
-            <button class="btn btn-outline onboarding-tab-btn" data-status="pending" style="padding: 0.35rem 0.85rem; font-size: 0.85rem; display: flex; align-items: center;">
-              Pendientes
-              <span id="badge-onboarding-tab" style="display: none; background: var(--color-danger); color: white; border-radius: 10px; padding: 0.1rem 0.35rem; font-size: 0.65rem; margin-left: 0.25rem; font-weight: bold;">0</span>
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" id="btn-open-send-e1" style="padding: 0.4rem 0.9rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white;">
+              <i class="ri-mail-send-line"></i> Enviar Instrucciones E1
             </button>
-            <button class="btn btn-outline onboarding-tab-btn" data-status="approved" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Aprobadas</button>
-            <button class="btn btn-outline onboarding-tab-btn" data-status="rejected" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Observadas</button>
+            <div style="display: flex; gap: 0.5rem;" id="onboarding-tabs">
+              <button class="btn btn-primary onboarding-tab-btn" data-status="all" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Todas</button>
+              <button class="btn btn-outline onboarding-tab-btn" data-status="pending" style="padding: 0.35rem 0.85rem; font-size: 0.85rem; display: flex; align-items: center;">
+                Pendientes
+                <span id="badge-onboarding-tab" style="display: none; background: var(--color-danger); color: white; border-radius: 10px; padding: 0.1rem 0.35rem; font-size: 0.65rem; margin-left: 0.25rem; font-weight: bold;">0</span>
+              </button>
+              <button class="btn btn-outline onboarding-tab-btn" data-status="approved" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Aprobadas</button>
+              <button class="btn btn-outline onboarding-tab-btn" data-status="rejected" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Observadas</button>
+            </div>
           </div>
         </div>
 
@@ -39584,6 +39603,13 @@ async function renderOnboardingAdmin() {
         </div>
       </div>
     `;
+
+    // Botón superior para enviar correo E1 de onboarding
+    document.getElementById('btn-open-send-e1')?.addEventListener('click', () => {
+      if (typeof window.openSendE1Modal === 'function') {
+        window.openSendE1Modal();
+      }
+    });
 
     // Actualizar badge en la pestaña
     const pendingCount = (requests || []).filter(r => r.status === 'pending').length;
@@ -39718,9 +39744,16 @@ function showOnboardingDetailModal(req) {
   const courierSantiagoStr = (req.courier_santiago || []).join(', ') || 'Ninguno';
   const courierRegionesStr = (req.courier_regiones || []).join(', ') || 'Ninguno';
 
+  const btnSendE1Html = `
+    <button class="btn btn-outline" style="border-color: #5e17eb; color: #5e17eb; display: inline-flex; align-items: center; gap: 0.35rem;" id="btn-onboarding-send-e1">
+      <i class="ri-mail-send-line"></i> Enviar Instrucciones E1
+    </button>
+  `;
+
   let footerButtonsHtml = '';
   if (isPending) {
     footerButtonsHtml = `
+      ${btnSendE1Html}
       <button class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger);" id="btn-onboarding-reject">
         <i class="ri-close-circle-line"></i> Observar / Corregir
       </button>
@@ -39730,8 +39763,13 @@ function showOnboardingDetailModal(req) {
     `;
   } else {
     footerButtonsHtml = `
-      <div style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
-        Esta solicitud ya fue procesada (Estado: <strong>${req.status === 'approved' ? 'Aprobada' : 'Observada'}</strong>)
+      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
+          Esta solicitud ya fue procesada (Estado: <strong>${req.status === 'approved' ? 'Aprobada' : 'Observada'}</strong>)
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          ${btnSendE1Html}
+        </div>
       </div>
     `;
   }
@@ -39872,6 +39910,18 @@ function showOnboardingDetailModal(req) {
 
   document.getElementById('btn-close-onboarding-modal').addEventListener('click', closeModal);
   document.getElementById('btn-close-onboarding-modal-footer').addEventListener('click', closeModal);
+
+  // Botón para enviar E1 pre-llenado desde el detalle de la solicitud
+  document.getElementById('btn-onboarding-send-e1')?.addEventListener('click', () => {
+    if (typeof window.openSendE1Modal === 'function') {
+      window.openSendE1Modal({
+        email: req.email || req.rep_legal_email || '',
+        contactName: req.full_name || req.rep_legal_nombre || '',
+        commerceName: req.nombre_fantasia || req.razon_social || '',
+        cc: (req.email_facturacion && req.email_facturacion !== req.email) ? req.email_facturacion : ''
+      });
+    }
+  });
 
   if (isPending) {
     document.getElementById('btn-onboarding-reject').addEventListener('click', () => {
@@ -40234,6 +40284,320 @@ function showOnboardingObservationsModal(req) {
     }
   });
 }
+
+// =========================================================================
+// E1 ONBOARDING EMAIL SENDER
+// =========================================================================
+
+window.openSendE1Modal = async function(defaultData = {}) {
+  // Remover modal previo si existe
+  const oldModal = document.getElementById('modal-send-e1');
+  if (oldModal) oldModal.remove();
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-send-e1';
+  modal.style.zIndex = '2100';
+
+  const defaultEmail = defaultData.email || '';
+  const defaultContact = defaultData.contactName || defaultData.contact || '';
+  const defaultCommerce = defaultData.commerceName || defaultData.commerce || '';
+  const defaultCc = defaultData.cc || '';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 680px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); color: white; padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-mail-send-line" style="font-size: 1.4rem;"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: white;">Enviar Instrucciones de Onboarding (Correo E1)</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.85);">Primer contacto oficial para clientes que solicitan el alta en Fulfillment Stocka</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-send-e1" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="form-send-e1" style="display: flex; flex-direction: column; flex: 1; overflow: hidden; margin: 0;">
+        <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface);">
+          
+          <div id="e1-modal-alert" class="alert alert-danger" style="display: none; padding: 0.75rem 1rem; font-size: 0.85rem; border-radius: var(--radius-sm);"></div>
+
+          <!-- Destinatario Principal -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="e1-input-email" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+              <span>Correo Destinatario Principal (Para) <span style="color: var(--color-danger);">*</span></span>
+              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Requerido</span>
+            </label>
+            <div style="position: relative;">
+              <i class="ri-mail-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="email" id="e1-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2.25rem;">
+            </div>
+          </div>
+
+          <!-- Campos Grid: Nombre Contacto y Nombre Comercio -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="e1-input-contact" style="font-weight: 600; font-size: 0.85rem;">
+                Nombre del Contacto (Saludo)
+              </label>
+              <div style="position: relative;">
+                <i class="ri-user-smile-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="e1-input-contact" class="form-input" placeholder="ej: Tomás" value="${defaultContact}" style="padding-left: 2.25rem;">
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+                Aparecerá en el saludo: "Hola Tomás, buen día..."
+              </span>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="e1-input-commerce" style="font-weight: 600; font-size: 0.85rem;">
+                Nombre del Comercio / Empresa
+              </label>
+              <div style="position: relative;">
+                <i class="ri-store-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="e1-input-commerce" class="form-input" placeholder="ej: Mi Tienda SpA" value="${defaultCommerce}" style="padding-left: 2.25rem;">
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+                Nombre de fantasía o empresa
+              </span>
+            </div>
+          </div>
+
+          <!-- Destinatarios en Copia (CC) -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="e1-input-cc" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+              <span>Enviar Copia a (CC)</span>
+              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Opcional</span>
+            </label>
+            <div style="position: relative;">
+              <i class="ri-user-shared-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="text" id="e1-input-cc" class="form-input" placeholder="ej: socio@mitienda.cl, gerencia@mitienda.cl" value="${defaultCc}" style="padding-left: 2.25rem;">
+            </div>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+              Separa múltiples correos con comas o espacios.
+            </span>
+          </div>
+
+          <!-- Sección Archivos Adjuntos Dinámicos E1 -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-weight: 600; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-attachment-2" style="color: #5e17eb;"></i>
+                Archivos Adjuntos Configurados en Documentación (Carpeta E1):
+              </div>
+              <button type="button" id="btn-goto-docs-e1" style="background: none; border: none; color: #5e17eb; font-size: 0.78rem; font-weight: 600; cursor: pointer; text-decoration: underline; display: flex; align-items: center; gap: 0.2rem; padding: 0;">
+                <i class="ri-folder-settings-line"></i> Administrar en Documentación
+              </button>
+            </div>
+
+            <div id="e1-modal-docs-container" style="display: flex; flex-direction: column; gap: 0.4rem;">
+              <div style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-loader-4-line spin"></i> Verificando documentos en carpeta E1...
+              </div>
+            </div>
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.4;">
+              💡 <em>Todos los archivos subidos en la carpeta <strong>E1 (Onboarding Inicial)</strong> del panel de Documentación se adjuntan automáticamente en formato PDF y se incluyen como enlaces directos de descarga en el correo.</em>
+            </p>
+          </div>
+
+          <!-- Acordeón / Vista Previa Rápida del Contenido -->
+          <details style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.82rem;">
+            <summary style="font-weight: 600; color: var(--color-text-main); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; user-select: none;">
+              <i class="ri-eye-line" style="color: #6366f1;"></i> Vista Previa del Estilo y Contenido del Correo E1
+            </summary>
+            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); color: var(--color-text-main); font-size: 0.8rem; line-height: 1.6;">
+              <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 1rem;">
+                <div style="font-weight: 700; color: #5e17eb; margin-bottom: 0.5rem;" id="e1-preview-greeting">
+                  Hola ${defaultContact ? `<strong>${defaultContact}</strong>` : '[Nombre del Contacto]'}, buen día:
+                </div>
+                <p style="margin: 0 0 0.5rem 0;">
+                  Te escribimos de parte de <strong>stocka.cl</strong> para agradecerte el contacto previo y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida!
+                </p>
+                <div style="display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0;">
+                  <div><strong>📝 PASO 1:</strong> Registro en Plataforma WMS & Onboarding Online (<a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb;">wms.stocka.cl</a>)</div>
+                  <div><strong>✍️ PASO 2:</strong> Confirmación de Email & Firma de Contrato Online</div>
+                  <div><strong>🔌 PASO 3:</strong> Integraciones de Canales de Venta & Catálogo</div>
+                  <div><strong>📦 PASO 4:</strong> Declaración de Ingreso de Stock & Recepción en Bodega</div>
+                </div>
+                <div style="font-size: 0.75rem; color: #64748b; margin-top: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 0.4rem;">
+                  📚 Incluye acceso al centro de documentación oficial y adjuntos en PDF.
+                </div>
+              </div>
+            </div>
+          </details>
+
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+          <button type="button" class="btn btn-outline" id="btn-cancel-send-e1">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-send-e1" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.25rem; font-weight: 600;">
+            <i class="ri-send-plane-fill"></i> Enviar Correo E1
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  };
+
+  document.getElementById('btn-close-send-e1')?.addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-send-e1')?.addEventListener('click', closeModal);
+
+  // Actualizar saludo en vista previa dinámicamente al escribir
+  const contactInput = document.getElementById('e1-input-contact');
+  const greetingPreview = document.getElementById('e1-preview-greeting');
+  contactInput?.addEventListener('input', () => {
+    const val = contactInput.value.trim();
+    if (greetingPreview) {
+      greetingPreview.innerHTML = val ? `Hola <strong>${val}</strong>, buen día:` : 'Hola [Nombre del Contacto], buen día:';
+    }
+  });
+
+  // Botón para ir a Documentación (Carpeta E1)
+  document.getElementById('btn-goto-docs-e1')?.addEventListener('click', () => {
+    closeModal();
+    adminSelectedFolder = 'E1';
+    if (typeof navigateToView === 'function') {
+      navigateToView('docs_admin');
+    } else if (typeof renderDocsAdmin === 'function') {
+      renderDocsAdmin();
+    }
+  });
+
+  // Cargar lista de documentos en la carpeta E1
+  const docsContainer = document.getElementById('e1-modal-docs-container');
+  try {
+    const { data: e1Docs, error: docErr } = await supabase
+      .from('service_docs')
+      .select('*')
+      .in('folder', ['E1', 'E1_General', 'E1_Onboarding', 'ONBOARDING_E1'])
+      .order('name', { ascending: true });
+
+    if (docErr) throw docErr;
+
+    if (docsContainer) {
+      if (e1Docs && e1Docs.length > 0) {
+        docsContainer.innerHTML = e1Docs.map(doc => `
+          <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1rem; flex-shrink: 0;"></i>
+              <span style="font-weight: 600; color: var(--color-text-main);">${doc.name}</span>
+            </div>
+            <a href="${doc.file_url}" target="_blank" style="color: var(--color-primary); text-decoration: none; font-size: 0.75rem; font-weight: 500; display: flex; align-items: center; gap: 0.15rem; flex-shrink: 0;" title="Abrir documento">
+              <i class="ri-external-link-line"></i> Ver
+            </a>
+          </div>
+        `).join('');
+      } else {
+        docsContainer.innerHTML = `
+          <div style="font-size: 0.78rem; color: var(--color-text-muted); background: var(--color-surface); padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px dashed var(--color-border);">
+            <i class="ri-information-line" style="color: var(--color-accent);"></i> No se encontraron archivos cargados en la carpeta <strong>E1</strong> aún. Puedes subir la presentación de onboarding y el tarifario vigente en la sección <strong>Documentación</strong>.
+          </div>
+        `;
+      }
+    }
+  } catch (loadErr) {
+    console.error('Error cargando documentos E1 para el modal:', loadErr);
+    if (docsContainer) {
+      docsContainer.innerHTML = `<span style="font-size: 0.78rem; color: var(--color-danger);">No fue posible verificar los documentos: ${loadErr.message}</span>`;
+    }
+  }
+
+  // Manejador del envío del formulario E1
+  const form = document.getElementById('form-send-e1');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const email = document.getElementById('e1-input-email').value.trim();
+    const contactName = document.getElementById('e1-input-contact').value.trim();
+    const commerceName = document.getElementById('e1-input-commerce').value.trim();
+    const cc = document.getElementById('e1-input-cc').value.trim();
+
+    const alertDiv = document.getElementById('e1-modal-alert');
+    const submitBtn = document.getElementById('btn-submit-send-e1');
+
+    if (alertDiv) alertDiv.style.display = 'none';
+
+    if (!email || !email.includes('@') || !email.includes('.')) {
+      if (alertDiv) {
+        alertDiv.textContent = 'Por favor ingresa un correo electrónico válido.';
+        alertDiv.style.display = 'block';
+      }
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando Correo E1...';
+
+    try {
+      const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !session) {
+        throw new Error('Sesión no válida. Por favor recarga la página.');
+      }
+
+      const res = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          emailType: 'onboarding_e1_instructions',
+          emails: [email],
+          contactName: contactName,
+          commerceName: commerceName || 'Comercio',
+          cc: cc
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || `Error en el servidor: HTTP ${res.status}`);
+      }
+
+      closeModal();
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          title: '¡Instrucciones Enviadas!',
+          html: `
+            <div style="text-align: left; font-size: 0.9rem; color: #334155; line-height: 1.5;">
+              <p>El correo <strong>E1 (Instrucciones de Onboarding)</strong> fue enviado exitosamente.</p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; font-size: 0.82rem;">
+                <div><strong>Destinatario:</strong> ${email}</div>
+                ${contactName ? `<div><strong>Contacto:</strong> ${contactName}</div>` : ''}
+                ${commerceName ? `<div><strong>Comercio:</strong> ${commerceName}</div>` : ''}
+                ${cc ? `<div><strong>Copia (CC):</strong> ${cc}</div>` : ''}
+              </div>
+            </div>
+          `,
+          icon: 'success',
+          confirmButtonColor: '#5e17eb'
+        });
+      } else {
+        alert(`¡Correo E1 enviado exitosamente a ${email}!`);
+      }
+
+    } catch (sendErr) {
+      console.error('Error enviando correo E1 de onboarding:', sendErr);
+      if (alertDiv) {
+        alertDiv.textContent = `Error al enviar correo: ${sendErr.message}`;
+        alertDiv.style.display = 'block';
+      }
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Correo E1';
+    }
+  });
+};
 
 async function renderCampaignsTab(commerce) {
   // Bind "Nueva Campaña" button click listener first so it always works

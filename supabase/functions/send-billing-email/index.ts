@@ -209,19 +209,41 @@ serve(async (req) => {
       .eq('comercio', commerceName || '')
       .eq('activo', true)
 
-    const isSystemNotif = ['onboarding_received', 'onboarding_approved', 'onboarding_observed', 'onboarding_admin_notification', 'stock_inbound_created', 'shopify_pin_submitted', 'onboarding_contract_received', 'onboarding_catalog_ready', 'onboarding_enviame_instructions'].includes(emailType);
+    const isSystemNotif = [
+      'onboarding_received', 
+      'onboarding_approved', 
+      'onboarding_observed', 
+      'onboarding_admin_notification', 
+      'stock_inbound_created', 
+      'shopify_pin_submitted', 
+      'onboarding_contract_received', 
+      'onboarding_catalog_ready', 
+      'onboarding_enviame_instructions',
+      'onboarding_e1_instructions',
+      'onboarding_e1'
+    ].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
     let recipientEmails: string[] = []
+
+    const singleEmail = payload.email || payload.recipientEmail || payload.destinatario;
+    if (singleEmail) {
+      const cleanedSingle = String(singleEmail).toLowerCase().trim();
+      if (cleanedSingle.includes('@') && cleanedSingle.includes('.')) {
+        recipientEmails.push(cleanedSingle);
+      }
+    }
 
     if (Array.isArray(emails) && emails.length > 0) {
       emails.forEach((email: string) => {
         const cleaned = email.toLowerCase().trim()
         if (validEmails.includes(cleaned) || (cleaned.includes('@') && cleaned.includes('.'))) {
-          recipientEmails.push(cleaned)
+          if (!recipientEmails.includes(cleaned)) {
+            recipientEmails.push(cleaned)
+          }
         }
       })
-    } else {
+    } else if (recipientEmails.length === 0) {
       recipientEmails.push(...validEmails)
     }
 
@@ -955,6 +977,107 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {
+      const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
+      const displayGreeting = contactGreeting ? `Hola <strong>${contactGreeting}</strong>, buen día:` : 'Hola, ¡buen día!';
+      
+      const displayCommerce = commerceName && commerceName !== 'Cliente WMS' && commerceName !== 'Comercio' ? ` - ${commerceName}` : '';
+      emailSubject = `¡Bienvenido a Stocka! - Pasos para tu Onboarding y Alta en Fulfillment${displayCommerce}`;
+      headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
+      emailTitle = 'Instrucciones de Onboarding';
+
+      // Consultar adjuntos de la carpeta E1 en service_docs
+      let e1ResourcesHtml = '';
+      try {
+        const { data: e1Docs } = await supabaseClient
+          .from('service_docs')
+          .select('name, file_url')
+          .in('folder', ['E1', 'E1_General', 'E1_Onboarding', 'ONBOARDING_E1']);
+
+        if (e1Docs && e1Docs.length > 0) {
+          e1ResourcesHtml = `
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; margin-top: 20px; margin-bottom: 20px; font-size: 13.5px; color: #166534; line-height: 1.6;">
+              <strong style="color: #14532d; display: block; margin-bottom: 8px; font-size: 14.5px;">
+                📎 Documentos Adjuntos y Enlaces de Descarga Directa:
+              </strong>
+              Los siguientes archivos van adjuntos a este correo en formato PDF. También puedes abrirlos directamente haciendo clic en los enlaces:
+              <ul style="margin: 8px 0; padding-left: 20px;">
+          `;
+          e1Docs.forEach((doc: any) => {
+            e1ResourcesHtml += `
+              <li style="margin-bottom: 6px;">
+                <a href="${doc.file_url}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+                  📄 ${doc.name} (Descargar PDF)
+                </a>
+              </li>
+            `;
+          });
+          e1ResourcesHtml += `
+              </ul>
+            </div>
+          `;
+        }
+      } catch (err) {
+        console.error('[send-billing-email] Error cargando enlaces E1 para cuerpo de correo:', err);
+      }
+
+      emailBodyHtml = `
+        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          ${displayGreeting}<br><br>
+          Te escribimos de parte de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 600; text-decoration: none;">stocka.cl</a> para agradecerte el contacto previo y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida! 🚀
+          <br><br>
+          Esperamos ser un partner estratégico con quien puedas contar en cada etapa de crecimiento de tu comercio. A continuación, te explicamos los pasos a seguir para darte de alta e iniciar operaciones en nuestra plataforma:
+        </div>
+
+        <!-- PASO 1 -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            📝 PASO 1: Registro en Plataforma WMS & Onboarding Online
+          </strong>
+          Ingresa directamente a <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">wms.stocka.cl</a> y completa el formulario de solicitud de ingreso. En el mismo proceso nos compartes la información de tu empresa, tienda online, preferencias iniciales y datos de contacto.
+        </div>
+
+        <!-- PASO 2 -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            ✍️ PASO 2: Confirmación de Email & Firma de Contrato Online
+          </strong>
+          Una vez registrado, recibirás un correo para confirmar tu email. El siguiente paso en la plataforma es la firma de contrato y aceptación de servicios: podrás descargar los documentos para luego cargarlos firmados y confirmar el envío.
+          <br><br>
+          Una vez revisemos la documentación te informaremos vía email cuando el ingreso esté completado. Podrás volver al sistema para ver el estado de tu solicitud en <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">wms.stocka.cl</a> con tu correo y contraseña.
+        </div>
+
+        <!-- PASO 3 -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            🔌 PASO 3: Integraciones de Canales de Venta & Catálogo
+          </strong>
+          Una vez habilitadas tus credenciales en el WMS podrás ingresar al módulo de <strong>Integraciones</strong> para conectar tus canales de venta (Shopify, WooCommerce, Mercado Libre, Jumpseller, etc.). Con eso confirmado, nuestro equipo se encargará de conectar tu catálogo en el WMS para que puedas realizar tu ingreso de stock.
+        </div>
+
+        <!-- PASO 4 -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
+          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            📦 PASO 4: Declaración de Ingreso de Stock & Recepción en Bodega
+          </strong>
+          Luego de creado tu ingreso de stock, se asignará la sucursal para el ingreso. Podrás solicitar retiro de stock dentro de Santiago o enviar directamente a bodega tu mercadería. En la plataforma podrás hacer seguimiento en tiempo real de todo el proceso de recepción.
+        </div>
+
+        <!-- CENTRO DE DOCUMENTACION -->
+        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 18px; margin-top: 18px; margin-bottom: 14px; font-size: 13px; color: #1e40af; line-height: 1.5;">
+          📚 <strong>Centro de Documentación:</strong> Recuerda que en el portal WMS en la sección <strong>Documentación</strong> verás toda la información oficial y actualizada respecto de los servicios de fulfillment, con acceso en cualquier momento.
+        </div>
+
+        ${e1ResourcesHtml}
+
+        <div style="font-size: 14px; color: #475569; margin-top: 20px; line-height: 1.6;">
+          Cualquier consulta o asistencia que requieras, simplemente responde a este correo o escríbenos a nuestros canales de contacto.<br><br>
+          ¡Saludos cordiales y mucho éxito!<br>
+          <strong>Equipo Stocka Fulfillment</strong><br>
+          <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; text-decoration: none; font-weight: 600;">stocka.cl</a>
+        </div>
+      `;
+    }
     else if (emailType === 'onboarding_observed') {
       emailSubject = `Acción requerida: Observaciones en tu solicitud de alta - ${commerceName}`;
       headerGradient = 'linear-gradient(135deg, #f97316, #d97706)';
@@ -1397,7 +1520,9 @@ serve(async (req) => {
       'weekly_sales_report',
       'monthly_activity_report',
       'order_no_stock_alert',
-      'onboarding_enviame_instructions'
+      'onboarding_enviame_instructions',
+      'onboarding_e1_instructions',
+      'onboarding_e1'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
     const finalRecipients = ['stock_inbound_created', 'shopify_pin_submitted'].includes(emailType) ? ["stockachile@gmail.com"] : recipientEmails;
@@ -1501,7 +1626,7 @@ serve(async (req) => {
       `;
     }
 
-    const senderEmail = emailType === 'onboarding_enviame_instructions'
+    const senderEmail = (emailType === 'onboarding_enviame_instructions' || emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1')
       ? 'contacto@stocka.cl'
       : (useInfoSender ? 'info@stocka.cl' : 'finanzas@stocka.cl');
 
@@ -1514,6 +1639,24 @@ serve(async (req) => {
       subject: emailSubject,
       htmlContent: htmlBody
     };
+
+    // Soporte para destinatarios en copia (CC)
+    const rawCc = payload.cc || payload.ccEmails || payload.cc_emails;
+    let ccList: string[] = [];
+    if (Array.isArray(rawCc)) {
+      ccList = rawCc.map((e: any) => (typeof e === 'string' ? e : e?.email || '')).filter(Boolean);
+    } else if (typeof rawCc === 'string' && rawCc.trim()) {
+      ccList = rawCc.split(/[,;\s]+/).map((e: string) => e.trim()).filter(Boolean);
+    }
+
+    const validCc = ccList
+      .map((e: string) => e.toLowerCase().trim())
+      .filter((e: string) => e.includes('@') && e.includes('.'));
+
+    if (validCc.length > 0) {
+      brevoPayload.cc = validCc.map((email: string) => ({ email }));
+      console.log(`[send-billing-email] Agregados ${validCc.length} destinatarios en copia (CC): ${validCc.join(', ')}`);
+    }
 
     if (payload.fileBase64 && payload.fileName) {
       brevoPayload.attachment = [
@@ -1607,6 +1750,60 @@ serve(async (req) => {
         }
       } catch (dbErr) {
         console.error(`[send-billing-email] Error al consultar adjuntos E3:`, dbErr);
+      }
+    }
+
+    // Si es onboarding_e1_instructions (correo E1), consultar y adjuntar dinámicamente los archivos de la carpeta E1
+    if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {
+      try {
+        const { data: e1Docs, error: e1Err } = await supabaseClient
+          .from('service_docs')
+          .select('name, file_url')
+          .in('folder', ['E1', 'E1_General', 'E1_Onboarding', 'ONBOARDING_E1']);
+
+        if (!e1Err && e1Docs && e1Docs.length > 0) {
+          console.log(`[send-billing-email] Encontrados ${e1Docs.length} documentos en la carpeta E1.`);
+          for (const doc of e1Docs) {
+            try {
+              console.log(`[send-billing-email] Descargando adjunto E1: ${doc.name} desde ${doc.file_url}`);
+              const fileRes = await fetch(doc.file_url);
+              if (fileRes.ok) {
+                const arrayBuffer = await fileRes.arrayBuffer();
+                const sizeInMB = arrayBuffer.byteLength / (1024 * 1024);
+
+                if (sizeInMB < 4.0) {
+                  const uint8 = new Uint8Array(arrayBuffer);
+                  const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+
+                  if (!brevoPayload.attachment) {
+                    brevoPayload.attachment = [];
+                  }
+
+                  let docName = doc.name;
+                  if (!docName.toLowerCase().endsWith('.pdf') && doc.file_url.toLowerCase().endsWith('.pdf')) {
+                    docName += '.pdf';
+                  }
+
+                  brevoPayload.attachment.push({
+                    content: base64Content,
+                    name: docName
+                  });
+                  console.log(`[send-billing-email] Adjunto E1 ${docName} cargado con éxito (${sizeInMB.toFixed(2)} MB).`);
+                } else {
+                  console.log(`[send-billing-email] Omitiendo adjunto físico por superar los 4MB (disponible por link): ${doc.name} (${sizeInMB.toFixed(2)} MB).`);
+                }
+              } else {
+                console.warn(`[send-billing-email] Adjunto opcional E1 ${doc.name} no se pudo descargar: HTTP ${fileRes.status}`);
+              }
+            } catch (err) {
+              console.error(`[send-billing-email] Error descargando adjunto E1 ${doc.name}:`, err);
+            }
+          }
+        } else {
+          console.log(`[send-billing-email] No se encontraron documentos en la carpeta E1 en la base de datos:`, e1Err);
+        }
+      } catch (dbErr) {
+        console.error(`[send-billing-email] Error al consultar adjuntos E1:`, dbErr);
       }
     }
 

@@ -23171,10 +23171,10 @@ async function loadDocsClientData() {
 
     if (error) throw error;
 
-    // Filtrar para excluir cualquier carpeta que comience con E3
+    // Filtrar para excluir cualquier carpeta que comience con E3 o E1
     clientDocsList = (data || []).filter(doc => {
       const f = doc.folder || '';
-      return !f.startsWith('E3');
+      return !f.startsWith('E3') && !f.startsWith('E1');
     });
     renderClientFoldersSidebar();
     filterAndRenderDocsClient();

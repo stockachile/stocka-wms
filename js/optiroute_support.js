@@ -1380,6 +1380,88 @@ export async function renderOptirouteSupport() {
     `;
   }
 
+  // Eliminar un punto intermedio/manual de la ruta y base de datos
+  async function deleteIntermediatePoint(item, showSuccessAlert = true) {
+    if (!item) return false;
+
+    const confirmMsg = `¿Estás seguro de eliminar el pedido intermedio #${item.order} (${item.reference} - ${item.name || 'Cliente'}) de la ruta actual?`;
+    if (!confirm(confirmMsg)) return false;
+
+    const selectRoutePlans = document.getElementById('select-route-plans');
+    const currentRouteId = selectRoutePlans?.value || item.route_plan_id || 'CUSTOM';
+
+    // 1. Eliminar de LocalStorage (tanto local de ruta como global)
+    try {
+      const localKeys = [
+        `stk_optiroute_intermediates_${currentRouteId}`,
+        'stk_optiroute_intermediates_global'
+      ];
+      localKeys.forEach(k => {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            const filtered = list.filter(p => !(p.reference === item.reference && (String(p.order) === String(item.order) || (p.id && item.id && p.id === item.id))));
+            localStorage.setItem(k, JSON.stringify(filtered));
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Error eliminando de localStorage:', e);
+    }
+
+    // 2. Eliminar de la tabla dedicada 'optiroute_intermediate_points'
+    try {
+      if (item.id) {
+        await supabase
+          .from('optiroute_intermediate_points')
+          .delete()
+          .eq('id', item.id);
+      }
+      await supabase
+        .from('optiroute_intermediate_points')
+        .delete()
+        .eq('reference', item.reference)
+        .eq('route_plan_id', String(currentRouteId));
+    } catch (e) {
+      console.warn('Error eliminando de optiroute_intermediate_points:', e);
+    }
+
+    // 3. Eliminar de 'optiroute_orders' si fue creado como punto intermedio (ID empieza con INT-)
+    try {
+      if (item.id && String(item.id).startsWith('INT-')) {
+        await supabase
+          .from('optiroute_orders')
+          .delete()
+          .eq('id', item.id);
+      }
+    } catch (e) {
+      console.warn('Error eliminando de optiroute_orders:', e);
+    }
+
+    // 4. Eliminar del estado en memoria
+    const removeIdx = allWaypoints.findIndex(w => (w.reference === item.reference && String(w.order) === String(item.order)) || (item.id && w.id === item.id));
+    if (removeIdx !== -1) {
+      allWaypoints.splice(removeIdx, 1);
+    }
+    const filteredRemoveIdx = currentFilteredWaypoints.findIndex(w => (w.reference === item.reference && String(w.order) === String(item.order)) || (item.id && w.id === item.id));
+    if (filteredRemoveIdx !== -1) {
+      currentFilteredWaypoints.splice(filteredRemoveIdx, 1);
+    }
+
+    // 5. Actualizar interfaz y filtros
+    const routePlanName = document.querySelector('#route-summary .card:first-child span:last-child')?.textContent || 'Ruta Optiroute';
+    renderSummaryDashboard(routePlanName);
+    populateFilterDropdowns();
+    applyFilters();
+
+    if (showSuccessAlert) {
+      alert(`🗑️ Pedido intermedio #${item.order} (${item.reference}) eliminado correctamente de la ruta.`);
+    }
+
+    return true;
+  }
+
   // Actualizar estado manual de un punto intermedio y gestionar envío de correos
   async function updateIntermediatePointStatus(item, newStatus, triggerEmails = true) {
     if (!item) return;
@@ -1708,6 +1790,11 @@ export async function renderOptirouteSupport() {
               <button class="btn btn-sm btn-outline btn-print-single-label" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid var(--color-border); background: transparent; cursor: pointer; color: var(--color-text-main);" title="Imprimir Etiqueta">
                 <i class="ri-printer-line"></i>
               </button>
+              ${item.is_intermediate || String(item.order).includes('.') ? `
+                <button class="btn btn-sm btn-delete-intermediate" data-idx="${idx}" style="padding: 0.15rem 0.3rem; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid #fecaca; background: #fef2f2; cursor: pointer; color: #dc2626;" title="Eliminar parada manual de la ruta">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
+              ` : ''}
             </div>
           </td>
           <td style="padding: 0.75rem 0.5rem; font-weight: 600; font-family: monospace; color: var(--color-primary);">${item.reference}</td>
@@ -1749,6 +1836,17 @@ export async function renderOptirouteSupport() {
         if (item) {
           sel.disabled = true;
           await updateIntermediatePointStatus(item, newStatus, true);
+        }
+      });
+    });
+
+    // Listener para Eliminar Punto Intermedio
+    tableBody.querySelectorAll('.btn-delete-intermediate').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const idx = parseInt(btn.getAttribute('data-idx'));
+        const item = data[idx];
+        if (item) {
+          await deleteIntermediatePoint(item, true);
         }
       });
     });
@@ -1967,9 +2065,14 @@ export async function renderOptirouteSupport() {
   }
 
   // Generador del HTML de una sola etiqueta térmica (100x150mm)
+  // Generador del HTML de una sola etiqueta térmica (100x150mm)
   function generateLabelHtml(wp) {
     const qrUrl = getWhatsAppQrDataUrl(wp.phone, wp.reference);
     const barcodeSvg = getBarcodeSvgString(wp.reference !== 'S/R' ? wp.reference : wp.order);
+    const isIntermediate = Boolean(wp.is_intermediate || String(wp.order).includes('.'));
+    const predecessorStop = Math.floor(parseFloat(wp.order) || 0);
+    const nextStop = predecessorStop + 1;
+
     // Resolver Asignación y Vehículo de forma clara y sin truncamiento
     let mainAssignCode = 'N1';
     let subAssignText = '';
@@ -2000,22 +2103,38 @@ export async function renderOptirouteSupport() {
     const cleanComuna = (wp.comuna || 'SANTIAGO').toUpperCase();
 
     return `
-      <div class="label-page">
+      <div class="label-page ${isIntermediate ? 'label-page-intermediate' : ''}">
+        ${isIntermediate ? `
+          <!-- Banner Superior de Advertencia para el Conductor -->
+          <div class="intermediate-top-banner">
+            <span>⚠️ PARADA INTERMEDIA MANUAL - ENTREGAR TRAS PARADA #${predecessorStop} ⚠️</span>
+          </div>
+        ` : ''}
+
         <!-- Fila 1: Orden y Pedido -->
-        <div class="label-row label-row-1">
-          <div class="label-box label-box-order">
-            <div class="label-title-bold" style="text-align: center;">Orden</div>
-            <div class="label-value-order">${wp.order}</div>
+        <div class="label-row label-row-1 ${isIntermediate ? 'label-row-1-int' : ''}">
+          <div class="label-box label-box-order ${isIntermediate ? 'label-box-order-intermediate' : ''}">
+            ${isIntermediate ? `
+              <div class="intermediate-tag-badge">★ INT ★</div>
+              <div class="label-value-order" style="color: #ffffff; font-size: 20pt; font-weight: 900; line-height: 1;">${wp.order}</div>
+              <div style="font-size: 5.5pt; color: #ffffff; font-weight: 800; text-transform: uppercase; margin-top: 1px; line-height: 1;">TRAS #${predecessorStop}</div>
+            ` : `
+              <div class="label-title-bold" style="text-align: center;">Orden</div>
+              <div class="label-value-order">${wp.order}</div>
+            `}
           </div>
           <div class="label-box label-box-pedido">
-            <div class="label-title-bold">Pedido:</div>
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div class="label-title-bold">Pedido:</div>
+              ${isIntermediate ? `<div class="intermediate-inline-badge">⚠️ FUERA DE APP</div>` : ''}
+            </div>
             <div class="label-value-reference">${wp.reference || 'S/R'}</div>
             <div class="label-value-comercio">${cleanComercio}</div>
           </div>
         </div>
 
         <!-- Fila 2: Cliente y QR WhatsApp -->
-        <div class="label-row label-row-2">
+        <div class="label-row label-row-2 ${isIntermediate ? 'label-row-2-int' : ''}">
           <div class="label-box label-box-cliente">
             <div class="label-field-group">
               <div class="label-title-bold">Cliente</div>
@@ -2032,7 +2151,7 @@ export async function renderOptirouteSupport() {
         </div>
 
         <!-- Fila 3: Dirección Completa y Zona Entrega -->
-        <div class="label-row label-row-3">
+        <div class="label-row label-row-3 ${isIntermediate ? 'label-row-3-int' : ''}">
           <div class="label-box label-box-direccion">
             <div class="label-title-bold">Dirección</div>
             <div class="label-value-address">${wp.address || 'Sin dirección'}</div>
@@ -2046,15 +2165,19 @@ export async function renderOptirouteSupport() {
         </div>
 
         <!-- Fila 4: Notas -->
-        <div class="label-row label-row-4">
-          <div class="label-box label-box-notas">
-            <div class="label-title-bold">Notas:</div>
-            <div class="label-value-notes">${wp.note || ''}</div>
+        <div class="label-row label-row-4 ${isIntermediate ? 'label-row-4-int' : ''}">
+          <div class="label-box label-box-notas ${isIntermediate ? 'label-box-notas-intermediate' : ''}">
+            <div class="label-title-bold" style="${isIntermediate ? 'font-weight: 900;' : ''}">
+              ${isIntermediate ? `⚠️ INSTRUCCIÓN CHOFER (ENTREGAR DESPUÉS DE #${predecessorStop}):` : 'Notas:'}
+            </div>
+            <div class="label-value-notes" style="${isIntermediate ? 'font-weight: 700;' : ''}">
+              ${wp.note ? `${wp.note}` : (isIntermediate ? `Parada manual agregada a ruta. Entregar después de #${predecessorStop} y antes de #${nextStop}.` : '')}
+            </div>
           </div>
         </div>
 
         <!-- Fila 5: Código de Barras (CHECKEO PICKING) -->
-        <div class="label-row label-row-5">
+        <div class="label-row label-row-5 ${isIntermediate ? 'label-row-5-int' : ''}">
           <div class="label-box label-box-barcode">
             <div class="barcode-svg-wrap">
               ${barcodeSvg}
@@ -2064,12 +2187,13 @@ export async function renderOptirouteSupport() {
         </div>
 
         <!-- Fila 6: Asignación, Ruta y Logo Stocka -->
-        <div class="label-row label-row-6">
+        <div class="label-row label-row-6 ${isIntermediate ? 'label-row-6-int' : ''}">
           <div class="label-box label-box-assign-route">
             <div class="assign-col">
               <div class="label-title-bold">ASIGNACIÓN</div>
               <div class="label-value-assign" style="font-size: ${assignFontSize};">${mainAssignCode}</div>
               ${subAssignText ? `<div class="label-value-sub-assign">${subAssignText}</div>` : ''}
+              ${isIntermediate ? `<div class="intermediate-assign-tag">PARADA MANUAL #${wp.order}</div>` : ''}
             </div>
             <div class="route-col">
               <div class="label-title-bold">RUTA</div>
@@ -2130,6 +2254,72 @@ export async function renderOptirouteSupport() {
       overflow: hidden;
       box-sizing: border-box;
     }
+    .label-page-intermediate {
+      padding: 2.5mm 3.5mm;
+      gap: 1.4mm;
+    }
+    .intermediate-top-banner {
+      width: 100%;
+      background: #000000;
+      color: #ffffff;
+      font-size: 6.8pt;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      padding: 1mm 2mm;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      box-sizing: border-box;
+      line-height: 1;
+      height: 4.8mm;
+      flex-shrink: 0;
+    }
+    .label-box-order-intermediate {
+      background: #000000 !important;
+      color: #ffffff !important;
+      border: 2px solid #000000 !important;
+    }
+    .intermediate-tag-badge {
+      background: #ffffff;
+      color: #000000;
+      font-size: 5.5pt;
+      font-weight: 900;
+      padding: 0.5px 3px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      line-height: 1;
+      margin-bottom: 1px;
+    }
+    .intermediate-inline-badge {
+      background: #000000;
+      color: #ffffff;
+      font-size: 5.8pt;
+      font-weight: 900;
+      padding: 1px 4px;
+      border-radius: 3px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      line-height: 1;
+    }
+    .label-box-notas-intermediate {
+      border: 2px dashed #000000 !important;
+      background: #f8fafc;
+    }
+    .intermediate-assign-tag {
+      background: #000000;
+      color: #ffffff;
+      font-size: 5.5pt;
+      font-weight: 900;
+      padding: 1px 3px;
+      border-radius: 2px;
+      text-align: center;
+      text-transform: uppercase;
+      margin-top: 1px;
+      line-height: 1;
+    }
     @media screen {
       body {
         padding: 20px;
@@ -2155,6 +2345,7 @@ export async function renderOptirouteSupport() {
       width: 100%;
     }
     .label-row-1 { height: 19mm; }
+    .label-row-1-int { height: 18mm; }
     .label-box-order {
       width: 28%;
       align-items: center;
@@ -2166,6 +2357,7 @@ export async function renderOptirouteSupport() {
       justify-content: center;
     }
     .label-row-2 { height: 26mm; }
+    .label-row-2-int { height: 25mm; }
     .label-box-cliente {
       width: 65%;
       justify-content: space-between;
@@ -2185,6 +2377,7 @@ export async function renderOptirouteSupport() {
       display: block;
     }
     .label-row-3 { height: 41mm; }
+    .label-row-3-int { height: 38mm; }
     .label-box-direccion {
       width: 100%;
       height: 100%;
@@ -2192,6 +2385,7 @@ export async function renderOptirouteSupport() {
       overflow: hidden;
     }
     .label-row-4 { height: 14mm; }
+    .label-row-4-int { height: 15mm; }
     .label-box-notas {
       width: 100%;
       height: 100%;
@@ -2199,6 +2393,7 @@ export async function renderOptirouteSupport() {
       overflow: hidden;
     }
     .label-row-5 { height: 16mm; }
+    .label-row-5-int { height: 15mm; }
     .label-box-barcode {
       width: 100%;
       height: 100%;
@@ -2227,6 +2422,7 @@ export async function renderOptirouteSupport() {
       color: #000000;
     }
     .label-row-6 { height: 16mm; }
+    .label-row-6-int { height: 15mm; }
     .label-box-assign-route {
       width: 58%;
       flex-direction: row;
@@ -2839,6 +3035,11 @@ export async function renderOptirouteSupport() {
                 <button class="btn btn-sm btn-primary modal-btn-print-item" data-idx="${idx}" style="padding: 0.25rem 0.45rem; font-size: 0.82rem; border-radius: 4px; background: #7c3aed; color: white; border: none; cursor: pointer;" title="Imprimir Etiqueta">
                   <i class="ri-printer-line"></i>
                 </button>
+                ${wp.is_intermediate || String(wp.order).includes('.') ? `
+                  <button class="btn btn-sm modal-btn-delete-item" data-idx="${idx}" style="padding: 0.25rem 0.45rem; font-size: 0.82rem; border-radius: 4px; border: 1px solid #fecaca; background: #fef2f2; color: #dc2626; cursor: pointer;" title="Eliminar parada manual">
+                    <i class="ri-delete-bin-line"></i>
+                  </button>
+                ` : ''}
               </div>
             </td>
           </tr>
@@ -2888,6 +3089,19 @@ export async function renderOptirouteSupport() {
           const idx = parseInt(btn.getAttribute('data-idx'));
           const wp = allWaypoints[idx];
           if (wp) printWaypointsLabels([wp]);
+        });
+      });
+      tbody.querySelectorAll('.modal-btn-delete-item').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const idx = parseInt(btn.getAttribute('data-idx'));
+          const wp = allWaypoints[idx];
+          if (wp) {
+            const deleted = await deleteIntermediatePoint(wp, true);
+            if (deleted) {
+              modalSelectedIndices.delete(idx);
+              updateTableAndStats();
+            }
+          }
         });
       });
     }
