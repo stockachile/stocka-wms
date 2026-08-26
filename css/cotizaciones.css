@@ -1065,6 +1065,12 @@
   box-shadow: 0 6px 20px rgba(94, 23, 235, 0.4);
 }
 
+.btn-sidebar-schedule-meeting:hover {
+  background: var(--color-accent-hover) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(94, 23, 235, 0.35) !important;
+}
+
 .meeting-benefits-list {
   display: flex;
   flex-direction: column;
