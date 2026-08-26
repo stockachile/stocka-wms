@@ -9,7 +9,7 @@ import {
   formatCLP, 
   generateWhatsAppLink,
   sendQuoteEmailViaBrevo
-} from './pricing_manager.js';
+} from './pricing_manager.js?v=1.3';
 
 let currentPricingConfig = null;
 let currentQuoteResult = null;
