@@ -88,7 +88,8 @@ serve(async (req) => {
       'Walmart': 'sync_walmart.yml',
       'Shopify': 'sync_shopify.yml',
       'Tiendanube': 'sync_tiendanube.yml',
-      'Ripley': 'sync_ripley.yml'
+      'Ripley': 'sync_ripley.yml',
+      'Jumpseller': 'sync_jumpseller.yml'
     }
 
     const workflowFile = workflowMap[platform]
