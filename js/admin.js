@@ -174,6 +174,20 @@ window.fetchInventoryForOrders = async function(orders) {
   window.loadedOrdersInventoryMap = window.loadedOrdersInventoryMap || {};
   if (!orders || orders.length === 0) return;
 
+  // Pre-cargar en el mapa en memoria el inventario que ya viene unido desde la base de datos (JOIN)
+  orders.forEach(o => {
+    (o.order_items || []).forEach(oi => {
+      if (oi.products && Array.isArray(oi.products.inventory)) {
+        oi.products.inventory.forEach(inv => {
+          const pid = inv.product_id || oi.product_id;
+          if (pid && inv.warehouse_id) {
+            window.loadedOrdersInventoryMap[`${pid}_${inv.warehouse_id}`] = inv.quantity || 0;
+          }
+        });
+      }
+    });
+  });
+
   const allProductIds = [];
   orders.forEach(o => {
     (o.order_items || []).forEach(oi => {
@@ -2003,7 +2017,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
     meli_order_items:raw_meli_data->order_items,
     paris_items:raw_paris_data->items,
     ripley_items:raw_ripley_data->order_lines,
-    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker, inventory(warehouse_id, quantity, committed_quantity)))
   `, q => {
     let query = q;
     if (fromISO) query = query.gte('created_at', fromISO);
