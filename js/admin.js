@@ -190,15 +190,21 @@ window.fetchInventoryForOrders = async function(orders) {
   if (uniqueProductIds.length === 0) return;
 
   try {
-    const { data: invData } = await supabase
-      .from('inventory')
-      .select('product_id, warehouse_id, quantity')
-      .in('product_id', uniqueProductIds);
+    const chunkSize = 50;
+    for (let i = 0; i < uniqueProductIds.length; i += chunkSize) {
+      const chunk = uniqueProductIds.slice(i, i + chunkSize);
+      const { data: invData, error: invErr } = await supabase
+        .from('inventory')
+        .select('product_id, warehouse_id, quantity')
+        .in('product_id', chunk);
 
-    if (invData) {
-      invData.forEach(inv => {
-        window.loadedOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
-      });
+      if (invErr) {
+        console.error('Error fetching inventory chunk for order stock check:', invErr);
+      } else if (invData) {
+        invData.forEach(inv => {
+          window.loadedOrdersInventoryMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
+        });
+      }
     }
   } catch (e) {
     console.error('Error fetching inventory for order stock check:', e);
