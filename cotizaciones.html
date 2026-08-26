@@ -89,6 +89,17 @@
           </div>
           <p class="section-subtitle">Tu volumen de pedidos define tu tarifa base de preparación (Pick & Pack) y el costo por m³ de almacenamiento.</p>
 
+          <!-- Banner Ilustración 3D Preparación / Pick & Pack -->
+          <div class="section-illustration-banner">
+            <img src="./images/stocka_pickpack.jpg" alt="Preparación Pick & Pack Stocka" loading="lazy">
+            <div class="section-illustration-overlay">
+              <span class="section-illustration-caption">
+                <i class="ri-box-3-fill"></i> Preparación experta de pedidos con embalaje estándar incluido
+              </span>
+              <span class="section-illustration-tag">Pick & Pack 360</span>
+            </div>
+          </div>
+
           <!-- Slider de Pedidos -->
           <div class="slider-container">
             <div class="slider-top-row">
@@ -222,6 +233,17 @@
             </span>
           </div>
           <p class="section-subtitle">Estima fácilmente cuánto espacio en metros cúbicos (m³) necesita tu mercadería en nuestras bodegas.</p>
+
+          <!-- Banner Ilustración 3D Almacenamiento y Racks -->
+          <div class="section-illustration-banner">
+            <img src="./images/stocka_almacenamiento.jpg" alt="Almacenamiento y Racks Stocka" loading="lazy">
+            <div class="section-illustration-overlay">
+              <span class="section-illustration-caption">
+                <i class="ri-archive-fill"></i> Bodegas modernas, modulares y seguras con control digital
+              </span>
+              <span class="section-illustration-tag">Espacio Inteligente</span>
+            </div>
+          </div>
 
           <!-- Tabs de Selección de Modo Didáctico -->
           <div class="storage-mode-tabs">
@@ -479,6 +501,17 @@
           </div>
           <p class="section-subtitle">Calcula el costo proyectado de envíos si deseas utilizar nuestras soluciones de transporte y couriers integrados.</p>
 
+          <!-- Banner Ilustración 3D Flota y Despachos -->
+          <div class="section-illustration-banner">
+            <img src="./images/stocka_despachos.jpg" alt="Flota de Despachos Stocka Same Day" loading="lazy">
+            <div class="section-illustration-overlay">
+              <span class="section-illustration-caption">
+                <i class="ri-truck-fill"></i> Flota propia Same Day RM y entregas Mercado Libre Flex ($3.200 + IVA)
+              </span>
+              <span class="section-illustration-tag">Envíos Rápidos</span>
+            </div>
+          </div>
+
           <div class="form-grid-2">
             <div class="form-group">
               <label for="input-shipments-sameday" class="form-label">
@@ -690,15 +723,15 @@
 
   <!-- MODAL DE CAPTURA DE LEAD / ENVIAR POR EMAIL -->
   <div class="modal-backdrop" id="email-quote-modal">
-    <div class="cotizador-modal-card">
-      <button type="button" class="modal-close-btn" id="btn-close-modal"><i class="ri-close-line"></i></button>
+    <div class="cotizador-modal-card" style="overflow: hidden;">
+      <div class="modal-header-illustration">
+        <img src="./images/stocka_pickpack.jpg" alt="Stocka Fulfillment">
+      </div>
+      <button type="button" class="modal-close-btn" id="btn-close-modal" style="background: rgba(0,0,0,0.5); color: #ffffff; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10;"><i class="ri-close-line"></i></button>
       
-      <div style="text-align: center; margin-bottom: 1.5rem;">
-        <div style="width: 50px; height: 50px; border-radius: 50%; background: rgba(94, 23, 235, 0.1); color: var(--color-accent); display: flex; align-items: center; justify-content: center; font-size: 1.75rem; margin: 0 auto 0.75rem auto;">
-          <i class="ri-mail-send-line"></i>
-        </div>
-        <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--color-text-main);">Recibe tu Cotización</h3>
-        <p style="font-size: 0.85rem; color: var(--color-text-muted);">Ingresa tus datos y te enviaremos el desglose formal a tu correo:</p>
+      <div style="text-align: center; margin-bottom: 1.25rem;">
+        <h3 style="font-size: 1.3rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--color-text-main);">Recibe tu Cotización Formal</h3>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">Ingresa tus datos y te enviaremos el desglose completo y las presentaciones a tu correo:</p>
       </div>
 
       <form id="lead-quote-form">
