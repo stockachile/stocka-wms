@@ -46608,12 +46608,15 @@ async function renderRedZoneAdmin() {
           </span>
         </td>
         <td style="text-align: center;">
-          <div style="display: flex; gap: 0.5rem; justify-content: center;">
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
             <button type="button" class="btn btn-outline btn-minuta" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
               <i class="ri-file-text-line"></i> Minuta
             </button>
             <button type="button" class="btn btn-outline btn-resumen" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; border-color: var(--color-border); display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
               <i class="ri-file-chart-line"></i> Resumen
+            </button>
+            <button type="button" class="btn btn-toggle-outbound" data-pagado="false" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; background-color: #fef3c7; border: 1px solid #d97706; color: #92400e; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer; border-radius: var(--radius-sm);">
+              <i class="ri-money-dollar-circle-line"></i> Outbound: Pendiente
             </button>
             ${t.status === 'abierto' ? `
               <button type="button" class="btn btn-primary btn-cerrar-baja" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; background-color: #10b981; border: none; color: white; display: inline-flex; align-items: center; gap: 0.25rem; cursor: pointer;">
@@ -46635,7 +46638,27 @@ async function renderRedZoneAdmin() {
         printLegalDocument(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut);
       });
 
+      // Toggle "Outbound Pagado"
+      const btnToggleOutbound = tr.querySelector('.btn-toggle-outbound');
+      btnToggleOutbound.addEventListener('click', () => {
+        const isPagado = btnToggleOutbound.dataset.pagado === 'true';
+        const newState = !isPagado;
+        btnToggleOutbound.dataset.pagado = String(newState);
+        if (newState) {
+          btnToggleOutbound.style.backgroundColor = '#d1fae5';
+          btnToggleOutbound.style.borderColor = '#059669';
+          btnToggleOutbound.style.color = '#065f46';
+          btnToggleOutbound.innerHTML = `<i class="ri-checkbox-circle-fill"></i> Outbound: Pagado ✓`;
+        } else {
+          btnToggleOutbound.style.backgroundColor = '#fef3c7';
+          btnToggleOutbound.style.borderColor = '#d97706';
+          btnToggleOutbound.style.color = '#92400e';
+          btnToggleOutbound.innerHTML = `<i class="ri-money-dollar-circle-line"></i> Outbound: Pendiente`;
+        }
+      });
+
       tr.querySelector('.btn-resumen').addEventListener('click', async () => {
+        const outboundPagado = tr.querySelector('.btn-toggle-outbound').dataset.pagado === 'true';
         const dummyProfile = {
           full_name: parsed.repName,
           company_name: parsed.companyName,
@@ -46651,7 +46674,7 @@ async function renderRedZoneAdmin() {
 
         try {
           const periodStatusList = await loadPeriodStatusListForCommerce(parsed.commerce);
-          printExitReport(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, periodStatusList, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut);
+          printExitReport(dummyProfile, parsed.commerce, parsed.totalSKUs, parsed.totalUnits, parsed.netTotal, parsed.netTotal * 0.19, parsed.brutoTotal, parsed.exitDate, periodStatusList, parsed.rutText, parsed.companyName, parsed.repName, parsed.repRut, outboundPagado);
         } catch(err) {
           alert('Error al generar resumen: ' + err.message);
         } finally {
@@ -46895,8 +46918,8 @@ function printLegalDocument(profile, commerceName, totalSKUs, totalUnits, netTot
   printWindow.document.close();
 }
 
-function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany) {
-  const repName = profile.full_name || "No especificado";
+function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal, iva, brutoTotal, exitDate, periodStatusList, resolvedRut, resolvedCompany, repNombre, repRutParam, outboundPagado) {
+  const repName = repNombre || profile.full_name || "No especificado";
   const compName = resolvedCompany || profile.company_name || "No especificada";
   const rutText = resolvedRut || profile.rut || "No informado";
   const dateTodayStr = new Date().toLocaleDateString('es-CL', {
@@ -46910,7 +46933,7 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
   const unitsSurcharge = totalUnits > 10 ? (totalUnits - 10) * 50 : 0;
 
   const totalPendingBilling = periodStatusList.reduce((sum, p) => sum + (p.pending || 0), 0);
-  const totalToPayConsolidated = totalPendingBilling + brutoTotal;
+  const totalToPayConsolidated = totalPendingBilling + (outboundPagado ? 0 : brutoTotal);
 
   const printWindow = window.open('', '_blank');
   
@@ -47151,11 +47174,13 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
           </tbody>
         </table>
 
-        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)</h2>
+        <h2 class="section-title">3. Detalle de Cobro de Outbound (Retiro de Stock)
+          ${outboundPagado ? `<span style="background:#d1fae5;color:#065f46;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">✔ PAGADO</span>` : `<span style="background:#fef3c7;color:#92400e;font-size:0.72rem;font-weight:700;padding:2px 10px;border-radius:99px;margin-left:0.75rem;vertical-align:middle;">PENDIENTE DE PAGO</span>`}
+        </h2>
         <p style="font-size: 0.8rem; color: #555; margin-bottom: 0.75rem;">
           Costo estimado del retiro físico (preparación y entrega de stock) según Anexo de Tarifarios Stocka 2024-2025:
         </p>
-        <div class="cost-box">
+        <div class="cost-box" ${outboundPagado ? 'style="opacity:0.7;"' : ''}>
           <div class="cost-row">
             <span>Costo de Preparación Base:</span>
             <span>$1.250</span>
@@ -47176,9 +47201,9 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <span>IVA (19%):</span>
             <span>$${iva.toLocaleString('es-CL')}</span>
           </div>
-          <div class="cost-row total">
+          <div class="cost-row total" ${outboundPagado ? 'style="color:#065f46;"' : ''}>
             <span>Total Bruto Estimado de Salida:</span>
-            <span>$${brutoTotal.toLocaleString('es-CL')} CLP</span>
+            <span>$${brutoTotal.toLocaleString('es-CL')} CLP${outboundPagado ? ' &nbsp;✔ PAGADO' : ''}</span>
           </div>
         </div>
         <p style="font-size: 0.75rem; color: #6b7280; font-style: italic; margin-bottom: 2rem;">
@@ -47194,8 +47219,8 @@ function printExitReport(profile, commerceName, totalSKUs, totalUnits, netTotal,
             <span>Monto Total Desgloses Pendientes (Sección 1):</span>
             <span style="font-weight: bold;">$${totalPendingBilling.toLocaleString('es-CL')} CLP</span>
           </div>
-          <div class="cost-row">
-            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):</span>
+          <div class="cost-row" ${outboundPagado ? 'style="text-decoration:line-through;color:#6b7280;"' : ''}>
+            <span>Costo Preparación Retiro de Stock (Con IVA - Sección 3):${outboundPagado ? ' <em style="font-style:normal;font-size:0.75rem;">[PAGADO]</em>' : ''}</span>
             <span style="font-weight: bold;">$${brutoTotal.toLocaleString('es-CL')} CLP</span>
           </div>
           <div class="cost-row total" style="font-size: 1.15rem; color: #991b1b; padding-top: 0.75rem; margin-top: 0.5rem; border-top: 2px solid #ef4444;">
