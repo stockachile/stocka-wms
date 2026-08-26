@@ -46,8 +46,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (urlParams.has('volumen')) {
     const initialVol = parseFloat(urlParams.get('volumen'));
     if (!isNaN(initialVol) && initialVol >= 0) {
+      activeStorageMode = 'direct';
       if (elVolumeSlider) elVolumeSlider.value = initialVol;
       if (elVolumeNumber) elVolumeNumber.value = initialVol;
+      
+      document.querySelectorAll('.mode-tab-btn').forEach(b => {
+        if (b.getAttribute('data-mode') === 'direct') b.classList.add('active');
+        else b.classList.remove('active');
+      });
+      document.querySelectorAll('.storage-tab-content').forEach(c => {
+        if (c.id === 'storage-mode-direct') {
+          c.style.display = 'block';
+          c.classList.add('active');
+        } else {
+          c.style.display = 'none';
+          c.classList.remove('active');
+        }
+      });
     }
   }
 

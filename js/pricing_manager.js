@@ -532,6 +532,7 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
   const dateStr = new Date().toLocaleDateString('es-CL', { year: 'numeric', month: 'long', day: 'numeric' });
 
   const onboardingUrl = `https://wms.stocka.cl/onboarding.html?pedidos=${quoteResult.pickPack.monthlyOrders}&volumen=${quoteResult.storage.volumeM3}`;
+  const cotizadorUrl = `https://wms.stocka.cl/cotizaciones.html?pedidos=${quoteResult.pickPack.monthlyOrders}&volumen=${quoteResult.storage.volumeM3}`;
   const whatsappUrl = generateWhatsAppLink(quoteResult, contactInfo);
 
   return `
@@ -695,6 +696,19 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
             </a>
           </div>
         </div>
+      </div>
+
+      <!-- Ajustar o Recalcular en el Cotizador Público -->
+      <div style="margin: 20px 0 25px 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 18px 20px; text-align: center;">
+        <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 5px;">
+          ⚙️ ¿Necesitas ajustar parámetros o simular otro volumen?
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
+          Puedes volver a ingresar a nuestro cotizador interactivo para ajustar pedidos mensuales, volumen de almacenamiento (m³) o costos de despacho:
+        </p>
+        <a href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
+          🔄 Abrir Cotizador Público Fulfillment 360 ↗
+        </a>
       </div>
 
       <!-- Action Buttons -->
