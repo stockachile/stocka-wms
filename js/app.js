@@ -18995,28 +18995,22 @@ window.renderDeclarations = async function() {
               console.error('Error generating/updating PDF:', pdfErr);
             }
 
-            // Enviar notificación por correo del nuevo ingreso
-            fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                emailType: 'stock_inbound_created',
+            // Enviar notificación automática por correo del nuevo ingreso a los usuarios del comercio
+            if (window.sendStockInboundNotification) {
+              window.sendStockInboundNotification({
+                event: 'created',
                 declarationId: decId,
                 comercio: commerce,
                 title: title,
-                quantityDeclared: qtyDeclared,
-                packageCount: totalPackages,
-                packageType: packageType,
-                estimatedArrivalDate: estimatedArrivalDate,
-                estimatedArrivalPeriod: estimatedArrivalPeriod,
-                deliveryMethod: deliveryMethod,
-                carrierInfo: carrierInfo,
-                contactInfo: contactInfo,
-                notes: notes,
+                decData: {
+                  ...insertData,
+                  id: decId
+                },
+                productsList: parsedProducts,
                 fileBase64: pdfBase64 || clientUploadedFileBase64,
                 fileName: pdfBase64 ? `comprobante_ingreso_${decId.substring(0, 8).toUpperCase()}.pdf` : clientUploadedFileName
-              })
-            }).catch(e => console.warn('Error al despachar correo de nuevo ingreso:', e));
+              }).catch(e => console.warn('Error enviando notificación de nuevo ingreso:', e));
+            }
 
             alert('¡Declaración de ingreso de stock creada con éxito!');
             form.reset();

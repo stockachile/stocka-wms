@@ -22601,24 +22601,68 @@ document.addEventListener('submit', async (e) => {
         }
       }
 
-      // 3. Enviar notificaciones
+      // 3. Enviar notificaciones automáticas por correo según el estado
       try {
         const { data: updatedDec } = await supabase
           .from('stock_declarations')
-          .select('title, comercio, warehouse_id, warehouses(name, address, comuna, operating_days)')
+          .select('*, warehouses(id, name, address, comuna, operating_days)')
           .eq('id', id)
           .single();
 
         if (updatedDec) {
           const title = updatedDec.title;
           const comercio = updatedDec.comercio;
+          const prevStatus = latestDec.status;
           
-          if (status === 'Bodega Asignada' && updatedDec.warehouses) {
-            const wh = updatedDec.warehouses;
-            const notifTitle = 'Bodega Asignada a tu Ingreso de Stock';
-            const notifMsg = `Tu ingreso de stock "${title}" tiene asignada la bodega: "${wh.name}" (Dirección: ${wh.address}, Comuna: ${wh.comuna}). Días de operación: ${wh.operating_days || 'Lunes a Viernes'}.`;
-            await notifyCommerceUsers(comercio, notifTitle, notifMsg);
-          } else {
+          // 3.1 Asignación de Bodega
+          if ((status === 'Bodega Asignada' || (!latestDec.warehouse_id && warehouseId)) && updatedDec.warehouses) {
+            if (window.sendStockInboundNotification) {
+              await window.sendStockInboundNotification({
+                event: 'warehouse_assigned',
+                declarationId: id,
+                comercio: comercio,
+                title: title,
+                decData: updatedDec,
+                warehouse: updatedDec.warehouses,
+                status: status,
+                stageComment: stageComment
+              });
+            }
+          } 
+          // 3.2 Marcado como Recibido en Bodega / En conteo
+          else if (['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación'].includes(status) && !['En Recepción - Pendiente Conteo', 'En proceso de conteo/clasificación', 'Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus)) {
+            if (window.sendStockInboundNotification) {
+              await window.sendStockInboundNotification({
+                event: 'received',
+                declarationId: id,
+                comercio: comercio,
+                title: title,
+                decData: updatedDec,
+                warehouse: updatedDec.warehouses,
+                status: status,
+                stageComment: stageComment
+              });
+            }
+          }
+          // 3.3 Completado (Conforme o con Incidencias)
+          else if (['Recibido Conforme', 'Recibido con Incidencias'].includes(status) && !['Recibido Conforme', 'Recibido con Incidencias'].includes(prevStatus)) {
+            if (window.sendStockInboundNotification) {
+              await window.sendStockInboundNotification({
+                event: 'completed',
+                declarationId: id,
+                comercio: comercio,
+                title: title,
+                decData: updatedDec,
+                warehouse: updatedDec.warehouses,
+                status: status,
+                stageComment: stageComment,
+                incidentsList: status === 'Recibido con Incidencias' ? incidentsList : [],
+                productsList: updateData.products_list || []
+              });
+            }
+          }
+          // 3.4 Cualquier otra actualización de estado
+          else {
             const notifTitle = 'Actualización de Estado de Ingreso';
             let commentText = stageComment ? ` Comentario: "${stageComment}"` : '';
             const notifMsg = `El estado de tu ingreso de stock "${title}" ha cambiado a: "${status}".${commentText}`;
@@ -23332,8 +23376,29 @@ document.addEventListener('submit', async (e) => {
 
       if (updateError) throw updateError;
 
-      // 5. Notificar a los usuarios del comercio sobre los ajustes realizados
+      // 5. Notificar a los usuarios del comercio sobre los ajustes realizados y bodega asignada
       try {
+        if (warehouseId && orig.warehouse_id !== warehouseId) {
+          const { data: updatedDec } = await supabase
+            .from('stock_declarations')
+            .select('*, warehouses(id, name, address, comuna, operating_days)')
+            .eq('id', id)
+            .single();
+
+          if (updatedDec && updatedDec.warehouses && window.sendStockInboundNotification) {
+            await window.sendStockInboundNotification({
+              event: 'warehouse_assigned',
+              declarationId: id,
+              comercio: orig.comercio,
+              title: title,
+              decData: updatedDec,
+              warehouse: updatedDec.warehouses,
+              status: updatedDec.status,
+              stageComment: `Bodega asignada por administración (${reason})`
+            });
+          }
+        }
+
         if (typeof notifyCommerceUsers === 'function') {
           const notifTitle = 'Modificación en Declaración de Ingreso de Stock';
           const notifMsg = `Administración ha realizado ajustes en la declaración de ingreso "${title}". Motivo: "${reason}". Revisa los detalles en el historial del ingreso.`;
@@ -36984,6 +37049,32 @@ window.sendIntakeToPicker = async function(id) {
       .eq('id', dec.id);
 
     if (wmsUpdateErr) throw wmsUpdateErr;
+
+    // Notificar por correo a los usuarios del comercio sobre la recepción física del ingreso en bodega
+    if (targetStatus === 'En Recepción - Pendiente Conteo' && dec.status !== targetStatus) {
+      try {
+        const { data: updatedDec } = await supabase
+          .from('stock_declarations')
+          .select('*, warehouses(id, name, address, comuna, operating_days)')
+          .eq('id', dec.id)
+          .single();
+
+        if (updatedDec && window.sendStockInboundNotification) {
+          window.sendStockInboundNotification({
+            event: 'received',
+            declarationId: dec.id,
+            comercio: dec.comercio,
+            title: dec.title,
+            decData: updatedDec,
+            warehouse: updatedDec.warehouses,
+            status: targetStatus,
+            stageComment: 'Ingreso recibido en bodega e iniciado en sistema de conteo.'
+          }).catch(e => console.warn('Error enviando notificación al enviar al Picker:', e));
+        }
+      } catch (notifErr) {
+        console.warn('Error consultando datos para notificación al enviar al Picker:', notifErr);
+      }
+    }
 
     // 7. Recargar datos en la UI de gestión
     await window.manageDeclaration(dec.id);

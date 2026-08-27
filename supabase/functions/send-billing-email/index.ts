@@ -215,6 +215,9 @@ serve(async (req) => {
       'onboarding_observed', 
       'onboarding_admin_notification', 
       'stock_inbound_created', 
+      'stock_inbound_warehouse_assigned',
+      'stock_inbound_received',
+      'stock_inbound_completed',
       'shopify_pin_submitted', 
       'onboarding_contract_received', 
       'onboarding_catalog_ready', 
@@ -1705,6 +1708,9 @@ serve(async (req) => {
       'onboarding_observed', 
       'onboarding_admin_notification', 
       'stock_inbound_created',
+      'stock_inbound_warehouse_assigned',
+      'stock_inbound_received',
+      'stock_inbound_completed',
       'out_of_stock',
       'critical_stock_report',
       'incident_report',
@@ -1717,7 +1723,9 @@ serve(async (req) => {
       'onboarding_e1'
     ];
     const useInfoSender = infoSenderTypes.includes(emailType);
-    const finalRecipients = ['stock_inbound_created', 'shopify_pin_submitted'].includes(emailType) ? ["stockachile@gmail.com"] : recipientEmails;
+    const finalRecipients = emailType === 'shopify_pin_submitted' 
+      ? ["stockachile@gmail.com"] 
+      : (recipientEmails && recipientEmails.length > 0 ? recipientEmails : ["stockachile@gmail.com"]);
 
     if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
       // htmlBody ya fue generado de forma autónoma e idéntica a la línea gráfica de cotizaciones

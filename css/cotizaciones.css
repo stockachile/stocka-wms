@@ -528,39 +528,65 @@ html, body {
    ESTIMADOR DIDÁCTICO DE ALMACENAMIENTO (MÓDULO ESTRELLA)
    ---------------------------------------------------- */
 .storage-mode-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: 0.5rem;
-  overflow-x: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  background: var(--color-bg);
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .mode-tab-btn {
-  padding: 0.6rem 1rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  border-radius: var(--radius-md);
-  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.55rem 0.35rem;
+  font-size: 0.76rem;
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
   transition: all 0.2s ease;
+  text-align: center;
+  line-height: 1.15;
+  box-sizing: border-box !important;
   white-space: nowrap;
+}
+
+.mode-tab-btn i {
+  font-size: 1.15rem;
 }
 
 .mode-tab-btn:hover {
   color: var(--color-text-main);
-  background: var(--color-surface-hover);
+  background: var(--color-surface);
 }
 
 .mode-tab-btn.active {
   color: #ffffff;
   background: var(--color-accent);
-  box-shadow: var(--shadow-glow-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 2px 8px rgba(94, 23, 235, 0.3);
+}
+
+@media (min-width: 640px) {
+  .mode-tab-btn {
+    flex-direction: row;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    padding: 0.65rem 0.85rem;
+  }
+  .mode-tab-btn i {
+    font-size: 1.05rem;
+  }
 }
 
 .didactic-cards-grid {
@@ -1451,20 +1477,14 @@ html, body {
 
   /* 5. Storage Calculators */
   .storage-mode-tabs {
-    display: flex;
-    gap: 0.3rem;
-    overflow-x: auto;
-    padding-bottom: 0.35rem;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .storage-mode-tabs::-webkit-scrollbar {
-    display: none;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 0.25rem;
+    padding: 0.25rem;
   }
   .mode-tab-btn {
-    flex: 1 0 auto;
-    padding: 0.45rem 0.65rem;
-    font-size: 0.74rem;
+    padding: 0.45rem 0.2rem;
+    font-size: 0.72rem;
     white-space: nowrap;
   }
   .didactic-cards-grid {
