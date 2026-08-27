@@ -52,6 +52,9 @@ async function syncOptirouteData() {
       await syncPendingOldOrders(integration);
     }
 
+    // 3. Purga automática de fotografías de entrega con más de 15 días de antigüedad en Supabase Storage
+    await cleanOldProofImages(15);
+
     console.log('\n🎉 Sincronización con Optiroute finalizada con éxito.');
   } catch (err) {
     console.error('❌ Error general durante la sincronización:', err.message);
@@ -1039,6 +1042,57 @@ function buildFailedDeliveryEmailHTMLNode(item) {
   </table>
 </body>
 </html>`;
+}
+
+/**
+ * Limpieza automática de imágenes antiguas en Supabase Storage (optiroute_proofs).
+ * Elimina fotografías de entrega que tengan más de X días de antigüedad (por defecto 15 días).
+ */
+async function cleanOldProofImages(retentionDays = 15) {
+  try {
+    const cutoffTime = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+    const { data: orderFolders, error: errFolders } = await supabase.storage
+      .from('optiroute_proofs')
+      .list('orders', { limit: 200 });
+
+    if (errFolders || !orderFolders || orderFolders.length === 0) return;
+
+    let deletedFilesCount = 0;
+
+    for (const folder of orderFolders) {
+      if (!folder.name) continue;
+
+      const { data: files, error: errFiles } = await supabase.storage
+        .from('optiroute_proofs')
+        .list(`orders/${folder.name}`, { limit: 50 });
+
+      if (errFiles || !files || files.length === 0) continue;
+
+      const filesToDelete = [];
+      for (const file of files) {
+        const fileCreatedAt = file.created_at || file.metadata?.lastModified;
+        if (fileCreatedAt && new Date(fileCreatedAt).getTime() < cutoffTime) {
+          filesToDelete.push(`orders/${folder.name}/${file.name}`);
+        }
+      }
+
+      if (filesToDelete.length > 0) {
+        const { error: delErr } = await supabase.storage
+          .from('optiroute_proofs')
+          .remove(filesToDelete);
+
+        if (!delErr) {
+          deletedFilesCount += filesToDelete.length;
+        }
+      }
+    }
+
+    if (deletedFilesCount > 0) {
+      console.log(`🧹 [PURGA AUTOMÁTICA STORAGE] Se eliminaron ${deletedFilesCount} foto(s) de entrega con más de ${retentionDays} días de antigüedad.`);
+    }
+  } catch (err) {
+    console.warn('⚠️ Advertencia en purga automática de imágenes antiguas:', err.message);
+  }
 }
 
 // Ejecutar sincronización
