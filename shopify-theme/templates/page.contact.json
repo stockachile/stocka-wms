@@ -66,10 +66,13 @@
       }
     },
     "16455674279e1c774e": {
-      "type": "custom-liquid",
+      "type": "stocka-contact-form",
       "settings": {
-        "custom_liquid": "{formbuilder:NzI2OTk=}",
-        "custom_class": ""
+        "subheading": "COTIZA O CONTÁCTANOS",
+        "heading": "Te contactamos y enviamos nuestra propuesta",
+        "description": "Ingresa tus datos y te enviaremos nuestra presentación oficial con tarifarios a tu correo. Nuestro equipo comercial se comunicará contigo a la brevedad.",
+        "container": "container",
+        "background_color": "#ffffff"
       }
     },
     "maps": {

@@ -1,6 +1,6 @@
 {%- comment -%}
-  Stocka Custom Contact / Cotización Form Section
-  Beautiful, corporate-grade quotation form that runs natively on Shopify.
+  Stocka Lead Engine & Contact Form Section (Native OS 2.0)
+  High-conversion, modern lead capture form with instant Brevo email presentation auto-responder.
 {%- endcomment -%}
 
 {%- assign settings = section.settings -%}
@@ -17,210 +17,533 @@
 {% endcapture %}
 
 <style>
-  .stocka-form-input {
-    width: 100%;
-    padding: 0.75rem 1rem;
+  .stocka-lead-section {
+    position: relative;
+    overflow: hidden;
+  }
+  .stocka-lead-card {
+    background: #ffffff;
+    border-radius: 24px;
     border: 1px solid #e2e8f0;
-    border-radius: 0.5rem;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.02);
+    padding: 2.5rem;
+    position: relative;
+  }
+  @media (max-width: 767px) {
+    .stocka-lead-card {
+      padding: 1.5rem 1.25rem;
+      border-radius: 18px;
+    }
+  }
+  .stocka-input {
+    width: 100%;
+    padding: 0.85rem 1.1rem;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
     outline: none;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     font-size: 0.95rem;
+    color: #0f172a;
+    background-color: #f8fafc;
+    font-family: inherit;
+  }
+  .stocka-input:focus {
     background-color: #ffffff;
+    border-color: #5c24ff;
+    box-shadow: 0 0 0 4px rgba(92, 36, 255, 0.12);
   }
-  .stocka-form-input:focus {
-    border-color: #2563eb;
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-  }
-  .stocka-form-label {
+  .stocka-label {
     display: block;
-    margin-bottom: 0.375rem;
-    font-size: 0.875rem;
+    margin-bottom: 0.45rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #1e293b;
+  }
+  .stocka-service-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem 1rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    font-size: 0.88rem;
     font-weight: 600;
     color: #334155;
+  }
+  .stocka-service-pill:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+  .stocka-service-pill.active {
+    background: #f5f3ff;
+    border-color: #5c24ff;
+    color: #5c24ff;
+    box-shadow: 0 2px 8px rgba(92, 36, 255, 0.1);
+  }
+  .stocka-pill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.65rem 1.1rem;
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #475569;
+    transition: all 0.2s ease;
+    user-select: none;
+  }
+  .stocka-pill-btn:hover {
+    border-color: #cbd5e1;
+    background: #f1f5f9;
+  }
+  .stocka-pill-btn.active {
+    background: #5c24ff;
+    border-color: #5c24ff;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(92, 36, 255, 0.25);
+  }
+  .btn-submit-stocka {
+    background: linear-gradient(135deg, #5c24ff 0%, #4314c7 100%);
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 1.05rem;
+    padding: 1.1rem 2.5rem;
+    border-radius: 14px;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    transition: all 0.25s ease;
+    box-shadow: 0 10px 25px -5px rgba(92, 36, 255, 0.4);
+    width: 100%;
+  }
+  .btn-submit-stocka:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 30px -5px rgba(92, 36, 255, 0.5);
+    background: linear-gradient(135deg, #6d3bff 0%, #4d18e0 100%);
+  }
+  .btn-submit-stocka:active {
+    transform: translateY(0);
+  }
+  .btn-submit-stocka:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+  @keyframes spin-stocka {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+  .stocka-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin-stocka 0.8s linear infinite;
   }
 </style>
 
 <section
   id="stocka-contact-{{ section.id }}"
-  class="relative {{ section.settings.custom_class }}"
+  class="stocka-lead-section relative {{ section.settings.custom_class }}"
   style="background-color: {{ section.settings.background_color }};"
 >
-  <div class="{{ container }} mx-auto px-4">
-    <div class="max-w-3xl mx-auto bg-white p-6 md:p-10 rounded-3xl border border-slate-100 shadow-xl">
+  <div class="{{ container }} mx-auto px-4 py-8 md:py-16">
+    <div class="max-w-4xl mx-auto">
       
       <!-- Section Header -->
-      <div class="text-center mb-8 md:mb-10">
+      <div class="text-center mb-8 md:mb-12">
         {% if settings.subheading != blank %}
-          <p class="text-sm font-semibold tracking-wider text-blue-600 uppercase mb-2">{{ settings.subheading }}</p>
+          <div style="display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(92, 36, 255, 0.08); color: #5c24ff; padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.75rem;">
+            <span>✨</span> {{ settings.subheading }}
+          </div>
         {% endif %}
-        {% if settings.heading != blank %}
-          <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900 mb-3">{{ settings.heading }}</h2>
-        {% endif %}
-        {% if settings.description != blank %}
-          <div class="text-slate-500 text-sm md:text-base leading-relaxed">{{ settings.description }}</div>
-        {% endif %}
+        
+        <h2 class="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900 mb-3" style="font-family: inherit;">
+          {{ settings.heading | default: "Te contactamos y enviamos nuestra propuesta" }}
+        </h2>
+        
+        <p class="text-slate-600 text-sm md:text-base max-w-2xl mx-auto leading-relaxed">
+          {{ settings.description | default: "Ingresa tus datos y te enviaremos nuestra presentación oficial con tarifarios a tu correo. Nuestro equipo comercial se comunicará contigo a la brevedad." }}
+        </p>
       </div>
 
-      <!-- Native Shopify Contact Form -->
-      {%- form 'contact', id: 'stocka-cotizar-form' -%}
-        {%- capture success_message -%}
-          {{ 'contact.form.post_success' | t | default: "¡Gracias! Tu solicitud de cotización ha sido enviada con éxito. Nos pondremos en contacto contigo a la brevedad." }}
-        {%- endcapture -%}
+      <!-- Main Interactive Lead Card -->
+      <div class="stocka-lead-card">
         
-        {% render 'form__success', form: form, success_message: success_message %}
-        {% render 'form__error', form: form %}
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          <!-- Nombre Completo -->
-          <div>
-            <label for="stocka-form-name-{{ section.id }}" class="stocka-form-label">Nombre Completo *</label>
-            <input 
-              type="text" 
-              id="stocka-form-name-{{ section.id }}"
-              name="contact[name]" 
-              class="stocka-form-input"
-              placeholder="Ej: Juan Pérez" 
-              required
-              value="{% if form.name %}{{ form.name }}{% elsif customer %}{{ customer.name }}{% endif %}"
-            >
+        <!-- Form Container -->
+        <form id="stocka-lead-form-{{ section.id }}" novalidate>
+          
+          <!-- SECCIÓN 1: Servicios de Interés -->
+          <div class="mb-8">
+            <label class="stocka-label" style="font-size: 0.92rem;">
+              1. ¿Qué servicios te interesan para tu negocio? <span style="color: #ef4444;">*</span>
+            </label>
+            <p style="font-size: 0.78rem; color: #64748b; margin-top: -0.2rem; margin-bottom: 0.75rem;">
+              El servicio Fulfillment 360 es la base para escalar tu ecommerce de forma 100% automatizada.
+            </p>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3" id="stocka-services-group-{{ section.id }}">
+              <div class="stocka-service-pill active" data-value="Fulfillment 360">
+                <span style="font-size: 1.2rem;">📦</span>
+                <span>Fulfillment 360</span>
+              </div>
+              <div class="stocka-service-pill" data-value="Punto de Retiro">
+                <span style="font-size: 1.2rem;">🏬</span>
+                <span>Punto de Retiro</span>
+              </div>
+              <div class="stocka-service-pill" data-value="Despachos Same Day RM">
+                <span style="font-size: 1.2rem;">⚡</span>
+                <span>Same Day en RM</span>
+              </div>
+              <div class="stocka-service-pill" data-value="Envíos a todo Chile">
+                <span style="font-size: 1.2rem;">🚚</span>
+                <span>Envíos Todo Chile</span>
+              </div>
+              <div class="stocka-service-pill" data-value="Logística Inversa">
+                <span style="font-size: 1.2rem;">🔄</span>
+                <span>Logística Inversa</span>
+              </div>
+              <div class="stocka-service-pill" data-value="Vitrinas en Sucursal">
+                <span style="font-size: 1.2rem;">🛍️</span>
+                <span>Vitrinas en Sucursal</span>
+              </div>
+            </div>
           </div>
 
-          <!-- Correo Electrónico -->
-          <div>
-            <label for="stocka-form-email-{{ section.id }}" class="stocka-form-label">Correo Electrónico *</label>
-            <input 
-              type="email" 
-              id="stocka-form-email-{{ section.id }}"
-              name="contact[email]" 
-              class="stocka-form-input"
-              placeholder="juan@tuempresa.com" 
-              required
-              autocorrect="off" 
-              autocapitalize="off"
-              value="{% if form.email %}{{ form.email }}{% elsif customer %}{{ customer.email }}{% endif %}"
+          <!-- SECCIÓN 2: Estimación Operativa -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 p-5 rounded-2xl" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+            <!-- Volumen de Ventas -->
+            <div>
+              <label class="stocka-label">2. Cantidad de ventas mensuales (pedidos) <span style="color: #ef4444;">*</span></label>
+              <div class="flex flex-wrap gap-2 mt-2" id="stocka-volume-group-{{ section.id }}">
+                <div class="stocka-pill-btn active" data-value="0 - 100 pedidos">0 - 100</div>
+                <div class="stocka-pill-btn" data-value="100 - 500 pedidos">100 - 500</div>
+                <div class="stocka-pill-btn" data-value="500 - 1.000 pedidos">500 - 1.000</div>
+                <div class="stocka-pill-btn" data-value="Más de 1.000 pedidos">1.000+</div>
+              </div>
+            </div>
+
+            <!-- Espacio de Almacenamiento -->
+            <div>
+              <label class="stocka-label">3. Espacio estimado de almacenamiento</label>
+              <div class="flex flex-wrap gap-2 mt-2" id="stocka-storage-group-{{ section.id }}">
+                <div class="stocka-pill-btn active" data-value="No lo sé aún">No lo sé aún</div>
+                <div class="stocka-pill-btn" data-value="Menos de 1 m3">&lt; 1 m³</div>
+                <div class="stocka-pill-btn" data-value="1 - 4 m3">1 - 4 m³</div>
+                <div class="stocka-pill-btn" data-value="5 - 10 m3">5 - 10 m³</div>
+                <div class="stocka-pill-btn" data-value="Más de 10 m3">10+ m³</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- SECCIÓN 3: Datos de Contacto -->
+          <div class="mb-6">
+            <label class="stocka-label" style="font-size: 0.92rem; margin-bottom: 0.85rem;">
+              4. Tus datos de contacto y de tu tienda
+            </label>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <!-- Nombre -->
+              <div>
+                <label for="lead-name-{{ section.id }}" class="stocka-label">Tu Nombre <span style="color: #ef4444;">*</span></label>
+                <input 
+                  type="text" 
+                  id="lead-name-{{ section.id }}" 
+                  class="stocka-input" 
+                  placeholder="Ej: Melissa Valenzuela" 
+                  required
+                >
+              </div>
+
+              <!-- Correo -->
+              <div>
+                <label for="lead-email-{{ section.id }}" class="stocka-label">Correo Electrónico <span style="color: #ef4444;">*</span></label>
+                <input 
+                  type="email" 
+                  id="lead-email-{{ section.id }}" 
+                  class="stocka-input" 
+                  placeholder="melissa@mitienda.cl" 
+                  required
+                >
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <!-- Teléfono -->
+              <div>
+                <label for="lead-phone-{{ section.id }}" class="stocka-label">Teléfono / WhatsApp <span style="color: #ef4444;">*</span></label>
+                <input 
+                  type="tel" 
+                  id="lead-phone-{{ section.id }}" 
+                  class="stocka-input" 
+                  placeholder="+56 9 1234 5678" 
+                  required
+                >
+              </div>
+
+              <!-- Nombre del Comercio -->
+              <div>
+                <label for="lead-company-{{ section.id }}" class="stocka-label">Nombre de tu Tienda <span style="color: #ef4444;">*</span></label>
+                <input 
+                  type="text" 
+                  id="lead-company-{{ section.id }}" 
+                  class="stocka-input" 
+                  placeholder="Ej: Nomad Underwear" 
+                  required
+                >
+              </div>
+
+              <!-- Web / Instagram -->
+              <div>
+                <label for="lead-web-{{ section.id }}" class="stocka-label">Sitio Web o Instagram</label>
+                <input 
+                  type="text" 
+                  id="lead-web-{{ section.id }}" 
+                  class="stocka-input" 
+                  placeholder="www.mitienda.cl o @mitienda"
+                >
+              </div>
+            </div>
+
+            <!-- Comentarios Adicionales -->
+            <div class="mb-4">
+              <label for="lead-notes-{{ section.id }}" class="stocka-label">Cuéntanos un poco más de tu comercio</label>
+              <textarea 
+                id="lead-notes-{{ section.id }}" 
+                class="stocka-input" 
+                rows="3" 
+                placeholder="Háblanos de tus productos, integraciones necesarias o requerimientos de almacenamiento especiales..."
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- Mensaje de Error (Oculto por defecto) -->
+          <div id="stocka-form-error-{{ section.id }}" style="display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-bottom: 1rem; font-weight: 600;"></div>
+
+          <!-- Submit Button -->
+          <div class="text-center pt-2">
+            <button type="submit" id="stocka-submit-btn-{{ section.id }}" class="btn-submit-stocka">
+              <span id="stocka-btn-text-{{ section.id }}">Solicitar Propuesta y Recibir Presentación 🚀</span>
+              <div id="stocka-btn-spinner-{{ section.id }}" class="stocka-spinner" style="display: none;"></div>
+            </button>
+            
+            <p style="font-size: 0.76rem; color: #64748b; margin-top: 0.85rem;">
+              🔒 Tus datos están 100% seguros. Te enviaremos la presentación y tarifario oficial en PDF al instante.
+            </p>
+          </div>
+
+        </form>
+
+        <!-- Success Message Screen (Oculto por defecto) -->
+        <div id="stocka-lead-success-{{ section.id }}" style="display: none; text-align: center; padding: 2.5rem 1rem;">
+          <div style="width: 72px; height: 72px; background: #ecfdf5; border: 2px solid #10b981; border-radius: 50%; color: #10b981; display: inline-flex; align-items: center; justify-content: center; font-size: 2.2rem; margin-bottom: 1.25rem;">
+            ✓
+          </div>
+          
+          <h3 style="font-size: 1.6rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">
+            ¡Solicitud Recibida con Éxito! 🎉
+          </h3>
+          
+          <p style="font-size: 0.95rem; color: #475569; max-width: 520px; margin: 0 auto 1.5rem auto; line-height: 1.6;">
+            Muchas gracias <strong id="success-lead-name-{{ section.id }}" style="color: #5c24ff;"></strong>. Hemos recibido los datos de <strong id="success-company-name-{{ section.id }}"></strong> y te hemos enviado la <strong>Presentación Oficial de Fulfillment 360 y Tarifarios</strong> en PDF a tu correo.
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; max-width: 520px; margin: 0 auto 2rem auto; text-align: left;">
+            <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span>📬</span> Revisa tu bandeja de entrada
+            </div>
+            <p style="font-size: 0.8rem; color: #64748b; margin: 0; line-height: 1.5;">
+              Enviamos el correo a <strong id="success-lead-email-{{ section.id }}" style="color: #0f172a;"></strong> con todos los documentos adjuntos y el enlace para agendar una reunión 1 a 1 vía Google Meet con Felipe Trujillo.
+            </p>
+          </div>
+
+          <div style="display: flex; flex-direction: column; sm:flex-row; gap: 0.75rem; justify-content: center; max-width: 480px; margin: 0 auto;">
+            <a 
+              href="https://wa.me/56939247487?text=Hola!%20Acabo%20de%20solicitar%20informaci%C3%B3n%20en%20Stocka.cl%20y%20me%20gustar%C3%ADa%20conversar%20sobre%20fulfillment" 
+              target="_blank" 
+              style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #25d366; color: #ffffff; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(37, 211, 102, 0.35);"
             >
+              <span>💬</span> Hablar con Asesor por WhatsApp
+            </a>
+            
+            <a 
+              href="https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5" 
+              target="_blank" 
+              style="display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; background: #5c24ff; color: #ffffff; padding: 0.9rem 1.5rem; border-radius: 12px; font-weight: 700; font-size: 0.95rem; text-decoration: none; box-shadow: 0 4px 14px rgba(92, 36, 255, 0.35);"
+            >
+              <span>📹</span> Agendar Reunión Virtual (Meet)
+            </a>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          <!-- Teléfono -->
-          <div>
-            <label for="stocka-form-phone-{{ section.id }}" class="stocka-form-label">Teléfono / WhatsApp *</label>
-            <input 
-              type="tel" 
-              id="stocka-form-phone-{{ section.id }}"
-              name="contact[phone]" 
-              class="stocka-form-input"
-              placeholder="+56 9 1234 5678" 
-              required
-              value="{% if form.phone %}{{ form.phone }}{% elsif customer %}{{ customer.phone }}{% endif %}"
-            >
-          </div>
-
-          <!-- Nombre de Empresa -->
-          <div>
-            <label for="stocka-form-company-{{ section.id }}" class="stocka-form-label">Nombre de tu Tienda / Empresa *</label>
-            <input 
-              type="text" 
-              id="stocka-form-company-{{ section.id }}"
-              name="contact[Empresa]" 
-              class="stocka-form-input"
-              placeholder="Ej: Mi Tienda Online" 
-              required
-            >
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-          <!-- Sitio Web / Redes Sociales -->
-          <div>
-            <label for="stocka-form-website-{{ section.id }}" class="stocka-form-label">Sitio Web o Instagram</label>
-            <input 
-              type="text" 
-              id="stocka-form-website-{{ section.id }}"
-              name="contact[SitioWeb]" 
-              class="stocka-form-input"
-              placeholder="www.mitienda.cl o @mitienda" 
-            >
-          </div>
-
-          <!-- Volumen Estimado de Pedidos -->
-          <div>
-            <label for="stocka-form-volume-{{ section.id }}" class="stocka-form-label">Volumen Estimado de Pedidos Mensuales *</label>
-            <select 
-              id="stocka-form-volume-{{ section.id }}"
-              name="contact[VolumenPedidos]" 
-              class="stocka-form-input"
-              required
-            >
-              <option value="" disabled selected>Selecciona una opción</option>
-              <option value="0 - 100 pedidos">0 - 100 pedidos / mes</option>
-              <option value="101 - 500 pedidos">101 - 500 pedidos / mes</option>
-              <option value="501 - 1000 pedidos">501 - 1000 pedidos / mes</option>
-              <option value="Más de 1000 pedidos">Más de 1000 pedidos / mes</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Comentarios Adicionales -->
-        <div class="mb-8">
-          <label for="stocka-form-message-{{ section.id }}" class="stocka-form-label">¿Qué tipo de productos vendes u otra aclaración?</label>
-          <textarea 
-            id="stocka-form-message-{{ section.id }}"
-            name="contact[body]" 
-            class="stocka-form-input"
-            rows="4" 
-            placeholder="Escribe aquí detalles sobre tus requerimientos, integración con canales, tipo de productos, etc."
-          >{%- if form.body -%}{{ form.body }}{%- endif -%}</textarea>
-        </div>
-
-        <!-- Botón de Envío -->
-        <div class="text-center">
-          <button 
-            type="submit" 
-            class="sf__btn sf__btn-primary sf__btn-large w-full md:w-auto px-10 py-4 justify-center"
-          >
-            {{ settings.submit_label | default: "Enviar Solicitud" }}
-          </button>
-        </div>
-
-      {%- endform -%}
-
+      </div>
     </div>
   </div>
 </section>
 
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const sectionId = "{{ section.id }}";
+    const form = document.getElementById('stocka-lead-form-' + sectionId);
+    if (!form) return;
+
+    // 1. Selector de Servicios (Multi-select)
+    const servicesGroup = document.getElementById('stocka-services-group-' + sectionId);
+    if (servicesGroup) {
+      const pills = servicesGroup.querySelectorAll('.stocka-service-pill');
+      pills.forEach(pill => {
+        pill.addEventListener('click', () => {
+          pill.classList.toggle('active');
+        });
+      });
+    }
+
+    // 2. Selector de Volumen Mensual (Single-select)
+    const volumeGroup = document.getElementById('stocka-volume-group-' + sectionId);
+    if (volumeGroup) {
+      const volumeBtns = volumeGroup.querySelectorAll('.stocka-pill-btn');
+      volumeBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          volumeBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+      });
+    }
+
+    // 3. Selector de Almacenamiento m3 (Single-select)
+    const storageGroup = document.getElementById('stocka-storage-group-' + sectionId);
+    if (storageGroup) {
+      const storageBtns = storageGroup.querySelectorAll('.stocka-pill-btn');
+      storageBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          storageBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        });
+      });
+    }
+
+    // 4. Form Submission Handler
+    form.addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const errorDiv = document.getElementById('stocka-form-error-' + sectionId);
+      const submitBtn = document.getElementById('stocka-submit-btn-' + sectionId);
+      const btnText = document.getElementById('stocka-btn-text-' + sectionId);
+      const btnSpinner = document.getElementById('stocka-btn-spinner-' + sectionId);
+
+      errorDiv.style.display = 'none';
+
+      // Extraer datos
+      const name = document.getElementById('lead-name-' + sectionId).value.trim();
+      const email = document.getElementById('lead-email-' + sectionId).value.trim();
+      const phone = document.getElementById('lead-phone-' + sectionId).value.trim();
+      const companyName = document.getElementById('lead-company-' + sectionId).value.trim();
+      const website = document.getElementById('lead-web-' + sectionId).value.trim();
+      const notes = document.getElementById('lead-notes-' + sectionId).value.trim();
+
+      // Servicios seleccionados
+      const activeServices = Array.from(servicesGroup.querySelectorAll('.stocka-service-pill.active')).map(p => p.getAttribute('data-value'));
+      if (activeServices.length === 0) {
+        activeServices.push('Fulfillment 360');
+      }
+
+      // Volumen y Almacenamiento seleccionados
+      const activeVolume = volumeGroup.querySelector('.stocka-pill-btn.active')?.getAttribute('data-value') || '0 - 100 pedidos';
+      const activeStorage = storageGroup.querySelector('.stocka-pill-btn.active')?.getAttribute('data-value') || 'No lo sé aún';
+
+      // Validaciones básicas
+      if (!name || !email || !phone || !companyName) {
+        errorDiv.textContent = 'Por favor completa todos los campos obligatorios (*) para continuar.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+
+      // UI Loading state
+      submitBtn.disabled = true;
+      btnText.textContent = 'Enviando y preparando tu presentación...';
+      btnSpinner.style.display = 'inline-block';
+
+      try {
+        const endpointUrl = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/submit-lead';
+        
+        const response = await fetch(endpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contactName: name,
+            email: email,
+            phone: phone,
+            companyName: companyName,
+            website: website,
+            services: activeServices,
+            monthlyVolume: activeVolume,
+            storageSpace: activeStorage,
+            notes: notes
+          })
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || 'Ocurrió un error al enviar tu solicitud. Intenta nuevamente.');
+        }
+
+        // Éxito: ocultar form y mostrar pantalla de agradecimiento
+        form.style.display = 'none';
+        
+        document.getElementById('success-lead-name-' + sectionId).textContent = name;
+        document.getElementById('success-company-name-' + sectionId).textContent = companyName;
+        document.getElementById('success-lead-email-' + sectionId).textContent = email;
+        
+        const successScreen = document.getElementById('stocka-lead-success-' + sectionId);
+        successScreen.style.display = 'block';
+        successScreen.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      } catch (err) {
+        console.error('Error enviando formulario:', err);
+        errorDiv.textContent = err.message || 'No se pudo enviar el formulario. Por favor contáctanos directamente a contacto@stocka.cl';
+        errorDiv.style.display = 'block';
+        submitBtn.disabled = false;
+        btnText.textContent = 'Solicitar Propuesta y Recibir Presentación 🚀';
+        btnSpinner.style.display = 'none';
+      }
+    });
+  });
+</script>
+
 {% schema %}
 {
-  "name": "Stocka Contact Form",
+  "name": "Stocka Lead Form",
   "settings": [
     {
       "type": "text",
-      "id": "heading",
-      "label": "Título",
-      "default": "Pide una cotización personalizada"
+      "id": "subheading",
+      "label": "Subtítulo superior",
+      "default": "COTIZA O CONTÁCTANOS"
     },
     {
       "type": "text",
-      "id": "subheading",
-      "label": "Subtítulo",
-      "default": "COTIZA NUESTRO SERVICIO"
+      "id": "heading",
+      "label": "Título Principal",
+      "default": "Te contactamos y enviamos nuestra propuesta"
     },
     {
-      "type": "richtext",
+      "type": "textarea",
       "id": "description",
       "label": "Descripción",
-      "default": "<p>Completa la información sobre tu negocio y nos pondremos en contacto contigo con una propuesta a tu medida en menos de 24 horas.</p>"
-    },
-    {
-      "type": "text",
-      "id": "submit_label",
-      "label": "Texto del Botón",
-      "default": "Enviar Solicitud de Cotización"
-    },
-    {
-      "type": "header",
-      "content": "Ajustes Generales"
+      "default": "Ingresa tus datos y te enviaremos nuestra presentación oficial con tarifarios a tu correo. Nuestro equipo comercial se comunicará contigo a la brevedad."
     },
     {
       "type": "select",
@@ -228,25 +551,26 @@
       "label": "Ancho del contenedor",
       "default": "container",
       "options": [
-        { "value": "container", "label": "Normal" },
-        { "value": "container-fluid", "label": "Ancho Completo" }
+        { "value": "container", "label": "Estándar" },
+        { "value": "container-fluid", "label": "Fluido" }
       ]
     },
     {
       "type": "color",
       "id": "background_color",
-      "label": "Color de Fondo",
+      "label": "Color de fondo",
       "default": "#ffffff"
     },
     {
       "type": "text",
       "id": "custom_class",
-      "label": "Clase CSS Personalizada"
+      "label": "Clase CSS personalizada"
     }
   ],
   "presets": [
     {
-      "name": "Stocka Contact Form"
+      "name": "Stocka Lead Form",
+      "category": "Forms"
     }
   ]
 }

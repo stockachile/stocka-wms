@@ -216,6 +216,16 @@
         "blog": "news",
         "limit": 3
       }
+    },
+    "contact_lead_form": {
+      "type": "stocka-contact-form",
+      "settings": {
+        "subheading": "COTIZA O CONTÁCTANOS",
+        "heading": "Te contactamos y enviamos nuestra propuesta",
+        "description": "Ingresa tus datos y te enviaremos nuestra presentación oficial con tarifarios a tu correo. Nuestro equipo comercial se comunicará contigo a la brevedad.",
+        "container": "container",
+        "background_color": "#ffffff"
+      }
     }
   },
   "order": [
@@ -224,6 +234,7 @@
     "features_pillars",
     "integrations",
     "testimonials",
+    "contact_lead_form",
     "blog_posts"
   ]
 }
