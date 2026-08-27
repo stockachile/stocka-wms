@@ -1431,8 +1431,14 @@ async function init() {
       updateCategoryHeadersVisibility();
     }
 
-    // Initial View selection based on allowed modules
-    if (firstVisibleItem) {
+    // Initial View selection based on hash or allowed modules
+    const currentHash = (window.location.hash || '').replace('#', '').trim();
+    const hashTarget = currentHash ? document.querySelector(`.nav-item[data-view="${currentHash}"]`) : null;
+
+    if (hashTarget && hashTarget.closest('li')?.style.display !== 'none') {
+      console.log('DEBUG: Cargando vista desde URL hash:', currentHash);
+      hashTarget.click();
+    } else if (firstVisibleItem) {
       const defaultView = 'dashboard';
       const isDefaultAllowed = true;
       
@@ -2028,21 +2034,13 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        shopify_financial:raw_shopify_data->financial_status,
-        shopify_fulfillment:raw_shopify_data->fulfillment_status,
-        shopify_cancelled:raw_shopify_data->cancelled_at,
-        shopify_line_items:raw_shopify_data->line_items,
-        woocommerce_status:raw_woocommerce_data->status,
-        woocommerce_line_items:raw_woocommerce_data->line_items,
-        jumpseller_status:raw_jumpseller_data->status,
-        jumpseller_products:raw_jumpseller_data->products,
-        falabella_status:raw_falabella_data->status,
-        falabella_state:raw_falabella_data->state,
-        falabella_items:raw_falabella_data->items,
-        meli_status:raw_meli_data->status,
-        meli_order_items:raw_meli_data->order_items,
-        paris_items:raw_paris_data->items,
-        ripley_items:raw_ripley_data->order_lines,
+        raw_shopify_data,
+        raw_woocommerce_data,
+        raw_jumpseller_data,
+        raw_falabella_data,
+        raw_meli_data,
+        raw_paris_data,
+        raw_ripley_data,
         order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
       `, q => {
         let query = q;
@@ -2050,54 +2048,6 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         if (toISO) query = query.lte('created_at', toISO);
         return query.order('created_at', { ascending: false });
       });
-
-      if (orders) {
-        orders.forEach(order => {
-          if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined || order.shopify_line_items !== undefined) {
-            order.raw_shopify_data = {
-              fulfillment_status: order.shopify_fulfillment,
-              cancelled_at: order.shopify_cancelled,
-              financial_status: order.shopify_financial,
-              line_items: order.shopify_line_items
-            };
-          }
-          if (order.woocommerce_status !== undefined || order.woocommerce_line_items !== undefined) {
-            order.raw_woocommerce_data = { 
-              status: order.woocommerce_status,
-              line_items: order.woocommerce_line_items
-            };
-          }
-          if (order.jumpseller_status !== undefined || order.jumpseller_products !== undefined) {
-            order.raw_jumpseller_data = { 
-              status: order.jumpseller_status,
-              products: order.jumpseller_products
-            };
-          }
-          if (order.falabella_status !== undefined || order.falabella_state !== undefined || order.falabella_items !== undefined) {
-            order.raw_falabella_data = {
-              status: order.falabella_status,
-              state: order.falabella_state,
-              items: order.falabella_items
-            };
-          }
-          if (order.meli_status !== undefined || order.meli_order_items !== undefined) {
-            order.raw_meli_data = { 
-              status: order.meli_status,
-              order_items: order.meli_order_items
-            };
-          }
-          if (order.paris_items !== undefined) {
-            order.raw_paris_data = {
-              items: order.paris_items
-            };
-          }
-          if (order.ripley_items !== undefined) {
-            order.raw_ripley_data = {
-              order_lines: order.ripley_items
-            };
-          }
-        });
-      }
 
       window.loadedOrders = orders || [];
       window.loadedOrdersInventoryMap = {};
