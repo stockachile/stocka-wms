@@ -18451,19 +18451,20 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       if (cacheIndicator) cacheIndicator.innerHTML = '';
       loaderInterval = window.startPremiumLoader('admin-metrics-dashboard-content', 'Consolidando Métricas del WMS');
 
-      // 1. Construir las consultas de Supabase
-      let invPromise = window.fetchAllSupabaseRows(
-        'inventory',
-        'quantity, committed_quantity, products!inner(id, comercio, stock_critico, volumen, sku, name, is_virtual, length, width, height)',
+      // 1. Construir las consultas de Supabase optimizadas
+      let prodPromise = window.fetchAllSupabaseRows(
+        'products',
+        'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, inventory(quantity, committed_quantity)',
         q => {
+          let query = q.order('id');
           if (selectedCommerce) {
-            return q.eq('products.comercio', selectedCommerce);
+            query = query.eq('comercio', selectedCommerce);
           }
-          return q;
+          return query;
         }
       ).then(data => ({ data })).catch(error => ({ error }));
 
-      let ordQuery = supabase.from('orders').select('id, status, comercio');
+      let ordQuery = supabase.from('orders').select('id, status, comercio').gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString());
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
       let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
 
@@ -18477,7 +18478,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
 
       // 3. Consultar datos
-      results = await Promise.all([invPromise, ordQuery, intQuery, decQuery]);
+      results = await Promise.all([prodPromise, ordQuery, intQuery, decQuery]);
       const newsRes = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
       news = newsRes.data || [];
 
@@ -18489,12 +18490,12 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       if (loaderInterval) clearInterval(loaderInterval);
     }
 
-    const invRes = results[0];
+    const prodRes = results[0];
     const ordRes = results[1];
     const intRes = results[2];
     const decRes = results[3];
 
-    if (invRes.error) throw invRes.error;
+    if (prodRes.error) throw prodRes.error;
     if (ordRes.error) throw ordRes.error;
     if (intRes.error) throw intRes.error;
     if (decRes.error) throw decRes.error;
@@ -18508,85 +18509,59 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     const productVolumeMap = {};
     const missingDimVolProducts = [];
 
-    if (invRes.data) {
-      // Agrupar y sumar stock por SKU (para no evaluar por bodega individual)
-      const aggregatedProducts = {};
-      
-      invRes.data.forEach(i => {
-        const prod = i.products;
-        if (!prod) return;
-        
-        const key = prod.sku || 'N/A';
-        
-        if (!aggregatedProducts[key]) {
-          aggregatedProducts[key] = {
-            id: prod.id,
-            sku: prod.sku || 'N/A',
-            name: prod.name || 'Sin Nombre',
-            stock_critico: prod.stock_critico || 0,
-            volumen: parseFloat(prod.volumen || 0),
-            length: parseFloat(prod.length || 0),
-            width: parseFloat(prod.width || 0),
-            height: parseFloat(prod.height || 0),
-            is_virtual: !!prod.is_virtual,
-            comercio: prod.comercio,
-            quantity: 0,
-            committed_quantity: 0
-          };
-        }
-        
-        aggregatedProducts[key].quantity += (i.quantity || 0);
-        aggregatedProducts[key].committed_quantity += (i.committed_quantity || 0);
-      });
+    if (prodRes.data) {
+      prodRes.data.forEach(prod => {
+        const invList = prod.inventory || [];
+        const quantity = invList.reduce((sum, i) => sum + (i.quantity || 0), 0);
+        const committed_quantity = invList.reduce((sum, i) => sum + (i.committed_quantity || 0), 0);
 
-      // Procesar los productos agrupados para calcular las métricas globales
-      Object.values(aggregatedProducts).forEach(p => {
-        totalStock += p.quantity;
-        const available = p.quantity - p.committed_quantity;
+        totalStock += quantity;
+        const available = quantity - committed_quantity;
         availableStock += available;
-        totalVolume += p.quantity * p.volumen;
+        const vol = parseFloat(prod.volumen || 0);
+        totalVolume += quantity * vol;
 
-        if (p.is_virtual !== true) {
-          const isCritical = p.stock_critico > 0 && available <= p.stock_critico;
-          const isInsufficient = p.committed_quantity > 0 && available <= 0;
+        if (prod.is_virtual !== true) {
+          const isCritical = (prod.stock_critico || 0) > 0 && available <= prod.stock_critico;
+          const isInsufficient = committed_quantity > 0 && available <= 0;
           if (isCritical || isInsufficient) {
             lowStockCount++;
             lowStockItems.push({
-              sku: p.sku,
-              name: p.name,
+              sku: prod.sku || 'Sin SKU',
+              name: prod.name || 'Sin Nombre',
               available: available,
-              critico: p.stock_critico
+              critico: prod.stock_critico || 0
             });
           }
 
           // Alerta si tiene stock y no tiene dimensiones ni volumen
-          if (p.quantity > 0) {
-            const hasDims = p.length > 0 && p.width > 0 && p.height > 0;
-            const hasVol = p.volumen > 0;
+          if (quantity > 0) {
+            const hasDims = (prod.length || 0) > 0 && (prod.width || 0) > 0 && (prod.height || 0) > 0;
+            const hasVol = vol > 0;
             if (!hasDims && !hasVol) {
               missingDimVolProducts.push({
-                id: p.id,
-                sku: p.sku,
-                name: p.name,
-                comercio: p.comercio,
-                quantity: p.quantity
+                id: prod.id,
+                sku: prod.sku,
+                name: prod.name,
+                comercio: prod.comercio,
+                quantity: quantity
               });
             }
           }
         }
 
-        const totalVol = p.quantity * p.volumen;
-        if (!productVolumeMap[p.sku]) {
-          productVolumeMap[p.sku] = {
-            sku: p.sku,
-            name: p.name,
+        const totalVol = quantity * vol;
+        if (!productVolumeMap[prod.sku]) {
+          productVolumeMap[prod.sku] = {
+            sku: prod.sku,
+            name: prod.name,
             quantity: 0,
-            volumenUnitario: p.volumen,
+            volumenUnitario: vol,
             volumenTotal: 0
           };
         }
-        productVolumeMap[p.sku].quantity += p.quantity;
-        productVolumeMap[p.sku].volumenTotal += totalVol;
+        productVolumeMap[prod.sku].quantity += quantity;
+        productVolumeMap[prod.sku].volumenTotal += totalVol;
       });
       window.adminMissingDimVolProducts = missingDimVolProducts;
     }
