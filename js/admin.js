@@ -4187,42 +4187,36 @@ window.applyBulkWmsStatus = async function() {
         }
 
         if (failedOrders.size > 0) {
-          const failedOrderListHtml = Array.from(failedOrders).map(id => {
-            const o = selectedOrders.find(order => order.id === id);
-            const num = o ? o.external_order_number || id : id;
-            return `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${num}</span>`;
-          }).join(' ');
-
-          let breakdownHtml = '';
-          if (failedDetails.length > 0) {
-            const firstFailed = failedDetails[0];
-            const matchingItem = allItemsToCheck.find(i => i.sku === firstFailed.sku);
-            if (matchingItem && matchingItem.product_id) {
-              breakdownHtml = await window.getFormattedStockByWarehouse(matchingItem.product_id, matchingItem.warehouse_id);
+          const failuresByOrderMap = new Map();
+          for (const f of failedDetails) {
+            const o = selectedOrders.find(order => order.id === f.orderId);
+            const matchingItem = allItemsToCheck.find(i => i.sku === f.sku && i.orderId === f.orderId) || allItemsToCheck.find(i => i.sku === f.sku);
+            const orderId = f.orderId;
+            if (!failuresByOrderMap.has(orderId)) {
+              failuresByOrderMap.set(orderId, {
+                order: o,
+                orderNum: f.orderNum,
+                comercio: f.comercio,
+                customer: o?.customer_name,
+                warehouseName: o?.sucursal_pickeo || 'Sucursal Asignada',
+                items: []
+              });
             }
+            failuresByOrderMap.get(orderId).items.push({
+              sku: f.sku,
+              name: matchingItem?.name || '',
+              productId: matchingItem?.product_id,
+              warehouseId: matchingItem?.warehouse_id,
+              requested: f.requested,
+              available: f.available
+            });
           }
 
-          await Swal.fire({
-            icon: 'error',
+          const failuresByOrder = Array.from(failuresByOrderMap.values());
+          await window.showStockShortageSlidesModal({
             title: 'Stock Insuficiente Detectado',
-            html: `
-              <div style="text-align: left; font-size: 0.9rem;">
-                <p style="margin-bottom: 0.5rem;">
-                  Los siguientes pedidos no tienen stock suficiente en su sucursal de destino y <strong>no serán enviados al Picker</strong>:
-                </p>
-
-                <div style="margin: 0.6rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem;">
-                  ${failedOrderListHtml}
-                </div>
-
-                ${breakdownHtml}
-
-                <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-                  El resto de los pedidos con stock suficiente continuarán su envío al Picker normalmente.
-                </p>
-              </div>
-            `,
-            confirmButtonText: 'Continuar'
+            subtitle: `Los siguientes <strong>${failuresByOrder.length} pedidos</strong> no tienen stock suficiente en su sucursal de destino y <strong>no serán enviados al Picker</strong> (el resto de los pedidos continuará el proceso):`,
+            failuresByOrder
           });
 
           for (const f of failedDetails) {
@@ -4443,6 +4437,172 @@ window.getFormattedStockByWarehouse = async function(productId, targetWarehouseI
   }
 };
 
+window.showStockShortageSlidesModal = async function({ title = 'Stock Físico Insuficiente', subtitle = '', failuresByOrder = [] }) {
+  if (!failuresByOrder || failuresByOrder.length === 0) return;
+
+  // Cargar tablas de stock por producto de forma asíncrona para todos los ítems de cada orden
+  for (const orderFail of failuresByOrder) {
+    for (const item of (orderFail.items || [])) {
+      if (!item.stockBreakdownHtml && item.productId) {
+        item.stockBreakdownHtml = await window.getFormattedStockByWarehouse(item.productId, item.warehouseId);
+      }
+    }
+  }
+
+  const totalSlides = failuresByOrder.length;
+
+  const slidesHtml = failuresByOrder.map((orderFail, idx) => {
+    const isFirst = idx === 0;
+    const orderNum = orderFail.orderNum || orderFail.order?.external_order_number || orderFail.order?.id || 'Pedido';
+    const comercio = orderFail.comercio || orderFail.order?.comercio || '';
+    const customer = orderFail.customer || orderFail.order?.customer_name || '';
+    const whName = orderFail.warehouseName || orderFail.order?.sucursal_pickeo || 'Sucursal Asignada';
+
+    const itemsHtml = (orderFail.items || []).map(item => `
+      <div style="background: var(--color-bg); padding: 0.75rem 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.4rem; font-size: 0.85rem;">
+        <div><strong>SKU:</strong> <span style="font-family: monospace; font-weight: 700;">${item.sku}</span> ${item.name ? `(${item.name})` : ''}</div>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.25rem;">
+          <div><strong>Requerido:</strong> ${item.requested} un.</div>
+          <div><strong>Disponible en ${whName}:</strong> <span style="color: #ef4444; font-weight: 700;">${item.available} un.</span></div>
+        </div>
+        ${item.stockBreakdownHtml || ''}
+      </div>
+    `).join('');
+
+    return `
+      <div class="stock-shortage-slide" id="stock-slide-${idx}" style="display: ${isFirst ? 'block' : 'none'}; text-align: left;">
+        <div style="background: var(--color-surface); padding: 0.6rem 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem;">
+          <div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 600;">Pedido:</span>
+            <span style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.9rem; margin-left: 0.25rem;">${orderNum}</span>
+          </div>
+          ${comercio ? `<span style="font-size: 0.75rem; background: var(--color-bg); padding: 0.15rem 0.45rem; border-radius: 4px; border: 1px solid var(--color-border); font-weight: 600;">${comercio}</span>` : ''}
+          ${customer ? `<div style="width: 100%; font-size: 0.8rem; color: var(--color-text-muted); margin-top: 0.1rem;"><strong>Cliente:</strong> ${customer}</div>` : ''}
+          <div style="width: 100%; font-size: 0.8rem; color: var(--color-text-muted);"><strong>Sucursal Asignada:</strong> <span style="color: var(--color-text-main); font-weight: 600;">${whName}</span></div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+          ${itemsHtml}
+        </div>
+
+        <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+          Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${whName}</strong> desde la sección <strong>Hub Central / Reubicar</strong>.
+        </p>
+      </div>
+    `;
+  }).join('');
+
+  // Controles de navegación superior (sólo si hay más de 1 slide)
+  const navControlsHtml = totalSlides > 1 ? `
+    <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.4rem 0.75rem; margin-bottom: 0.75rem;">
+      <button type="button" id="btn-slide-prev" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.65rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; color: var(--color-text-main); transition: all 0.2s;">
+        <i class="ri-arrow-left-s-line"></i> Anterior
+      </button>
+      <div style="text-align: center;">
+        <span id="slide-indicator" style="font-size: 0.85rem; font-weight: 700; color: var(--color-primary); display: block;">
+          Pedido <span id="current-slide-num">1</span> de ${totalSlides}
+        </span>
+        <span id="slide-order-title" style="font-size: 0.75rem; color: var(--color-text-muted); font-family: monospace;">
+          ${failuresByOrder[0]?.orderNum || ''}
+        </span>
+      </div>
+      <button type="button" id="btn-slide-next" style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.3rem 0.65rem; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.25rem; color: var(--color-text-main); transition: all 0.2s;">
+        Siguiente <i class="ri-arrow-right-s-line"></i>
+      </button>
+    </div>
+  ` : '';
+
+  const modalHtml = `
+    <div style="text-align: left; font-size: 0.9rem;">
+      <p style="margin-bottom: 0.6rem; color: var(--color-text-muted);">
+        ${subtitle || (totalSlides > 1 ? `Se detectaron <strong>${totalSlides} pedidos con stock insuficiente</strong> en su sucursal:` : 'No se puede procesar el pedido por falta de stock físico:')}
+      </p>
+      ${navControlsHtml}
+      <div id="stock-slides-container" style="max-height: 480px; overflow-y: auto; padding-right: 0.25rem;">
+        ${slidesHtml}
+      </div>
+    </div>
+  `;
+
+  await Swal.fire({
+    icon: 'error',
+    title: title,
+    html: modalHtml,
+    width: totalSlides > 1 ? '620px' : '540px',
+    confirmButtonText: totalSlides > 1 ? 'Entendido / Cerrar' : 'Entendido',
+    confirmButtonColor: '#7117eb',
+    didOpen: () => {
+      if (totalSlides <= 1) return;
+
+      let currentIdx = 0;
+      const updateSlideView = () => {
+        document.querySelectorAll('.stock-shortage-slide').forEach((el, i) => {
+          el.style.display = i === currentIdx ? 'block' : 'none';
+        });
+        const numEl = document.getElementById('current-slide-num');
+        if (numEl) numEl.textContent = (currentIdx + 1);
+
+        const titleEl = document.getElementById('slide-order-title');
+        if (titleEl) {
+          titleEl.textContent = failuresByOrder[currentIdx]?.orderNum || '';
+        }
+
+        const btnPrev = document.getElementById('btn-slide-prev');
+        const btnNext = document.getElementById('btn-slide-next');
+        if (btnPrev) {
+          btnPrev.disabled = currentIdx === 0;
+          btnPrev.style.opacity = currentIdx === 0 ? '0.4' : '1';
+          btnPrev.style.cursor = currentIdx === 0 ? 'not-allowed' : 'pointer';
+        }
+        if (btnNext) {
+          btnNext.disabled = currentIdx === totalSlides - 1;
+          btnNext.style.opacity = currentIdx === totalSlides - 1 ? '0.4' : '1';
+          btnNext.style.cursor = currentIdx === totalSlides - 1 ? 'not-allowed' : 'pointer';
+        }
+      };
+
+      updateSlideView();
+
+      document.getElementById('btn-slide-prev')?.addEventListener('click', () => {
+        if (currentIdx > 0) {
+          currentIdx--;
+          updateSlideView();
+        }
+      });
+
+      document.getElementById('btn-slide-next')?.addEventListener('click', () => {
+        if (currentIdx < totalSlides - 1) {
+          currentIdx++;
+          updateSlideView();
+        }
+      });
+
+      // Atajos de teclado Flecha Izquierda / Flecha Derecha
+      const keyHandler = (e) => {
+        if (e.key === 'ArrowLeft' && currentIdx > 0) {
+          currentIdx--;
+          updateSlideView();
+        } else if (e.key === 'ArrowRight' && currentIdx < totalSlides - 1) {
+          currentIdx++;
+          updateSlideView();
+        }
+      };
+      window.addEventListener('keydown', keyHandler);
+
+      const popup = Swal.getPopup();
+      if (popup) {
+        const observer = new MutationObserver(() => {
+          if (!document.body.contains(popup)) {
+            window.removeEventListener('keydown', keyHandler);
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.body, { childList: true });
+      }
+    }
+  });
+};
+
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
 async function validateOrderStockForDispatch(ordersList) {
   if (!ordersList || ordersList.length === 0) return true;
@@ -4567,6 +4727,7 @@ async function validateOrderStockForDispatch(ordersList) {
     invMap[`${inv.product_id}_${inv.warehouse_id}`] = inv.quantity || 0;
   });
 
+  const failuresByOrderMap = new Map();
   const requiredMap = {};
   for (const check of itemsToCheck) {
     const key = `${check.productId}_${check.warehouseId}`;
@@ -4574,43 +4735,39 @@ async function validateOrderStockForDispatch(ordersList) {
     
     const available = invMap[key] || 0;
     if (available < requiredMap[key]) {
-      const whName = check.order.sucursal_pickeo || 'Sucursal Asignada';
-      
-      const affectedOrderNos = itemsToCheck
-        .filter(i => i.productId === check.productId && i.warehouseId === check.warehouseId)
-        .map(i => i.order.external_order_number || i.order.id);
-      const uniqueOrderNos = [...new Set(affectedOrderNos)];
-      const orderListHtml = uniqueOrderNos.map(num => `<span style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${num}</span>`).join(' ');
+      const orderId = check.order.id;
+      if (!failuresByOrderMap.has(orderId)) {
+        failuresByOrderMap.set(orderId, {
+          order: check.order,
+          orderNum: check.order.external_order_number || check.order.id,
+          comercio: check.order.comercio,
+          customer: check.order.customer_name,
+          warehouseName: check.order.sucursal_pickeo || 'Sucursal Asignada',
+          items: []
+        });
+      }
 
-      const stockBreakdownHtml = await window.getFormattedStockByWarehouse(check.productId, check.warehouseId);
-
-      await Swal.fire({
-        icon: 'error',
-        title: 'Stock Físico Insuficiente',
-        html: `
-          <div style="text-align: left; font-size: 0.9rem;">
-            <p style="margin-bottom: 0.5rem;">
-              No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico en <strong>"${whName}"</strong>.
-            </p>
-
-            <div style="background: var(--color-bg); padding: 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
-              <div><strong># Pedido(s) Afectado(s):</strong> <div style="margin-top: 0.25rem; display: flex; flex-wrap: wrap; gap: 0.35rem;">${orderListHtml}</div></div>
-              <div style="margin-top: 0.25rem;"><strong>SKU:</strong> <span style="font-family: monospace; font-weight: 700;">${check.sku}</span> (${check.name})</div>
-              <div><strong>Requerido:</strong> ${requiredMap[key]} un.</div>
-              <div><strong>Disponible en ${whName}:</strong> <span style="color: #ef4444; font-weight: 700;">${available} un.</span></div>
-            </div>
-
-            ${stockBreakdownHtml}
-
-            <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-              Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${whName}</strong> desde la sección <strong>Hub Central / Reubicar</strong>.
-            </p>
-          </div>
-        `,
-        confirmButtonText: 'Entendido'
+      failuresByOrderMap.get(orderId).items.push({
+        sku: check.sku,
+        name: check.name,
+        productId: check.productId,
+        warehouseId: check.warehouseId,
+        requested: check.quantity,
+        available: available
       });
-      return false;
     }
+  }
+
+  const failuresByOrder = Array.from(failuresByOrderMap.values());
+  if (failuresByOrder.length > 0) {
+    await window.showStockShortageSlidesModal({
+      title: 'Stock Físico Insuficiente',
+      subtitle: failuresByOrder.length > 1
+        ? `No se pueden marcar como <strong>Despachado</strong>: Se detectaron <strong>${failuresByOrder.length} pedidos</strong> con stock insuficiente en su sucursal de despacho:`
+        : `No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico:`,
+      failuresByOrder
+    });
+    return false;
   }
 
   return true;
@@ -4720,33 +4877,24 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         }
 
         if (insufficientItem) {
-          const orderNumStr = order.external_order_number || order.id;
-          const stockBreakdownHtml = await window.getFormattedStockByWarehouse(insufficientItem.productId, targetWarehouseId);
-
-          await Swal.fire({
-            icon: 'error',
+          await window.showStockShortageSlidesModal({
             title: 'Falta de Stock en Sucursal',
-            html: `
-              <div style="text-align: left; font-size: 0.9rem;">
-                <p style="margin-bottom: 0.5rem;">
-                  No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${formValues.sucursal}</strong>.
-                </p>
-
-                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
-                  <div><strong># Pedido:</strong> <span style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${orderNumStr}</span></div>
-                  <div><strong>SKU:</strong> <span style="font-family: monospace; font-weight: 700;">${insufficientItem.sku}</span> (${insufficientItem.name})</div>
-                  <div><strong>Requerido:</strong> ${insufficientItem.requested} un.</div>
-                  <div><strong>Disponible en ${formValues.sucursal}:</strong> <span style="color: #ef4444; font-weight: 700;">${insufficientItem.available} un.</span></div>
-                </div>
-
-                ${stockBreakdownHtml}
-
-                <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
-                  Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${formValues.sucursal}</strong> desde la sección <strong>Hub Central / Reubicar</strong> antes de mandar al Picker.
-                </p>
-              </div>
-            `,
-            confirmButtonText: 'Entendido'
+            subtitle: `No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${formValues.sucursal}</strong>:`,
+            failuresByOrder: [{
+              order: order,
+              orderNum: order.external_order_number || order.id,
+              comercio: order.comercio,
+              customer: order.customer_name,
+              warehouseName: formValues.sucursal,
+              items: [{
+                sku: insufficientItem.sku,
+                name: insufficientItem.name,
+                productId: insufficientItem.productId,
+                warehouseId: targetWarehouseId,
+                requested: insufficientItem.requested,
+                available: insufficientItem.available
+              }]
+            }]
           });
 
           try {
@@ -15620,68 +15768,76 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       infoLogs = results[4].value.data;
     }
 
-    console.log(`[fetchUnifiedLeads] Datos crudos cargados: Profiles: ${profiles.length}, Quotes: ${quotes.length}, E1Logs: ${e1Logs.length}, Onboarding: ${onboardings.length}, InfoLogs: ${infoLogs.length}`);
+    // Merge persistent localStorage logs / leads
+    try {
+      const localInfo = JSON.parse(localStorage.getItem('stocka_wms_lead_info_logs_v1') || '[]');
+      if (Array.isArray(localInfo) && localInfo.length > 0) {
+        localInfo.forEach(l => {
+          if (!infoLogs.some(existing => existing.recipient_email === l.recipient_email && (existing.sent_at === l.sent_at || existing.id === l.id))) {
+            infoLogs.push(l);
+          }
+        });
+      }
+    } catch (lsErr) { console.warn('Aviso leyendo localInfo:', lsErr); }
+
+    try {
+      const localE1 = JSON.parse(localStorage.getItem('stocka_wms_e1_logs_v1') || '[]');
+      if (Array.isArray(localE1) && localE1.length > 0) {
+        localE1.forEach(l => {
+          if (!e1Logs.some(existing => existing.recipient_email === l.recipient_email && (existing.sent_at === l.sent_at || existing.id === l.id))) {
+            e1Logs.push(l);
+          }
+        });
+      }
+    } catch (lsErr) { console.warn('Aviso leyendo localE1:', lsErr); }
+
+    try {
+      const localQuotes = JSON.parse(localStorage.getItem('stocka_wms_quote_leads_cache') || '[]');
+      if (Array.isArray(localQuotes) && localQuotes.length > 0) {
+        localQuotes.forEach(q => {
+          if (!quotes.some(existing => existing.email === q.email)) {
+            quotes.push(q);
+          }
+        });
+      }
+    } catch (lsErr) { console.warn('Aviso leyendo localQuotes:', lsErr); }
+
+    console.log(`[fetchUnifiedLeads] Datos consolidados cargados: Profiles: ${profiles.length}, Quotes: ${quotes.length}, E1Logs: ${e1Logs.length}, Onboarding: ${onboardings.length}, InfoLogs: ${infoLogs.length}`);
 
     const leadsMap = new Map();
     const getCleanEmail = (email) => (email || '').trim().toLowerCase();
 
-    // 1. Procesar Profiles (Leads Demo / Registros)
-    profiles.forEach(p => {
+    // 1. Procesar Profiles (Exclusivamente Leads de la Demo: is_demo_user === true)
+    profiles.filter(p => p.is_demo_user === true).forEach(p => {
       const email = getCleanEmail(p.email);
       if (!email) return;
-
-      // Omitir administradores del sistema a menos que estén explícitamente como demo
-      if (p.role === 'admin' && !p.is_demo_user) return;
 
       const sentArr = Array.isArray(p.lead_emails_sent) ? p.lead_emails_sent : [];
       const e1Sent = sentArr.filter(e => e.type === 'E1' || (e.subject && e.subject.includes('Onboarding')));
       const infoSent = sentArr.filter(e => e.type === 'INFO_COMERCIAL' || (e.subject && (e.subject.includes('Presentación') || e.subject.includes('Información'))));
 
-      if (!leadsMap.has(email)) {
-        leadsMap.set(email, {
-          email: email,
-          name: p.full_name || '',
-          company: p.company_name || p.comercio || '',
-          phone: p.phone || p.work_phone || p.whatsapp_number || '',
-          sources: ['demo'],
-          profile_id: p.id,
-          role: p.role,
-          demo_data: {
-            registered_at: p.created_at,
-            last_seen: p.last_seen,
-            confirmed: !!p.email_confirmed_at
-          },
-          lead_status: p.lead_status || 'nuevo',
-          notes: p.lead_notes || '',
-          e1_history: e1Sent,
-          info_history: infoSent,
-          quotes: [],
-          onboarding: null,
-          created_at: p.created_at,
-          last_activity_at: p.last_seen || p.created_at
-        });
-      } else {
-        const lead = leadsMap.get(email);
-        if (!lead.sources.includes('demo')) lead.sources.push('demo');
-        if (!lead.name && p.full_name) lead.name = p.full_name;
-        if (!lead.company && p.company_name) lead.company = p.company_name;
-        if (!lead.phone && (p.phone || p.work_phone)) lead.phone = p.phone || p.work_phone;
-        if (!lead.demo_data) {
-          lead.demo_data = {
-            registered_at: p.created_at,
-            last_seen: p.last_seen,
-            confirmed: !!p.email_confirmed_at
-          };
-        }
-        if (p.lead_notes && !lead.notes) lead.notes = p.lead_notes;
-        lead.profile_id = p.id;
-        if (infoSent.length > 0) {
-          lead.info_history = [...(lead.info_history || []), ...infoSent];
-        }
-        if (e1Sent.length > 0) {
-          lead.e1_history = [...(lead.e1_history || []), ...e1Sent];
-        }
-      }
+      leadsMap.set(email, {
+        email: email,
+        name: p.full_name || '',
+        company: p.company_name || p.comercio || '',
+        phone: p.phone || p.work_phone || p.whatsapp_number || '',
+        sources: ['demo'],
+        profile_id: p.id,
+        role: p.role,
+        demo_data: {
+          registered_at: p.created_at,
+          last_seen: p.last_seen,
+          confirmed: !!p.email_confirmed_at
+        },
+        lead_status: p.lead_status || 'nuevo',
+        notes: p.lead_notes || '',
+        e1_history: e1Sent,
+        info_history: infoSent,
+        quotes: [],
+        onboarding: null,
+        created_at: p.created_at,
+        last_activity_at: p.last_seen || p.created_at
+      });
     });
 
     // 2. Procesar Quote Leads (Cotizador Online)
@@ -42626,11 +42782,90 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
         throw new Error(errJson?.error || `Error en el servidor: HTTP ${res.status}`);
       }
 
+      // 1. Guardar log persistente en localStorage
+      const logItem = {
+        id: 'local_info_' + Date.now(),
+        recipient_email: email,
+        contact_name: contactName,
+        commerce_name: commerceName,
+        cc_emails: cc,
+        subject: subject,
+        sent_at: new Date().toISOString(),
+        status: 'delivered',
+        notes: customMessage
+      };
+
+      try {
+        const localInfoLogs = JSON.parse(localStorage.getItem('stocka_wms_lead_info_logs_v1') || '[]');
+        localInfoLogs.unshift(logItem);
+        localStorage.setItem('stocka_wms_lead_info_logs_v1', JSON.stringify(localInfoLogs.slice(0, 200)));
+      } catch (lsErr) {
+        console.warn('Aviso guardando log de info en localStorage:', lsErr);
+      }
+
+      // 2. Registrar en Supabase lead_info_email_logs
+      try {
+        await supabase.from('lead_info_email_logs').insert([{
+          recipient_email: email,
+          contact_name: contactName,
+          commerce_name: commerceName,
+          cc_emails: cc,
+          subject: subject,
+          status: 'delivered',
+          notes: customMessage,
+          sent_at: new Date().toISOString()
+        }]);
+      } catch (logErr) {
+        console.warn('Aviso registrando en lead_info_email_logs:', logErr);
+      }
+
+      // 3. Sincronizar en profiles / quote_leads
+      try {
+        const { data: matchedProfiles } = await supabase.from('profiles').select('id, lead_emails_sent, lead_status').ilike('email', email);
+        if (matchedProfiles && matchedProfiles.length > 0) {
+          for (const p of matchedProfiles) {
+            const sentArr = Array.isArray(p.lead_emails_sent) ? [...p.lead_emails_sent] : [];
+            sentArr.push({ type: 'INFO_COMERCIAL', sent_at: new Date().toISOString(), subject });
+            const nextStatus = (p.lead_status === 'convertido' || p.lead_status === 'onboarding' || p.lead_status === 'e1_enviado') ? p.lead_status : 'contactado';
+            await supabase.from('profiles').update({ lead_emails_sent: sentArr, lead_status: nextStatus }).eq('id', p.id);
+          }
+        } else {
+          const { data: matchedQuotes } = await supabase.from('quote_leads').select('id').ilike('email', email);
+          if (matchedQuotes && matchedQuotes.length > 0) {
+            await supabase.from('quote_leads').update({ status: 'contactado' }).ilike('email', email);
+          } else {
+            const newLeadObj = {
+              email: email,
+              contact_name: contactName,
+              company_name: commerceName,
+              status: 'contactado',
+              notes: customMessage,
+              created_at: new Date().toISOString()
+            };
+            try {
+              await supabase.from('quote_leads').insert([newLeadObj]);
+            } catch (quoteInsErr) {
+              console.warn('Aviso insertando en quote_leads:', quoteInsErr);
+            }
+            try {
+              const localQ = JSON.parse(localStorage.getItem('stocka_wms_quote_leads_cache') || '[]');
+              localQ.unshift(newLeadObj);
+              localStorage.setItem('stocka_wms_quote_leads_cache', JSON.stringify(localQ.slice(0, 100)));
+            } catch (lsQErr) {
+              console.warn('Aviso guardando quote_leads local:', lsQErr);
+            }
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Aviso sincronizando lead tras envío de presentación:', syncErr);
+      }
+
+      window.cachedUnifiedLeads = null;
       closeModal();
 
       // Actualizar Central de Leads y badges si están disponibles
       if (typeof window.renderLeadsAdmin === 'function') {
-        window.renderLeadsAdmin(true);
+        await window.renderLeadsAdmin(true);
       }
       if (typeof window.updateAdminBadges === 'function') {
         window.updateAdminBadges();
@@ -42965,11 +43200,83 @@ window.openSendE1Modal = async function(defaultData = {}) {
         throw new Error(errJson?.error || `Error en el servidor: HTTP ${res.status}`);
       }
 
+      // 1. Guardar log persistente de E1 en localStorage
+      const e1LogItem = {
+        id: 'local_e1_' + Date.now(),
+        recipient_email: email,
+        contact_name: contactName,
+        commerce_name: commerceName,
+        cc_emails: cc,
+        subject: `Stocka Fulfillment - Instrucciones y Pasos de Onboarding [${commerceName || email}]`,
+        sent_at: new Date().toISOString(),
+        status: 'delivered'
+      };
+
+      try {
+        const localE1Logs = JSON.parse(localStorage.getItem('stocka_wms_e1_logs_v1') || '[]');
+        localE1Logs.unshift(e1LogItem);
+        localStorage.setItem('stocka_wms_e1_logs_v1', JSON.stringify(localE1Logs.slice(0, 200)));
+      } catch (lsErr) {
+        console.warn('Aviso guardando log de E1 en localStorage:', lsErr);
+      }
+
+      // 2. Registrar en Supabase e1_email_logs
+      try {
+        await supabase.from('e1_email_logs').insert([{
+          recipient_email: email,
+          contact_name: contactName,
+          commerce_name: commerceName,
+          cc_emails: cc,
+          subject: e1LogItem.subject,
+          status: 'delivered',
+          sent_at: new Date().toISOString()
+        }]);
+      } catch (logErr) {
+        console.warn('Aviso registrando en e1_email_logs:', logErr);
+      }
+
+      // 3. Sincronizar en profiles / quote_leads
+      try {
+        const { data: matchedProfiles } = await supabase.from('profiles').select('id, lead_emails_sent, lead_status').ilike('email', email);
+        if (matchedProfiles && matchedProfiles.length > 0) {
+          for (const p of matchedProfiles) {
+            const sentArr = Array.isArray(p.lead_emails_sent) ? [...p.lead_emails_sent] : [];
+            sentArr.push({ type: 'E1', sent_at: new Date().toISOString(), subject: e1LogItem.subject });
+            const nextStatus = (p.lead_status === 'convertido' || p.lead_status === 'onboarding') ? p.lead_status : 'e1_enviado';
+            await supabase.from('profiles').update({ lead_emails_sent: sentArr, lead_status: nextStatus }).eq('id', p.id);
+          }
+        } else {
+          const { data: matchedQuotes } = await supabase.from('quote_leads').select('id').ilike('email', email);
+          if (matchedQuotes && matchedQuotes.length > 0) {
+            await supabase.from('quote_leads').update({ status: 'e1_enviado' }).ilike('email', email);
+          } else {
+            const newLeadObj = {
+              email: email,
+              contact_name: contactName,
+              company_name: commerceName,
+              status: 'e1_enviado',
+              created_at: new Date().toISOString()
+            };
+            try {
+              await supabase.from('quote_leads').insert([newLeadObj]);
+            } catch (quoteInsErr) { console.warn(quoteInsErr); }
+            try {
+              const localQ = JSON.parse(localStorage.getItem('stocka_wms_quote_leads_cache') || '[]');
+              localQ.unshift(newLeadObj);
+              localStorage.setItem('stocka_wms_quote_leads_cache', JSON.stringify(localQ.slice(0, 100)));
+            } catch (lsQErr) { console.warn(lsQErr); }
+          }
+        }
+      } catch (syncErr) {
+        console.warn('Aviso sincronizando lead tras envío de E1:', syncErr);
+      }
+
+      window.cachedUnifiedLeads = null;
       closeModal();
 
       // Actualizar Central de Leads y badges si están disponibles
       if (typeof window.renderLeadsAdmin === 'function') {
-        window.renderLeadsAdmin(true);
+        await window.renderLeadsAdmin(true);
       }
       if (typeof window.updateAdminBadges === 'function') {
         window.updateAdminBadges();
