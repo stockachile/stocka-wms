@@ -2003,7 +2003,7 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         console.error("Error loading enviame configs mapping:", e);
       }
       
-      const orders = await window.fetchAllSupabaseRows('orders', `
+      const selectStr = `
         id,
         status,
         estado_wms,
@@ -2034,21 +2034,44 @@ window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
         fecha_procesamiento,
         sucursal_pickeo,
         periodo_facturacion,
-        raw_shopify_data,
-        raw_woocommerce_data,
-        raw_jumpseller_data,
-        raw_falabella_data,
-        raw_meli_data,
-        raw_paris_data,
-        raw_ripley_data,
-        order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
-      `, q => {
-        let query = q;
-        if (fromISO) query = query.gte('created_at', fromISO);
-        if (toISO) query = query.lte('created_at', toISO);
-        return query.order('created_at', { ascending: false });
-      });
+        order_items (quantity, product_id, warehouse_id, products (id, sku, name, is_virtual, price, image_url, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+      `.replace(/\s+/g, ' ').trim();
 
+      let allOrders = [];
+      let lastCreatedAt = null;
+      const step = 500;
+
+      while (true) {
+        let q = supabase
+          .from('orders')
+          .select(selectStr);
+
+        if (fromISO) q = q.gte('created_at', fromISO);
+        if (toISO) q = q.lte('created_at', toISO);
+        if (lastCreatedAt) q = q.lt('created_at', lastCreatedAt);
+
+        q = q.order('created_at', { ascending: false }).limit(step);
+
+        let res = null;
+        let attempts = 0;
+        while (attempts < 3) {
+          attempts++;
+          res = await q;
+          if (!res.error) break;
+          if (attempts < 3) {
+            await new Promise(r => setTimeout(r, 600 * attempts));
+          }
+        }
+
+        if (res.error) throw res.error;
+        const data = res.data || [];
+        if (data.length === 0) break;
+        allOrders = allOrders.concat(data);
+        if (data.length < step) break;
+        lastCreatedAt = data[data.length - 1].created_at;
+      }
+
+      const orders = allOrders;
       window.loadedOrders = orders || [];
       window.loadedOrdersInventoryMap = {};
 
