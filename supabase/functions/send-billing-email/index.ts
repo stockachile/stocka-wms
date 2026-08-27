@@ -175,6 +175,112 @@ serve(async (req) => {
       record = data;
     }
 
+    // Sincronización a pedido de eventos de lectura (Aperturas y Clics) desde la API de Brevo
+    if (emailType === 'sync_lead_email_events' || emailType === 'sync_brevo_events') {
+      try {
+        console.log('[send-billing-email] Sincronizando eventos de lectura y clics desde Brevo...');
+        const brevoEventsRes = await fetch("https://api.brevo.com/v3/smtp/statistics/events?limit=100&sort=desc", {
+          headers: {
+            "accept": "application/json",
+            "api-key": brevoApiKey
+          }
+        });
+
+        if (!brevoEventsRes.ok) {
+          const errText = await brevoEventsRes.text();
+          throw new Error(`Error consultando eventos de Brevo: ${errText}`);
+        }
+
+        const eventsData = await brevoEventsRes.json();
+        const eventsList = eventsData.events || [];
+        const relevantEvents = eventsList.filter((e: any) => 
+          ['opened', 'unique_opened', 'loadedByProxy', 'clicks', 'delivered'].includes(e.event)
+        );
+
+        let updatedCount = 0;
+
+        await Promise.allSettled(relevantEvents.map(async (evt: any) => {
+          const eventName = evt.event;
+          const messageId = evt.messageId;
+          const email = (evt.email || "").toLowerCase().trim();
+          const eventDate = evt.date ? new Date(evt.date).toISOString() : new Date().toISOString();
+          const clickedLink = evt.link || null;
+
+          const isOpened = eventName === "opened" || eventName === "unique_opened" || eventName === "loadedByProxy";
+          const isClicked = eventName === "clicks";
+          const isDelivered = eventName === "delivered";
+
+          let dbStatus = "enviado";
+          if (isDelivered) dbStatus = "entregado";
+          else if (isOpened) dbStatus = "abierto";
+          else if (isClicked) dbStatus = "clickeado";
+
+          const updatePayload: any = { status: dbStatus };
+          if (isOpened) updatePayload.opened_at = eventDate;
+          if (isClicked) {
+            updatePayload.clicked_at = eventDate;
+            if (clickedLink) updatePayload.notes = `Clic en enlace: ${clickedLink}`;
+          }
+
+          // Update lead_info_email_logs
+          if (messageId) {
+            await supabaseClient.from("lead_info_email_logs").update(updatePayload).eq("message_id", messageId);
+          } else if (email) {
+            await supabaseClient.from("lead_info_email_logs").update(updatePayload).ilike("recipient_email", email);
+          }
+
+          // Update e1_email_logs
+          if (messageId) {
+            await supabaseClient.from("e1_email_logs").update(updatePayload).eq("message_id", messageId);
+          } else if (email) {
+            await supabaseClient.from("e1_email_logs").update(updatePayload).ilike("recipient_email", email);
+          }
+
+          // Update profiles
+          if (email) {
+            const { data: matchedProfiles } = await supabaseClient.from("profiles").select("id, lead_emails_sent").ilike("email", email);
+            if (matchedProfiles && matchedProfiles.length > 0) {
+              for (const prof of matchedProfiles) {
+                const history = Array.isArray(prof.lead_emails_sent) ? [...prof.lead_emails_sent] : [];
+                let modified = false;
+                history.forEach((h: any) => {
+                  if (!h.status || h.status === 'enviado' || h.status === 'delivered' || isOpened || isClicked) {
+                    h.status = dbStatus;
+                    if (isOpened && !h.opened_at) h.opened_at = eventDate;
+                    if (isClicked) {
+                      h.clicked_at = eventDate;
+                      if (clickedLink) h.link_clicked = clickedLink;
+                    }
+                    modified = true;
+                  }
+                });
+                if (modified) {
+                  await supabaseClient.from("profiles").update({ lead_emails_sent: history }).eq("id", prof.id);
+                }
+              }
+            }
+          }
+          updatedCount++;
+        }));
+
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: `Sincronizados ${relevantEvents.length} eventos de Brevo con éxito.`,
+          updatedCount: updatedCount,
+          events: relevantEvents.slice(0, 30)
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      } catch (syncErr: any) {
+        console.error('[send-billing-email] Error sincronizando eventos de Brevo:', syncErr);
+        return new Response(JSON.stringify({ error: syncErr.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
     // Cancelar envío si el tipo es automático y ya no está atrasado
     if (emailType === 'payment_overdue' && record) {
       const isFulfOverdue = record.pago_fulfillment === 'Atrasado';

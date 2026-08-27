@@ -41,6 +41,12 @@ async function getValidShopifyToken(integration) {
     return integration.access_token;
   }
 
+  const clientSecret = SHOPIFY_CLIENT_SECRET || integration.webhook_secret;
+  if (!clientSecret) {
+    console.error(`[Shopify Sync] No hay client_secret disponible para ${integration.shop_url}`);
+    return integration.access_token;
+  }
+
   console.log(`[Shopify Sync] Renovando token de acceso para ${integration.shop_url}...`);
   const tokenUrl = `https://${integration.shop_url}/admin/oauth/access_token`;
   try {
@@ -49,7 +55,7 @@ async function getValidShopifyToken(integration) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         client_id: SHOPIFY_CLIENT_ID,
-        client_secret: SHOPIFY_CLIENT_SECRET,
+        client_secret: clientSecret,
         grant_type: 'refresh_token',
         refresh_token: integration.refresh_token
       })

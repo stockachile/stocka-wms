@@ -32,30 +32,99 @@ serve(async (req) => {
       const messageId = evt["message-id"];
 
       if (messageId && eventName) {
-        // Map Brevo event names to user-friendly database status values
         let dbStatus = "enviado";
+        const isOpened = eventName === "opened" || eventName === "unique_opened" || eventName === "loadedByProxy";
+        const isClicked = eventName === "clicks";
+
         if (eventName === "delivered") {
           dbStatus = "entregado";
-        } else if (eventName === "opened" || eventName === "unique_opened") {
+        } else if (isOpened) {
           dbStatus = "abierto";
-        } else if (eventName === "clicks") {
+        } else if (isClicked) {
           dbStatus = "clickeado";
         } else if (["invalid_email", "deferred", "hard_bounce", "soft_bounce", "blocked", "spam"].includes(eventName)) {
           dbStatus = "fallido";
         } else {
-          dbStatus = eventName; // Fallback to raw event name
+          dbStatus = eventName;
         }
 
-        console.log(`Actualizando mensaje ${messageId} a estado: ${dbStatus}`);
+        const eventDate = evt.date ? new Date(evt.date).toISOString() : new Date().toISOString();
+        const clickedLink = evt.link || null;
+        const recipientEmail = (evt.email || "").toLowerCase().trim();
 
-        // Update logs in database
-        const { error } = await supabase
-          .from("billing_notification_logs")
-          .update({ status: dbStatus })
-          .eq("message_id", messageId);
+        console.log(`[brevo-webhook] Evento ${eventName} (${dbStatus}) para ${recipientEmail}, messageId: ${messageId}`);
 
-        if (error) {
-          console.error(`Error al actualizar estado en DB para messageId ${messageId}:`, error.message);
+        // 1. Actualizar lead_info_email_logs
+        try {
+          const updatePayload: any = { status: dbStatus };
+          if (isOpened) updatePayload.opened_at = eventDate;
+          if (isClicked) {
+            updatePayload.clicked_at = eventDate;
+            if (clickedLink) updatePayload.notes = `Clic en enlace: ${clickedLink}`;
+          }
+
+          if (messageId) {
+            await supabase.from("lead_info_email_logs").update(updatePayload).eq("message_id", messageId);
+          }
+          if (recipientEmail) {
+            await supabase.from("lead_info_email_logs").update(updatePayload).ilike("recipient_email", recipientEmail);
+          }
+        } catch (e1Err: any) {
+          console.warn("[brevo-webhook] Aviso actualizando lead_info_email_logs:", e1Err.message);
+        }
+
+        // 2. Actualizar e1_email_logs
+        try {
+          const updatePayload: any = { status: dbStatus };
+          if (isOpened) updatePayload.opened_at = eventDate;
+          if (isClicked) updatePayload.clicked_at = eventDate;
+
+          if (messageId) {
+            await supabase.from("e1_email_logs").update(updatePayload).eq("message_id", messageId);
+          }
+          if (recipientEmail) {
+            await supabase.from("e1_email_logs").update(updatePayload).ilike("recipient_email", recipientEmail);
+          }
+        } catch (e2Err: any) {
+          console.warn("[brevo-webhook] Aviso actualizando e1_email_logs:", e2Err.message);
+        }
+
+        // 3. Actualizar billing_notification_logs
+        try {
+          if (messageId) {
+            await supabase.from("billing_notification_logs").update({ status: dbStatus }).eq("message_id", messageId);
+          }
+        } catch (billErr: any) {
+          console.warn("[brevo-webhook] Aviso actualizando billing_notification_logs:", billErr.message);
+        }
+
+        // 4. Actualizar profiles (lead_emails_sent)
+        if (recipientEmail) {
+          try {
+            const { data: matchedProfiles } = await supabase.from("profiles").select("id, lead_emails_sent").ilike("email", recipientEmail);
+            if (matchedProfiles && matchedProfiles.length > 0) {
+              for (const prof of matchedProfiles) {
+                const history = Array.isArray(prof.lead_emails_sent) ? [...prof.lead_emails_sent] : [];
+                let modified = false;
+                history.forEach((h: any) => {
+                  if (!h.status || h.status === "enviado" || h.status === "delivered" || isOpened || isClicked) {
+                    h.status = dbStatus;
+                    if (isOpened && !h.opened_at) h.opened_at = eventDate;
+                    if (isClicked) {
+                      h.clicked_at = eventDate;
+                      if (clickedLink) h.link_clicked = clickedLink;
+                    }
+                    modified = true;
+                  }
+                });
+                if (modified) {
+                  await supabase.from("profiles").update({ lead_emails_sent: history }).eq("id", prof.id);
+                }
+              }
+            }
+          } catch (profErr: any) {
+            console.warn("[brevo-webhook] Aviso actualizando profiles:", profErr.message);
+          }
         }
       }
     }

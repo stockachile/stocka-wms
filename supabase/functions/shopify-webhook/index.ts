@@ -28,14 +28,25 @@ serve(async (req) => {
     const url = new URL(req.url);
     const merchantId = url.searchParams.get("merchant_id") || "";
 
-    // 3. Obtener el secreto del webhook del cliente
-    let integration = null;
-    if (merchantId) {
+    // 3. Obtener la integración buscando por dominio de la tienda (shop_url) o por merchant_id
+    let integration: any = null;
+    if (shopDomain) {
       const { data } = await supabase
         .from("merchant_integrations")
-        .select("webhook_secret, comercio")
+        .select("*")
+        .eq("shop_url", shopDomain)
+        .eq("platform", "Shopify")
+        .maybeSingle();
+      integration = data;
+    }
+
+    if (!integration && merchantId) {
+      const { data } = await supabase
+        .from("merchant_integrations")
+        .select("*")
         .eq("merchant_id", merchantId)
         .eq("platform", "Shopify")
+        .limit(1)
         .maybeSingle();
       integration = data;
     }
@@ -76,28 +87,31 @@ serve(async (req) => {
     }
 
     // Verificar que la integración exista para temas que no sean de cumplimiento
-    if (!merchantId || !integration) {
-      console.error("Integración no encontrada para procesamiento de pedidos/productos:", merchantId);
+    if (!integration) {
+      console.error("Integración no encontrada para procesamiento de pedidos/productos:", shopDomain || merchantId);
       return new Response("Integration not configured", { status: 200 });
     }
+
+    const effectiveMerchantId = integration.merchant_id || merchantId;
+    const effectiveComercio = integration.comercio;
 
     // 6. Parsear el body JSON
     const payload = JSON.parse(rawBody);
     const identifier = payload.name || payload.title || payload.id || "N/A";
-    console.log(`Recibido Webhook: ${topic} para la tienda ${shopDomain} (ID/Ref: ${identifier})`);
+    console.log(`Recibido Webhook: ${topic} para la tienda ${shopDomain} (${effectiveComercio} - Ref: ${identifier})`);
 
     // 7. Lógica según el Topic
     if (topic === "orders/create") {
-      await handleOrderCreate(merchantId, integration.comercio, payload);
+      await handleOrderCreate(effectiveMerchantId, effectiveComercio, payload);
     } 
     else if (topic === "orders/updated" || topic === "orders/cancelled") {
-      await handleOrderUpdate(merchantId, integration.comercio, payload, topic);
+      await handleOrderUpdate(effectiveMerchantId, effectiveComercio, payload, topic);
     }
     else if (topic === "products/create" || topic === "products/update") {
-      await handleProductSave(merchantId, integration.comercio, payload);
+      await handleProductSave(effectiveMerchantId, effectiveComercio, payload);
     }
     else if (topic === "products/delete") {
-      await handleProductDelete(merchantId, integration.comercio, payload);
+      await handleProductDelete(effectiveMerchantId, effectiveComercio, payload);
     }
 
     return new Response("Webhook processed", { status: 200 });
@@ -195,7 +209,8 @@ async function handleOrderCreate(merchantId, comercio, order) {
   const { data: existing } = await supabase
     .from("orders")
     .select("id")
-    .eq("merchant_id", merchantId)
+    .eq("comercio", comercio)
+    .eq("external_platform", "Shopify")
     .in("external_order_number", [order.name, finalOrderNumber])
     .maybeSingle();
 
@@ -315,7 +330,8 @@ async function handleOrderUpdate(merchantId, comercio, order, topic) {
   const { data: existingOrder, error: findErr } = await supabase
     .from("orders")
     .select("id, status, estado_wms")
-    .eq("merchant_id", merchantId)
+    .eq("comercio", comercio)
+    .eq("external_platform", "Shopify")
     .eq("external_order_number", finalOrderNumber)
     .maybeSingle();
 
