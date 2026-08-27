@@ -4187,15 +4187,41 @@ window.applyBulkWmsStatus = async function() {
         }
 
         if (failedOrders.size > 0) {
-          const failedNums = Array.from(failedOrders).map(id => {
+          const failedOrderListHtml = Array.from(failedOrders).map(id => {
             const o = selectedOrders.find(order => order.id === id);
-            return o ? o.external_order_number : id;
-          }).join(', ');
+            const num = o ? o.external_order_number || id : id;
+            return `<span style="background: rgba(239, 68, 68, 0.1); color: #ef4444; padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${num}</span>`;
+          }).join(' ');
+
+          let breakdownHtml = '';
+          if (failedDetails.length > 0) {
+            const firstFailed = failedDetails[0];
+            const matchingItem = allItemsToCheck.find(i => i.sku === firstFailed.sku);
+            if (matchingItem && matchingItem.product_id) {
+              breakdownHtml = await window.getFormattedStockByWarehouse(matchingItem.product_id, matchingItem.warehouse_id);
+            }
+          }
 
           await Swal.fire({
             icon: 'error',
             title: 'Stock Insuficiente Detectado',
-            text: `Los siguientes pedidos no tienen stock suficiente y no serán enviados al Picker: ${failedNums}. El resto de los pedidos (si los hay) continuarán el proceso.`,
+            html: `
+              <div style="text-align: left; font-size: 0.9rem;">
+                <p style="margin-bottom: 0.5rem;">
+                  Los siguientes pedidos no tienen stock suficiente en su sucursal de destino y <strong>no serán enviados al Picker</strong>:
+                </p>
+
+                <div style="margin: 0.6rem 0; display: flex; flex-wrap: wrap; gap: 0.35rem;">
+                  ${failedOrderListHtml}
+                </div>
+
+                ${breakdownHtml}
+
+                <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+                  El resto de los pedidos con stock suficiente continuarán su envío al Picker normalmente.
+                </p>
+              </div>
+            `,
             confirmButtonText: 'Continuar'
           });
 
@@ -4354,6 +4380,69 @@ window.applyBulkWmsStatus = async function() {
   }
 };
 
+window.getFormattedStockByWarehouse = async function(productId, targetWarehouseId) {
+  if (!productId) return '';
+  try {
+    const { data: warehouses } = await supabase
+      .from('warehouses')
+      .select('id, name')
+      .order('name');
+      
+    const { data: invData } = await supabase
+      .from('inventory')
+      .select('warehouse_id, quantity')
+      .eq('product_id', productId);
+      
+    if (!warehouses || warehouses.length === 0) return '';
+    
+    const invMap = {};
+    (invData || []).forEach(inv => {
+      invMap[inv.warehouse_id] = inv.quantity || 0;
+    });
+
+    let rowsHtml = warehouses.map(wh => {
+      const qty = invMap[wh.id] || 0;
+      const isTarget = wh.id === targetWarehouseId;
+      const color = qty > 0 ? '#10b981' : '#ef4444';
+      const weight = isTarget ? '700' : '600';
+      const badge = isTarget ? ' <span style="font-size:0.65rem; background:rgba(239,68,68,0.12); color:#ef4444; padding:0.1rem 0.35rem; border-radius:4px; margin-left:0.35rem; font-weight:700;">(Sucursal Asignada)</span>' : '';
+      
+      return `
+        <tr style="border-bottom: 1px solid var(--color-border); ${isTarget ? 'background: rgba(239, 68, 68, 0.05);' : ''}">
+          <td style="padding: 0.4rem 0.6rem; font-size: 0.8rem; color: var(--color-text-main); font-weight: ${weight};">
+            ${wh.name}${badge}
+          </td>
+          <td style="padding: 0.4rem 0.6rem; font-size: 0.8rem; text-align: right; color: ${color}; font-weight: 700;">
+            ${qty} un.
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div style="margin-top: 0.85rem;">
+        <strong style="font-size: 0.825rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem;">
+          <i class="ri-store-2-line" style="color: var(--color-primary);"></i> Disponibilidad de Stock en todas las bodegas:
+        </strong>
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; border: 1px solid var(--color-border); border-radius: 6px; overflow: hidden; background: var(--color-surface);">
+          <thead>
+            <tr style="background: var(--color-bg); color: var(--color-text-muted); text-align: left; font-size: 0.75rem; border-bottom: 1px solid var(--color-border);">
+              <th style="padding: 0.4rem 0.6rem;">Bodega / Sucursal</th>
+              <th style="padding: 0.4rem 0.6rem; text-align: right;">Stock Físico</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    console.error('Error fetching stock by warehouse:', err);
+    return '';
+  }
+};
+
 // Validar stock antes de cambiar a Despachado para evitar error de check constraint
 async function validateOrderStockForDispatch(ordersList) {
   if (!ordersList || ordersList.length === 0) return true;
@@ -4486,17 +4575,36 @@ async function validateOrderStockForDispatch(ordersList) {
     const available = invMap[key] || 0;
     if (available < requiredMap[key]) {
       const whName = check.order.sucursal_pickeo || 'Sucursal Asignada';
+      
+      const affectedOrderNos = itemsToCheck
+        .filter(i => i.productId === check.productId && i.warehouseId === check.warehouseId)
+        .map(i => i.order.external_order_number || i.order.id);
+      const uniqueOrderNos = [...new Set(affectedOrderNos)];
+      const orderListHtml = uniqueOrderNos.map(num => `<span style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${num}</span>`).join(' ');
+
+      const stockBreakdownHtml = await window.getFormattedStockByWarehouse(check.productId, check.warehouseId);
+
       await Swal.fire({
         icon: 'error',
         title: 'Stock Físico Insuficiente',
         html: `
           <div style="text-align: left; font-size: 0.9rem;">
-            <p>No se puede marcar como <strong>Despachado</strong>: El SKU <strong>"${check.sku}"</strong> (${check.name}) no tiene suficiente stock físico en la bodega <strong>"${whName}"</strong> para cumplir con el despacho.</p>
-            <div style="background: var(--color-bg); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem;">
+            <p style="margin-bottom: 0.5rem;">
+              No se puede marcar como <strong>Despachado</strong> debido a falta de stock físico en <strong>"${whName}"</strong>.
+            </p>
+
+            <div style="background: var(--color-bg); padding: 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
+              <div><strong># Pedido(s) Afectado(s):</strong> <div style="margin-top: 0.25rem; display: flex; flex-wrap: wrap; gap: 0.35rem;">${orderListHtml}</div></div>
+              <div style="margin-top: 0.25rem;"><strong>SKU:</strong> <span style="font-family: monospace; font-weight: 700;">${check.sku}</span> (${check.name})</div>
               <div><strong>Requerido:</strong> ${requiredMap[key]} un.</div>
               <div><strong>Disponible en ${whName}:</strong> <span style="color: #ef4444; font-weight: 700;">${available} un.</span></div>
             </div>
-            <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">Si el stock se encuentra en Bodega Central, debes realizar primero un traslado hacia esta sucursal física desde el apartado <strong>Hub Central / Reubicar</strong>.</p>
+
+            ${stockBreakdownHtml}
+
+            <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+              Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${whName}</strong> desde la sección <strong>Hub Central / Reubicar</strong>.
+            </p>
           </div>
         `,
         confirmButtonText: 'Entendido'
@@ -4601,6 +4709,7 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
           const availableQty = invMap[key] || 0;
           if (availableQty < item.quantity) {
             insufficientItem = {
+              productId: item.product_id,
               sku: item.products?.sku || 'Sin SKU',
               name: item.products?.name || 'Producto',
               requested: item.quantity,
@@ -4611,18 +4720,30 @@ window.updateWmsOrderStatus = async function(orderId, newWmsStatus) {
         }
 
         if (insufficientItem) {
+          const orderNumStr = order.external_order_number || order.id;
+          const stockBreakdownHtml = await window.getFormattedStockByWarehouse(insufficientItem.productId, targetWarehouseId);
+
           await Swal.fire({
             icon: 'error',
             title: 'Falta de Stock en Sucursal',
             html: `
               <div style="text-align: left; font-size: 0.9rem;">
-                <p>No se puede enviar el pedido <strong>${order.external_order_number || order.id}</strong> a preparación: No hay suficiente stock físico en <strong>${formValues.sucursal}</strong>.</p>
-                <div style="background: var(--color-bg); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem;">
-                  <div><strong>SKU:</strong> ${insufficientItem.sku} (${insufficientItem.name})</div>
+                <p style="margin-bottom: 0.5rem;">
+                  No se puede enviar el pedido a preparación debido a falta de stock físico en <strong>${formValues.sucursal}</strong>.
+                </p>
+
+                <div style="background: var(--color-bg); padding: 0.85rem; border-radius: 6px; border: 1px solid var(--color-border); margin-top: 0.5rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
+                  <div><strong># Pedido:</strong> <span style="background: rgba(113, 23, 235, 0.1); color: var(--color-primary); padding: 0.15rem 0.45rem; border-radius: 4px; font-weight: 700; font-family: monospace; font-size: 0.85rem;">${orderNumStr}</span></div>
+                  <div><strong>SKU:</strong> <span style="font-family: monospace; font-weight: 700;">${insufficientItem.sku}</span> (${insufficientItem.name})</div>
                   <div><strong>Requerido:</strong> ${insufficientItem.requested} un.</div>
                   <div><strong>Disponible en ${formValues.sucursal}:</strong> <span style="color: #ef4444; font-weight: 700;">${insufficientItem.available} un.</span></div>
                 </div>
-                <p style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--color-text-muted);">Si el stock se encuentra en Bodega Central, debes realizar primero un traslado hacia <strong>${formValues.sucursal}</strong> desde el apartado <strong>Hub Central / Reubicar</strong> antes de mandar al Picker.</p>
+
+                ${stockBreakdownHtml}
+
+                <p style="margin-top: 0.85rem; font-size: 0.8rem; color: var(--color-text-muted); line-height: 1.4;">
+                  Si el stock se encuentra en Bodega Central u otra sucursal, debes realizar primero un traslado hacia <strong>${formValues.sucursal}</strong> desde la sección <strong>Hub Central / Reubicar</strong> antes de mandar al Picker.
+                </p>
               </div>
             `,
             confirmButtonText: 'Entendido'
@@ -15437,6 +15558,8 @@ window.getLeadStatusStyle = function(status) {
   switch (s) {
     case 'nuevo':
       return { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd', label: 'Nuevo Lead', icon: 'ri-sparkling-fill' };
+    case 'info_enviada':
+      return { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd', label: 'Info Enviada', icon: 'ri-mail-check-line' };
     case 'contactado':
       return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: 'Contactado', icon: 'ri-chat-1-fill' };
     case 'e1_enviado':
@@ -15466,28 +15589,53 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
   }
 
   try {
-    const [profilesRes, quotesRes, e1LogsRes, onboardingRes] = await Promise.all([
+    let profiles = [];
+    let quotes = [];
+    let e1Logs = [];
+    let onboardings = [];
+    let infoLogs = [];
+
+    // 1. Cargar fuentes de datos principales en paralelo
+    const results = await Promise.allSettled([
       supabase.from('profiles').select('*').order('created_at', { ascending: false }),
       supabase.from('quote_leads').select('*').order('created_at', { ascending: false }),
       supabase.from('e1_email_logs').select('*').order('sent_at', { ascending: false }),
-      supabase.from('onboarding_requests').select('*').order('created_at', { ascending: false })
+      supabase.from('onboarding_requests').select('*').order('created_at', { ascending: false }),
+      supabase.from('lead_info_email_logs').select('*').order('sent_at', { ascending: false })
     ]);
 
-    const profiles = profilesRes.data || [];
-    const quotes = quotesRes.data || [];
-    const e1Logs = e1LogsRes.data || [];
-    const onboardings = onboardingRes.data || [];
+    if (results[0].status === 'fulfilled' && results[0].value?.data) {
+      profiles = results[0].value.data;
+    }
+    if (results[1].status === 'fulfilled' && results[1].value?.data) {
+      quotes = results[1].value.data;
+    }
+    if (results[2].status === 'fulfilled' && results[2].value?.data) {
+      e1Logs = results[2].value.data;
+    }
+    if (results[3].status === 'fulfilled' && results[3].value?.data) {
+      onboardings = results[3].value.data;
+    }
+    if (results[4].status === 'fulfilled' && results[4].value?.data) {
+      infoLogs = results[4].value.data;
+    }
+
+    console.log(`[fetchUnifiedLeads] Datos crudos cargados: Profiles: ${profiles.length}, Quotes: ${quotes.length}, E1Logs: ${e1Logs.length}, Onboarding: ${onboardings.length}, InfoLogs: ${infoLogs.length}`);
 
     const leadsMap = new Map();
     const getCleanEmail = (email) => (email || '').trim().toLowerCase();
 
-    // 1. Procesar Profiles (Leads Demo)
+    // 1. Procesar Profiles (Leads Demo / Registros)
     profiles.forEach(p => {
       const email = getCleanEmail(p.email);
       if (!email) return;
 
-      const isDemo = p.is_demo_user === true || p.role === 'observer';
-      if (!isDemo && p.role === 'admin') return; // Omitir administradores
+      // Omitir administradores del sistema a menos que estén explícitamente como demo
+      if (p.role === 'admin' && !p.is_demo_user) return;
+
+      const sentArr = Array.isArray(p.lead_emails_sent) ? p.lead_emails_sent : [];
+      const e1Sent = sentArr.filter(e => e.type === 'E1' || (e.subject && e.subject.includes('Onboarding')));
+      const infoSent = sentArr.filter(e => e.type === 'INFO_COMERCIAL' || (e.subject && (e.subject.includes('Presentación') || e.subject.includes('Información'))));
 
       if (!leadsMap.has(email)) {
         leadsMap.set(email, {
@@ -15495,17 +15643,18 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           name: p.full_name || '',
           company: p.company_name || p.comercio || '',
           phone: p.phone || p.work_phone || p.whatsapp_number || '',
-          sources: isDemo ? ['demo'] : [],
+          sources: ['demo'],
           profile_id: p.id,
           role: p.role,
-          demo_data: isDemo ? {
+          demo_data: {
             registered_at: p.created_at,
             last_seen: p.last_seen,
             confirmed: !!p.email_confirmed_at
-          } : null,
+          },
           lead_status: p.lead_status || 'nuevo',
           notes: p.lead_notes || '',
-          e1_history: Array.isArray(p.lead_emails_sent) ? p.lead_emails_sent.filter(e => e.type === 'E1' || (e.subject && e.subject.includes('Onboarding'))) : [],
+          e1_history: e1Sent,
+          info_history: infoSent,
           quotes: [],
           onboarding: null,
           created_at: p.created_at,
@@ -15513,11 +15662,11 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         });
       } else {
         const lead = leadsMap.get(email);
-        if (isDemo && !lead.sources.includes('demo')) lead.sources.push('demo');
+        if (!lead.sources.includes('demo')) lead.sources.push('demo');
         if (!lead.name && p.full_name) lead.name = p.full_name;
         if (!lead.company && p.company_name) lead.company = p.company_name;
         if (!lead.phone && (p.phone || p.work_phone)) lead.phone = p.phone || p.work_phone;
-        if (isDemo && !lead.demo_data) {
+        if (!lead.demo_data) {
           lead.demo_data = {
             registered_at: p.created_at,
             last_seen: p.last_seen,
@@ -15526,6 +15675,12 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         }
         if (p.lead_notes && !lead.notes) lead.notes = p.lead_notes;
         lead.profile_id = p.id;
+        if (infoSent.length > 0) {
+          lead.info_history = [...(lead.info_history || []), ...infoSent];
+        }
+        if (e1Sent.length > 0) {
+          lead.e1_history = [...(lead.e1_history || []), ...e1Sent];
+        }
       }
     });
 
@@ -15545,6 +15700,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           demo_data: null,
           lead_status: q.status || 'nuevo',
           notes: q.notes || '',
+          info_history: [],
           e1_history: [],
           quotes: [q],
           onboarding: null,
@@ -15565,7 +15721,46 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       }
     });
 
-    // 3. Procesar E1 Email Logs
+    // 3. Procesar Lead Info Email Logs (Correos de Presentación e Información Comercial)
+    infoLogs.forEach(log => {
+      const email = getCleanEmail(log.recipient_email);
+      if (!email) return;
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: log.contact_name || '',
+          company: log.commerce_name || '',
+          phone: '',
+          sources: ['info'],
+          profile_id: null,
+          demo_data: null,
+          lead_status: 'contactado',
+          notes: log.notes || '',
+          info_history: [log],
+          e1_history: [],
+          quotes: [],
+          onboarding: null,
+          created_at: log.sent_at || log.created_at,
+          last_activity_at: log.sent_at || log.created_at
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (!lead.sources.includes('info')) lead.sources.push('info');
+        if (!lead.name && log.contact_name) lead.name = log.contact_name;
+        if (!lead.company && log.commerce_name) lead.company = log.commerce_name;
+        if (!lead.info_history) lead.info_history = [];
+        if (!lead.info_history.some(h => h.id === log.id || (h.message_id && h.message_id === log.message_id))) {
+          lead.info_history.push(log);
+        }
+        if (lead.lead_status === 'nuevo') lead.lead_status = 'contactado';
+        if (new Date(log.sent_at || log.created_at) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = log.sent_at || log.created_at;
+        }
+      }
+    });
+
+    // 4. Procesar E1 Email Logs (Instrucciones de Onboarding)
     e1Logs.forEach(log => {
       const email = getCleanEmail(log.recipient_email);
       if (!email) return;
@@ -15581,6 +15776,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           demo_data: null,
           lead_status: 'e1_enviado',
           notes: log.notes || '',
+          info_history: [],
           e1_history: [log],
           quotes: [],
           onboarding: null,
@@ -15592,7 +15788,10 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         if (!lead.sources.includes('e1')) lead.sources.push('e1');
         if (!lead.name && log.contact_name) lead.name = log.contact_name;
         if (!lead.company && log.commerce_name) lead.company = log.commerce_name;
-        lead.e1_history.push(log);
+        if (!lead.e1_history) lead.e1_history = [];
+        if (!lead.e1_history.some(h => h.id === log.id || (h.message_id && h.message_id === log.message_id))) {
+          lead.e1_history.push(log);
+        }
         if (lead.lead_status === 'nuevo') lead.lead_status = 'e1_enviado';
         if (new Date(log.sent_at || log.created_at) > new Date(lead.last_activity_at || 0)) {
           lead.last_activity_at = log.sent_at || log.created_at;
@@ -15600,7 +15799,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       }
     });
 
-    // 4. Procesar Onboarding Requests (Solicitudes de Alta)
+    // 5. Procesar Onboarding Requests (Solicitudes de Alta)
     onboardings.forEach(onb => {
       const email = getCleanEmail(onb.email);
       if (!email) return;
@@ -15616,6 +15815,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           demo_data: null,
           lead_status: onb.status === 'approved' ? 'convertido' : 'onboarding',
           notes: onb.rejection_reason || '',
+          info_history: [],
           e1_history: [],
           quotes: [],
           onboarding: onb,
@@ -15641,8 +15841,10 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
     });
 
     const unifiedList = Array.from(leadsMap.values())
-      .filter(lead => lead.sources.length > 0)
+      .filter(lead => lead.sources && lead.sources.length > 0)
       .sort((a, b) => new Date(b.last_activity_at || b.created_at || 0) - new Date(a.last_activity_at || a.created_at || 0));
+
+    console.log(`[fetchUnifiedLeads] Total leads procesados: ${unifiedList.length}`, unifiedList);
 
     window.cachedUnifiedLeads = unifiedList;
     return unifiedList;
@@ -15670,17 +15872,23 @@ window.renderLeadsAdmin = async function(forceReload = false) {
   const totalLeads = leads.length;
   const demoCount = leads.filter(l => l.sources.includes('demo')).length;
   const quotesCount = leads.filter(l => l.sources.includes('cotizador')).length;
-  const e1Count = leads.filter(l => l.sources.includes('e1') || l.e1_history.length > 0).length;
+  const infoCount = leads.filter(l => l.sources.includes('info') || (l.info_history && l.info_history.length > 0) || l.lead_status === 'info_enviada' || l.lead_status === 'contactado').length;
+  const e1Count = leads.filter(l => l.sources.includes('e1') || (l.e1_history && l.e1_history.length > 0)).length;
   const onboardingCount = leads.filter(l => l.sources.includes('onboarding') || l.lead_status === 'convertido').length;
 
   // Filtrado según pestaña activa
+  if (!window.activeLeadsTab) {
+    window.activeLeadsTab = 'all';
+  }
   let tabFilteredLeads = leads;
   if (window.activeLeadsTab === 'demo') {
     tabFilteredLeads = leads.filter(l => l.sources.includes('demo'));
   } else if (window.activeLeadsTab === 'quotes') {
     tabFilteredLeads = leads.filter(l => l.sources.includes('cotizador'));
+  } else if (window.activeLeadsTab === 'info') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('info') || (l.info_history && l.info_history.length > 0) || l.lead_status === 'info_enviada' || l.lead_status === 'contactado');
   } else if (window.activeLeadsTab === 'e1') {
-    tabFilteredLeads = leads.filter(l => l.sources.includes('e1') || l.e1_history.length > 0);
+    tabFilteredLeads = leads.filter(l => l.sources.includes('e1') || (l.e1_history && l.e1_history.length > 0));
   } else if (window.activeLeadsTab === 'onboarding') {
     tabFilteredLeads = leads.filter(l => l.sources.includes('onboarding'));
   }
@@ -15715,9 +15923,13 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       const qCount = lead.quotes.length;
       sourceBadges += `<span class="badge" title="Generó cotización en el Cotizador Online" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-calculator-fill"></i> Cotizó (${qCount})</span> `;
     }
-    if (lead.sources.includes('e1') || lead.e1_history.length > 0) {
-      const e1Count = lead.e1_history.length;
-      sourceBadges += `<span class="badge" title="Recibió Correo E1 de Onboarding" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-send-fill"></i> E1 (${e1Count})</span> `;
+    if (lead.sources.includes('info') || (lead.info_history && lead.info_history.length > 0)) {
+      const infoHistoryCount = (lead.info_history || []).length;
+      sourceBadges += `<span class="badge" title="Recibió Información Comercial y Presentación de Servicios" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-star-fill"></i> Info (${infoHistoryCount})</span> `;
+    }
+    if (lead.sources.includes('e1') || (lead.e1_history && lead.e1_history.length > 0)) {
+      const e1HistoryCount = (lead.e1_history || []).length;
+      sourceBadges += `<span class="badge" title="Recibió Correo E1 de Onboarding" style="background: rgba(94, 23, 235, 0.1); color: #7c3aed; border: 1px solid rgba(94, 23, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-send-fill"></i> E1 (${e1HistoryCount})</span> `;
     }
     if (lead.sources.includes('onboarding')) {
       const onbStatus = lead.onboarding?.status || 'pending';
@@ -15755,8 +15967,9 @@ window.renderLeadsAdmin = async function(forceReload = false) {
     const statusSelect = `
       <select class="form-input lead-status-select" onchange="window.updateUnifiedLeadStatus('${encodeURIComponent(lead.email)}', this.value)" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; border: 1px solid ${statusStyle.border}; background-color: ${statusStyle.bg}; color: ${statusStyle.color}; cursor: pointer; transition: all 0.2s;">
         <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
+        <option value="info_enviada" ${lead.lead_status === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
         <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
-        <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviado</option>
+        <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviado</option>
         <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
         <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
         <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>🚀 Convertido / Cliente</option>
@@ -15806,15 +16019,18 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           ${statusSelect}
         </td>
         <td style="padding: 0.9rem 1rem; text-align: right;">
-          <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Correo E1 (Instrucciones de Onboarding)" style="padding: 0.35rem 0.6rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+          <div style="display: flex; gap: 0.35rem; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendLeadInfoModal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Información y Presentación Comercial" style="padding: 0.35rem 0.55rem; color: #2563eb; border-color: rgba(37, 99, 235, 0.3); background: rgba(37, 99, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-mail-star-line"></i> Info
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Correo E1 (Instrucciones de Onboarding)" style="padding: 0.35rem 0.55rem; color: #7c3aed; border-color: rgba(124, 58, 237, 0.3); background: rgba(124, 58, 237, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-mail-send-line"></i> E1
             </button>
-            <button type="button" class="btn btn-outline btn-sm" onclick="window.showLeadDetailModal('${encodeURIComponent(lead.email)}')" title="Ver Ficha Completa del Lead" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.showLeadDetailModal('${encodeURIComponent(lead.email)}')" title="Ver Ficha Completa del Lead" style="padding: 0.35rem 0.55rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
               <i class="ri-eye-line"></i> Ficha
             </button>
             ${waUrl ? `
-              <a href="${waUrl}" target="_blank" class="btn btn-outline btn-sm" title="Contactar por WhatsApp" style="padding: 0.35rem 0.6rem; color: #10b981; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); font-size: 0.78rem; display: flex; align-items: center; justify-content: center; text-decoration: none;">
+              <a href="${waUrl}" target="_blank" class="btn btn-outline btn-sm" title="Contactar por WhatsApp" style="padding: 0.35rem 0.55rem; color: #10b981; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); font-size: 0.78rem; display: flex; align-items: center; justify-content: center; text-decoration: none;">
                 <i class="ri-whatsapp-line"></i>
               </a>
             ` : ''}
@@ -15848,74 +16064,88 @@ window.renderLeadsAdmin = async function(forceReload = false) {
             <i class="ri-user-search-line" style="color: var(--color-primary);"></i> Central de Leads (CRM Comercial)
           </h2>
           <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.88rem;">
-            Seguimiento unificado de prospectos de la Demo WMS, Cotizador Online, Envíos E1 y Solicitudes de Alta
+            Seguimiento unificado de prospectos de la Demo WMS, Cotizador Online, Información Comercial y Solicitudes de Alta
           </p>
         </div>
-        <div style="display: flex; gap: 0.75rem; align-items: center;">
+        <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
           <button class="btn btn-outline" onclick="window.renderLeadsAdmin(true)" title="Recargar datos" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem;">
             <i class="ri-refresh-line"></i> Actualizar
           </button>
-          <button class="btn btn-primary" onclick="window.openSendE1Modal()" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.25rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+          <button class="btn btn-primary" onclick="window.openSendLeadInfoModal()" style="background: linear-gradient(135deg, #2563eb, #3b82f6); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.15rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+            <i class="ri-mail-star-fill"></i> Enviar Presentación Comercial
+          </button>
+          <button class="btn btn-primary" onclick="window.openSendE1Modal()" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.15rem; font-weight: 600; box-shadow: var(--shadow-sm);">
             <i class="ri-mail-send-fill"></i> Enviar Instrucciones E1
           </button>
         </div>
       </div>
 
       <!-- Tarjetas KPIs Ejecutivas -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem;">
         
         <!-- Total Leads -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
             <i class="ri-group-line"></i>
           </div>
           <div>
-            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Total Leads Únicos</div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">${totalLeads}</div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Total Leads Únicos</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">${totalLeads}</div>
           </div>
         </div>
 
         <!-- Demo WMS -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(124, 58, 237, 0.1); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
             <i class="ri-play-circle-line"></i>
           </div>
           <div>
-            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Registros Demo</div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: #7c3aed; line-height: 1.2;">${demoCount}</div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Registros Demo</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #7c3aed; line-height: 1.2;">${demoCount}</div>
           </div>
         </div>
 
         <!-- Cotizador Online -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
             <i class="ri-calculator-line"></i>
           </div>
           <div>
-            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Cotizaciones Online</div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: #10b981; line-height: 1.2;">${quotesCount}</div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Cotizaciones Online</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #10b981; line-height: 1.2;">${quotesCount}</div>
+          </div>
+        </div>
+
+        <!-- Info Comercial Enviada -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(37, 99, 235, 0.1); color: #2563eb; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
+            <i class="ri-mail-star-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Info Enviada</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #2563eb; line-height: 1.2;">${infoCount}</div>
           </div>
         </div>
 
         <!-- E1 Enviados -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
             <i class="ri-mail-send-line"></i>
           </div>
           <div>
-            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">E1 Enviados</div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: #3b82f6; line-height: 1.2;">${e1Count}</div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">E1 Enviados</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #7c3aed; line-height: 1.2;">${e1Count}</div>
           </div>
         </div>
 
         <!-- Onboarding / Convertidos -->
         <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
-          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+          <div style="width: 46px; height: 46px; border-radius: 12px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; flex-shrink: 0;">
             <i class="ri-git-pull-request-line"></i>
           </div>
           <div>
-            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Onboarding / Convertidos</div>
-            <div style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; line-height: 1.2;">${onboardingCount}</div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Onboarding / Convertidos</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: #f59e0b; line-height: 1.2;">${onboardingCount}</div>
           </div>
         </div>
 
@@ -15926,19 +16156,22 @@ window.renderLeadsAdmin = async function(forceReload = false) {
         
         <!-- Pestañas Superiores -->
         <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--color-border); padding: 0.5rem 1rem 0 1rem; background: var(--color-bg); overflow-x: auto;">
-          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('all')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('all')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-apps-2-line"></i> Todos los Leads (${totalLeads})
           </button>
-          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('demo')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('demo')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-play-circle-line"></i> Demo WMS (${demoCount})
           </button>
-          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('quotes')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('quotes')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-calculator-line"></i> Cotizaciones Online (${quotesCount})
           </button>
-          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('e1')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'e1' ? '#3b82f6' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'e1' ? '#3b82f6' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('info')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'info' ? '#2563eb' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'info' ? '#2563eb' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-mail-star-line"></i> Info Enviada (${infoCount})
+          </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('e1')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'e1' ? '#7c3aed' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'e1' ? '#7c3aed' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-mail-send-line"></i> E1 Enviados (${e1Count})
           </button>
-          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('onboarding')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('onboarding')" style="background: none; border: none; font-size: 0.88rem; font-weight: 600; padding: 0.65rem 0.9rem; cursor: pointer; color: ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
             <i class="ri-git-pull-request-line"></i> En Onboarding (${onboardingCount})
           </button>
         </div>
@@ -15954,8 +16187,9 @@ window.renderLeadsAdmin = async function(forceReload = false) {
             <select id="leads-status-filter" class="form-input" style="height: 38px; font-size: 0.85rem; padding: 0.35rem 0.75rem;">
               <option value="all" ${window.leadsStatusFilter === 'all' ? 'selected' : ''}>Todos los Estados</option>
               <option value="nuevo" ${window.leadsStatusFilter === 'nuevo' ? 'selected' : ''}>✨ Nuevos</option>
+              <option value="info_enviada" ${window.leadsStatusFilter === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
               <option value="contactado" ${window.leadsStatusFilter === 'contactado' ? 'selected' : ''}>💬 Contactados</option>
-              <option value="e1_enviado" ${window.leadsStatusFilter === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviados</option>
+              <option value="e1_enviado" ${window.leadsStatusFilter === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviados</option>
               <option value="seguimiento" ${window.leadsStatusFilter === 'seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
               <option value="onboarding" ${window.leadsStatusFilter === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
               <option value="convertido" ${window.leadsStatusFilter === 'convertido' ? 'selected' : ''}>🚀 Convertidos / Clientes</option>
@@ -16108,6 +16342,31 @@ window.showLeadDetailModal = function(encodedEmail) {
     quotesHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No ha generado cotizaciones aún en el cotizador online.</div>`;
   }
 
+  // Info History HTML
+  let infoHtml = '';
+  if (lead.info_history && lead.info_history.length > 0) {
+    infoHtml = lead.info_history.map((e, idx) => {
+      const eDate = e.sent_at || e.created_at ? new Date(e.sent_at || e.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      return `
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <strong style="color: #2563eb;"><i class="ri-mail-star-fill"></i> Información y Presentación #${idx + 1}</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${eDate}</span>
+          </div>
+          <div style="color: var(--color-text-main); margin-top: 0.25rem; font-size: 0.78rem;">
+            <div><strong>Destinatario:</strong> ${e.recipient_email || lead.email}</div>
+            ${e.subject ? `<div><strong>Asunto:</strong> ${e.subject}</div>` : ''}
+            ${e.cc_emails ? `<div><strong>Copia (CC):</strong> ${e.cc_emails}</div>` : ''}
+            ${e.notes ? `<div style="color: var(--color-text-muted); margin-top: 0.15rem;"><strong>Nota:</strong> ${e.notes}</div>` : ''}
+            ${e.message_id ? `<div style="color: var(--color-text-muted); font-size: 0.7rem;">ID: ${e.message_id}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    infoHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No se han registrado envíos de información comercial para este prospecto.</div>`;
+  }
+
   // E1 History HTML
   let e1Html = '';
   if (lead.e1_history && lead.e1_history.length > 0) {
@@ -16116,7 +16375,7 @@ window.showLeadDetailModal = function(encodedEmail) {
       return `
         <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <strong style="color: #3b82f6;"><i class="ri-mail-send-fill"></i> Envío E1 #${idx + 1}</strong>
+            <strong style="color: #7c3aed;"><i class="ri-mail-send-fill"></i> Envío E1 #${idx + 1}</strong>
             <span style="color: var(--color-text-muted); font-size: 0.75rem;">${eDate}</span>
           </div>
           <div style="color: var(--color-text-main); margin-top: 0.25rem; font-size: 0.78rem;">
@@ -16172,7 +16431,7 @@ window.showLeadDetailModal = function(encodedEmail) {
 
   const phoneClean = (lead.phone || '').replace(/[^0-9]/g, '');
   const hasPhone = phoneClean.length >= 8;
-  const waUrl = hasPhone ? `https://wa.me/${phoneClean.startsWith('56') ? phoneClean : '56' + phoneClean}?text=${encodeURIComponent(`Hola ${lead.name || ''}, te escribo de Stocka Fulfillment respecto a tu interés en sumarte a nuestros servicios.`)}` : null;
+  const waUrl = hasPhone ? `https://wa.me/${phoneClean.startsWith('56') ? phoneClean : '56' + phoneClean}?text=${encodeURIComponent(`Hola ${lead.name || ''}, te escribo de Stocka Fulfillment respecto a tu interés en nuestros servicios.`)}` : null;
 
   const modal = document.createElement('div');
   modal.className = 'modal-overlay active';
@@ -16210,8 +16469,9 @@ window.showLeadDetailModal = function(encodedEmail) {
             <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.25rem; text-transform: uppercase;">Estado del Lead</label>
             <select class="form-input" onchange="window.updateUnifiedLeadStatus('${encodeURIComponent(lead.email)}', this.value)" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid ${statusStyle.border}; background-color: ${statusStyle.bg}; color: ${statusStyle.color}; cursor: pointer;">
               <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
+              <option value="info_enviada" ${lead.lead_status === 'info_enviada' ? 'selected' : ''}>📨 Info Enviada</option>
               <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
-              <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviado</option>
+              <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📋 E1 Enviado</option>
               <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
               <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
               <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>🚀 Convertido / Cliente</option>
@@ -16231,10 +16491,18 @@ window.showLeadDetailModal = function(encodedEmail) {
             ${quotesHtml}
           </div>
 
+          <!-- Historial de Información y Presentaciones Comerciales -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-mail-star-line" style="color: #2563eb;"></i> Historial de Presentaciones e Información Comercial (${(lead.info_history || []).length})
+            </div>
+            ${infoHtml}
+          </div>
+
           <!-- Historial de E1s -->
           <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
             <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-mail-send-line" style="color: #3b82f6;"></i> Historial de Instrucciones E1 Enviadas (${lead.e1_history.length})
+              <i class="ri-mail-send-line" style="color: #7c3aed;"></i> Historial de Instrucciones E1 Enviadas (${lead.e1_history.length})
             </div>
             ${e1Html}
           </div>
@@ -16273,7 +16541,7 @@ window.showLeadDetailModal = function(encodedEmail) {
       </div>
 
       <!-- Modal Footer -->
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface);">
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface); flex-wrap: wrap; gap: 0.75rem;">
         <div>
           ${waUrl ? `
             <a href="${waUrl}" target="_blank" class="btn btn-outline" style="color: #10b981; border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
@@ -16281,8 +16549,11 @@ window.showLeadDetailModal = function(encodedEmail) {
             </a>
           ` : ''}
         </div>
-        <div style="display: flex; gap: 0.75rem;">
+        <div style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove()">Cerrar</button>
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendLeadInfoModal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="color: #2563eb; border-color: rgba(37, 99, 235, 0.4); background: rgba(37, 99, 235, 0.05); font-weight: 600; display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-mail-star-line"></i> Enviar Info Comercial
+          </button>
           <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
             <i class="ri-mail-send-fill"></i> Enviar Correo E1
           </button>
@@ -28931,8 +29202,9 @@ function renderFoldersSidebar() {
     </li>
     
     <div style="height: 1px; background: var(--color-border); margin: 0.5rem 0;"></div>
-    <li class="folder-item ${adminSelectedFolder === 'presentations_docs' ? 'active' : ''}" data-folder="presentations_docs" style="font-weight: 600;">
-      <span><i class="ri-slideshow-3-line folder-icon" style="color: #6366f1;"></i> Presentaciones Comerciales</span>
+    <li class="folder-item ${adminSelectedFolder === 'presentations_docs' ? 'active' : ''}" data-folder="presentations_docs" style="font-weight: 700; color: #5e17eb;">
+      <span><i class="ri-mail-star-fill folder-icon" style="color: #5e17eb;"></i> Correo Presentación & Leads</span>
+      <span class="badge" style="font-size: 0.75rem; padding: 0.1rem 0.4rem; background: rgba(94, 23, 235, 0.12); color: #5e17eb; font-weight: 700;">4</span>
     </li>
     <li class="folder-item ${adminSelectedFolder === 'contractual_docs' ? 'active' : ''}" data-folder="contractual_docs" style="font-weight: 600;">
       <span><i class="ri-file-shield-2-line folder-icon" style="color: var(--color-accent);"></i> Docs Contractuales</span>
@@ -40437,12 +40709,447 @@ async function openPendingDetailModal(sku, name) {
 }
 
 // =========================================================================
-// ONBOARDING ADMIN FUNCTIONS
 // =========================================================================
+// ONBOARDING ADMIN FUNCTIONS (ESTADOS PERSONALIZADOS, BUSCADOR & ELIMINACIÓN)
+// =========================================================================
+
+const ONBOARDING_STATUSES_STORAGE_KEY = 'stocka_onboarding_statuses_v1';
+
+const DEFAULT_ONBOARDING_STATUSES = [
+  { id: 'pending', label: 'Pendiente', color: '#d97706', bg: 'rgba(245, 158, 11, 0.12)', isDefault: true },
+  { id: 'approved', label: 'Aprobado', color: '#16a34a', bg: 'rgba(22, 163, 74, 0.12)', isDefault: true },
+  { id: 'rejected', label: 'Observado', color: '#dc2626', bg: 'rgba(220, 38, 38, 0.12)', isDefault: true }
+];
+
+window.getOnboardingStatuses = function() {
+  try {
+    const raw = localStorage.getItem(ONBOARDING_STATUSES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const hasPending = parsed.some(s => s.id === 'pending');
+        const hasApproved = parsed.some(s => s.id === 'approved');
+        const hasRejected = parsed.some(s => s.id === 'rejected');
+        const merged = [...parsed];
+        if (!hasPending) merged.unshift(DEFAULT_ONBOARDING_STATUSES[0]);
+        if (!hasApproved) merged.splice(1, 0, DEFAULT_ONBOARDING_STATUSES[1]);
+        if (!hasRejected) merged.splice(2, 0, DEFAULT_ONBOARDING_STATUSES[2]);
+        return merged;
+      }
+    }
+  } catch (e) {
+    console.warn('Error reading onboarding statuses config:', e);
+  }
+  return DEFAULT_ONBOARDING_STATUSES;
+};
+
+window.saveOnboardingStatuses = function(statuses) {
+  try {
+    localStorage.setItem(ONBOARDING_STATUSES_STORAGE_KEY, JSON.stringify(statuses));
+  } catch (e) {
+    console.error('Error saving onboarding statuses:', e);
+  }
+};
+
+window.getOnboardingStatusConfig = function(statusId) {
+  const statuses = window.getOnboardingStatuses();
+  const normalized = (statusId || '').trim().toLowerCase();
+  
+  const found = statuses.find(s => s.id === statusId || s.id.toLowerCase() === normalized);
+  if (found) return found;
+  
+  if (normalized === 'pending' || normalized === 'pendiente') return DEFAULT_ONBOARDING_STATUSES[0];
+  if (normalized === 'approved' || normalized === 'aprobado' || normalized === 'aprobada') return DEFAULT_ONBOARDING_STATUSES[1];
+  if (normalized === 'rejected' || normalized === 'observado' || normalized === 'observada') return DEFAULT_ONBOARDING_STATUSES[2];
+  
+  return {
+    id: statusId || 'unknown',
+    label: statusId ? (statusId.charAt(0).toUpperCase() + statusId.slice(1)) : 'Desconocido',
+    color: '#475569',
+    bg: 'rgba(71, 85, 105, 0.12)',
+    isDefault: false
+  };
+};
+
+// Modal de Configuración de Estados Personalizados
+window.showOnboardingStatusConfigModal = function() {
+  const oldModal = document.getElementById('onboarding-status-config-modal');
+  if (oldModal) oldModal.remove();
+
+  const currentStatuses = window.getOnboardingStatuses();
+
+  const colorPresets = [
+    { label: 'Ámbar (Pendiente)', color: '#d97706', bg: 'rgba(245, 158, 11, 0.12)' },
+    { label: 'Verde (Aprobado)', color: '#16a34a', bg: 'rgba(22, 163, 74, 0.12)' },
+    { label: 'Rojo (Observado)', color: '#dc2626', bg: 'rgba(220, 38, 38, 0.12)' },
+    { label: 'Azul', color: '#2563eb', bg: 'rgba(37, 99, 235, 0.12)' },
+    { label: 'Morado', color: '#7c3aed', bg: 'rgba(124, 58, 237, 0.12)' },
+    { label: 'Turquesa', color: '#0d9488', bg: 'rgba(13, 148, 136, 0.12)' },
+    { label: 'Naranja', color: '#ea580c', bg: 'rgba(234, 88, 12, 0.12)' },
+    { label: 'Gris / Pizarra', color: '#475569', bg: 'rgba(71, 85, 105, 0.12)' }
+  ];
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'onboarding-status-config-modal';
+  modal.style.zIndex = '2200';
+
+  const renderStatusListHtml = (statuses) => {
+    return statuses.map((s, idx) => `
+      <div class="status-config-item" style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.85rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); gap: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex: 1;">
+          <span class="badge" style="background: ${s.bg}; color: ${s.color}; border: 1px solid ${s.color}; font-size: 0.8rem; font-weight: 600; padding: 0.25rem 0.65rem; border-radius: 4px;">
+            ${s.label}
+          </span>
+          <span style="font-size: 0.75rem; color: var(--color-text-muted); font-family: monospace;">(${s.id})</span>
+          ${s.isDefault ? '<span style="font-size: 0.68rem; background: rgba(0,0,0,0.06); padding: 0.15rem 0.4rem; border-radius: 3px; color: var(--color-text-muted);">Básico del Sistema</span>' : '<span style="font-size: 0.68rem; background: rgba(94,23,235,0.1); color: #5e17eb; padding: 0.15rem 0.4rem; border-radius: 3px;">Personalizado</span>'}
+        </div>
+        ${!s.isDefault ? `
+          <button type="button" class="btn btn-outline btn-sm btn-delete-custom-status" data-id="${s.id}" style="color: var(--color-danger); border-color: rgba(220,38,38,0.3); padding: 0.2rem 0.45rem; font-size: 0.75rem;" title="Eliminar estado">
+            <i class="ri-delete-bin-line"></i>
+          </button>
+        ` : '<span style="font-size: 0.72rem; color: var(--color-text-muted); font-style: italic;">Fijo</span>'}
+      </div>
+    `).join('');
+  };
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 600px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 1.15rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <i class="ri-settings-3-line" style="font-size: 1.35rem; color: #38bdf8;"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 1.1rem; font-weight: 700; color: white;">Configurar Estados de Solicitudes de Alta</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.76rem; color: rgba(255,255,255,0.8);">Gestiona las opciones que aparecerán en el desplegable de estado y en los filtros.</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-status-config" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--color-surface);">
+        <!-- Lista de Estados Actuales -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+            <label class="form-label" style="font-weight: 700; margin: 0; font-size: 0.9rem;">Estados Activos en el Sistema:</label>
+            <button type="button" id="btn-reset-default-statuses" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem; color: var(--color-text-muted);">
+              <i class="ri-refresh-line"></i> Restablecer Básicos
+            </button>
+          </div>
+          <div id="status-config-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 220px; overflow-y: auto; padding-right: 0.25rem;">
+            ${renderStatusListHtml(currentStatuses)}
+          </div>
+        </div>
+
+        <!-- Formulario para Agregar Nuevo Estado -->
+        <div style="border-top: 1px solid var(--color-border); padding-top: 1.25rem;">
+          <h4 style="margin: 0 0 0.85rem 0; font-size: 0.92rem; font-weight: 700; color: var(--color-primary); display: flex; align-items: center; gap: 0.35rem;">
+            <i class="ri-add-circle-line"></i> Añadir Nuevo Estado Personalizado
+          </h4>
+          <form id="form-add-custom-status" style="display: flex; flex-direction: column; gap: 0.85rem; background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border);">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="new-status-name" style="font-weight: 600; font-size: 0.82rem;">Nombre del Estado <span style="color: var(--color-danger)">*</span></label>
+              <input type="text" id="new-status-name" class="form-input" placeholder="ej: En Negociación, Llamada Agendada, Documentación Pendiente..." required style="font-size: 0.85rem;">
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" style="font-weight: 600; font-size: 0.82rem; margin-bottom: 0.35rem; display: block;">Color del Estado:</label>
+              <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;" id="color-preset-container">
+                ${colorPresets.map((p, i) => `
+                  <label style="cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; background: ${p.bg}; color: ${p.color}; border: 1px solid ${p.color}; padding: 0.25rem 0.55rem; border-radius: 4px;">
+                    <input type="radio" name="status-color-choice" value="${p.color}" data-bg="${p.bg}" ${i === 3 ? 'checked' : ''} style="margin: 0; accent-color: ${p.color};">
+                    <span>${p.label.split(' ')[0]}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+
+            <div style="text-align: right; margin-top: 0.25rem;">
+              <button type="submit" class="btn btn-primary" style="font-size: 0.82rem; padding: 0.4rem 1rem;">
+                <i class="ri-add-line"></i> Guardar y Añadir Estado
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: var(--color-surface);">
+        <button type="button" class="btn btn-outline" id="btn-close-status-config-footer">Cerrar</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 250);
+  };
+
+  document.getElementById('btn-close-status-config').addEventListener('click', closeModal);
+  document.getElementById('btn-close-status-config-footer').addEventListener('click', closeModal);
+
+  // Evento para eliminar estado personalizado
+  const attachDeleteEvents = () => {
+    modal.querySelectorAll('.btn-delete-custom-status').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idToDelete = btn.getAttribute('data-id');
+        let statuses = window.getOnboardingStatuses();
+        statuses = statuses.filter(s => s.id !== idToDelete);
+        window.saveOnboardingStatuses(statuses);
+        
+        const listEl = document.getElementById('status-config-list');
+        if (listEl) {
+          listEl.innerHTML = renderStatusListHtml(statuses);
+          attachDeleteEvents();
+        }
+        window.renderOnboardingAdmin();
+      });
+    });
+  };
+  attachDeleteEvents();
+
+  // Evento restablecer a básicos
+  document.getElementById('btn-reset-default-statuses')?.addEventListener('click', () => {
+    if (confirm('¿Deseas restablecer los estados a los 3 básicos por defecto (Pendiente, Aprobado, Observado)?')) {
+      window.saveOnboardingStatuses(DEFAULT_ONBOARDING_STATUSES);
+      const listEl = document.getElementById('status-config-list');
+      if (listEl) {
+        listEl.innerHTML = renderStatusListHtml(DEFAULT_ONBOARDING_STATUSES);
+        attachDeleteEvents();
+      }
+      window.renderOnboardingAdmin();
+    }
+  });
+
+  // Evento agregar estado
+  document.getElementById('form-add-custom-status')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const nameInput = document.getElementById('new-status-name');
+    const label = nameInput.value.trim();
+    if (!label) return;
+
+    const checkedRadio = modal.querySelector('input[name="status-color-choice"]:checked');
+    const color = checkedRadio ? checkedRadio.value : '#2563eb';
+    const bg = checkedRadio ? checkedRadio.getAttribute('data-bg') : 'rgba(37, 99, 235, 0.12)';
+
+    // Generar id normalizado
+    const id = label
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '') || `custom_${Date.now()}`;
+
+    const statuses = window.getOnboardingStatuses();
+    if (statuses.some(s => s.id === id || s.label.toLowerCase() === label.toLowerCase())) {
+      alert('Ya existe un estado con ese nombre o identificador.');
+      return;
+    }
+
+    statuses.push({
+      id,
+      label,
+      color,
+      bg,
+      isDefault: false
+    });
+
+    window.saveOnboardingStatuses(statuses);
+    nameInput.value = '';
+
+    const listEl = document.getElementById('status-config-list');
+    if (listEl) {
+      listEl.innerHTML = renderStatusListHtml(statuses);
+      attachDeleteEvents();
+    }
+
+    window.renderOnboardingAdmin();
+  });
+};
+
+// Función para Eliminar Solicitud de Onboarding
+window.deleteOnboardingRequest = async function(reqId, commerceName) {
+  const nameToDisplay = commerceName || 'esta solicitud';
+  let confirmed = false;
+
+  if (typeof Swal !== 'undefined') {
+    const result = await Swal.fire({
+      title: '¿Eliminar Solicitud?',
+      html: `¿Estás seguro de que deseas eliminar permanentemente la solicitud de <strong>${nameToDisplay}</strong>?<br><span style="font-size: 0.82rem; color: var(--color-text-muted); margin-top: 0.4rem; display: block;">Esta acción no se puede deshacer.</span>`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: '<i class="ri-delete-bin-line"></i> Sí, eliminar',
+      cancelButtonText: 'Cancelar'
+    });
+    confirmed = result.isConfirmed;
+  } else {
+    confirmed = window.confirm(`¿Estás seguro de que deseas eliminar permanentemente la solicitud de "${nameToDisplay}"? Esta acción no se puede deshacer.`);
+  }
+
+  if (!confirmed) return;
+
+  try {
+    const { error } = await supabase
+      .from('onboarding_requests')
+      .delete()
+      .eq('id', reqId);
+
+    if (error) throw error;
+
+    if (typeof Swal !== 'undefined') {
+      Swal.fire({
+        title: '¡Solicitud Eliminada!',
+        text: 'La solicitud de alta ha sido eliminada correctamente.',
+        icon: 'success',
+        timer: 2000,
+        showConfirmButton: false
+      });
+    } else {
+      alert('Solicitud de alta eliminada correctamente.');
+    }
+
+    // Cerrar modal de detalle si estaba abierto
+    const detailModal = document.getElementById('onboarding-detail-modal');
+    if (detailModal) {
+      detailModal.classList.remove('active');
+      setTimeout(() => detailModal.remove(), 250);
+    }
+
+    window.renderOnboardingAdmin();
+    if (typeof window.updateAdminBadges === 'function') {
+      window.updateAdminBadges();
+    }
+  } catch (err) {
+    console.error('Error al eliminar solicitud de onboarding:', err);
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error al eliminar', err.message || 'No se pudo eliminar la solicitud.', 'error');
+    } else {
+      alert('Error al eliminar solicitud: ' + err.message);
+    }
+  }
+};
+
+// Función para cambiar el estado de una solicitud desde el desplegable
+window.handleOnboardingStatusChange = async function(reqId, newStatus, currentReq) {
+  if (!reqId || !newStatus) return;
+
+  // Si selecciona Aprobado, preguntar si desea activar comercio de inmediato
+  if (newStatus === 'approved') {
+    if (typeof Swal !== 'undefined') {
+      const result = await Swal.fire({
+        title: 'Marcar como Aprobada',
+        text: '¿Deseas abrir la configuración de creación del comercio para activar la cuenta de inmediato o solo cambiar el estado?',
+        icon: 'question',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: '<i class="ri-checkbox-circle-line"></i> Configurar y Activar',
+        denyButtonText: 'Solo Cambiar Estado',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#16a34a',
+        denyButtonColor: '#6366f1',
+        cancelButtonColor: '#64748b'
+      });
+
+      if (result.isConfirmed) {
+        showOnboardingApproveConfigModal(currentReq);
+        return;
+      }
+      if (!result.isDenied) {
+        // Canceló la acción
+        window.renderOnboardingAdmin();
+        return;
+      }
+    }
+  } else if (newStatus === 'rejected') {
+    if (typeof Swal !== 'undefined') {
+      const result = await Swal.fire({
+        title: 'Marcar como Observada',
+        text: '¿Deseas abrir el formulario para ingresar observaciones detalladas para el cliente o solo cambiar el estado?',
+        icon: 'warning',
+        showCancelButton: true,
+        showDenyButton: true,
+        confirmButtonText: '<i class="ri-edit-line"></i> Redactar Observaciones',
+        denyButtonText: 'Solo Cambiar Estado',
+        cancelButtonText: 'Cancelar',
+        confirmButtonColor: '#dc2626',
+        denyButtonColor: '#6366f1',
+        cancelButtonColor: '#64748b'
+      });
+
+      if (result.isConfirmed) {
+        showOnboardingObservationsModal(currentReq);
+        return;
+      }
+      if (!result.isDenied) {
+        // Canceló la acción
+        window.renderOnboardingAdmin();
+        return;
+      }
+    }
+  }
+
+  // Actualizar en base de datos
+  try {
+    const { error } = await supabase
+      .from('onboarding_requests')
+      .update({
+        status: newStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', reqId);
+
+    if (error) throw error;
+
+    if (typeof Swal !== 'undefined') {
+      const toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true
+      });
+      toast.fire({
+        icon: 'success',
+        title: 'Estado actualizado correctamente'
+      });
+    }
+
+    window.renderOnboardingAdmin();
+    if (typeof window.updateAdminBadges === 'function') {
+      window.updateAdminBadges();
+    }
+  } catch (err) {
+    console.error('Error al actualizar estado de onboarding:', err);
+    let msg = err.message || 'Error desconocido';
+    if (msg.includes('violates check constraint') || msg.includes('onboarding_requests_status_check')) {
+      msg = 'La base de datos tiene una restricción CHECK en status. Ejecuta el script "supabase_schema_update_onboarding_statuses.sql" en Supabase SQL Editor para permitir estados personalizados.';
+    }
+    if (typeof Swal !== 'undefined') {
+      Swal.fire('Error al actualizar estado', msg, 'error');
+    } else {
+      alert('Error al actualizar estado: ' + msg);
+    }
+    window.renderOnboardingAdmin();
+  }
+};
+
+// Variables globales de estado para filtros de onboarding
+window.activeOnboardingStatusFilter = window.activeOnboardingStatusFilter || 'all';
+window.onboardingSearchQuery = window.onboardingSearchQuery || '';
 
 async function renderOnboardingAdmin() {
   const appContent = document.getElementById('app-content');
-  appContent.innerHTML = '<p class="text-center" style="padding: 2rem;">Cargando solicitudes de onboarding...</p>';
+  if (!appContent) return;
+
+  appContent.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 250px; gap: 0.75rem;">
+      <i class="ri-loader-4-line spin" style="font-size: 2rem; color: var(--color-primary);"></i>
+      <span style="color: var(--color-text-muted); font-size: 0.9rem;">Cargando solicitudes de alta comercial...</span>
+    </div>
+  `;
 
   try {
     const { data: requests, error } = await supabase
@@ -40452,28 +41159,97 @@ async function renderOnboardingAdmin() {
 
     if (error) throw error;
 
+    const allStatuses = window.getOnboardingStatuses();
+    const pendingCount = (requests || []).filter(r => (r.status || '').toLowerCase() === 'pending').length;
+    const approvedCount = (requests || []).filter(r => (r.status || '').toLowerCase() === 'approved').length;
+    const rejectedCount = (requests || []).filter(r => (r.status || '').toLowerCase() === 'rejected').length;
+
+    // Obtener estados personalizados que no son básicos para renderizar en selector
+    const customStatuses = allStatuses.filter(s => !s.isDefault);
+
     appContent.innerHTML = `
       <div class="card" style="padding: 1.5rem; margin-bottom: 2rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
-          <h4 style="margin: 0; font-weight: 700; font-size: 1.15rem; color: var(--color-text-main);">
-            <i class="ri-git-pull-request-line" style="color: var(--color-accent); margin-right: 0.25rem;"></i> Solicitudes de Alta Comercial
+        
+        <!-- Header superior con título y botones de acción -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+          <h4 style="margin: 0; font-weight: 700; font-size: 1.2rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+            <i class="ri-git-pull-request-line" style="color: var(--color-accent); font-size: 1.35rem;"></i> Solicitudes de Alta Comercial
           </h4>
-          <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-            <button class="btn btn-primary" id="btn-open-send-e1" style="padding: 0.4rem 0.9rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white;">
+          <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-outline" id="btn-open-status-config" style="padding: 0.45rem 0.85rem; font-size: 0.82rem; display: flex; align-items: center; gap: 0.35rem;" title="Configurar opciones del desplegable de estado">
+              <i class="ri-settings-3-line" style="color: #6366f1;"></i> Configurar Estados
+            </button>
+            <button class="btn btn-primary" id="btn-open-send-e1" style="padding: 0.45rem 0.9rem; font-size: 0.82rem; display: flex; align-items: center; gap: 0.4rem; background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white;">
               <i class="ri-mail-send-line"></i> Enviar Instrucciones E1
             </button>
-            <div style="display: flex; gap: 0.5rem;" id="onboarding-tabs">
-              <button class="btn btn-primary onboarding-tab-btn" data-status="all" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Todas</button>
-              <button class="btn btn-outline onboarding-tab-btn" data-status="pending" style="padding: 0.35rem 0.85rem; font-size: 0.85rem; display: flex; align-items: center;">
-                Pendientes
-                <span id="badge-onboarding-tab" style="display: none; background: var(--color-danger); color: white; border-radius: 10px; padding: 0.1rem 0.35rem; font-size: 0.65rem; margin-left: 0.25rem; font-weight: bold;">0</span>
-              </button>
-              <button class="btn btn-outline onboarding-tab-btn" data-status="approved" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Aprobadas</button>
-              <button class="btn btn-outline onboarding-tab-btn" data-status="rejected" style="padding: 0.35rem 0.85rem; font-size: 0.85rem;">Observadas</button>
-            </div>
           </div>
         </div>
 
+        <!-- Barra de Búsqueda con Lupa y Pestañas de Filtros -->
+        <div style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--color-border); margin-bottom: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+          
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            
+            <!-- Buscador con Lupa -->
+            <div style="position: relative; flex: 1; min-width: 260px; max-width: 480px;">
+              <i class="ri-search-line" style="position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 1rem;"></i>
+              <input type="text" id="onboarding-search-input" class="form-input" placeholder="Buscar por marca, razón social, RUT, email, contacto..." value="${window.onboardingSearchQuery || ''}" style="padding-left: 2.35rem; padding-right: 2rem; font-size: 0.85rem; height: 38px; width: 100%;">
+              ${window.onboardingSearchQuery ? `
+                <button type="button" id="btn-clear-onboarding-search" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 1rem; padding: 0.2rem;">&times;</button>
+              ` : ''}
+            </div>
+
+            <!-- Filtro Desplegable de Estados (Para estados personalizados o selección rápida) -->
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <label for="onboarding-select-status-filter" style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted); white-space: nowrap;">
+                <i class="ri-filter-3-line"></i> Filtrar por estado:
+              </label>
+              <select id="onboarding-select-status-filter" class="form-select" style="padding: 0.4rem 0.75rem; font-size: 0.82rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); min-width: 170px;">
+                <option value="all" ${window.activeOnboardingStatusFilter === 'all' ? 'selected' : ''}>Todos los estados</option>
+                <option value="pending" ${window.activeOnboardingStatusFilter === 'pending' ? 'selected' : ''}>Pendiente (${pendingCount})</option>
+                <option value="approved" ${window.activeOnboardingStatusFilter === 'approved' ? 'selected' : ''}>Aprobado (${approvedCount})</option>
+                <option value="rejected" ${window.activeOnboardingStatusFilter === 'rejected' ? 'selected' : ''}>Observado (${rejectedCount})</option>
+                ${customStatuses.map(s => {
+                  const sCount = (requests || []).filter(r => (r.status || '').toLowerCase() === s.id.toLowerCase()).length;
+                  return `<option value="${s.id}" ${window.activeOnboardingStatusFilter === s.id ? 'selected' : ''}>${s.label} (${sCount})</option>`;
+                }).join('')}
+              </select>
+            </div>
+
+          </div>
+
+          <!-- Pestañas Fijas Principales (Todas, Pendientes, Aprobadas, Observadas) -->
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; border-top: 1px dashed var(--color-border); padding-top: 0.75rem;" id="onboarding-tabs">
+            <button class="btn ${window.activeOnboardingStatusFilter === 'all' ? 'btn-primary' : 'btn-outline'} onboarding-tab-btn" data-status="all" style="padding: 0.3rem 0.8rem; font-size: 0.82rem;">
+              Todas <span style="background: rgba(0,0,0,0.12); padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.7rem; margin-left: 0.25rem;">${(requests || []).length}</span>
+            </button>
+            <button class="btn ${window.activeOnboardingStatusFilter === 'pending' ? 'btn-primary' : 'btn-outline'} onboarding-tab-btn" data-status="pending" style="padding: 0.3rem 0.8rem; font-size: 0.82rem; display: flex; align-items: center;">
+              Pendientes
+              <span id="badge-onboarding-tab" style="${pendingCount > 0 ? 'display: inline-block;' : 'display: none;'} background: var(--color-danger); color: white; border-radius: 10px; padding: 0.1rem 0.4rem; font-size: 0.68rem; margin-left: 0.35rem; font-weight: bold;">${pendingCount}</span>
+            </button>
+            <button class="btn ${window.activeOnboardingStatusFilter === 'approved' ? 'btn-primary' : 'btn-outline'} onboarding-tab-btn" data-status="approved" style="padding: 0.3rem 0.8rem; font-size: 0.82rem;">
+              Aprobadas <span style="opacity: 0.85; font-size: 0.7rem; margin-left: 0.2rem;">(${approvedCount})</span>
+            </button>
+            <button class="btn ${window.activeOnboardingStatusFilter === 'rejected' ? 'btn-primary' : 'btn-outline'} onboarding-tab-btn" data-status="rejected" style="padding: 0.3rem 0.8rem; font-size: 0.82rem;">
+              Observadas <span style="opacity: 0.85; font-size: 0.7rem; margin-left: 0.2rem;">(${rejectedCount})</span>
+            </button>
+            ${customStatuses.map(s => {
+              const cCount = (requests || []).filter(r => (r.status || '').toLowerCase() === s.id.toLowerCase()).length;
+              const isAct = window.activeOnboardingStatusFilter === s.id;
+              return `
+                <button class="btn ${isAct ? 'btn-primary' : 'btn-outline'} onboarding-tab-btn" data-status="${s.id}" style="padding: 0.3rem 0.8rem; font-size: 0.82rem; border-color: ${s.color}; color: ${isAct ? '#fff' : s.color}; background: ${isAct ? s.color : 'transparent'};">
+                  ${s.label} <span style="opacity: 0.85; font-size: 0.7rem; margin-left: 0.2rem;">(${cCount})</span>
+                </button>
+              `;
+            }).join('')}
+          </div>
+
+        </div>
+
+        <!-- Indicador de cantidad de resultados filtrados -->
+        <div id="onboarding-results-counter" style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.65rem; padding-left: 0.25rem;"></div>
+
+        <!-- Tabla de Registros -->
         <div class="table-responsive">
           <table class="data-table" id="onboarding-requests-table">
             <thead>
@@ -40483,8 +41259,8 @@ async function renderOnboardingAdmin() {
                 <th>Razón Social</th>
                 <th>RUT Empresa</th>
                 <th>Contacto</th>
-                <th>Estado</th>
-                <th style="text-align: center; width: 120px;">Acciones</th>
+                <th style="min-width: 140px;">Estado</th>
+                <th style="text-align: center; width: 140px;">Acciones</th>
               </tr>
             </thead>
             <tbody id="onboarding-requests-tbody">
@@ -40497,41 +41273,77 @@ async function renderOnboardingAdmin() {
       </div>
     `;
 
-    // Botón superior para enviar correo E1 de onboarding
+    // Botones de cabecera
     document.getElementById('btn-open-send-e1')?.addEventListener('click', () => {
       if (typeof window.openSendE1Modal === 'function') {
         window.openSendE1Modal();
       }
     });
 
-    // Actualizar badge en la pestaña
-    const pendingCount = (requests || []).filter(r => r.status === 'pending').length;
-    const tabBadge = document.getElementById('badge-onboarding-tab');
-    if (tabBadge) {
-      tabBadge.textContent = pendingCount;
-      tabBadge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
-    }
+    document.getElementById('btn-open-status-config')?.addEventListener('click', () => {
+      window.showOnboardingStatusConfigModal();
+    });
 
-    // Función interna para renderizar registros según filtro
-    const filterAndRender = (statusFilter) => {
+    // Función interna para renderizar registros según búsqueda y estado
+    const filterAndRender = () => {
       const tbody = document.getElementById('onboarding-requests-tbody');
+      const counterEl = document.getElementById('onboarding-results-counter');
       if (!tbody) return;
 
+      const statusFilter = window.activeOnboardingStatusFilter || 'all';
+      const query = (window.onboardingSearchQuery || '').toLowerCase().trim();
+
       const filtered = (requests || []).filter(r => {
-        if (statusFilter === 'all') return true;
-        return r.status === statusFilter;
+        // Filtro de Estado
+        if (statusFilter !== 'all') {
+          const reqStatus = (r.status || 'pending').toLowerCase();
+          if (reqStatus !== statusFilter.toLowerCase()) return false;
+        }
+
+        // Filtro de Búsqueda por texto (Marca, Razón Social, RUT, Nombre, Correo, Representante Legal, etc.)
+        if (query) {
+          const matchMarca = (r.nombre_fantasia || '').toLowerCase().includes(query);
+          const matchRazon = (r.razon_social || '').toLowerCase().includes(query);
+          const matchRutEmp = (r.rut_empresa || '').toLowerCase().includes(query);
+          const matchRutPer = (r.rut_personal || '').toLowerCase().includes(query);
+          const matchContact = (r.full_name || '').toLowerCase().includes(query);
+          const matchEmail = (r.email || '').toLowerCase().includes(query);
+          const matchEmailFac = (r.email_facturacion || '').toLowerCase().includes(query);
+          const matchPhone = (r.phone || '').toLowerCase().includes(query);
+          const matchRep = (r.rep_legal_nombre || '').toLowerCase().includes(query);
+          const matchRepEmail = (r.rep_legal_email || '').toLowerCase().includes(query);
+          const matchStatus = (r.status || '').toLowerCase().includes(query);
+
+          if (!matchMarca && !matchRazon && !matchRutEmp && !matchRutPer && !matchContact && !matchEmail && !matchEmailFac && !matchPhone && !matchRep && !matchRepEmail && !matchStatus) {
+            return false;
+          }
+        }
+
+        return true;
       });
+
+      // Actualizar contador
+      if (counterEl) {
+        if (query || statusFilter !== 'all') {
+          counterEl.innerHTML = `Mostrando <strong>${filtered.length}</strong> de ${(requests || []).length} solicitudes encontradas`;
+        } else {
+          counterEl.innerHTML = `Total de solicitudes registradas: <strong>${filtered.length}</strong>`;
+        }
+      }
 
       if (filtered.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="7" class="text-center" style="padding: 2rem; color: var(--color-text-muted);">
-              No se encontraron solicitudes con el estado seleccionado.
+            <td colspan="7" class="text-center" style="padding: 2.5rem; color: var(--color-text-muted);">
+              <i class="ri-inbox-line" style="font-size: 2rem; display: block; margin-bottom: 0.5rem; opacity: 0.6;"></i>
+              No se encontraron solicitudes que coincidan con los filtros seleccionados.
             </td>
           </tr>
         `;
         return;
       }
+
+      const availableStatuses = window.getOnboardingStatuses();
 
       tbody.innerHTML = filtered.map(r => {
         const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString('es-CL', {
@@ -40542,49 +41354,44 @@ async function renderOnboardingAdmin() {
           minute: '2-digit'
         }) : 'Sin Fecha';
 
-        let badgeBg = 'var(--color-gray)';
-        let badgeColor = '#1a1a1a';
-        let badgeText = r.status || 'pending';
+        const statusConf = window.getOnboardingStatusConfig(r.status || 'pending');
 
-        if (r.status === 'approved') {
-          badgeBg = 'var(--badge-success-bg)';
-          badgeColor = 'var(--badge-success-text)';
-          badgeText = 'Aprobado';
-        } else if (r.status === 'rejected') {
-          badgeBg = 'var(--badge-danger-bg)';
-          badgeColor = 'var(--badge-danger-text)';
-          badgeText = 'Observado';
-        } else {
-          badgeBg = 'var(--badge-warning-bg)';
-          badgeColor = 'var(--badge-warning-text)';
-          badgeText = 'Pendiente';
-        }
+        // Generar opciones para el selector de estado
+        const statusOptionsHtml = availableStatuses.map(st => {
+          const isSelected = (r.status || 'pending').toLowerCase() === st.id.toLowerCase();
+          return `<option value="${st.id}" ${isSelected ? 'selected' : ''}>${st.label}</option>`;
+        }).join('');
 
         return `
-          <tr>
-            <td style="font-weight: 500;">${dateStr}</td>
+          <tr data-req-id="${r.id}">
+            <td style="font-weight: 500; white-space: nowrap; font-size: 0.82rem;">${dateStr}</td>
             <td style="font-weight: 600; color: var(--color-primary);">${r.nombre_fantasia || 'Sin Nombre'}</td>
             <td>${r.razon_social || 'Sin Razón Social'}</td>
-            <td>${r.rut_empresa || 'Sin RUT'}</td>
+            <td style="font-family: monospace; font-size: 0.85rem;">${r.rut_empresa || 'Sin RUT'}</td>
             <td>
-              <div style="font-weight: 500;">${r.full_name || 'Desconocido'}</div>
+              <div style="font-weight: 500; font-size: 0.85rem;">${r.full_name || 'Desconocido'}</div>
               <div style="font-size: 0.75rem; color: var(--color-text-muted);">${r.email}</div>
             </td>
             <td>
-              <span class="badge" style="background: ${badgeBg}; color: ${badgeColor}; font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.6rem; border-radius: var(--radius-sm);">
-                ${badgeText}
-              </span>
+              <select class="onboarding-status-select form-select" data-id="${r.id}" style="padding: 0.28rem 0.55rem; font-size: 0.78rem; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid ${statusConf.color}; background-color: ${statusConf.bg}; color: ${statusConf.color}; cursor: pointer; outline: none; transition: all 0.2s ease;">
+                ${statusOptionsHtml}
+              </select>
             </td>
-            <td style="text-align: center;">
-              <button class="btn btn-outline btn-sm btn-view-onboarding" data-id="${r.id}" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
-                <i class="ri-eye-line"></i> Ver Detalle
-              </button>
+            <td style="text-align: center; white-space: nowrap;">
+              <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+                <button class="btn btn-outline btn-sm btn-view-onboarding" data-id="${r.id}" style="padding: 0.25rem 0.55rem; font-size: 0.75rem;" title="Ver expediente completo">
+                  <i class="ri-eye-line"></i> Ver Detalle
+                </button>
+                <button class="btn btn-outline btn-sm btn-delete-onboarding" data-id="${r.id}" data-name="${(r.nombre_fantasia || r.razon_social || '').replace(/"/g, '&quot;')}" style="padding: 0.25rem 0.45rem; font-size: 0.75rem; color: var(--color-danger); border-color: rgba(220, 38, 38, 0.35);" title="Eliminar solicitud">
+                  <i class="ri-delete-bin-line"></i>
+                </button>
+              </div>
             </td>
           </tr>
         `;
       }).join('');
 
-      // Agregar eventos a botones "Ver Detalle"
+      // Eventos a botones "Ver Detalle"
       tbody.querySelectorAll('.btn-view-onboarding').forEach(btn => {
         btn.addEventListener('click', () => {
           const reqId = btn.getAttribute('data-id');
@@ -40592,15 +41399,72 @@ async function renderOnboardingAdmin() {
           if (selectedReq) showOnboardingDetailModal(selectedReq);
         });
       });
+
+      // Eventos a botones "Eliminar Solicitud"
+      tbody.querySelectorAll('.btn-delete-onboarding').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const reqId = btn.getAttribute('data-id');
+          const reqName = btn.getAttribute('data-name');
+          window.deleteOnboardingRequest(reqId, reqName);
+        });
+      });
+
+      // Eventos a selectores de cambio de estado en la tabla
+      tbody.querySelectorAll('.onboarding-status-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const reqId = select.getAttribute('data-id');
+          const newStatus = e.target.value;
+          const currentReq = requests.find(r => r.id === reqId);
+          window.handleOnboardingStatusChange(reqId, newStatus, currentReq);
+        });
+      });
     };
 
-    // Renderizar inicialmente "Todas"
-    filterAndRender('all');
+    // Renderizar tabla inicial
+    filterAndRender();
 
-    // Manejar clics de pestañas
+    // Eventos del Buscador
+    const searchInput = document.getElementById('onboarding-search-input');
+    const clearSearchBtn = document.getElementById('btn-clear-onboarding-search');
+
+    searchInput?.addEventListener('input', (e) => {
+      window.onboardingSearchQuery = e.target.value;
+      filterAndRender();
+    });
+
+    clearSearchBtn?.addEventListener('click', () => {
+      window.onboardingSearchQuery = '';
+      if (searchInput) searchInput.value = '';
+      window.renderOnboardingAdmin();
+    });
+
+    // Eventos del selector desplegable de filtro de estado
+    const statusFilterSelect = document.getElementById('onboarding-select-status-filter');
+    statusFilterSelect?.addEventListener('change', (e) => {
+      window.activeOnboardingStatusFilter = e.target.value;
+      
+      // Sincronizar clases de botones de pestañas
+      const tabButtons = document.querySelectorAll('.onboarding-tab-btn');
+      tabButtons.forEach(b => {
+        if (b.getAttribute('data-status') === window.activeOnboardingStatusFilter) {
+          b.classList.remove('btn-outline');
+          b.classList.add('btn-primary');
+        } else {
+          b.classList.remove('btn-primary');
+          b.classList.add('btn-outline');
+        }
+      });
+
+      filterAndRender();
+    });
+
+    // Eventos de clics en pestañas
     const tabButtons = document.querySelectorAll('.onboarding-tab-btn');
     tabButtons.forEach(btn => {
       btn.addEventListener('click', () => {
+        const status = btn.getAttribute('data-status');
+        window.activeOnboardingStatusFilter = status;
+
         tabButtons.forEach(b => {
           b.classList.remove('btn-primary');
           b.classList.add('btn-outline');
@@ -40608,20 +41472,25 @@ async function renderOnboardingAdmin() {
         btn.classList.remove('btn-outline');
         btn.classList.add('btn-primary');
 
-        const status = btn.getAttribute('data-status');
-        filterAndRender(status);
+        if (statusFilterSelect) {
+          statusFilterSelect.value = status;
+        }
+
+        filterAndRender();
       });
     });
 
   } catch (err) {
     console.error('Error al renderizar panel de onboarding admin:', err);
-    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: var(--color-danger);">Error: ${err.message}</p>`;
+    appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: var(--color-danger);">Error al cargar solicitudes: ${err.message}</p>`;
   }
 }
 window.renderOnboardingAdmin = renderOnboardingAdmin;
 
 function showOnboardingDetailModal(req) {
-  const isPending = req.status === 'pending';
+  const isPending = (req.status || '').toLowerCase() === 'pending';
+  const statusConf = window.getOnboardingStatusConfig(req.status || 'pending');
+  const allStatuses = window.getOnboardingStatuses();
   
   // Remover modal previo si existe
   const oldModal = document.getElementById('onboarding-detail-modal');
@@ -40630,6 +41499,7 @@ function showOnboardingDetailModal(req) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay active';
   modal.id = 'onboarding-detail-modal';
+  modal.style.zIndex = '2100';
   
   const platformsStr = (req.plataformas_venta || []).join(', ') || 'Ninguna';
   const marketplacesStr = (req.marketplaces || []).join(', ') || 'Ninguno';
@@ -40643,10 +41513,15 @@ function showOnboardingDetailModal(req) {
     </button>
   `;
 
-  let footerButtonsHtml = '';
+  const btnDeleteModalHtml = `
+    <button class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger); display: inline-flex; align-items: center; gap: 0.35rem;" id="btn-onboarding-delete-detail">
+      <i class="ri-delete-bin-line"></i> Eliminar Solicitud
+    </button>
+  `;
+
+  let actionButtonsHtml = '';
   if (isPending) {
-    footerButtonsHtml = `
-      ${btnSendE1Html}
+    actionButtonsHtml = `
       <button class="btn btn-outline" style="border-color: var(--color-danger); color: var(--color-danger);" id="btn-onboarding-reject">
         <i class="ri-close-circle-line"></i> Observar / Corregir
       </button>
@@ -40654,30 +41529,36 @@ function showOnboardingDetailModal(req) {
         <i class="ri-checkbox-circle-line"></i> Aprobación y Configuración
       </button>
     `;
-  } else {
-    footerButtonsHtml = `
-      <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; flex-wrap: wrap; gap: 0.5rem;">
-        <div style="font-size: 0.85rem; color: var(--color-text-muted); font-weight: 500;">
-          Esta solicitud ya fue procesada (Estado: <strong>${req.status === 'approved' ? 'Aprobada' : 'Observada'}</strong>)
-        </div>
-        <div style="display: flex; gap: 0.5rem;">
-          ${btnSendE1Html}
-        </div>
-      </div>
-    `;
   }
 
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 800px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
-      <div class="modal-header" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border);">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-git-pull-request-line" style="color: var(--color-accent);"></i> 
-          Solicitud de Onboarding: ${req.nombre_fantasia}
-        </h3>
+    <div class="modal-content" style="max-width: 840px; width: 95%; max-height: 85vh; display: flex; flex-direction: column; padding: 0;">
+      <div class="modal-header" style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem; font-size: 1.15rem;">
+            <i class="ri-git-pull-request-line" style="color: var(--color-accent);"></i> 
+            Solicitud de Onboarding: ${req.nombre_fantasia}
+          </h3>
+          <span class="badge" style="background: ${statusConf.bg}; color: ${statusConf.color}; border: 1px solid ${statusConf.color}; font-size: 0.78rem; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: var(--radius-sm);">
+            ${statusConf.label}
+          </span>
+        </div>
         <button class="modal-close" id="btn-close-onboarding-modal">&times;</button>
       </div>
       <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
         
+        <!-- Cambiador Rápido de Estado en el Detalle -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); padding: 0.85rem 1.25rem; border-radius: var(--radius-md); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="font-size: 0.85rem; font-weight: 600; color: var(--color-text-main); display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-refresh-line" style="color: var(--color-primary);"></i> Cambiar Estado de la Solicitud:
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <select id="modal-detail-status-select" class="form-select" style="padding: 0.35rem 0.75rem; font-size: 0.82rem; border-radius: var(--radius-sm); border: 1px solid ${statusConf.color}; color: ${statusConf.color}; background: ${statusConf.bg}; font-weight: 600;">
+              ${allStatuses.map(st => `<option value="${st.id}" ${(req.status || 'pending').toLowerCase() === st.id.toLowerCase() ? 'selected' : ''}>${st.label}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
         <!-- Estado Rejection Reason si aplica -->
         ${req.status === 'rejected' ? `
           <div style="background-color: rgba(239,68,68,0.08); border-left: 4px solid var(--color-danger); padding: 0.75rem 1rem; border-radius: var(--radius-sm); font-size: 0.85rem; color: var(--color-text-main); white-space: pre-line;">
@@ -40787,9 +41668,15 @@ function showOnboardingDetailModal(req) {
         </div>
 
       </div>
-      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
-        <button class="btn btn-outline" id="btn-close-onboarding-modal-footer">Cerrar</button>
-        ${footerButtonsHtml}
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface);">
+        <div>
+          ${btnDeleteModalHtml}
+        </div>
+        <div style="display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-outline" id="btn-close-onboarding-modal-footer">Cerrar</button>
+          ${btnSendE1Html}
+          ${actionButtonsHtml}
+        </div>
       </div>
     </div>
   `;
@@ -40804,6 +41691,18 @@ function showOnboardingDetailModal(req) {
   document.getElementById('btn-close-onboarding-modal').addEventListener('click', closeModal);
   document.getElementById('btn-close-onboarding-modal-footer').addEventListener('click', closeModal);
 
+  // Selector de cambio de estado dentro del modal
+  document.getElementById('modal-detail-status-select')?.addEventListener('change', (e) => {
+    const newStatus = e.target.value;
+    closeModal();
+    window.handleOnboardingStatusChange(req.id, newStatus, req);
+  });
+
+  // Botón para eliminar desde el modal
+  document.getElementById('btn-onboarding-delete-detail')?.addEventListener('click', () => {
+    window.deleteOnboardingRequest(req.id, req.nombre_fantasia || req.razon_social);
+  });
+
   // Botón para enviar E1 pre-llenado desde el detalle de la solicitud
   document.getElementById('btn-onboarding-send-e1')?.addEventListener('click', () => {
     if (typeof window.openSendE1Modal === 'function') {
@@ -40817,11 +41716,11 @@ function showOnboardingDetailModal(req) {
   });
 
   if (isPending) {
-    document.getElementById('btn-onboarding-reject').addEventListener('click', () => {
+    document.getElementById('btn-onboarding-reject')?.addEventListener('click', () => {
       showOnboardingObservationsModal(req);
     });
 
-    document.getElementById('btn-onboarding-approve').addEventListener('click', () => {
+    document.getElementById('btn-onboarding-approve')?.addEventListener('click', () => {
       closeModal();
       showOnboardingApproveConfigModal(req);
     });
@@ -41177,6 +42076,601 @@ function showOnboardingObservationsModal(req) {
     }
   });
 }
+
+// =========================================================================
+// LEAD INFO / COMMERCIAL PRESENTATION EMAIL SENDER
+// =========================================================================
+
+window.openSendLeadInfoModal = async function(defaultData = {}) {
+  // Remover modal previo si existe
+  const oldModal = document.getElementById('modal-send-lead-info');
+  if (oldModal) oldModal.remove();
+
+  // Cargar configuración vigente de presentaciones y documentos
+  let pricingConfig = null;
+  try {
+    const { loadPricingConfig } = await import('./pricing_manager.js');
+    pricingConfig = await loadPricingConfig(supabase);
+  } catch (e) {
+    console.warn("Aviso cargando pricingConfig para modal de lead info:", e);
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-send-lead-info';
+  modal.style.zIndex = '2100';
+
+  const defaultEmail = defaultData.email ? decodeURIComponent(defaultData.email) : '';
+  const defaultContact = defaultData.contactName ? decodeURIComponent(defaultData.contactName) : (defaultData.contact ? decodeURIComponent(defaultData.contact) : '');
+  const defaultCommerce = defaultData.commerceName ? decodeURIComponent(defaultData.commerceName) : (defaultData.commerce ? decodeURIComponent(defaultData.commerce) : '');
+  const defaultCc = defaultData.cc ? decodeURIComponent(defaultData.cc) : '';
+  const defaultSubject = defaultData.subject || 'Información y Presentación de Servicios de Fulfillment - Stocka';
+  const defaultMeeting = defaultData.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
+  const defaultCustomMsg = defaultData.customMessage || '';
+
+  const defaultFulfillmentUrl = defaultData.fulfillmentUrl || pricingConfig?.presentations?.fulfillment_url || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
+  const defaultDespachosUrl = defaultData.despachosUrl || pricingConfig?.presentations?.despachos_rm_url || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
+  const defaultCourierFolderUrl = defaultData.courierFolderUrl || pricingConfig?.presentations?.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
+  const defaultCotizadorUrl = defaultData.cotizadorUrl || pricingConfig?.presentations?.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 760px; width: 95%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(255,255,255,0.18); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
+            <i class="ri-mail-star-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.18rem; font-weight: 700; color: white;">Enviar Información Comercial y Presentación</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.88);">Presentación oficial de Fulfillment, cotizador online y agendamiento de reunión</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" id="btn-close-send-lead-info" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Modal Body Form -->
+      <form id="form-send-lead-info" style="display: flex; flex-direction: column; flex: 1; overflow: hidden; margin: 0;">
+        <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-surface);">
+          
+          <div id="lead-info-modal-alert" class="alert alert-danger" style="display: none; padding: 0.75rem 1rem; font-size: 0.85rem; border-radius: var(--radius-sm);"></div>
+
+          <!-- Destinatario Principal -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="info-input-email" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+              <span>Correo Destinatario Principal (Para) <span style="color: var(--color-danger);">*</span></span>
+              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Requerido</span>
+            </label>
+            <div style="position: relative;">
+              <i class="ri-mail-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="email" id="info-input-email" class="form-input" required placeholder="ej: contacto@mitienda.cl" value="${defaultEmail}" style="padding-left: 2.25rem;">
+            </div>
+          </div>
+
+          <!-- Grid: Nombre Contacto y Nombre Comercio -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="info-input-contact" style="font-weight: 600; font-size: 0.85rem;">
+                Nombre del Contacto (Saludo)
+              </label>
+              <div style="position: relative;">
+                <i class="ri-user-smile-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="info-input-contact" class="form-input" placeholder="ej: Melissa" value="${defaultContact}" style="padding-left: 2.25rem;">
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+                Aparecerá en el saludo: "¡Hola Melissa! 👋"
+              </span>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="info-input-commerce" style="font-weight: 600; font-size: 0.85rem;">
+                Nombre del Comercio / Empresa
+              </label>
+              <div style="position: relative;">
+                <i class="ri-store-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="info-input-commerce" class="form-input" placeholder="ej: Mi Tienda Online" value="${defaultCommerce}" style="padding-left: 2.25rem;">
+              </div>
+              <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+                Empresa o marca del lead
+              </span>
+            </div>
+          </div>
+
+          <!-- Asunto y Copia (CC) -->
+          <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 1rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="info-input-subject" style="font-weight: 600; font-size: 0.85rem;">
+                Asunto del Correo
+              </label>
+              <div style="position: relative;">
+                <i class="ri-edit-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="info-input-subject" class="form-input" value="${defaultSubject}" style="padding-left: 2.25rem;">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="info-input-cc" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+                <span>Enviar Copia a (CC)</span>
+                <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Opcional</span>
+              </label>
+              <div style="position: relative;">
+                <i class="ri-user-shared-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+                <input type="text" id="info-input-cc" class="form-input" placeholder="ej: socio@tienda.cl" value="${defaultCc}" style="padding-left: 2.25rem;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Enlace de Agendamiento de Reunión -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="info-input-meeting" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+              <span><i class="ri-calendar-event-line" style="color: #2563eb;"></i> Enlace para Agendar Reunión Virtual (Google Meet)</span>
+              <span style="font-size: 0.75rem; color: var(--color-text-muted);">Hubspot Meetings / Meet</span>
+            </label>
+            <div style="position: relative;">
+              <i class="ri-video-chat-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+              <input type="url" id="info-input-meeting" class="form-input" value="${defaultMeeting}" style="padding-left: 2.25rem; font-size: 0.82rem;">
+            </div>
+            <span style="font-size: 0.72rem; color: var(--color-text-muted); display: block; margin-top: 0.25rem;">
+              El prospecto podrá hacer clic directamente en el correo para reservar 20-30 min en tu calendario.
+            </span>
+          </div>
+
+          <!-- Mensaje Personalizado Adicional (Opcional) -->
+          <div class="form-group" style="margin: 0;">
+            <label class="form-label" for="info-input-custom-msg" style="font-weight: 600; font-size: 0.85rem; display: flex; justify-content: space-between;">
+              <span>Mensaje o Nota Personalizada Adicional</span>
+              <span style="font-weight: normal; font-size: 0.75rem; color: var(--color-text-muted);">Opcional</span>
+            </label>
+            <textarea id="info-input-custom-msg" class="form-input" rows="2" placeholder="ej: Revisé tu tienda y veo que tienen un catálogo con alta rotación en RM, por lo que nuestras tarifas Same Day calzarán perfecto..." style="resize: vertical; font-size: 0.83rem;">${defaultCustomMsg}</textarea>
+          </div>
+
+          <!-- Documentos y Enlaces que se Adjuntan / Incluyen en el Correo -->
+          <div style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem;">
+              <div style="font-weight: 700; font-size: 0.85rem; color: var(--color-text-main); display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-attachment-2" style="color: #2563eb;"></i>
+                Recursos y Documentos Oficiales incluidos en el Correo:
+              </div>
+              <button type="button" id="btn-toggle-custom-docs" class="btn btn-outline btn-sm" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3);">
+                <i class="ri-settings-4-line"></i> Modificar Enlaces
+              </button>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;" id="lead-info-docs-badges-grid">
+              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem; flex-shrink: 0;"></i>
+                  <span style="font-weight: 600; color: var(--color-text-main);">Presentación Fulfillment 360°</span>
+                </div>
+                <a id="link-preview-doc-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <i class="ri-file-pdf-fill" style="color: #ef4444; font-size: 1.1rem; flex-shrink: 0;"></i>
+                  <span style="font-weight: 600; color: var(--color-text-main);">Alternativas Despachos RM</span>
+                </div>
+                <a id="link-preview-doc-despachos" href="${defaultDespachosUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver PDF"><i class="ri-external-link-line"></i></a>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <i class="ri-folder-shared-line" style="color: #3b82f6; font-size: 1.1rem; flex-shrink: 0;"></i>
+                  <span style="font-weight: 600; color: var(--color-text-main);">Carpeta Tarifas Courier Chile</span>
+                </div>
+                <a id="link-preview-doc-courier" href="${defaultCourierFolderUrl}" target="_blank" style="color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Carpeta"><i class="ri-external-link-line"></i></a>
+              </div>
+
+              <div style="display: flex; align-items: center; justify-content: space-between; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.78rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <i class="ri-calculator-line" style="color: #10b981; font-size: 1.1rem; flex-shrink: 0;"></i>
+                  <span style="font-weight: 600; color: var(--color-text-main);">Cotizador Online en Vivo</span>
+                </div>
+                <a id="link-preview-doc-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="color: #10b981; text-decoration: none; font-weight: 600; font-size: 0.72rem; flex-shrink: 0;" title="Ver Cotizador"><i class="ri-external-link-line"></i></a>
+              </div>
+            </div>
+
+            <!-- Panel Expandible de Personalización de Enlaces -->
+            <div id="panel-custom-docs-urls" style="display: none; margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px dashed var(--color-border);">
+              <div style="font-size: 0.78rem; font-weight: 700; color: #5e17eb; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="ri-edit-2-line"></i> Personalizar URLs para este correo:
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;">
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.72rem;">1. Presentación Fulfillment (PDF):</label>
+                  <input type="url" id="info-input-fulfillment-url" class="form-input" value="${defaultFulfillmentUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.72rem;">2. Presentación Despachos RM (PDF):</label>
+                  <input type="url" id="info-input-despachos-url" class="form-input" value="${defaultDespachosUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.72rem;">3. Carpeta Tarifas Courier (Google Drive):</label>
+                  <input type="url" id="info-input-courier-url" class="form-input" value="${defaultCourierFolderUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+                </div>
+                <div class="form-group" style="margin: 0;">
+                  <label class="form-label" style="font-size: 0.72rem;">4. Cotizador Online (Stocka.cl):</label>
+                  <input type="url" id="info-input-cotizador-url" class="form-input" value="${defaultCotizadorUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+                </div>
+              </div>
+
+              <div style="margin-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem 0.75rem;">
+                <span style="font-size: 0.72rem; color: var(--color-text-muted);">
+                  ⚙️ Para subir nuevos archivos PDF o cambiar las URLs de forma permanente para todo el sistema:
+                </span>
+                <button type="button" id="btn-goto-pricing-settings" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.65rem; color: #2563eb; border-color: #2563eb;">
+                  <i class="ri-external-link-line"></i> Abrir Tarifario y Presentaciones
+                </button>
+              </div>
+            </div>
+            
+            <p style="margin: 0.5rem 0 0 0; font-size: 0.72rem; color: var(--color-text-muted); line-height: 1.4;">
+              💡 <em>Las presentaciones PDF se descargan y adjuntan automáticamente en el correo enviado vía Brevo API, y los enlaces directos se incluyen en el cuerpo del correo.</em>
+            </p>
+          </div>
+
+          <!-- Vista Previa en Vivo (Live Preview Accordion) -->
+          <details open style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.82rem;">
+            <summary style="font-weight: 700; color: var(--color-text-main); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; user-select: none;">
+              <i class="ri-eye-line" style="color: #5e17eb;"></i> Vista Previa en Vivo del Correo (Línea Gráfica Oficial)
+            </summary>
+            
+            <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border);">
+              <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+                
+                <!-- Header Dark Idéntico a Cotización -->
+                <div style="background: #0f172a; padding: 24px 20px; text-align: center; color: #ffffff;">
+                  <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 38px; margin-bottom: 8px; display: inline-block;">
+                  <div style="font-size: 1.15rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">Propuesta y Servicios Fulfillment 360</div>
+                  <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+                </div>
+
+                <div style="padding: 24px 20px;">
+                  <!-- Saludo -->
+                  <div id="lead-info-preview-greeting" style="font-size: 1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.65rem;">
+                    ¡Hola${defaultContact ? `, <strong>${defaultContact}</strong>` : ''}! 👋
+                  </div>
+
+                  <p style="margin: 0 0 0.75rem 0; color: #475569; font-size: 0.85rem;">
+                    Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.
+                    <br><br>
+                    En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas:
+                  </p>
+
+                  <!-- Mensaje personalizado condicional -->
+                  <div id="lead-info-preview-custom-box" style="display: ${defaultCustomMsg ? 'block' : 'none'}; background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 1rem; font-size: 0.82rem; color: #4338ca;">
+                    <strong>Mensaje personalizado:</strong><br>
+                    <span id="lead-info-preview-custom-text">${defaultCustomMsg}</span>
+                  </div>
+
+                  <!-- 4 Pilares Clave (Estilo Tarjetas KPI como Cotización) -->
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                      <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">📦 Almacenamiento Inteligente</div>
+                      <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Paga únicamente por los metros cúbicos (m³) que utilizas. Sin contratos forzosos ni costos fijos desmedidos.</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                      <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🏷️ Pick & Pack el Mismo Día</div>
+                      <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Preparación ágil, etiquetado y packaging profesional de tus pedidos con horarios extendidos.</div>
+                    </div>
+                  </div>
+
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1.25rem;">
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                      <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🚚 Same Day RM & Todo Chile</div>
+                      <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Entregas el mismo día en Santiago (incluyendo Mercado Libre Flex) y convenios a todo Chile.</div>
+                    </div>
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                      <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🔌 WMS & Integraciones 24/7</div>
+                      <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Sincronización automática con Shopify, MeLi, WooCommerce, Jumpseller y stock en tiempo real.</div>
+                    </div>
+                  </div>
+
+                  <!-- Presentaciones y Documentación Oficial -->
+                  <div style="margin: 1rem 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+                    <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 4px;">
+                      📚 Presentaciones Oficiales y Documentación Adjunta:
+                    </div>
+                    <p style="font-size: 0.75rem; color: #64748b; margin: 0 0 10px 0;">
+                      Documentos en formato PDF adjuntos al correo con enlaces directos para abrirlos:
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                      <a id="preview-link-fulfillment" href="${defaultFulfillmentUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                        📦 <span style="color: #5e17eb;">Presentación Fulfillment 360</span> (PDF) ↗
+                      </a>
+                      <a id="preview-link-despachos" href="${defaultDespachosUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                        🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
+                      </a>
+                    </div>
+                    <a id="preview-link-courier" href="${defaultCourierFolderUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                      🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
+                    </a>
+                  </div>
+
+                  <!-- Caja Cotizador -->
+                  <div style="margin: 1rem 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; text-align: center;">
+                    <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 3px;">
+                      🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
+                    </div>
+                    <p style="font-size: 0.75rem; color: #64748b; margin: 0 0 10px 0;">
+                      Ingresa tus estimaciones de pedidos mensuales y volumen para obtener un desglose detallado:
+                    </p>
+                    <a id="preview-link-cotizador" href="${defaultCotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 7px 16px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
+                      🔄 Simular Cotización Online en Stocka.cl ↗
+                    </a>
+                  </div>
+
+                  <!-- Caja Agendamiento Reunión Virtual (Google Meet) -->
+                  <div style="margin: 1rem 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
+                    <div style="margin-bottom: 6px;">
+                      <span style="display: inline-block; font-size: 0.7rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 6px;">
+                        ⏱ 20–30 min.
+                      </span>
+                      <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">
+                        📹 Reunión vía Google Meet
+                      </span>
+                    </div>
+
+                    <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
+                      Agenda una reunión para conocernos mejor
+                    </div>
+                    
+                    <p style="font-size: 0.78rem; color: #475569; margin: 0 0 10px 0; line-height: 1.4;">
+                      Te recomendamos antes revisar nuestra presentación de servicios, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
+                    </p>
+
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+                      <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="36" height="36" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
+                      <div>
+                        <div style="font-size: 0.8rem; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Socio Fundador / Asesoría Comercial 1 a 1</div>
+                      </div>
+                    </div>
+
+                    <a id="lead-info-preview-meeting-btn" href="${defaultMeeting}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(94,23,235,0.25);">
+                      👉 Programar una reunión vía Meet ↗
+                    </a>
+                  </div>
+
+                  <!-- Botón WhatsApp Directo -->
+                  <a href="https://wa.me/56939247487" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.82rem; margin-top: 10px;">
+                    💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
+                  </a>
+                </div>
+
+                <!-- Footer Oficial Stocka -->
+                <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 20px; text-align: center; font-size: 0.72rem; color: #64748b; line-height: 1.5;">
+                  <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile<br>
+                  Sitio web: <a href="https://stocka.cl" style="color: #5e17eb;">stocka.cl</a> • Portal WMS: <a href="https://wms.stocka.cl" style="color: #5e17eb;">wms.stocka.cl</a><br>
+                  Email: <a href="mailto:contacto@stocka.cl" style="color: #5e17eb;">contacto@stocka.cl</a> • WhatsApp: +56 9 3924 7487
+                </div>
+
+              </div>
+            </div>
+          </details>
+
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; gap: 0.75rem; background: var(--color-surface);">
+          <button type="button" class="btn btn-outline" id="btn-cancel-send-lead-info">Cancelar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-send-lead-info" style="background: linear-gradient(135deg, #1e40af, #2563eb); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1.25rem; font-weight: 600;">
+            <i class="ri-send-plane-fill"></i> Enviar Presentación Comercial
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const closeModal = () => {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  };
+
+  document.getElementById('btn-close-send-lead-info')?.addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-send-lead-info')?.addEventListener('click', closeModal);
+
+  // Toggle del panel para personalizar enlaces
+  const btnToggleCustomDocs = document.getElementById('btn-toggle-custom-docs');
+  const panelCustomDocs = document.getElementById('panel-custom-docs-urls');
+  btnToggleCustomDocs?.addEventListener('click', () => {
+    const isHidden = panelCustomDocs.style.display === 'none';
+    panelCustomDocs.style.display = isHidden ? 'block' : 'none';
+    btnToggleCustomDocs.innerHTML = isHidden 
+      ? '<i class="ri-arrow-up-s-line"></i> Ocultar Enlaces' 
+      : '<i class="ri-settings-4-line"></i> Modificar Enlaces';
+  });
+
+  // Botón para ir al administrador de pricing
+  document.getElementById('btn-goto-pricing-settings')?.addEventListener('click', () => {
+    closeModal();
+    const pricingNavBtn = document.querySelector('[data-view="pricing_config_admin"]');
+    if (pricingNavBtn) {
+      pricingNavBtn.click();
+    } else if (typeof window.renderPricingConfigAdmin === 'function') {
+      window.renderPricingConfigAdmin();
+    }
+  });
+
+  // Actualización dinámica de la vista previa en vivo al escribir
+  const contactInput = document.getElementById('info-input-contact');
+  const greetingPreview = document.getElementById('lead-info-preview-greeting');
+  contactInput?.addEventListener('input', () => {
+    const val = contactInput.value.trim();
+    if (greetingPreview) {
+      greetingPreview.innerHTML = val ? `¡Hola, <strong>${val}</strong>! 👋` : '¡Hola! 👋';
+    }
+  });
+
+  const customMsgInput = document.getElementById('info-input-custom-msg');
+  const customBox = document.getElementById('lead-info-preview-custom-box');
+  const customText = document.getElementById('lead-info-preview-custom-text');
+  customMsgInput?.addEventListener('input', () => {
+    const val = customMsgInput.value.trim();
+    if (customBox && customText) {
+      if (val) {
+        customText.textContent = val;
+        customBox.style.display = 'block';
+      } else {
+        customBox.style.display = 'none';
+      }
+    }
+  });
+
+  const meetingInput = document.getElementById('info-input-meeting');
+  const meetingBtn = document.getElementById('lead-info-preview-meeting-btn');
+  meetingInput?.addEventListener('input', () => {
+    const val = meetingInput.value.trim() || defaultMeeting;
+    if (meetingBtn) {
+      meetingBtn.href = val;
+    }
+  });
+
+  // Sincronización en vivo de enlaces de documentos
+  const inputFulfillmentUrl = document.getElementById('info-input-fulfillment-url');
+  inputFulfillmentUrl?.addEventListener('input', () => {
+    const val = inputFulfillmentUrl.value.trim() || defaultFulfillmentUrl;
+    document.getElementById('link-preview-doc-fulfillment')?.setAttribute('href', val);
+    document.getElementById('preview-link-fulfillment')?.setAttribute('href', val);
+  });
+
+  const inputDespachosUrl = document.getElementById('info-input-despachos-url');
+  inputDespachosUrl?.addEventListener('input', () => {
+    const val = inputDespachosUrl.value.trim() || defaultDespachosUrl;
+    document.getElementById('link-preview-doc-despachos')?.setAttribute('href', val);
+    document.getElementById('preview-link-despachos')?.setAttribute('href', val);
+  });
+
+  const inputCourierUrl = document.getElementById('info-input-courier-url');
+  inputCourierUrl?.addEventListener('input', () => {
+    const val = inputCourierUrl.value.trim() || defaultCourierFolderUrl;
+    document.getElementById('link-preview-doc-courier')?.setAttribute('href', val);
+    document.getElementById('preview-link-courier')?.setAttribute('href', val);
+  });
+
+  const inputCotizadorUrl = document.getElementById('info-input-cotizador-url');
+  inputCotizadorUrl?.addEventListener('input', () => {
+    const val = inputCotizadorUrl.value.trim() || defaultCotizadorUrl;
+    document.getElementById('link-preview-doc-cotizador')?.setAttribute('href', val);
+    document.getElementById('preview-link-cotizador')?.setAttribute('href', val);
+  });
+
+  // Manejador del envío del formulario de información comercial
+  const form = document.getElementById('form-send-lead-info');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const email = document.getElementById('info-input-email').value.trim();
+    const contactName = document.getElementById('info-input-contact').value.trim();
+    const commerceName = document.getElementById('info-input-commerce').value.trim();
+    const subject = document.getElementById('info-input-subject').value.trim() || defaultSubject;
+    const cc = document.getElementById('info-input-cc').value.trim();
+    const meetingUrl = document.getElementById('info-input-meeting').value.trim() || defaultMeeting;
+    const customMessage = document.getElementById('info-input-custom-msg').value.trim();
+
+    const fulfillmentUrl = document.getElementById('info-input-fulfillment-url')?.value.trim() || defaultFulfillmentUrl;
+    const despachosUrl = document.getElementById('info-input-despachos-url')?.value.trim() || defaultDespachosUrl;
+    const courierFolderUrl = document.getElementById('info-input-courier-url')?.value.trim() || defaultCourierFolderUrl;
+    const cotizadorUrl = document.getElementById('info-input-cotizador-url')?.value.trim() || defaultCotizadorUrl;
+
+    const alertDiv = document.getElementById('lead-info-modal-alert');
+    const submitBtn = document.getElementById('btn-submit-send-lead-info');
+
+    if (alertDiv) alertDiv.style.display = 'none';
+
+    if (!email || !email.includes('@') || !email.includes('.')) {
+      if (alertDiv) {
+        alertDiv.textContent = 'Por favor ingresa un correo electrónico válido.';
+        alertDiv.style.display = 'block';
+      }
+      return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="ri-loader-4-line spin"></i> Enviando Presentación y Adjuntos...';
+
+    try {
+      const { data: { session }, error: sessionErr } = await supabase.auth.getSession();
+      if (sessionErr || !session) {
+        throw new Error('Sesión no válida. Por favor recarga la página.');
+      }
+
+      const res = await fetch(`https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          emailType: 'lead_info_fulfillment',
+          emails: [email],
+          contactName: contactName,
+          commerceName: commerceName || 'Comercio',
+          subject: subject,
+          cc: cc,
+          meetingUrl: meetingUrl,
+          customMessage: customMessage,
+          notes: customMessage,
+          fulfillmentUrl: fulfillmentUrl,
+          despachosUrl: despachosUrl,
+          courierFolderUrl: courierFolderUrl,
+          cotizadorUrl: cotizadorUrl
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || `Error en el servidor: HTTP ${res.status}`);
+      }
+
+      closeModal();
+
+      // Actualizar Central de Leads y badges si están disponibles
+      if (typeof window.renderLeadsAdmin === 'function') {
+        window.renderLeadsAdmin(true);
+      }
+      if (typeof window.updateAdminBadges === 'function') {
+        window.updateAdminBadges();
+      }
+
+      if (typeof Swal !== 'undefined') {
+        Swal.fire({
+          title: '¡Información Comercial Enviada!',
+          html: `
+            <div style="text-align: left; font-size: 0.9rem; color: #334155; line-height: 1.5;">
+              <p>El correo con la <strong>Presentación de Servicios de Fulfillment</strong> y recursos adjuntos fue enviado con éxito.</p>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; margin-top: 0.5rem; font-size: 0.82rem;">
+                <div><strong>Destinatario:</strong> ${email}</div>
+                ${contactName ? `<div><strong>Contacto:</strong> ${contactName}</div>` : ''}
+                ${commerceName ? `<div><strong>Comercio:</strong> ${commerceName}</div>` : ''}
+                ${cc ? `<div><strong>Copia (CC):</strong> ${cc}</div>` : ''}
+                <div style="margin-top: 0.35rem; color: #2563eb;"><strong>Incluye:</strong> Presentaciones PDF oficiales, cotizador y enlace a reunión.</div>
+              </div>
+            </div>
+          `,
+          icon: 'success',
+          confirmButtonColor: '#2563eb'
+        });
+      } else {
+        alert(`¡Correo de Presentación enviado con éxito a ${email}!`);
+      }
+
+    } catch (err) {
+      console.error('Error al enviar correo de presentación comercial:', err);
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="ri-send-plane-fill"></i> Enviar Presentación Comercial';
+      if (alertDiv) {
+        alertDiv.textContent = `Error al enviar correo: ${err.message}`;
+        alertDiv.style.display = 'block';
+      } else {
+        alert('Error al enviar correo: ' + err.message);
+      }
+    }
+  });
+};
 
 // =========================================================================
 // E1 ONBOARDING EMAIL SENDER
@@ -43997,7 +45491,7 @@ function showNewVersionAnnexModal(annex) {
 }
 
 // ================================================================
-// Gestor Exclusivo de Presentaciones Comerciales (Cotizador y Email)
+// Gestor Exclusivo de Recursos para Correo de Presentación y Leads
 // ================================================================
 
 async function renderPresentationsDocsManager(container) {
@@ -44017,266 +45511,472 @@ async function renderPresentationsDocsManager(container) {
     fulfillment_updated_at: '2026-08-25',
     despachos_rm_url: 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf',
     despachos_rm_name: 'Presentación de Despachos RM y Cobertura (PDF)',
-    despachos_rm_updated_at: '2026-08-25'
+    despachos_rm_updated_at: '2026-08-25',
+    courier_folder_url: 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH',
+    cotizador_url: 'https://stocka.cl/pages/cotizaserviciofulfillment',
+    meeting_url: 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5'
   };
 
+  const fulfillmentUrl = pres.fulfillment_url || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
+  const despachosUrl = pres.despachos_rm_url || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
+  const courierUrl = pres.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
+  const cotizadorUrl = pres.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+  const meetingUrl = pres.meeting_url || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
+
   container.innerHTML = `
-    <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+    <div style="padding: 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface);">
       <div>
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-          <i class="ri-slideshow-3-line" style="color: #6366f1;"></i> Presentaciones Comerciales (Cotizador y Correo)
+        <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
+          <i class="ri-mail-star-fill" style="color: #5e17eb; font-size: 1.35rem;"></i> Recursos y Presentaciones del Correo Comercial
         </h3>
         <p style="margin: 0.25rem 0 0 0; font-size: 0.82rem; color: var(--color-text-muted);">
-          Espacio exclusivo para cargar y actualizar los documentos oficiales que se adjuntan automáticamente en las cotizaciones por email y en el cotizador público.
+          Espacio centralizado para cargar archivos PDF y configurar los enlaces predeterminados para el correo de presentación enviado a los prospectos desde la Central de Leads y cotizaciones online.
         </p>
       </div>
-      <a href="./cotizaciones.html" target="_blank" class="btn btn-outline" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-        <i class="ri-external-link-line"></i> Abrir Cotizador Web
-      </a>
+      <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+        <button id="btn-open-test-lead-modal" class="btn btn-outline" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; color: #5e17eb; border-color: rgba(94,23,235,0.4);">
+          <i class="ri-send-plane-line"></i> Probar Envío a Lead
+        </button>
+        <button id="btn-save-all-pres-docs" class="btn btn-primary" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; font-weight: 600; font-size: 0.82rem; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 8px rgba(94,23,235,0.3);">
+          <i class="ri-save-3-line"></i> Guardar Todos los Recursos
+        </button>
+      </div>
     </div>
 
-    <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem;">
-      <!-- TARJETA 1: PRESENTACIÓN FULFILLMENT 360 -->
-      <div class="card" style="padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.5rem; background: var(--color-bg);">
+      
+      <!-- GRID DE RECURSOS (5 TARJETAS) -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+        
+        <!-- TARJETA 1: PRESENTACIÓN FULFILLMENT 360 -->
+        <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; justify-content: space-between;">
           <div>
-            <h4 style="margin: 0 0 0.25rem 0; font-size: 1.05rem; font-weight: 700; color: #5e17eb; display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-box-3-fill"></i> 1. Presentación de Servicio Fulfillment 360
-            </h4>
-            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
-              Documento explicativo de bodegaje, recepción, preparación Pick & Pack y tarifas por rangos.
-            </p>
-          </div>
-          <a href="${pres.fulfillment_url}" target="_blank" class="btn btn-outline" id="pres-fulfillment-preview-btn" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #5e17eb; border-color: #5e17eb; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-pdf-fill"></i> Ver Documento Actual
-          </a>
-        </div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #5e17eb; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-box-3-fill"></i> 1. Presentación Fulfillment 360°
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                  Almacenamiento m³, Pick & Pack y modelo operacional.
+                </p>
+              </div>
+              <a href="${fulfillmentUrl}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: #5e17eb; border-color: #5e17eb; white-space: nowrap;">
+                <i class="ri-file-pdf-fill"></i> Ver PDF
+              </a>
+            </div>
 
-        <div style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.8rem;">
-          <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
-            <span><strong style="color: var(--color-text-muted);">Enlace / Archivo Actual:</strong></span>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Actualizado: <strong id="pres-fulfillment-date-badge">${pres.fulfillment_updated_at || 'Reciente'}</strong></span>
-          </div>
-          <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.75rem; background: var(--color-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-xs); border: 1px solid var(--color-border);" id="pres-fulfillment-url-display">
-            ${pres.fulfillment_url}
-          </div>
-        </div>
+            <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; font-size: 0.74rem;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 2px;">Enlace actual:</span>
+              <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.72rem;">${fulfillmentUrl}</div>
+            </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-          <div>
-            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
-              <i class="ri-upload-2-line"></i> Opción A: Cargar nuevo archivo PDF
-            </label>
-            <input type="file" id="pres-fulfillment-file-input" accept=".pdf" class="form-input" style="font-size: 0.8rem; padding: 0.4rem 0.6rem; width: 100%;">
-          </div>
-          <div>
-            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
-              <i class="ri-link"></i> Opción B: O ingresar URL Externa (Google Drive, Canva, etc.)
-            </label>
-            <input type="url" id="pres-fulfillment-url-input" class="form-input" placeholder="https://..." value="${pres.fulfillment_url.startsWith('http') ? pres.fulfillment_url : ''}" style="font-size: 0.8rem; width: 100%;">
+            <div class="form-group" style="margin-bottom: 0.65rem;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">Cargar nuevo archivo PDF:</label>
+              <input type="file" id="pres-fulfillment-file-input" accept=".pdf" class="form-input" style="font-size: 0.75rem; padding: 0.3rem 0.5rem;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">O ingresar URL directa (PDF / Web):</label>
+              <input type="url" id="pres-fulfillment-url-input" class="form-input" placeholder="https://..." value="${fulfillmentUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            </div>
           </div>
         </div>
 
-        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
-          <button id="btn-save-pres-fulfillment" class="btn btn-primary" style="background-color: #5e17eb; color: #fff; font-weight: 600; font-size: 0.82rem; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-            <i class="ri-save-line"></i> Guardar Presentación Fulfillment
-          </button>
+        <!-- TARJETA 2: PRESENTACIÓN DESPACHOS RM -->
+        <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #2563eb; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-truck-fill"></i> 2. Alternativas Despachos RM
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                  Same Day RM, Mercado Libre Flex y comunas de cobertura.
+                </p>
+              </div>
+              <a href="${despachosUrl}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: #2563eb; border-color: #2563eb; white-space: nowrap;">
+                <i class="ri-file-pdf-fill"></i> Ver PDF
+              </a>
+            </div>
+
+            <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; font-size: 0.74rem;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 2px;">Enlace actual:</span>
+              <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.72rem;">${despachosUrl}</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0.65rem;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">Cargar nuevo archivo PDF:</label>
+              <input type="file" id="pres-despachos-file-input" accept=".pdf" class="form-input" style="font-size: 0.75rem; padding: 0.3rem 0.5rem;">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">O ingresar URL directa (PDF / Web):</label>
+              <input type="url" id="pres-despachos-url-input" class="form-input" placeholder="https://..." value="${despachosUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
         </div>
+
+        <!-- TARJETA 3: CARPETA TARIFAS COURIER (DRIVE) -->
+        <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #7c3aed; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-folder-shared-fill"></i> 3. Carpeta Tarifas Courier Chile
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                  Tarifarios Starken, Blue Express, Chilexpress a todo Chile.
+                </p>
+              </div>
+              <a href="${courierUrl}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: #7c3aed; border-color: #7c3aed; white-space: nowrap;">
+                <i class="ri-external-link-line"></i> Abrir Drive
+              </a>
+            </div>
+
+            <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; font-size: 0.74rem;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 2px;">Enlace actual:</span>
+              <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.72rem;">${courierUrl}</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">Enlace a Carpeta Online en Google Drive:</label>
+              <input type="url" id="pres-courier-url-input" class="form-input" placeholder="https://drive.google.com/..." value="${courierUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
+        </div>
+
+        <!-- TARJETA 4: COTIZADOR ONLINE EN VIVO -->
+        <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-calculator-fill"></i> 4. Cotizador Online en Vivo
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                  Simulador de costos de fulfillment en tiempo real.
+                </p>
+              </div>
+              <a href="${cotizadorUrl}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: #10b981; border-color: #10b981; white-space: nowrap;">
+                <i class="ri-external-link-line"></i> Probar
+              </a>
+            </div>
+
+            <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; font-size: 0.74rem;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 2px;">Enlace actual:</span>
+              <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.72rem;">${cotizadorUrl}</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">URL Pública del Simulador Interactivo:</label>
+              <input type="url" id="pres-cotizador-url-input" class="form-input" placeholder="https://stocka.cl/pages/..." value="${cotizadorUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
+        </div>
+
+        <!-- TARJETA 5: AGENDAMIENTO REUNIÓN VIRTUAL (GOOGLE MEET) -->
+        <div class="card" style="padding: 1.25rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; gap: 0.5rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #0284c7; display: flex; align-items: center; gap: 0.35rem;">
+                  <i class="ri-calendar-event-fill"></i> 5. Agendamiento de Reunión Virtual
+                </h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.75rem; color: var(--color-text-muted);">
+                  Enlace para reservar reunión de 20-30 min vía Google Meet.
+                </p>
+              </div>
+              <a href="${meetingUrl}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.55rem; font-size: 0.72rem; font-weight: 600; color: #0284c7; border-color: #0284c7; white-space: nowrap;">
+                <i class="ri-external-link-line"></i> Abrir Calendario
+              </a>
+            </div>
+
+            <div style="background: var(--color-bg); padding: 0.6rem 0.75rem; border-radius: 6px; border: 1px solid var(--color-border); margin-bottom: 0.85rem; font-size: 0.74rem;">
+              <span style="color: var(--color-text-muted); display: block; margin-bottom: 2px;">Enlace actual:</span>
+              <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.72rem;">${meetingUrl}</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" style="font-size: 0.74rem; font-weight: 600;">Enlace de Reserva (HubSpot / Calendly / Meet):</label>
+              <input type="url" id="pres-meeting-url-input" class="form-input" placeholder="https://meetings.hubspot.com/..." value="${meetingUrl}" style="font-size: 0.76rem; padding: 0.35rem 0.5rem;">
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <!-- TARJETA 2: PRESENTACIÓN DESPACHOS RM Y FLEX -->
-      <div class="card" style="padding: 1.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h4 style="margin: 0 0 0.25rem 0; font-size: 1.05rem; font-weight: 700; color: #2563eb; display: flex; align-items: center; gap: 0.4rem;">
-              <i class="ri-truck-fill"></i> 2. Presentación de Despachos RM y Cobertura
-            </h4>
-            <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">
-              Documento explicativo del servicio Same Day RM, MercadoLibre Flex, horarios de corte y comunas de cobertura.
-            </p>
-          </div>
-          <a href="${pres.despachos_rm_url}" target="_blank" class="btn btn-outline" id="pres-despachos-preview-btn" style="padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; color: #2563eb; border-color: #2563eb; display: inline-flex; align-items: center; gap: 0.25rem;">
-            <i class="ri-file-pdf-fill"></i> Ver Documento Actual
-          </a>
-        </div>
+      <!-- VISTA PREVIA EN VIVO DEL CORREO COMERCIAL -->
+      <details open style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 1rem 1.25rem;">
+        <summary style="font-size: 0.92rem; font-weight: 700; color: var(--color-text-main); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+          <span style="display: flex; align-items: center; gap: 0.4rem;">
+            <i class="ri-eye-line" style="color: #5e17eb;"></i> Vista Previa del Correo de Presentación con estos Recursos
+          </span>
+          <span style="font-size: 0.74rem; color: var(--color-text-muted); font-weight: normal;">(Línea Gráfica Oficial de Cotizaciones)</span>
+        </summary>
 
-        <div style="background: var(--color-bg); padding: 1rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); margin-bottom: 1.25rem; font-size: 0.8rem;">
-          <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.35rem;">
-            <span><strong style="color: var(--color-text-muted);">Enlace / Archivo Actual:</strong></span>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Actualizado: <strong id="pres-despachos-date-badge">${pres.despachos_rm_updated_at || 'Reciente'}</strong></span>
-          </div>
-          <div style="word-break: break-all; color: var(--color-text-main); font-family: monospace; font-size: 0.75rem; background: var(--color-surface); padding: 0.4rem 0.6rem; border-radius: var(--radius-xs); border: 1px solid var(--color-border);" id="pres-despachos-url-display">
-            ${pres.despachos_rm_url}
-          </div>
-        </div>
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--color-border);">
+          <div style="max-width: 650px; margin: 0 auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 0.85rem; line-height: 1.6; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            
+            <!-- Header Navy Cotización -->
+            <div style="background: #0f172a; padding: 24px 20px; text-align: center; color: #ffffff;">
+              <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 38px; margin-bottom: 8px; display: inline-block;">
+              <div style="font-size: 1.15rem; font-weight: 700; color: #ffffff; letter-spacing: 0.5px; margin: 0;">Propuesta y Servicios Fulfillment 360</div>
+              <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 4px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+            </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
-          <div>
-            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
-              <i class="ri-upload-2-line"></i> Opción A: Cargar nuevo archivo PDF
-            </label>
-            <input type="file" id="pres-despachos-file-input" accept=".pdf" class="form-input" style="font-size: 0.8rem; padding: 0.4rem 0.6rem; width: 100%;">
-          </div>
-          <div>
-            <label class="form-label" style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; display: block;">
-              <i class="ri-link"></i> Opción B: O ingresar URL Externa (Google Drive, Canva, etc.)
-            </label>
-            <input type="url" id="pres-despachos-url-input" class="form-input" placeholder="https://..." value="${pres.despachos_rm_url.startsWith('http') ? pres.despachos_rm_url : ''}" style="font-size: 0.8rem; width: 100%;">
-          </div>
-        </div>
+            <div style="padding: 24px 20px;">
+              <div style="font-size: 1rem; font-weight: 600; color: #0f172a; margin-bottom: 0.65rem;">
+                ¡Hola, <strong>[Nombre del Prospecto]</strong>! 👋
+              </div>
 
-        <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
-          <button id="btn-save-pres-despachos" class="btn btn-primary" style="background-color: #2563eb; color: #fff; font-weight: 600; font-size: 0.82rem; padding: 0.5rem 1.25rem; display: inline-flex; align-items: center; gap: 0.35rem;">
-            <i class="ri-save-line"></i> Guardar Presentación Despachos RM
-          </button>
+              <p style="margin: 0 0 0.75rem 0; color: #475569; font-size: 0.85rem;">
+                Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.
+                <br><br>
+                En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas:
+              </p>
+
+              <!-- 4 Pilares -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">📦 Almacenamiento Inteligente</div>
+                  <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Paga únicamente por los metros cúbicos (m³) que utilizas. Sin contratos forzosos.</div>
+                </div>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🏷️ Pick & Pack el Mismo Día</div>
+                  <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Preparación ágil, etiquetado y packaging profesional de tus pedidos.</div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1.25rem;">
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🚚 Same Day RM & Todo Chile</div>
+                  <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Entregas el mismo día en Santiago (incluyendo MeLi Flex) y couriers a todo Chile.</div>
+                </div>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #5e17eb; margin-bottom: 2px;">🔌 WMS & Integraciones 24/7</div>
+                  <div style="font-size: 0.74rem; color: #64748b; line-height: 1.4;">Sincronización automática con Shopify, MeLi, WooCommerce y stock en tiempo real.</div>
+                </div>
+              </div>
+
+              <!-- Presentaciones y Documentación Oficial -->
+              <div style="margin: 1rem 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px;">
+                <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 4px;">
+                  📚 Presentaciones Oficiales y Documentación Adjunta:
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem;">
+                  <a id="preview-mgr-link-fulfillment" href="${fulfillmentUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                    📦 <span style="color: #5e17eb;">Presentación Fulfillment 360</span> (PDF) ↗
+                  </a>
+                  <a id="preview-mgr-link-despachos" href="${despachosUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                    🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
+                  </a>
+                </div>
+                <a id="preview-mgr-link-courier" href="${courierUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; text-decoration: none; color: #0f172a; font-size: 0.75rem; font-weight: 700; text-align: center;">
+                  🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
+                </a>
+              </div>
+
+              <!-- Caja Cotizador -->
+              <div style="margin: 1rem 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 14px 16px; text-align: center;">
+                <div style="font-weight: 700; font-size: 0.85rem; color: #0f172a; margin-bottom: 3px;">
+                  🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
+                </div>
+                <a id="preview-mgr-link-cotizador" href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 7px 16px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
+                  🔄 Simular Cotización Online en Stocka.cl ↗
+                </a>
+              </div>
+
+              <!-- Caja Agendamiento Reunión Virtual (Google Meet) -->
+              <div style="margin: 1rem 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
+                <div style="margin-bottom: 6px;">
+                  <span style="display: inline-block; font-size: 0.7rem; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 2px 8px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 6px;">
+                    ⏱ 20–30 min.
+                  </span>
+                  <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">
+                    📹 Reunión vía Google Meet
+                  </span>
+                </div>
+
+                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
+                  Agenda una reunión para conocernos mejor
+                </div>
+                
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px; margin-top: 8px;">
+                  <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="36" height="36" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
+                  <div>
+                    <div style="font-size: 0.8rem; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
+                    <div style="font-size: 0.7rem; color: #64748b;">Socio Fundador / Asesoría Comercial 1 a 1</div>
+                  </div>
+                </div>
+
+                <a id="preview-mgr-link-meeting" href="${meetingUrl}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.85rem; box-shadow: 0 4px 12px rgba(94,23,235,0.25);">
+                  👉 Programar una reunión vía Meet ↗
+                </a>
+              </div>
+
+              <!-- Botón WhatsApp -->
+              <a href="https://wa.me/56939247487" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 10px 16px; border-radius: 6px; font-weight: 700; font-size: 0.82rem; margin-top: 10px;">
+                💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
+              </a>
+            </div>
+
+            <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 20px; text-align: center; font-size: 0.72rem; color: #64748b;">
+              <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile
+            </div>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
   `;
 
-  // Bind handlers
-  const btnFulfillment = document.getElementById('btn-save-pres-fulfillment');
-  if (btnFulfillment) {
-    btnFulfillment.addEventListener('click', async () => {
-      const fileInput = document.getElementById('pres-fulfillment-file-input');
-      const urlInput = document.getElementById('pres-fulfillment-url-input');
-      const file = fileInput.files[0];
-      const rawUrl = urlInput.value.trim();
+  // Dynamic preview input synchronization
+  document.getElementById('pres-fulfillment-url-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || fulfillmentUrl;
+    document.getElementById('preview-mgr-link-fulfillment')?.setAttribute('href', val);
+  });
+  document.getElementById('pres-despachos-url-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || despachosUrl;
+    document.getElementById('preview-mgr-link-despachos')?.setAttribute('href', val);
+  });
+  document.getElementById('pres-courier-url-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || courierUrl;
+    document.getElementById('preview-mgr-link-courier')?.setAttribute('href', val);
+  });
+  document.getElementById('pres-cotizador-url-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || cotizadorUrl;
+    document.getElementById('preview-mgr-link-cotizador')?.setAttribute('href', val);
+  });
+  document.getElementById('pres-meeting-url-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim() || meetingUrl;
+    document.getElementById('preview-mgr-link-meeting')?.setAttribute('href', val);
+  });
 
-      if (!file && !rawUrl) {
-        Swal.fire('Atención', 'Selecciona un archivo PDF o ingresa una URL válida.', 'warning');
-        return;
-      }
+  // Botón para probar envío rápido a lead
+  document.getElementById('btn-open-test-lead-modal')?.addEventListener('click', () => {
+    if (typeof window.openSendLeadInfoModal === 'function') {
+      window.openSendLeadInfoModal();
+    }
+  });
 
-      const originalHtml = btnFulfillment.innerHTML;
-      btnFulfillment.disabled = true;
-      btnFulfillment.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
+  // Botón Principal: Guardar Todos los Recursos
+  const btnSaveAll = document.getElementById('btn-save-all-pres-docs');
+  if (btnSaveAll) {
+    btnSaveAll.addEventListener('click', async () => {
+      const fileFulfillment = document.getElementById('pres-fulfillment-file-input')?.files[0];
+      const urlFulfillment = document.getElementById('pres-fulfillment-url-input')?.value.trim();
+
+      const fileDespachos = document.getElementById('pres-despachos-file-input')?.files[0];
+      const urlDespachos = document.getElementById('pres-despachos-url-input')?.value.trim();
+
+      const urlCourier = document.getElementById('pres-courier-url-input')?.value.trim();
+      const urlCotizador = document.getElementById('pres-cotizador-url-input')?.value.trim();
+      const urlMeeting = document.getElementById('pres-meeting-url-input')?.value.trim();
+
+      const originalHtml = btnSaveAll.innerHTML;
+      btnSaveAll.disabled = true;
+      btnSaveAll.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando y Subiendo...';
 
       try {
-        let finalUrl = rawUrl;
-        let storagePath = null;
+        let finalFulfillmentUrl = urlFulfillment || fulfillmentUrl;
+        let storageFulfillmentPath = null;
 
-        if (file) {
+        // Subir PDF Fulfillment si se seleccionó archivo
+        if (fileFulfillment) {
           const timestamp = Date.now();
-          storagePath = `presentations/presentacion_fulfillment_360_${timestamp}.pdf`;
-          const { error: uploadError } = await supabase.storage
+          storageFulfillmentPath = `presentations/presentacion_fulfillment_360_${timestamp}.pdf`;
+          const { error: upErr1 } = await supabase.storage
             .from('service_docs')
-            .upload(storagePath, file, { upsert: true });
+            .upload(storageFulfillmentPath, fileFulfillment, { upsert: true });
 
-          if (uploadError) throw uploadError;
-
-          const { data: urlData } = supabase.storage
-            .from('service_docs')
-            .getPublicUrl(storagePath);
-
-          finalUrl = urlData.publicUrl;
+          if (upErr1) throw upErr1;
+          const { data: d1 } = supabase.storage.from('service_docs').getPublicUrl(storageFulfillmentPath);
+          finalFulfillmentUrl = d1.publicUrl;
         }
 
+        let finalDespachosUrl = urlDespachos || despachosUrl;
+        let storageDespachosPath = null;
+
+        // Subir PDF Despachos si se seleccionó archivo
+        if (fileDespachos) {
+          const timestamp = Date.now();
+          storageDespachosPath = `presentations/presentacion_despachos_rm_${timestamp}.pdf`;
+          const { error: upErr2 } = await supabase.storage
+            .from('service_docs')
+            .upload(storageDespachosPath, fileDespachos, { upsert: true });
+
+          if (upErr2) throw upErr2;
+          const { data: d2 } = supabase.storage.from('service_docs').getPublicUrl(storageDespachosPath);
+          finalDespachosUrl = d2.publicUrl;
+        }
+
+        // Cargar y guardar configuración en pricing_config
         const { loadPricingConfig, savePricingConfig } = await import('./pricing_manager.js');
         const currentConfig = await loadPricingConfig();
         if (!currentConfig.presentations) currentConfig.presentations = {};
 
-        currentConfig.presentations.fulfillment_url = finalUrl;
-        currentConfig.presentations.fulfillment_storage_path = storagePath;
+        currentConfig.presentations.fulfillment_url = finalFulfillmentUrl;
+        if (storageFulfillmentPath) currentConfig.presentations.fulfillment_storage_path = storageFulfillmentPath;
         currentConfig.presentations.fulfillment_updated_at = new Date().toLocaleDateString('es-CL');
 
-        await savePricingConfig(currentConfig);
-
-        try {
-          await supabase.from('service_docs').upsert({
-            name: 'Presentación Servicio Fulfillment 360 (Oficial)',
-            description: 'Documento oficial adjuntado automáticamente en cotizaciones y correos.',
-            folder: 'PRESENTACIONES',
-            file_url: finalUrl,
-            storage_path: storagePath,
-            updated_at: new Date().toISOString(),
-            is_pinned: true
-          });
-        } catch (dbE) {
-          console.warn('Aviso registrando en service_docs:', dbE);
-        }
-
-        await Swal.fire('¡Actualizado!', 'La Presentación de Fulfillment 360 se ha actualizado con éxito. Las nuevas cotizaciones por correo y el cotizador web ya incluyen este documento.', 'success');
-        await renderPresentationsDocsManager(container);
-      } catch (err) {
-        console.error('Error guardando presentación fulfillment:', err);
-        Swal.fire('Error', 'No se pudo guardar la presentación: ' + err.message, 'error');
-      } finally {
-        btnFulfillment.disabled = false;
-        btnFulfillment.innerHTML = originalHtml;
-      }
-    });
-  }
-
-  const btnDespachos = document.getElementById('btn-save-pres-despachos');
-  if (btnDespachos) {
-    btnDespachos.addEventListener('click', async () => {
-      const fileInput = document.getElementById('pres-despachos-file-input');
-      const urlInput = document.getElementById('pres-despachos-url-input');
-      const file = fileInput.files[0];
-      const rawUrl = urlInput.value.trim();
-
-      if (!file && !rawUrl) {
-        Swal.fire('Atención', 'Selecciona un archivo PDF o ingresa una URL válida.', 'warning');
-        return;
-      }
-
-      const originalHtml = btnDespachos.innerHTML;
-      btnDespachos.disabled = true;
-      btnDespachos.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
-
-      try {
-        let finalUrl = rawUrl;
-        let storagePath = null;
-
-        if (file) {
-          const timestamp = Date.now();
-          storagePath = `presentations/presentacion_despachos_rm_${timestamp}.pdf`;
-          const { error: uploadError } = await supabase.storage
-            .from('service_docs')
-            .upload(storagePath, file, { upsert: true });
-
-          if (uploadError) throw uploadError;
-
-          const { data: urlData } = supabase.storage
-            .from('service_docs')
-            .getPublicUrl(storagePath);
-
-          finalUrl = urlData.publicUrl;
-        }
-
-        const { loadPricingConfig, savePricingConfig } = await import('./pricing_manager.js');
-        const currentConfig = await loadPricingConfig();
-        if (!currentConfig.presentations) currentConfig.presentations = {};
-
-        currentConfig.presentations.despachos_rm_url = finalUrl;
-        currentConfig.presentations.despachos_rm_storage_path = storagePath;
+        currentConfig.presentations.despachos_rm_url = finalDespachosUrl;
+        if (storageDespachosPath) currentConfig.presentations.despachos_rm_storage_path = storageDespachosPath;
         currentConfig.presentations.despachos_rm_updated_at = new Date().toLocaleDateString('es-CL');
 
+        if (urlCourier) currentConfig.presentations.courier_folder_url = urlCourier;
+        if (urlCotizador) currentConfig.presentations.cotizador_url = urlCotizador;
+        if (urlMeeting) currentConfig.presentations.meeting_url = urlMeeting;
+
         await savePricingConfig(currentConfig);
 
+        // Actualizar registros correspondientes en service_docs
         try {
-          await supabase.from('service_docs').upsert({
-            name: 'Presentación Despachos RM y Cobertura (Oficial)',
-            description: 'Documento oficial adjuntado automáticamente en cotizaciones y correos.',
-            folder: 'PRESENTACIONES',
-            file_url: finalUrl,
-            storage_path: storagePath,
-            updated_at: new Date().toISOString(),
-            is_pinned: true
-          });
-        } catch (dbE) {
-          console.warn('Aviso registrando en service_docs:', dbE);
+          await supabase.from('service_docs').upsert([
+            {
+              name: 'Presentación Servicio Fulfillment 360 (Oficial)',
+              description: 'Documento oficial adjuntado automáticamente en cotizaciones y correos a prospectos.',
+              folder: 'PRESENTACIONES',
+              file_url: finalFulfillmentUrl,
+              storage_path: storageFulfillmentPath,
+              updated_at: new Date().toISOString(),
+              is_pinned: true
+            },
+            {
+              name: 'Presentación Despachos RM y Cobertura (Oficial)',
+              description: 'Documento oficial de cobertura y horarios para RM y Same Day.',
+              folder: 'PRESENTACIONES',
+              file_url: finalDespachosUrl,
+              storage_path: storageDespachosPath,
+              updated_at: new Date().toISOString(),
+              is_pinned: true
+            }
+          ]);
+        } catch (dbErr) {
+          console.warn('Aviso sincronizando service_docs:', dbErr);
         }
 
-        await Swal.fire('¡Actualizado!', 'La Presentación de Despachos RM se ha actualizado con éxito. Las nuevas cotizaciones por correo y el cotizador web ya incluyen este documento.', 'success');
+        if (typeof Swal !== 'undefined') {
+          await Swal.fire({
+            icon: 'success',
+            title: '¡Recursos Guardados por Defecto!',
+            html: 'Todos los enlaces y documentos PDF han sido actualizados con éxito.<br><br><strong>A partir de ahora, cada correo de presentación comercial enviado a los leads y cotizaciones en línea usarán estos recursos automáticamente.</strong>',
+            confirmButtonColor: '#5e17eb'
+          });
+        } else {
+          alert('¡Recursos comerciales guardados con éxito!');
+        }
+
         await renderPresentationsDocsManager(container);
+
       } catch (err) {
-        console.error('Error guardando presentación despachos:', err);
-        Swal.fire('Error', 'No se pudo guardar la presentación: ' + err.message, 'error');
+        console.error('Error guardando recursos de presentación:', err);
+        if (typeof Swal !== 'undefined') {
+          Swal.fire('Error', 'No se pudieron guardar los recursos: ' + err.message, 'error');
+        } else {
+          alert('Error al guardar: ' + err.message);
+        }
       } finally {
-        btnDespachos.disabled = false;
-        btnDespachos.innerHTML = originalHtml;
+        btnSaveAll.disabled = false;
+        btnSaveAll.innerHTML = originalHtml;
       }
     });
   }
