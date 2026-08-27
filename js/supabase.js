@@ -554,7 +554,7 @@ window.escapeHtml = function(str) {
 window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallback) {
   let allData = [];
   let from = 0;
-  const step = 200;
+  const step = 1000;
   while (true) {
     let q = supabase.from(tableName).select(selectStr);
     if (filterCallback) q = filterCallback(q);

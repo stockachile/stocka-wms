@@ -1913,16 +1913,21 @@ window.reassignOrderCommerce = async function(orderId, newCommerce) {
   }
 };
 
-// Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas
+// Helper para realizar consultas chunked a envios_unificados y evitar URLs excesivamente largas y sobrecarga de conexiones
 async function fetchEnviosUnificadosByRefs(allRefs) {
   if (!allRefs || allRefs.length === 0) return [];
   const uniqueRefs = [...new Set(allRefs)];
   const CHUNK_SIZE = 150;
-  const promises = [];
-
+  const chunks = [];
   for (let i = 0; i < uniqueRefs.length; i += CHUNK_SIZE) {
-    const chunk = uniqueRefs.slice(i, i + CHUNK_SIZE);
-    promises.push(
+    chunks.push(uniqueRefs.slice(i, i + CHUNK_SIZE));
+  }
+
+  const allResults = [];
+  const CONCURRENCY = 4;
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const batch = chunks.slice(i, i + CONCURRENCY);
+    const batchPromises = batch.map(chunk =>
       supabase
         .from('envios_unificados')
         .select('*')
@@ -1935,173 +1940,193 @@ async function fetchEnviosUnificadosByRefs(allRefs) {
           return data || [];
         })
     );
+    const batchResults = await Promise.all(batchPromises);
+    batchResults.forEach(res => allResults.push(...res));
   }
 
-  const chunksResults = await Promise.all(promises);
-  return chunksResults.flat();
+  return allResults;
 }
 
+let _currentFetchWmsOrdersPromise = null;
+let _currentFetchWmsOrdersKey = '';
+
 window.fetchWmsOrdersData = async function(dateFrom, dateTo) {
-  const now = new Date();
-  let fromISO = null;
-  let toISO = null;
-  
-  if (dateFrom) {
-    fromISO = new Date(dateFrom + 'T00:00:00').toISOString();
-  } else {
-    fromISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  }
-  
-  if (dateTo) {
-    toISO = new Date(dateTo + 'T23:59:59').toISOString();
+  const fetchKey = `${dateFrom || ''}_${dateTo || ''}`;
+  if (_currentFetchWmsOrdersPromise) {
+    if (_currentFetchWmsOrdersKey === fetchKey) {
+      return _currentFetchWmsOrdersPromise;
+    }
   }
 
-  // Cargar mapeos de Envíame ID a comercio para resolver colisiones de referencias comunes (#1006, #1007, etc.)
-  window.enviameIdToCommerceMap = {};
-  try {
-    const { data: configs } = await supabase
-      .from('comercios_adicional_config')
-      .select('comercio, enviame_id');
-    if (configs) {
-      configs.forEach(c => {
-        if (c.enviame_id) {
-          const ids = c.enviame_id.split(',').map(id => id.trim().replace(/^ID\s*:?\s*/i, ''));
-          ids.forEach(id => {
-            if (id) {
-              window.enviameIdToCommerceMap[id] = c.comercio;
+  _currentFetchWmsOrdersKey = fetchKey;
+  _currentFetchWmsOrdersPromise = (async () => {
+    try {
+      const now = new Date();
+      let fromISO = null;
+      let toISO = null;
+      
+      if (dateFrom) {
+        fromISO = new Date(dateFrom + 'T00:00:00').toISOString();
+      } else {
+        fromISO = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      }
+      
+      if (dateTo) {
+        toISO = new Date(dateTo + 'T23:59:59').toISOString();
+      }
+
+      // Cargar mapeos de Envíame ID a comercio para resolver colisiones de referencias comunes (#1006, #1007, etc.)
+      window.enviameIdToCommerceMap = {};
+      try {
+        const { data: configs } = await supabase
+          .from('comercios_adicional_config')
+          .select('comercio, enviame_id');
+        if (configs) {
+          configs.forEach(c => {
+            if (c.enviame_id) {
+              const ids = c.enviame_id.split(',').map(id => id.trim().replace(/^ID\s*:?\s*/i, ''));
+              ids.forEach(id => {
+                if (id) {
+                  window.enviameIdToCommerceMap[id] = c.comercio;
+                }
+              });
             }
           });
         }
+      } catch (e) {
+        console.error("Error loading enviame configs mapping:", e);
+      }
+      
+      const orders = await window.fetchAllSupabaseRows('orders', `
+        id,
+        status,
+        estado_wms,
+        created_at,
+        external_order_number,
+        external_platform,
+        origen,
+        item,
+        cantidad,
+        sku,
+        total_value,
+        customer_name,
+        customer_email,
+        customer_phone,
+        shipping_address,
+        shipping_city,
+        shipping_complement,
+        shipping_method,
+        payment_status,
+        tracking_number,
+        tracking_url,
+        courier,
+        shopify_exported,
+        comercio,
+        categoria_entrega,
+        agenda,
+        operador,
+        fecha_procesamiento,
+        sucursal_pickeo,
+        periodo_facturacion,
+        shopify_financial:raw_shopify_data->financial_status,
+        shopify_fulfillment:raw_shopify_data->fulfillment_status,
+        shopify_cancelled:raw_shopify_data->cancelled_at,
+        shopify_line_items:raw_shopify_data->line_items,
+        woocommerce_status:raw_woocommerce_data->status,
+        woocommerce_line_items:raw_woocommerce_data->line_items,
+        jumpseller_status:raw_jumpseller_data->status,
+        jumpseller_products:raw_jumpseller_data->products,
+        falabella_status:raw_falabella_data->status,
+        falabella_state:raw_falabella_data->state,
+        falabella_items:raw_falabella_data->items,
+        meli_status:raw_meli_data->status,
+        meli_order_items:raw_meli_data->order_items,
+        paris_items:raw_paris_data->items,
+        ripley_items:raw_ripley_data->order_lines,
+        order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
+      `, q => {
+        let query = q;
+        if (fromISO) query = query.gte('created_at', fromISO);
+        if (toISO) query = query.lte('created_at', toISO);
+        return query.order('created_at', { ascending: false });
       });
+
+      if (orders) {
+        orders.forEach(order => {
+          if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined || order.shopify_line_items !== undefined) {
+            order.raw_shopify_data = {
+              fulfillment_status: order.shopify_fulfillment,
+              cancelled_at: order.shopify_cancelled,
+              financial_status: order.shopify_financial,
+              line_items: order.shopify_line_items
+            };
+          }
+          if (order.woocommerce_status !== undefined || order.woocommerce_line_items !== undefined) {
+            order.raw_woocommerce_data = { 
+              status: order.woocommerce_status,
+              line_items: order.woocommerce_line_items
+            };
+          }
+          if (order.jumpseller_status !== undefined || order.jumpseller_products !== undefined) {
+            order.raw_jumpseller_data = { 
+              status: order.jumpseller_status,
+              products: order.jumpseller_products
+            };
+          }
+          if (order.falabella_status !== undefined || order.falabella_state !== undefined || order.falabella_items !== undefined) {
+            order.raw_falabella_data = {
+              status: order.falabella_status,
+              state: order.falabella_state,
+              items: order.falabella_items
+            };
+          }
+          if (order.meli_status !== undefined || order.meli_order_items !== undefined) {
+            order.raw_meli_data = { 
+              status: order.meli_status,
+              order_items: order.meli_order_items
+            };
+          }
+          if (order.paris_items !== undefined) {
+            order.raw_paris_data = {
+              items: order.paris_items
+            };
+          }
+          if (order.ripley_items !== undefined) {
+            order.raw_ripley_data = {
+              order_lines: order.ripley_items
+            };
+          }
+        });
+      }
+
+      window.loadedOrders = orders || [];
+      window.loadedOrdersInventoryMap = {};
+
+      if (orders && orders.length > 0) {
+        const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
+        const orderIds = orders.map(o => o.id);
+        const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
+        const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
+
+        const shipData = await fetchEnviosUnificadosByRefs(allRefs);
+        window.loadedShipments = shipData || [];
+
+        if (window.fetchPickerOperators) {
+          await window.fetchPickerOperators(orders);
+        }
+
+        if (window.fetchInventoryForOrders) {
+          await window.fetchInventoryForOrders(orders);
+        }
+      } else {
+        window.loadedShipments = [];
+      }
+    } finally {
+      _currentFetchWmsOrdersPromise = null;
     }
-  } catch (e) {
-    console.error("Error loading enviame configs mapping:", e);
-  }
-  
-  const orders = await window.fetchAllSupabaseRows('orders', `
-    id,
-    status,
-    estado_wms,
-    created_at,
-    external_order_number,
-    external_platform,
-    origen,
-    item,
-    cantidad,
-    sku,
-    total_value,
-    customer_name,
-    customer_email,
-    customer_phone,
-    shipping_address,
-    shipping_city,
-    shipping_complement,
-    shipping_method,
-    payment_status,
-    tracking_number,
-    tracking_url,
-    courier,
-    shopify_exported,
-    comercio,
-    categoria_entrega,
-    agenda,
-    operador,
-    fecha_procesamiento,
-    sucursal_pickeo,
-    periodo_facturacion,
-    shopify_financial:raw_shopify_data->financial_status,
-    shopify_fulfillment:raw_shopify_data->fulfillment_status,
-    shopify_cancelled:raw_shopify_data->cancelled_at,
-    shopify_line_items:raw_shopify_data->line_items,
-    woocommerce_status:raw_woocommerce_data->status,
-    woocommerce_line_items:raw_woocommerce_data->line_items,
-    jumpseller_status:raw_jumpseller_data->status,
-    jumpseller_products:raw_jumpseller_data->products,
-    falabella_status:raw_falabella_data->status,
-    falabella_state:raw_falabella_data->state,
-    falabella_items:raw_falabella_data->items,
-    meli_status:raw_meli_data->status,
-    meli_order_items:raw_meli_data->order_items,
-    paris_items:raw_paris_data->items,
-    ripley_items:raw_ripley_data->order_lines,
-    order_items (quantity, product_id, warehouse_id, warehouses (name), products(id, sku, name, price, image_url, options, is_virtual, barcode, send_barcode_to_picker, picking_match_strict, alias, send_alias_to_picker))
-  `, q => {
-    let query = q;
-    if (fromISO) query = query.gte('created_at', fromISO);
-    if (toISO) query = query.lte('created_at', toISO);
-    return query.order('created_at', { ascending: false });
-  });
+  })();
 
-  if (orders) {
-    orders.forEach(order => {
-      if (order.shopify_fulfillment !== undefined || order.shopify_cancelled !== undefined || order.shopify_financial !== undefined || order.shopify_line_items !== undefined) {
-        order.raw_shopify_data = {
-          fulfillment_status: order.shopify_fulfillment,
-          cancelled_at: order.shopify_cancelled,
-          financial_status: order.shopify_financial,
-          line_items: order.shopify_line_items
-        };
-      }
-      if (order.woocommerce_status !== undefined || order.woocommerce_line_items !== undefined) {
-        order.raw_woocommerce_data = { 
-          status: order.woocommerce_status,
-          line_items: order.woocommerce_line_items
-        };
-      }
-      if (order.jumpseller_status !== undefined || order.jumpseller_products !== undefined) {
-        order.raw_jumpseller_data = { 
-          status: order.jumpseller_status,
-          products: order.jumpseller_products
-        };
-      }
-      if (order.falabella_status !== undefined || order.falabella_state !== undefined || order.falabella_items !== undefined) {
-        order.raw_falabella_data = {
-          status: order.falabella_status,
-          state: order.falabella_state,
-          items: order.falabella_items
-        };
-      }
-      if (order.meli_status !== undefined || order.meli_order_items !== undefined) {
-        order.raw_meli_data = { 
-          status: order.meli_status,
-          order_items: order.meli_order_items
-        };
-      }
-      if (order.paris_items !== undefined) {
-        order.raw_paris_data = {
-          items: order.paris_items
-        };
-      }
-      if (order.ripley_items !== undefined) {
-        order.raw_ripley_data = {
-          order_lines: order.ripley_items
-        };
-      }
-    });
-  }
-
-  window.loadedOrders = orders || [];
-  window.loadedOrdersInventoryMap = {};
-
-  if (orders && orders.length > 0) {
-    const orderRefs = orders.map(o => o.external_order_number).filter(Boolean);
-    const orderIds = orders.map(o => o.id);
-    const orderTrackings = orders.map(o => o.tracking_number).filter(Boolean);
-    const allRefs = [...orderRefs, ...orderIds, ...orderTrackings];
-
-    const shipData = await fetchEnviosUnificadosByRefs(allRefs);
-    window.loadedShipments = shipData || [];
-
-    if (window.fetchPickerOperators) {
-      await window.fetchPickerOperators(orders);
-    }
-
-    if (window.fetchInventoryForOrders) {
-      await window.fetchInventoryForOrders(orders);
-    }
-  } else {
-    window.loadedShipments = [];
-  }
+  return _currentFetchWmsOrdersPromise;
 };
 
 async function renderAdminOrders() {
@@ -2456,53 +2481,57 @@ async function renderAdminOrders() {
     };
 
     let isFetchingDates = false;
-    const handleDateChange = async () => {
-      if (isFetchingDates) return;
-      isFetchingDates = true;
-      window.wmsCurrentPage = 1;
-      const dateFrom = dateFromInput ? dateFromInput.value : '';
-      const dateTo = dateToInput ? dateToInput.value : '';
-      
-      const tbody = document.getElementById('orders-tbody');
-      if (tbody) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="13" style="text-align: center; padding: 3rem;">
-              <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
-                <style>
-                  @keyframes wms-spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                  }
-                </style>
-                <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
-                <span style="font-size: 0.9rem; color: var(--color-text-muted);">Buscando pedidos en el rango de fechas...</span>
-              </div>
-            </td>
-          </tr>
-        `;
-      }
-
-      try {
-        await window.fetchWmsOrdersData(dateFrom, dateTo);
-        if (window.updateMerchantFilterOptions) {
-          window.updateMerchantFilterOptions();
-        }
-        applyWmsFiltersAndRender();
-      } catch (err) {
-        console.error('Error fetching orders on date change:', err);
+    let dateDebounceTimeout = null;
+    const handleDateChange = () => {
+      clearTimeout(dateDebounceTimeout);
+      dateDebounceTimeout = setTimeout(async () => {
+        if (isFetchingDates) return;
+        isFetchingDates = true;
+        window.wmsCurrentPage = 1;
+        const dateFrom = dateFromInput ? dateFromInput.value : '';
+        const dateTo = dateToInput ? dateToInput.value : '';
+        
+        const tbody = document.getElementById('orders-tbody');
         if (tbody) {
           tbody.innerHTML = `
             <tr>
-              <td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">
-                Error al buscar pedidos: ${err.message}
+              <td colspan="13" style="text-align: center; padding: 3rem;">
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;">
+                  <style>
+                    @keyframes wms-spin {
+                      0% { transform: rotate(0deg); }
+                      100% { transform: rotate(360deg); }
+                    }
+                  </style>
+                  <div style="width: 32px; height: 32px; border: 3px solid rgba(120, 120, 120, 0.15); border-top-color: var(--color-primary); border-radius: 50%; animation: wms-spin 1s linear infinite;"></div>
+                  <span style="font-size: 0.9rem; color: var(--color-text-muted);">Buscando pedidos en el rango de fechas...</span>
+                </div>
               </td>
             </tr>
           `;
         }
-      } finally {
-        isFetchingDates = false;
-      }
+
+        try {
+          await window.fetchWmsOrdersData(dateFrom, dateTo);
+          if (window.updateMerchantFilterOptions) {
+            window.updateMerchantFilterOptions();
+          }
+          applyWmsFiltersAndRender();
+        } catch (err) {
+          console.error('Error fetching orders on date change:', err);
+          if (tbody) {
+            tbody.innerHTML = `
+              <tr>
+                <td colspan="13" style="text-align: center; padding: 2rem; color: var(--color-red);">
+                  Error al buscar pedidos: ${err.message}
+                </td>
+              </tr>
+            `;
+          }
+        } finally {
+          isFetchingDates = false;
+        }
+      }, 300);
     };
 
     if (searchInput) searchInput.addEventListener('keyup', triggerFilterUpdate);
@@ -15882,6 +15911,8 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
       const email = getCleanEmail(log.recipient_email);
       if (!email) return;
 
+      const actDate = log.clicked_at || log.opened_at || log.sent_at || log.created_at;
+
       if (!leadsMap.has(email)) {
         leadsMap.set(email, {
           email: email,
@@ -15898,7 +15929,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           quotes: [],
           onboarding: null,
           created_at: log.sent_at || log.created_at,
-          last_activity_at: log.sent_at || log.created_at
+          last_activity_at: actDate
         });
       } else {
         const lead = leadsMap.get(email);
@@ -15906,12 +15937,15 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         if (!lead.name && log.contact_name) lead.name = log.contact_name;
         if (!lead.company && log.commerce_name) lead.company = log.commerce_name;
         if (!lead.info_history) lead.info_history = [];
-        if (!lead.info_history.some(h => h.id === log.id || (h.message_id && h.message_id === log.message_id))) {
+        const existingIdx = lead.info_history.findIndex(h => h.id === log.id || (h.message_id && log.message_id && h.message_id === log.message_id));
+        if (existingIdx >= 0) {
+          lead.info_history[existingIdx] = { ...lead.info_history[existingIdx], ...log };
+        } else {
           lead.info_history.push(log);
         }
         if (lead.lead_status === 'nuevo') lead.lead_status = 'contactado';
-        if (new Date(log.sent_at || log.created_at) > new Date(lead.last_activity_at || 0)) {
-          lead.last_activity_at = log.sent_at || log.created_at;
+        if (new Date(actDate) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = actDate;
         }
       }
     });
@@ -15920,6 +15954,8 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
     e1Logs.forEach(log => {
       const email = getCleanEmail(log.recipient_email);
       if (!email) return;
+
+      const actDate = log.clicked_at || log.opened_at || log.sent_at || log.created_at;
 
       if (!leadsMap.has(email)) {
         leadsMap.set(email, {
@@ -15937,7 +15973,7 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
           quotes: [],
           onboarding: null,
           created_at: log.sent_at || log.created_at,
-          last_activity_at: log.sent_at || log.created_at
+          last_activity_at: actDate
         });
       } else {
         const lead = leadsMap.get(email);
@@ -15945,12 +15981,15 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
         if (!lead.name && log.contact_name) lead.name = log.contact_name;
         if (!lead.company && log.commerce_name) lead.company = log.commerce_name;
         if (!lead.e1_history) lead.e1_history = [];
-        if (!lead.e1_history.some(h => h.id === log.id || (h.message_id && h.message_id === log.message_id))) {
+        const existingIdx = lead.e1_history.findIndex(h => h.id === log.id || (h.message_id && log.message_id && h.message_id === log.message_id));
+        if (existingIdx >= 0) {
+          lead.e1_history[existingIdx] = { ...lead.e1_history[existingIdx], ...log };
+        } else {
           lead.e1_history.push(log);
         }
         if (lead.lead_status === 'nuevo') lead.lead_status = 'e1_enviado';
-        if (new Date(log.sent_at || log.created_at) > new Date(lead.last_activity_at || 0)) {
-          lead.last_activity_at = log.sent_at || log.created_at;
+        if (new Date(actDate) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = actDate;
         }
       }
     });
@@ -15998,6 +16037,18 @@ window.fetchUnifiedLeads = async function(forceReload = false) {
 
     const unifiedList = Array.from(leadsMap.values())
       .filter(lead => lead.sources && lead.sources.length > 0)
+      .map(lead => {
+        // Enriquecer engagement y trazabilidad de correo
+        const allEmails = [...(lead.info_history || []), ...(lead.e1_history || [])];
+        const openedEmail = allEmails.find(e => e.status === 'abierto' || e.status === 'clickeado' || e.opened_at);
+        const clickedEmail = allEmails.find(e => e.status === 'clickeado' || e.clicked_at);
+
+        lead.email_read = !!openedEmail;
+        lead.email_read_at = openedEmail?.opened_at || null;
+        lead.email_clicked = !!clickedEmail;
+        lead.email_clicked_at = clickedEmail?.clicked_at || null;
+        return lead;
+      })
       .sort((a, b) => new Date(b.last_activity_at || b.created_at || 0) - new Date(a.last_activity_at || a.created_at || 0));
 
     console.log(`[fetchUnifiedLeads] Total leads procesados: ${unifiedList.length}`, unifiedList);
@@ -16070,7 +16121,7 @@ window.renderLeadsAdmin = async function(forceReload = false) {
   const buildLeadRowHtml = (lead) => {
     const statusStyle = window.getLeadStatusStyle(lead.lead_status);
     
-    // Badges de orígenes
+    // Badges de orígenes con estado de lectura enriquecido
     let sourceBadges = '';
     if (lead.sources.includes('demo')) {
       sourceBadges += `<span class="badge" title="Ingresó a la Demo Interactiva WMS" style="background: rgba(94, 23, 235, 0.1); color: #5e17eb; border: 1px solid rgba(94, 23, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-play-circle-fill"></i> Demo</span> `;
@@ -16080,12 +16131,30 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       sourceBadges += `<span class="badge" title="Generó cotización en el Cotizador Online" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-calculator-fill"></i> Cotizó (${qCount})</span> `;
     }
     if (lead.sources.includes('info') || (lead.info_history && lead.info_history.length > 0)) {
-      const infoHistoryCount = (lead.info_history || []).length;
-      sourceBadges += `<span class="badge" title="Recibió Información Comercial y Presentación de Servicios" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-star-fill"></i> Info (${infoHistoryCount})</span> `;
+      const infoList = lead.info_history || [];
+      const isClicked = infoList.some(e => e.status === 'clickeado' || e.clicked_at);
+      const isOpened = infoList.some(e => e.status === 'abierto' || e.opened_at);
+
+      if (isClicked) {
+        sourceBadges += `<span class="badge" title="Hizo clic en enlaces y recursos de presentación" style="background: rgba(94, 23, 235, 0.15); color: #5e17eb; border: 1px solid rgba(94, 23, 235, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-cursor-fill"></i> Info Clickeada</span> `;
+      } else if (isOpened) {
+        sourceBadges += `<span class="badge" title="Abrió y leyó el correo de presentación comercial" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-eye-fill"></i> Info Abierta</span> `;
+      } else {
+        sourceBadges += `<span class="badge" title="Recibió Información Comercial (${infoList.length})" style="background: rgba(37, 99, 235, 0.1); color: #2563eb; border: 1px solid rgba(37, 99, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-star-fill"></i> Info (${infoList.length})</span> `;
+      }
     }
     if (lead.sources.includes('e1') || (lead.e1_history && lead.e1_history.length > 0)) {
-      const e1HistoryCount = (lead.e1_history || []).length;
-      sourceBadges += `<span class="badge" title="Recibió Correo E1 de Onboarding" style="background: rgba(94, 23, 235, 0.1); color: #7c3aed; border: 1px solid rgba(94, 23, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-send-fill"></i> E1 (${e1HistoryCount})</span> `;
+      const e1List = lead.e1_history || [];
+      const isClicked = e1List.some(e => e.status === 'clickeado' || e.clicked_at);
+      const isOpened = e1List.some(e => e.status === 'abierto' || e.opened_at);
+
+      if (isClicked) {
+        sourceBadges += `<span class="badge" title="Hizo clic en los adjuntos o enlaces E1" style="background: rgba(94, 23, 235, 0.15); color: #7c3aed; border: 1px solid rgba(124, 58, 237, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-cursor-fill"></i> E1 Clickeado</span> `;
+      } else if (isOpened) {
+        sourceBadges += `<span class="badge" title="Abrió el correo de instrucciones E1" style="background: rgba(16, 185, 129, 0.15); color: #059669; border: 1px solid rgba(16, 185, 129, 0.35); font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-eye-fill"></i> E1 Abierto</span> `;
+      } else {
+        sourceBadges += `<span class="badge" title="Recibió Correo E1 (${e1List.length})" style="background: rgba(94, 23, 235, 0.1); color: #7c3aed; border: 1px solid rgba(94, 23, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-send-fill"></i> E1 (${e1List.length})</span> `;
+      }
     }
     if (lead.sources.includes('onboarding')) {
       const onbStatus = lead.onboarding?.status || 'pending';
@@ -16115,9 +16184,18 @@ window.renderLeadsAdmin = async function(forceReload = false) {
       `;
     }
 
-    // Fecha formateada
+    // Fecha formateada y subetiqueta de engagement de lectura
     const dateObj = lead.last_activity_at ? new Date(lead.last_activity_at) : null;
     const dateStr = dateObj ? dateObj.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+    
+    let engagementNotice = '';
+    if (lead.email_clicked && lead.email_clicked_at) {
+      const clickDateStr = new Date(lead.email_clicked_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      engagementNotice = `<div style="color: #5e17eb; font-weight: 700; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 2px;"><i class="ri-cursor-fill"></i> Vio PDF / Enlace (${clickDateStr})</div>`;
+    } else if (lead.email_read && lead.email_read_at) {
+      const readDateStr = new Date(lead.email_read_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      engagementNotice = `<div style="color: #059669; font-weight: 700; font-size: 0.72rem; margin-top: 3px; display: flex; align-items: center; gap: 2px;"><i class="ri-eye-fill"></i> Abrió correo (${readDateStr})</div>`;
+    }
 
     // Dropdown de cambio de estado
     const statusSelect = `
@@ -16169,7 +16247,8 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           ${logisticsInfo}
         </td>
         <td style="padding: 0.9rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap;">
-          ${dateStr}
+          <div>${dateStr}</div>
+          ${engagementNotice}
         </td>
         <td style="padding: 0.9rem 1rem;">
           ${statusSelect}
@@ -16224,6 +16303,9 @@ window.renderLeadsAdmin = async function(forceReload = false) {
           </p>
         </div>
         <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+          <button id="btn-sync-lead-emails" class="btn btn-outline" onclick="window.syncLeadEmailEvents()" title="Consultar aperturas y clics en vivo desde Brevo" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem; font-weight: 600;">
+            <i class="ri-radar-line" style="color: #5e17eb; font-size: 1.05rem;"></i> Sincronizar Lecturas
+          </button>
           <button class="btn btn-outline" onclick="window.renderLeadsAdmin(true)" title="Recargar datos" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem;">
             <i class="ri-refresh-line"></i> Actualizar
           </button>
@@ -16498,23 +16580,53 @@ window.showLeadDetailModal = function(encodedEmail) {
     quotesHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No ha generado cotizaciones aún en el cotizador online.</div>`;
   }
 
-  // Info History HTML
+  // Info History HTML con Trazabilidad Brevo
   let infoHtml = '';
   if (lead.info_history && lead.info_history.length > 0) {
     infoHtml = lead.info_history.map((e, idx) => {
       const eDate = e.sent_at || e.created_at ? new Date(e.sent_at || e.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      const isOpened = e.status === 'abierto' || e.status === 'clickeado' || !!e.opened_at;
+      const isClicked = e.status === 'clickeado' || !!e.clicked_at;
+      const openDateStr = e.opened_at ? new Date(e.opened_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+      const clickDateStr = e.clicked_at ? new Date(e.clicked_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+
+      let statusBadge = `<span style="background: rgba(37,99,235,0.1); color: #2563eb; border: 1px solid rgba(37,99,235,0.25); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-mail-check-line"></i> Entregado</span>`;
+      if (isClicked) {
+        statusBadge = `<span style="background: rgba(94,23,235,0.12); color: #5e17eb; border: 1px solid rgba(94,23,235,0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-cursor-fill"></i> Vio Enlaces / PDFs</span>`;
+      } else if (isOpened) {
+        statusBadge = `<span style="background: rgba(16,185,129,0.12); color: #059669; border: 1px solid rgba(16,185,129,0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-eye-fill"></i> Abierto y Leído</span>`;
+      }
+
       return `
-        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <strong style="color: #2563eb;"><i class="ri-mail-star-fill"></i> Información y Presentación #${idx + 1}</strong>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${eDate}</span>
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.6rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.3rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <strong style="color: #2563eb;"><i class="ri-mail-star-fill"></i> Presentación Comercial #${idx + 1}</strong>
+              ${statusBadge}
+            </div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Enviado: ${eDate}</span>
           </div>
-          <div style="color: var(--color-text-main); margin-top: 0.25rem; font-size: 0.78rem;">
+
+          <!-- Timeline de Seguimiento -->
+          <div style="background: var(--color-bg); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.4rem 0; font-size: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: #10b981;">
+              <i class="ri-checkbox-circle-fill"></i> <strong>Despachado:</strong> ${eDate}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: ${isOpened ? '#059669' : 'var(--color-text-muted)'};">
+              <i class="${isOpened ? 'ri-eye-fill' : 'ri-time-line'}"></i> 
+              <strong>Apertura de Correo:</strong> ${isOpened ? (openDateStr ? `Abierto el ${openDateStr}` : 'Abierto y leído') : 'Pendiente de apertura por el cliente'}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: ${isClicked ? '#5e17eb' : 'var(--color-text-muted)'};">
+              <i class="${isClicked ? 'ri-cursor-fill' : 'ri-link-unlink-m'}"></i> 
+              <strong>Clics en Recursos / PDFs:</strong> ${isClicked ? (clickDateStr ? `Hizo clic el ${clickDateStr}` : 'Vio documentos adjuntos') : 'Sin clics en enlaces aún'}
+            </div>
+          </div>
+
+          <div style="color: var(--color-text-main); margin-top: 0.35rem; font-size: 0.78rem;">
             <div><strong>Destinatario:</strong> ${e.recipient_email || lead.email}</div>
             ${e.subject ? `<div><strong>Asunto:</strong> ${e.subject}</div>` : ''}
             ${e.cc_emails ? `<div><strong>Copia (CC):</strong> ${e.cc_emails}</div>` : ''}
             ${e.notes ? `<div style="color: var(--color-text-muted); margin-top: 0.15rem;"><strong>Nota:</strong> ${e.notes}</div>` : ''}
-            ${e.message_id ? `<div style="color: var(--color-text-muted); font-size: 0.7rem;">ID: ${e.message_id}</div>` : ''}
           </div>
         </div>
       `;
@@ -16523,21 +16635,52 @@ window.showLeadDetailModal = function(encodedEmail) {
     infoHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No se han registrado envíos de información comercial para este prospecto.</div>`;
   }
 
-  // E1 History HTML
+  // E1 History HTML con Trazabilidad Brevo
   let e1Html = '';
   if (lead.e1_history && lead.e1_history.length > 0) {
     e1Html = lead.e1_history.map((e, idx) => {
       const eDate = e.sent_at || e.created_at ? new Date(e.sent_at || e.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      const isOpened = e.status === 'abierto' || e.status === 'clickeado' || !!e.opened_at;
+      const isClicked = e.status === 'clickeado' || !!e.clicked_at;
+      const openDateStr = e.opened_at ? new Date(e.opened_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+      const clickDateStr = e.clicked_at ? new Date(e.clicked_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+
+      let statusBadge = `<span style="background: rgba(124,58,237,0.1); color: #7c3aed; border: 1px solid rgba(124,58,237,0.25); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-mail-check-line"></i> Entregado</span>`;
+      if (isClicked) {
+        statusBadge = `<span style="background: rgba(94,23,235,0.12); color: #5e17eb; border: 1px solid rgba(94,23,235,0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-cursor-fill"></i> Vio Adjuntos E1</span>`;
+      } else if (isOpened) {
+        statusBadge = `<span style="background: rgba(16,185,129,0.12); color: #059669; border: 1px solid rgba(16,185,129,0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.72rem;"><i class="ri-eye-fill"></i> Abierto y Leído</span>`;
+      }
+
       return `
-        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <strong style="color: #7c3aed;"><i class="ri-mail-send-fill"></i> Envío E1 #${idx + 1}</strong>
-            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${eDate}</span>
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.6rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; flex-wrap: wrap; gap: 0.3rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <strong style="color: #7c3aed;"><i class="ri-mail-send-fill"></i> Envío E1 #${idx + 1}</strong>
+              ${statusBadge}
+            </div>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">Enviado: ${eDate}</span>
           </div>
-          <div style="color: var(--color-text-main); margin-top: 0.25rem; font-size: 0.78rem;">
+
+          <!-- Timeline de Seguimiento -->
+          <div style="background: var(--color-bg); border-radius: 6px; padding: 0.5rem 0.75rem; margin: 0.4rem 0; font-size: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: #10b981;">
+              <i class="ri-checkbox-circle-fill"></i> <strong>Despachado:</strong> ${eDate}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: ${isOpened ? '#059669' : 'var(--color-text-muted)'};">
+              <i class="${isOpened ? 'ri-eye-fill' : 'ri-time-line'}"></i> 
+              <strong>Apertura de Correo:</strong> ${isOpened ? (openDateStr ? `Abierto el ${openDateStr}` : 'Abierto y leído') : 'Pendiente de apertura por el cliente'}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem; color: ${isClicked ? '#5e17eb' : 'var(--color-text-muted)'};">
+              <i class="${isClicked ? 'ri-cursor-fill' : 'ri-link-unlink-m'}"></i> 
+              <strong>Clics en Adjuntos / Enlaces:</strong> ${isClicked ? (clickDateStr ? `Hizo clic el ${clickDateStr}` : 'Descargó adjuntos E1') : 'Sin clics en enlaces aún'}
+            </div>
+          </div>
+
+          <div style="color: var(--color-text-main); margin-top: 0.35rem; font-size: 0.78rem;">
             <div><strong>Destinatario:</strong> ${e.recipient_email || lead.email}</div>
             ${e.cc_emails ? `<div><strong>Copia (CC):</strong> ${e.cc_emails}</div>` : ''}
-            ${e.message_id ? `<div style="color: var(--color-text-muted); font-size: 0.7rem;">ID: ${e.message_id}</div>` : ''}
+            ${e.notes ? `<div style="color: var(--color-text-muted); margin-top: 0.15rem;"><strong>Nota:</strong> ${e.notes}</div>` : ''}
           </div>
         </div>
       `;
@@ -16720,6 +16863,56 @@ window.showLeadDetailModal = function(encodedEmail) {
   `;
 
   document.body.appendChild(modal);
+};
+
+window.syncLeadEmailEvents = async function() {
+  const btn = document.getElementById('btn-sync-lead-emails');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ri-loader-4-line spin" style="color: #5e17eb;"></i> Sincronizando...';
+  }
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token || '';
+
+    const res = await fetch('https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/send-billing-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({
+        emailType: 'sync_lead_email_events'
+      })
+    });
+
+    const resJson = await res.json();
+    if (resJson.success) {
+      if (typeof window.showNotification === 'function') {
+        window.showNotification(`Sincronización con Brevo completada. ${resJson.updatedCount || 0} eventos de lectura actualizados.`, 'success');
+      } else {
+        console.log(`[syncLeadEmailEvents] Sincronización exitosa: ${resJson.updatedCount || 0} eventos.`);
+      }
+    } else {
+      if (typeof window.showNotification === 'function') {
+        window.showNotification(`Aviso: ${resJson.message || 'No se encontraron nuevos eventos'}`, 'info');
+      }
+    }
+
+    await window.renderLeadsAdmin(true);
+  } catch (err) {
+    console.error('Error sincronizando eventos de Brevo:', err);
+    if (typeof window.showNotification === 'function') {
+      window.showNotification('Error al sincronizar eventos: ' + err.message, 'error');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml || '<i class="ri-radar-line" style="color: #5e17eb; font-size: 1.05rem;"></i> Sincronizar Lecturas';
+    }
+  }
 };
 
 // Manejo de eventos delegados para cambios de rol y comercios asignados
