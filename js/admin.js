@@ -18454,7 +18454,7 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       // 1. Consultar inventario con existencias reales o comprometidas (evita escanear miles de registros vacíos)
       let invQuery = supabase
         .from('inventory')
-        .select('product_id, quantity, committed_quantity')
+        .select('product_id, warehouse_id, quantity, committed_quantity')
         .or('quantity.gt.0,committed_quantity.gt.0')
         .limit(5000);
 
@@ -18925,8 +18925,8 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
 
     let centralStockUnits = 0;
     let centralStockSkus = 0;
-    if (invRes.data) {
-      invRes.data.forEach(i => {
+    if (activeInv) {
+      activeInv.forEach(i => {
         if (i.warehouse_id === 'ae3ee613-0c36-4ee7-8d7d-2a3ec49dfe09' && (i.quantity || 0) > 0) {
           centralStockUnits += (i.quantity || 0);
           centralStockSkus++;
