@@ -18451,36 +18451,66 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       if (cacheIndicator) cacheIndicator.innerHTML = '';
       loaderInterval = window.startPremiumLoader('admin-metrics-dashboard-content', 'Consolidando Métricas del WMS');
 
-      // 1. Construir las consultas de Supabase optimizadas
-      let prodPromise = window.fetchAllSupabaseRows(
-        'products',
-        'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual, inventory(quantity, committed_quantity)',
-        q => {
-          let query = q.order('id');
-          if (selectedCommerce) {
-            query = query.eq('comercio', selectedCommerce);
-          }
-          return query;
-        }
-      ).then(data => ({ data })).catch(error => ({ error }));
+      // 1. Consultar inventario con existencias reales o comprometidas (evita escanear miles de registros vacíos)
+      let invQuery = supabase
+        .from('inventory')
+        .select('product_id, quantity, committed_quantity')
+        .or('quantity.gt.0,committed_quantity.gt.0')
+        .limit(5000);
 
+      const { data: activeInv, error: invErr } = await invQuery;
+      if (invErr) throw invErr;
+
+      // 2. Extraer IDs de productos activos
+      const activeProductIds = [...new Set((activeInv || []).map(i => i.product_id).filter(Boolean))];
+
+      // 3. Consultar productos en lotes rápidos y productos con stock crítico
+      const productSelect = 'id, sku, name, comercio, stock_critico, volumen, length, width, height, is_virtual';
+      const prodPromises = [];
+      const chunkSize = 200;
+      for (let i = 0; i < activeProductIds.length; i += chunkSize) {
+        const chunk = activeProductIds.slice(i, i + chunkSize);
+        let q = supabase.from('products').select(productSelect).in('id', chunk);
+        if (selectedCommerce) q = q.eq('comercio', selectedCommerce);
+        prodPromises.push(q);
+      }
+
+      // También traer productos con alerta de stock crítico configurado
+      let critQ = supabase.from('products').select(productSelect).gt('stock_critico', 0).limit(500);
+      if (selectedCommerce) critQ = critQ.eq('comercio', selectedCommerce);
+      prodPromises.push(critQ);
+
+      // Consultas secundarias acotadas
       let ordQuery = supabase.from('orders').select('id, status, comercio').gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString());
       let intQuery = supabase.from('merchant_integrations').select('id, platform, comercio').eq('is_active', true);
-      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio');
+      let decQuery = supabase.from('stock_declarations').select('id, title, status, quantity_declared, volume_declared, estimated_arrival_type, estimated_arrival_date, estimated_arrival_period, created_at, comercio').order('created_at', { ascending: false }).limit(5);
 
-      // 2. Aplicar filtro por comercio si corresponde
       if (selectedCommerce) {
         ordQuery = ordQuery.eq('comercio', selectedCommerce);
         intQuery = intQuery.eq('comercio', selectedCommerce);
         decQuery = decQuery.eq('comercio', selectedCommerce);
       }
 
-      decQuery = decQuery.order('created_at', { ascending: false }).limit(5);
+      const [prodChunks, ordRes, intRes, decRes, newsRes] = await Promise.all([
+        Promise.all(prodPromises),
+        ordQuery,
+        intQuery,
+        decQuery,
+        supabase.from('dashboard_news').select('*').order('created_at', { ascending: false })
+      ]);
 
-      // 3. Consultar datos
-      results = await Promise.all([prodPromise, ordQuery, intQuery, decQuery]);
-      const newsRes = await supabase.from('dashboard_news').select('*').order('created_at', { ascending: false });
-      news = newsRes.data || [];
+      const productsMap = {};
+      (prodChunks || []).forEach(res => {
+        if (res && res.data) {
+          res.data.forEach(p => {
+            productsMap[p.id] = p;
+          });
+        }
+      });
+
+      news = newsRes?.data || [];
+
+      results = [{ data: productsMap, rawInv: activeInv || [] }, ordRes, intRes, decRes];
 
       window.setDashboardCache(cacheKey, {
         results: results,
@@ -18490,12 +18520,11 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
       if (loaderInterval) clearInterval(loaderInterval);
     }
 
-    const prodRes = results[0];
+    const prodDataRes = results[0];
     const ordRes = results[1];
     const intRes = results[2];
     const decRes = results[3];
 
-    if (prodRes.error) throw prodRes.error;
     if (ordRes.error) throw ordRes.error;
     if (intRes.error) throw intRes.error;
     if (decRes.error) throw decRes.error;
@@ -18509,47 +18538,62 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
     const productVolumeMap = {};
     const missingDimVolProducts = [];
 
-    if (prodRes.data) {
-      prodRes.data.forEach(prod => {
-        const invList = prod.inventory || [];
-        const quantity = invList.reduce((sum, i) => sum + (i.quantity || 0), 0);
-        const committed_quantity = invList.reduce((sum, i) => sum + (i.committed_quantity || 0), 0);
+    const productsMap = prodDataRes.data || {};
+    const activeInv = prodDataRes.rawInv || [];
 
-        totalStock += quantity;
-        const available = quantity - committed_quantity;
-        availableStock += available;
-        const vol = parseFloat(prod.volumen || 0);
-        totalVolume += quantity * vol;
+    // Mapear inventario agregado por producto
+    const productInvMap = {};
+    activeInv.forEach(i => {
+      if (!productInvMap[i.product_id]) {
+        productInvMap[i.product_id] = { quantity: 0, committed_quantity: 0 };
+      }
+      productInvMap[i.product_id].quantity += (i.quantity || 0);
+      productInvMap[i.product_id].committed_quantity += (i.committed_quantity || 0);
+    });
 
-        if (prod.is_virtual !== true) {
-          const isCritical = (prod.stock_critico || 0) > 0 && available <= prod.stock_critico;
-          const isInsufficient = committed_quantity > 0 && available <= 0;
-          if (isCritical || isInsufficient) {
-            lowStockCount++;
-            lowStockItems.push({
-              sku: prod.sku || 'Sin SKU',
-              name: prod.name || 'Sin Nombre',
-              available: available,
-              critico: prod.stock_critico || 0
-            });
-          }
+    Object.values(productsMap).forEach(prod => {
+      if (selectedCommerce && prod.comercio !== selectedCommerce) return;
 
-          // Alerta si tiene stock y no tiene dimensiones ni volumen
-          if (quantity > 0) {
-            const hasDims = (prod.length || 0) > 0 && (prod.width || 0) > 0 && (prod.height || 0) > 0;
-            const hasVol = vol > 0;
-            if (!hasDims && !hasVol) {
-              missingDimVolProducts.push({
-                id: prod.id,
-                sku: prod.sku,
-                name: prod.name,
-                comercio: prod.comercio,
-                quantity: quantity
-              });
-            }
-          }
+      const inv = productInvMap[prod.id] || { quantity: 0, committed_quantity: 0 };
+      const quantity = inv.quantity;
+      const committed = inv.committed_quantity;
+      const available = quantity - committed;
+      const vol = parseFloat(prod.volumen || 0);
+
+      totalStock += quantity;
+      availableStock += available;
+      totalVolume += quantity * vol;
+
+      if (prod.is_virtual !== true) {
+        const isCritical = (prod.stock_critico || 0) > 0 && available <= prod.stock_critico;
+        const isInsufficient = committed > 0 && available <= 0;
+        if (isCritical || isInsufficient) {
+          lowStockCount++;
+          lowStockItems.push({
+            sku: prod.sku || 'Sin SKU',
+            name: prod.name || 'Sin Nombre',
+            available: available,
+            critico: prod.stock_critico || 0
+          });
         }
 
+        // Alerta si tiene stock y no tiene dimensiones ni volumen
+        if (quantity > 0) {
+          const hasDims = (prod.length || 0) > 0 && (prod.width || 0) > 0 && (prod.height || 0) > 0;
+          const hasVol = vol > 0;
+          if (!hasDims && !hasVol) {
+            missingDimVolProducts.push({
+              id: prod.id,
+              sku: prod.sku,
+              name: prod.name,
+              comercio: prod.comercio,
+              quantity: quantity
+            });
+          }
+        }
+      }
+
+      if (quantity > 0) {
         const totalVol = quantity * vol;
         if (!productVolumeMap[prod.sku]) {
           productVolumeMap[prod.sku] = {
@@ -18562,9 +18606,10 @@ async function fetchAndRenderAdminMetrics(selectedCommerce) {
         }
         productVolumeMap[prod.sku].quantity += quantity;
         productVolumeMap[prod.sku].volumenTotal += totalVol;
-      });
-      window.adminMissingDimVolProducts = missingDimVolProducts;
-    }
+      }
+    });
+
+    window.adminMissingDimVolProducts = missingDimVolProducts;
 
     const topVolumeProducts = Object.values(productVolumeMap)
       .sort((a, b) => b.volumenTotal - a.volumenTotal)
