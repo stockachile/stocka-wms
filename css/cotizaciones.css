@@ -1,6 +1,19 @@
 /* ==========================================================================
-   COTIZACIONES - ESTILOS PERSONALIZADOS STOCKA WMS
+   COTIZACIONES - ESTILOS PERSONALIZADOS STOCKA WMS (MOBILE-FIRST)
    ========================================================================== */
+
+html, body {
+  overflow-x: hidden !important;
+  width: 100% !important;
+  max-width: 100vw !important;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box !important;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box !important;
+}
 
 .cotizador-page {
   min-height: 100vh;
@@ -8,39 +21,67 @@
   color: var(--color-text-main);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden !important;
+  width: 100% !important;
+  max-width: 100vw !important;
 }
 
 /* Header */
 .cotizador-header {
   background-color: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
-  padding: 1rem 2rem;
+  padding: 0.6rem 0.85rem;
   position: sticky;
   top: 0;
   z-index: 100;
   backdrop-filter: blur(10px);
   transition: var(--transition-theme);
+  width: 100% !important;
+  max-width: 100vw !important;
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+  .cotizador-header {
+    padding: 1rem 2rem;
+  }
 }
 
 .cotizador-header-content {
   max-width: 1400px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
+  box-sizing: border-box !important;
 }
 
 .cotizador-logo {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   text-decoration: none;
+  min-width: 0;
+}
+
+@media (min-width: 769px) {
+  .cotizador-logo {
+    gap: 1rem;
+  }
 }
 
 .cotizador-logo img {
-  height: 38px;
+  height: 28px;
   width: auto;
+  max-width: 100%;
+}
+
+@media (min-width: 769px) {
+  .cotizador-logo img {
+    height: 38px;
+  }
 }
 
 .cotizador-logo img.dark-logo {
@@ -56,75 +97,134 @@
 }
 
 .cotizador-logo-badge {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 0.25rem 0.6rem;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, rgba(94, 23, 235, 0.12), rgba(37, 99, 235, 0.12));
-  color: var(--color-accent);
-  border: 1px solid rgba(94, 23, 235, 0.25);
+  display: none;
+}
+
+@media (min-width: 600px) {
+  .cotizador-logo-badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, rgba(94, 23, 235, 0.12), rgba(37, 99, 235, 0.12));
+    color: var(--color-accent);
+    border: 1px solid rgba(94, 23, 235, 0.25);
+  }
 }
 
 .cotizador-header-actions {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.35rem;
+}
+
+@media (min-width: 769px) {
+  .cotizador-header-actions {
+    gap: 0.75rem;
+  }
 }
 
 /* Main Container */
 .cotizador-main {
   max-width: 1400px;
-  width: 100%;
+  width: 100% !important;
   margin: 0 auto;
-  padding: 2rem 1.5rem 4rem 1.5rem;
+  padding: 1.25rem 0.75rem 3.5rem 0.75rem;
   flex: 1;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+  .cotizador-main {
+    padding: 2rem 1.5rem 4rem 1.5rem;
+  }
 }
 
 /* Hero Section */
 .cotizador-hero {
   text-align: center;
   max-width: 850px;
-  margin: 0 auto 2.5rem auto;
+  margin: 0 auto 1.5rem auto;
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+  .cotizador-hero {
+    margin-bottom: 2.5rem;
+  }
 }
 
 .cotizador-hero-title {
-  font-size: 2.35rem;
+  font-size: 1.6rem;
   font-weight: 800;
-  line-height: 1.15;
-  margin-bottom: 0.75rem;
+  line-height: 1.2;
+  margin-bottom: 0.5rem;
   background: linear-gradient(135deg, var(--color-text-main) 0%, var(--color-accent) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
+@media (min-width: 769px) {
+  .cotizador-hero-title {
+    font-size: 2.35rem;
+    line-height: 1.15;
+    margin-bottom: 0.75rem;
+  }
+}
+
 .cotizador-hero-desc {
-  font-size: 1.05rem;
+  font-size: 0.88rem;
   color: var(--color-text-muted);
-  line-height: 1.5;
-  margin-bottom: 1.25rem;
+  line-height: 1.45;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 769px) {
+  .cotizador-hero-desc {
+    font-size: 1.05rem;
+    line-height: 1.5;
+    margin-bottom: 1.25rem;
+  }
 }
 
 .cotizador-benefits-pills {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.35rem;
+}
+
+@media (min-width: 769px) {
+  .cotizador-benefits-pills {
+    gap: 0.6rem;
+  }
 }
 
 .benefit-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 0.8rem;
+  gap: 0.3rem;
+  font-size: 0.72rem;
   font-weight: 600;
-  padding: 0.35rem 0.75rem;
+  padding: 0.25rem 0.55rem;
   border-radius: var(--radius-full);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
   box-shadow: var(--shadow-sm);
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+  .benefit-pill {
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    padding: 0.35rem 0.75rem;
+  }
 }
 
 .benefit-pill i {
@@ -132,29 +232,55 @@
   font-size: 0.95rem;
 }
 
-/* 2-Column Split Layout */
+/* Layout: 1-Column por defecto en móviles, 2-Column en Pantallas Grandes */
 .cotizador-grid {
   display: grid;
-  grid-template-columns: 1fr 440px;
-  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 1.5rem;
   align-items: start;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 
-@media (max-width: 1080px) {
+@media (min-width: 1081px) {
   .cotizador-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 440px !important;
+    gap: 2rem;
   }
+}
+
+.cotizador-form-column,
+.cotizador-sections-column {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 /* Sections & Cards */
 .cotizador-section-card {
   background-color: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 1.75rem;
-  margin-bottom: 1.5rem;
+  border-radius: var(--radius-md);
+  padding: 1.15rem 0.85rem;
+  margin-bottom: 1.25rem;
   box-shadow: var(--shadow-sm);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+@media (min-width: 769px) {
+  .cotizador-section-card {
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    margin-bottom: 1.5rem;
+  }
 }
 
 .cotizador-section-card:hover {
@@ -867,18 +993,27 @@
 
 /* Ilustraciones 3D Stocka Mascot */
 .section-illustration-banner {
-  width: 100%;
-  height: 155px;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 120px;
   border-radius: var(--radius-md);
-  overflow: hidden;
+  overflow: hidden !important;
   margin-bottom: 1.25rem;
   position: relative;
   border: 1px solid var(--color-border);
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 769px) {
+  .section-illustration-banner {
+    height: 155px;
+  }
 }
 
 .section-illustration-banner img {
-  width: 100%;
+  width: 100% !important;
+  max-width: 100% !important;
   height: 100%;
   object-fit: cover;
   object-position: center 30%;
@@ -895,32 +1030,56 @@
   bottom: 0;
   left: 0;
   right: 0;
-  padding: 0.65rem 1rem;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 0.5rem 0.75rem;
   background: linear-gradient(0deg, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.4) 65%, transparent 100%);
   color: #ffffff;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
 }
 
 .section-illustration-caption {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
   text-shadow: 0 1px 3px rgba(0,0,0,0.6);
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .section-illustration-tag {
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
   background: rgba(94, 23, 235, 0.9);
   color: #fff;
-  padding: 0.15rem 0.5rem;
+  padding: 0.15rem 0.45rem;
   border-radius: var(--radius-full);
   letter-spacing: 0.5px;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.regional-destinations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (min-width: 640px) {
+  .regional-destinations-grid {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
 }
 
 .modal-header-illustration {

@@ -18,10 +18,10 @@
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./favicon.png">
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet" />
-  <link rel="stylesheet" href="./css/style.css?v=1.0.2">
-  <link rel="stylesheet" href="./css/layout.css">
-  <link rel="stylesheet" href="./css/cotizaciones.css?v=1.0.0">
-  <script src="./js/theme.js"></script>
+  <link rel="stylesheet" href="./css/style.css?v=2.1.0">
+  <link rel="stylesheet" href="./css/layout.css?v=2.1.0">
+  <link rel="stylesheet" href="./css/cotizaciones.css?v=2.1.0">
+  <script src="./js/theme.js?v=2.1.0"></script>
 </head>
 <body class="cotizador-page">
 
@@ -97,10 +97,10 @@
 
           <!-- Banner Ilustración 3D Preparación / Pick & Pack -->
           <div class="section-illustration-banner">
-            <img src="./images/stocka_pickpack.jpg" alt="Preparación Pick & Pack Stocka" loading="lazy">
+            <img src="./images/stocka_pickpack.jpg" alt="Preparación Pick & Pack Stocka" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
             <div class="section-illustration-overlay">
               <span class="section-illustration-caption">
-                <i class="ri-box-3-fill"></i> Preparación experta de pedidos con embalaje estándar incluido
+                <i class="ri-box-3-fill"></i> Preparación experta con empaque estándar
               </span>
               <span class="section-illustration-tag">Pick & Pack 360</span>
             </div>
@@ -242,10 +242,10 @@
 
           <!-- Banner Ilustración 3D Almacenamiento y Racks -->
           <div class="section-illustration-banner">
-            <img src="./images/stocka_almacenamiento.jpg" alt="Almacenamiento y Racks Stocka" loading="lazy">
+            <img src="./images/stocka_almacenamiento.jpg" alt="Almacenamiento y Racks Stocka" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
             <div class="section-illustration-overlay">
               <span class="section-illustration-caption">
-                <i class="ri-archive-fill"></i> Bodegas modernas, modulares y seguras con control digital
+                <i class="ri-archive-fill"></i> Bodegas modernas con control digital
               </span>
               <span class="section-illustration-tag">Espacio Inteligente</span>
             </div>
@@ -484,7 +484,7 @@
 
           <!-- Escala de Descuentos por Volumen de Almacenamiento -->
           <div style="margin-top: 1.25rem; padding: 0.85rem 1rem; background: var(--color-bg); border-radius: var(--radius-md); border: 1px solid var(--color-border);">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between;">
+            <div style="font-size: 0.78rem; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 0.5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.35rem;">
               <span>Escala de Descuentos en Almacenamiento:</span>
               <span id="label-discount-scale-status" style="color: var(--color-accent); font-weight: 700;">Alcanza 10 m³ para 18% OFF</span>
             </div>
@@ -509,10 +509,10 @@
 
           <!-- Banner Ilustración 3D Flota y Despachos -->
           <div class="section-illustration-banner">
-            <img src="./images/stocka_despachos.jpg" alt="Flota de Despachos Stocka Same Day" loading="lazy">
+            <img src="./images/stocka_despachos.jpg" alt="Flota de Despachos Stocka Same Day" loading="lazy" style="width: 100%; max-width: 100%; height: 100%; object-fit: cover; display: block;">
             <div class="section-illustration-overlay">
               <span class="section-illustration-caption">
-                <i class="ri-truck-fill"></i> Flota propia Same Day RM y entregas Mercado Libre Flex ($3.200 + IVA)
+                <i class="ri-truck-fill"></i> Same Day RM y Mercado Libre Flex
               </span>
               <span class="section-illustration-tag">Envíos Rápidos</span>
             </div>
@@ -537,7 +537,7 @@
           </div>
 
           <!-- Selector de Peso Promedio y Zonas Populares para Regiones -->
-          <div id="regional-weight-helper" style="margin-top: 0.75rem; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+          <div id="regional-weight-helper" style="margin-top: 0.75rem; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); width: 100%; box-sizing: border-box; overflow: hidden;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
               <label for="select-regional-weight" style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main); margin: 0; display: flex; align-items: center; gap: 0.35rem;">
                 <i class="ri-scales-3-line" style="color: var(--color-primary);"></i> Peso promedio por paquete a Regiones:
@@ -547,18 +547,18 @@
               </span>
             </div>
 
-            <select id="select-regional-weight" class="form-input" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem;">
-              <option value="0_1kg">Hasta 1 kg (Paquete Ligero) — Promedio ~$3.950 + IVA (Starken)</option>
-              <option value="1_3kg" selected>1 a 3 kg (Estándar E-commerce) — Promedio ~$4.050 + IVA (Starken) ⭐ Recomendado</option>
-              <option value="3_6kg">3 a 6 kg (Paquete Mediano) — Promedio ~$6.450 + IVA (Starken)</option>
-              <option value="6_9kg">6 a 9 kg (Paquete Grande) — Promedio ~$6.790 + IVA (Starken)</option>
+            <select id="select-regional-weight" class="form-input" style="font-size: 0.85rem; font-weight: 600; margin-bottom: 0.75rem; width: 100%; max-width: 100%; box-sizing: border-box; text-overflow: ellipsis; overflow: hidden;">
+              <option value="0_1kg">Hasta 1 kg (Ligero) — Promedio ~$3.950 + IVA (Starken)</option>
+              <option value="1_3kg" selected>1 a 3 kg (Estándar) — Promedio ~$4.050 + IVA (Starken) ⭐</option>
+              <option value="3_6kg">3 a 6 kg (Mediano) — Promedio ~$6.450 + IVA (Starken)</option>
+              <option value="6_9kg">6 a 9 kg (Grande) — Promedio ~$6.790 + IVA (Starken)</option>
             </select>
 
             <!-- Mini Tabla / Cards de Destinos Populares -->
             <div style="font-size: 0.75rem; font-weight: 700; color: var(--color-text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.5px;">
               📍 Tarifas optimizadas a destinos más populares (Proveedor más económico):
             </div>
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem;">
+            <div class="regional-destinations-grid">
               <div style="padding: 0.5rem 0.6rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-sm); text-align: center;">
                 <div style="font-size: 0.72rem; color: var(--color-text-muted);">Valparaíso / Viña</div>
                 <div style="font-size: 0.85rem; font-weight: 700; color: var(--color-text-main);">$3.335</div>

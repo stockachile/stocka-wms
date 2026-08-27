@@ -220,7 +220,10 @@ serve(async (req) => {
       'onboarding_catalog_ready', 
       'onboarding_enviame_instructions',
       'onboarding_e1_instructions',
-      'onboarding_e1'
+      'onboarding_e1',
+      'lead_info_fulfillment',
+      'lead_info_presentation',
+      'commercial_info'
     ].includes(emailType);
 
     const validEmails = (contacts || []).map((c: any) => c.email.toLowerCase().trim())
@@ -341,6 +344,7 @@ serve(async (req) => {
     let headerGradient = '';
     let emailTitle = '';
     let emailBodyHtml = '';
+    let htmlBody = '';
     let mainNoticeHtml = '';
 
     const appealDeadlineNote = (showEnviame && record)
@@ -977,6 +981,189 @@ serve(async (req) => {
         </div>
       `;
     }
+    else if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+      const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
+      const displayGreeting = contactGreeting 
+        ? `¡Hola, ${contactGreeting}! 👋` 
+        : `¡Hola! 👋`;
+      
+      const displayCommerce = commerceName && commerceName !== 'Cliente WMS' && commerceName !== 'Comercio' ? ` - ${commerceName}` : '';
+      emailSubject = payload.subject || `Información y Propuesta Fulfillment 360 - Stocka${displayCommerce}`;
+      headerGradient = '#0f172a';
+      emailTitle = 'Propuesta y Servicios Fulfillment 360';
+
+      const customIntroMessage = payload.customMessage || payload.notes || '';
+      const fulfillmentDocUrl = payload.fulfillmentUrl || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
+      const despachosDocUrl = payload.despachosUrl || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
+      const courierFolderUrl = payload.courierFolderUrl || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
+      const cotizadorUrl = payload.cotizadorUrl || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+      const meetingUrl = payload.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
+
+      htmlBody = `
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${emailSubject}</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; }
+    .email-container { max-width: 650px; margin: 20px auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .email-header { background: #0f172a; padding: 30px 25px; text-align: center; color: #ffffff; }
+    .email-logo { height: 42px; margin-bottom: 12px; display: inline-block; }
+    .email-header-title { font-size: 20px; font-weight: 700; margin: 0; color: #ffffff; letter-spacing: 0.5px; }
+    .email-header-subtitle { font-size: 13px; color: #94a3b8; margin-top: 5px; }
+    .email-body { padding: 30px 25px; }
+    .greeting { font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 12px; }
+    .intro-text { font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 20px; }
+    .kpi-cards-grid { display: table; width: 100%; margin-bottom: 20px; }
+    .kpi-card { display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 16px; vertical-align: top; }
+    .btn-meeting { display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 14px 20px; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(94,23,235,0.3); }
+    .btn-wa { display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; }
+    .email-footer { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 25px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="email-container" style="max-width: 650px; margin: 20px auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+    
+    <!-- HEADER CORPORATIVO (IDÉNTICO A COTIZACIÓN) -->
+    <div style="background: #0f172a; padding: 30px 25px; text-align: center; color: #ffffff;">
+      <img src="https://cdn.shopify.com/s/files/1/0625/6141/9483/files/Stocka_1300_x_500_px_519_x_200_px_5.png?v=1779650350" alt="STOCKA Logo" style="height: 42px; margin-bottom: 12px; display: inline-block;">
+      <h1 style="font-size: 20px; font-weight: 700; margin: 0; color: #ffffff; letter-spacing: 0.5px;">Propuesta y Servicios Fulfillment 360</h1>
+      <div style="font-size: 13px; color: #94a3b8; margin-top: 5px;">Soluciones Integrales de Almacenamiento, Preparación y Despacho para Ecommerce</div>
+    </div>
+
+    <!-- BODY -->
+    <div style="padding: 30px 25px;">
+      <div style="font-size: 16px; font-weight: 600; color: #0f172a; margin-bottom: 12px;">${displayGreeting}</div>
+      
+      <p style="font-size: 14px; color: #475569; line-height: 1.6; margin-bottom: 18px;">
+        Muchas gracias por tu interés en los servicios de <strong>Fulfillment 360 de STOCKA</strong>. Te escribe <strong>Felipe Trujillo</strong>, Socio Fundador de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 700; text-decoration: underline;">Stocka.cl</a>.
+        <br><br>
+        En Stocka somos un partner logístico especializado en potenciar marcas online mediante un modelo de servicio <strong>integral, ágil y 100% escalable</strong>, diseñado para que puedas delegar la logística y concentrarte en el crecimiento de tus ventas:
+      </p>
+
+      ${customIntroMessage ? `
+        <div style="background-color: #f5f3ff; border: 1px solid #ddd6fe; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px; font-size: 13.5px; color: #4338ca; line-height: 1.5;">
+          <strong>Mensaje personalizado:</strong><br>
+          ${customIntroMessage.replace(/\n/g, '<br>')}
+        </div>
+      ` : ''}
+
+      <!-- 4 PILARES CLAVE (ESTILO TARJETAS KPI DE COTIZACIÓN) -->
+      <div style="display: table; width: 100%; margin-bottom: 10px;">
+        <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 0 0 8px; border-right: none; padding: 14px 16px; vertical-align: top;">
+          <div style="font-size: 14px; font-weight: 700; color: #5e17eb; margin-bottom: 4px;">📦 Almacenamiento Inteligente</div>
+          <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Paga únicamente por los metros cúbicos (m³) que utilizas. Sin contratos forzosos ni costos fijos desmedidos.</div>
+        </div>
+        <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0 8px 8px 0; padding: 14px 16px; vertical-align: top;">
+          <div style="font-size: 14px; font-weight: 700; color: #5e17eb; margin-bottom: 4px;">🏷️ Pick & Pack el Mismo Día</div>
+          <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Preparación ágil, etiquetado y packaging profesional de tus pedidos con horarios de corte extendidos.</div>
+        </div>
+      </div>
+
+      <div style="display: table; width: 100%; margin-bottom: 22px;">
+        <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px 0 0 8px; border-right: none; padding: 14px 16px; vertical-align: top;">
+          <div style="font-size: 14px; font-weight: 700; color: #5e17eb; margin-bottom: 4px;">🚚 Same Day RM & Todo Chile</div>
+          <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Entregas el mismo día en Santiago (incluyendo Mercado Libre Flex) y convenios preferenciales a todo Chile.</div>
+        </div>
+        <div style="display: table-cell; width: 50%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0 8px 8px 0; padding: 14px 16px; vertical-align: top;">
+          <div style="font-size: 14px; font-weight: 700; color: #5e17eb; margin-bottom: 4px;">🔌 WMS & Integraciones 24/7</div>
+          <div style="font-size: 12px; color: #64748b; line-height: 1.45;">Sincronización en tiempo real con Shopify, MeLi, WooCommerce, Jumpseller y control de inventario total.</div>
+        </div>
+      </div>
+
+      <!-- PRESENTACIONES Y MATERIAL OFICIAL ADJUNTO (IDÉNTICO A COTIZACIÓN) -->
+      <div style="margin: 22px 0 20px 0; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px;">
+        <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 6px;">
+          📚 Presentaciones Oficiales y Documentación Adjunta:
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.4;">
+          Adjuntamos los documentos en formato PDF a este correo y te dejamos los enlaces directos para abrirlos o descargarlos:
+        </p>
+        <div style="display: table; width: 100%; margin-bottom: 8px;">
+          <div style="display: table-cell; width: 50%; padding-right: 5px;">
+            <a href="${fulfillmentDocUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 10px; text-decoration: none; color: #0f172a; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+              📦 <span style="color: #5e17eb;">Presentación Fulfillment 360</span> (PDF) ↗
+            </a>
+          </div>
+          <div style="display: table-cell; width: 50%; padding-left: 5px;">
+            <a href="${despachosDocUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px 10px; text-decoration: none; color: #0f172a; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+              🚚 <span style="color: #2563eb;">Presentación Despachos RM</span> (PDF) ↗
+            </a>
+          </div>
+        </div>
+        <a href="${courierFolderUrl}" target="_blank" style="display: block; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; text-decoration: none; color: #0f172a; font-size: 12px; font-weight: 700; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">
+          🌐 <span style="color: #7c3aed;">Carpeta Online de Tarifarios Courier (Todo Chile)</span> ↗
+        </a>
+      </div>
+
+      <!-- SIMULAR COTIZACIÓN ONLINE EN STOCKA (IDÉNTICO A COTIZACIÓN) -->
+      <div style="margin: 20px 0 22px 0; background: #f8fafc; border: 1.5px dashed #cbd5e1; border-radius: 10px; padding: 18px 20px; text-align: center;">
+        <div style="font-weight: 700; font-size: 14px; color: #0f172a; margin-bottom: 5px;">
+          🧮 ¿Quieres simular tu cotización en menos de 1 minuto?
+        </div>
+        <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
+          Ingresa tus estimaciones de pedidos mensuales y volumen de bodegaje para obtener un desglose detallado e instantáneo:
+        </p>
+        <a href="${cotizadorUrl}" target="_blank" style="display: inline-block; background: #ffffff; color: #5e17eb !important; border: 1.5px solid #5e17eb; text-decoration: none; padding: 10px 22px; border-radius: 8px; font-weight: 700; font-size: 13px; box-shadow: 0 2px 4px rgba(94, 23, 235, 0.06);">
+          🔄 Simular Cotización Online en Stocka.cl ↗
+        </a>
+      </div>
+
+      <!-- AGENDA UNA REUNIÓN PARA CONOCERNOS MEJOR (IDÉNTICO A COTIZACIÓN) -->
+      <div style="margin: 22px 0 20px 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 22px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
+        <div style="margin-bottom: 10px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 8px;">
+            ⏱ 20–30 min.
+          </span>
+          <span style="font-size: 12px; color: #64748b; font-weight: 600;">
+            📹 Reunión vía Google Meet
+          </span>
+        </div>
+
+        <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 6px; line-height: 1.3;">
+          Agenda una reunión para conocernos mejor
+        </div>
+        
+        <p style="font-size: 13px; color: #475569; margin: 0 0 16px 0; line-height: 1.5;">
+          Te recomendamos antes revisar nuestra presentación de servicios adjunta, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
+        </p>
+
+        <div style="display: table; width: 100%; margin-bottom: 16px;">
+          <div style="display: table-cell; width: 44px; vertical-align: middle;">
+            <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="40" height="40" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
+          </div>
+          <div style="display: table-cell; vertical-align: middle; padding-left: 10px;">
+            <div style="font-size: 13px; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
+            <div style="font-size: 11px; color: #64748b;">Socio Fundador / Asesoría Comercial 1 a 1</div>
+          </div>
+        </div>
+
+        <a href="${meetingUrl}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 14px 20px; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(94,23,235,0.3);">
+          👉 Programar una reunión vía Meet ↗
+        </a>
+      </div>
+
+      <!-- BOTÓN WHATSAPP DIRECTO (IDÉNTICO A COTIZACIÓN) -->
+      <a href="https://wa.me/56939247487?text=${encodeURIComponent(`Hola Felipe, te escribo respecto a la presentación de servicios de Fulfillment de Stocka.`)}" target="_blank" style="display: block; background: #25d366; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; margin-top: 14px;">
+        💬 Coordinar Asesoría Comercial por WhatsApp (+56 9 3924 7487)
+      </a>
+
+    </div>
+
+    <!-- FOOTER OFICIAL STOCKA (IDÉNTICO A COTIZACIÓN) -->
+    <div style="background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 25px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.5;">
+      <strong>STOCKA SpA</strong> • Soluciones Integrales de Fulfillment y Bodegaje en Chile<br>
+      Sitio web: <a href="https://stocka.cl" style="color: #5e17eb;">stocka.cl</a> • Portal WMS: <a href="https://wms.stocka.cl" style="color: #5e17eb;">wms.stocka.cl</a><br>
+      Email: <a href="mailto:contacto@stocka.cl" style="color: #5e17eb;">contacto@stocka.cl</a> • WhatsApp: +56 9 3924 7487
+    </div>
+
+  </div>
+</body>
+</html>
+      `.trim();
+    }
     else if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {
       const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
       const displayGreeting = contactGreeting 
@@ -1532,9 +1719,9 @@ serve(async (req) => {
     const useInfoSender = infoSenderTypes.includes(emailType);
     const finalRecipients = ['stock_inbound_created', 'shopify_pin_submitted'].includes(emailType) ? ["stockachile@gmail.com"] : recipientEmails;
 
-    let htmlBody = '';
-    
-    if (useInfoSender) {
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+      // htmlBody ya fue generado de forma autónoma e idéntica a la línea gráfica de cotizaciones
+    } else if (useInfoSender) {
       // Corporativo Stocka (Purple / System / Operations)
       htmlBody = `
 <!DOCTYPE html>
@@ -1631,19 +1818,31 @@ serve(async (req) => {
       `;
     }
 
-    const senderEmail = (emailType === 'onboarding_enviame_instructions' || emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1')
+    const senderEmail = (emailType === 'onboarding_enviame_instructions' || emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1' || emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info')
       ? 'contacto@stocka.cl'
       : (useInfoSender ? 'info@stocka.cl' : 'finanzas@stocka.cl');
 
+    const senderName = (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info')
+      ? "Felipe Trujillo - Stocka Fulfillment"
+      : (emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"));
+
     const brevoPayload: any = {
       sender: {
-        name: emailType === 'stock_inbound_created' ? "Sistema WMS Stocka" : (useInfoSender ? "Stocka" : "Finanzas Stocka"),
+        name: senderName,
         email: senderEmail
       },
       to: finalRecipients.map(email => ({ email })),
       subject: emailSubject,
       htmlContent: htmlBody
     };
+
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+      brevoPayload.replyTo = { email: 'felipe.tp@stocka.cl', name: 'Felipe Trujillo' };
+      brevoPayload.bcc = [
+        { email: 'felipe.tp@stocka.cl', name: 'Felipe Trujillo' },
+        { email: 'stockachile@gmail.com', name: 'Stocka Chile' }
+      ];
+    }
 
     // Soporte para destinatarios en copia (CC)
     const rawCc = payload.cc || payload.ccEmails || payload.cc_emails;
@@ -1812,6 +2011,50 @@ serve(async (req) => {
       }
     }
 
+    // Si es lead_info_fulfillment / lead_info_presentation, consultar y adjuntar las presentaciones oficiales en PDF
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+      try {
+        const fulfillmentUrl = payload.fulfillmentUrl || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
+        const despachosUrl = payload.despachosUrl || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
+
+        const docsToAttach = [
+          { url: fulfillmentUrl, name: 'Presentacion_Fulfillment_360_Stocka.pdf' },
+          { url: despachosUrl, name: 'Presentacion_Despachos_RM_Stocka.pdf' }
+        ];
+
+        for (const item of docsToAttach) {
+          try {
+            console.log(`[send-billing-email] Descargando presentación para adjuntar: ${item.name} desde ${item.url}`);
+            const fileRes = await fetch(item.url);
+            if (fileRes.ok) {
+              const arrayBuffer = await fileRes.arrayBuffer();
+              const sizeInMB = arrayBuffer.byteLength / (1024 * 1024);
+              if (sizeInMB < 5.0) {
+                const uint8 = new Uint8Array(arrayBuffer);
+                const base64Content = btoa(new TextDecoder('latin1').decode(uint8));
+                if (!brevoPayload.attachment) {
+                  brevoPayload.attachment = [];
+                }
+                brevoPayload.attachment.push({
+                  content: base64Content,
+                  name: item.name
+                });
+                console.log(`[send-billing-email] Presentación ${item.name} adjuntada exitosamente (${sizeInMB.toFixed(2)} MB).`);
+              } else {
+                console.log(`[send-billing-email] Presentación ${item.name} supera límite de 5MB, disponible por enlace directo.`);
+              }
+            } else {
+              console.warn(`[send-billing-email] Aviso: No se pudo descargar presentación ${item.name}: HTTP ${fileRes.status}`);
+            }
+          } catch (itemErr) {
+            console.warn(`[send-billing-email] Error descargando adjunto ${item.name}:`, itemErr);
+          }
+        }
+      } catch (presErr) {
+        console.error('[send-billing-email] Error procesando adjuntos de presentación:', presErr);
+      }
+    }
+
     const brevoRes = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
@@ -1832,6 +2075,84 @@ serve(async (req) => {
     }
 
     const brevoData = await brevoRes.json();
+
+    // Si es lead_info_fulfillment, registrar en lead_info_email_logs y actualizar status de leads
+    if (emailType === 'lead_info_fulfillment' || emailType === 'lead_info_presentation' || emailType === 'commercial_info') {
+      try {
+        const contactName = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
+        const commerceNameStr = commerceName || payload.commerceName || payload.empresa || '';
+        const primaryRecipient = finalRecipients[0] || (recipientEmails && recipientEmails[0]) || '';
+        const ccStr = typeof rawCc === 'string' ? rawCc : (Array.isArray(rawCc) ? rawCc.join(', ') : (typeof payload?.cc === 'string' ? payload.cc : ''));
+
+        const { error: infoLogErr } = await supabaseClient
+          .from('lead_info_email_logs')
+          .insert([{
+            recipient_email: primaryRecipient,
+            contact_name: contactName,
+            commerce_name: commerceNameStr,
+            cc_emails: ccStr,
+            subject: emailSubject,
+            sent_by: user?.id || null,
+            message_id: brevoData.messageId || null,
+            status: 'delivered',
+            notes: payload.notes || ''
+          }]);
+
+        if (infoLogErr) {
+          console.error('[send-billing-email] Error registrando en lead_info_email_logs:', infoLogErr.message);
+        } else {
+          console.log('[send-billing-email] Registro en lead_info_email_logs guardado exitosamente.');
+        }
+
+        // Si el correo existe en profiles (lead demo), actualizar su status y log
+        if (primaryRecipient) {
+          try {
+            const { data: matchedProfiles } = await supabaseClient
+              .from('profiles')
+              .select('id, lead_emails_sent, lead_status')
+              .eq('email', primaryRecipient);
+
+            if (matchedProfiles && matchedProfiles.length > 0) {
+              for (const prof of matchedProfiles) {
+                const existingSent = Array.isArray(prof.lead_emails_sent) ? prof.lead_emails_sent : [];
+                const updatedSent = [...existingSent, {
+                  type: 'INFO_COMERCIAL',
+                  sent_at: new Date().toISOString(),
+                  subject: emailSubject,
+                  message_id: brevoData.messageId || null
+                }];
+                const newLeadStatus = (prof.lead_status === 'convertido' || prof.lead_status === 'onboarding' || prof.lead_status === 'e1_enviado') 
+                  ? prof.lead_status 
+                  : 'contactado';
+
+                await supabaseClient
+                  .from('profiles')
+                  .update({
+                    lead_emails_sent: updatedSent,
+                    lead_status: newLeadStatus
+                  })
+                  .eq('id', prof.id);
+              }
+            }
+          } catch (profUpdateErr) {
+            console.warn('[send-billing-email] Aviso actualizando perfil demo para info comercial:', profUpdateErr);
+          }
+
+          // Si el correo existe en quote_leads, actualizar status a contactado
+          try {
+            await supabaseClient
+              .from('quote_leads')
+              .update({ status: 'contactado' })
+              .eq('email', primaryRecipient)
+              .or('status.eq.nuevo,status.is.null');
+          } catch (quoteUpdateErr) {
+            console.warn('[send-billing-email] Aviso actualizando quote_leads para info comercial:', quoteUpdateErr);
+          }
+        }
+      } catch (logErr: any) {
+        console.warn("[send-billing-email] Fallo al registrar en lead_info_email_logs:", logErr.message);
+      }
+    }
 
     // Si es onboarding_e1_instructions, registrar en e1_email_logs y actualizar status de leads
     if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {

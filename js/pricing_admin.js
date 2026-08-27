@@ -522,10 +522,42 @@ function renderAdminUI(config, leads) {
                   <input type="file" id="pricing-admin-despachos-file" accept=".pdf" class="form-input" style="font-size: 0.78rem; padding: 0.35rem 0.5rem;">
                 </div>
               </div>
+
+              <!-- Carpeta Tarifas Courier Chile (Drive) -->
+              <div style="padding: 1.25rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                  <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #7c3aed; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-folder-shared-fill"></i> 3. Carpeta Tarifas Courier Chile (Drive)
+                  </h4>
+                  <a href="${config.presentations?.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH'}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: #7c3aed; border-color: #7c3aed;">
+                    <i class="ri-external-link-line"></i> Abrir Drive
+                  </a>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-size: 0.78rem;">Enlace a Carpeta Online en Google Drive:</label>
+                  <input type="url" class="form-input" name="pres_courier_folder_url" value="${config.presentations?.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH'}" placeholder="https://drive.google.com/..." style="font-size: 0.8rem;">
+                </div>
+              </div>
+
+              <!-- Cotizador Online en Vivo -->
+              <div style="padding: 1.25rem; background: var(--color-bg); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                  <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 0.35rem;">
+                    <i class="ri-calculator-fill"></i> 4. Cotizador Online en Vivo
+                  </h4>
+                  <a href="${config.presentations?.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment'}" target="_blank" class="btn btn-outline" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; color: #10b981; border-color: #10b981;">
+                    <i class="ri-external-link-line"></i> Probar Simulador
+                  </a>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                  <label class="form-label" style="font-size: 0.78rem;">URL Pública del Simulador Interactivo:</label>
+                  <input type="url" class="form-input" name="pres_cotizador_url" value="${config.presentations?.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment'}" placeholder="https://stocka.cl/..." style="font-size: 0.8rem;">
+                </div>
+              </div>
             </div>
 
             <p style="margin-top: 1rem; font-size: 0.75rem; color: var(--color-text-muted);">
-              💡 <em>Nota: También puedes subir y reemplazar estos archivos directamente desde la sección <strong>Documentación del Servicio</strong> en el menú lateral.</em>
+              💡 <em>Nota: Estos documentos y enlaces se sincronizan automáticamente con el cotizador público, el correo formal de cotización y los correos comerciales enviados desde el Centro de Leads.</em>
             </p>
           </div>
         </div>
@@ -692,12 +724,16 @@ function renderAdminUI(config, leads) {
       updatedConfig.services.pos_monthly_uf = parseFloat(formData.get('service_pos_uf')) || 0.2;
       updatedConfig.services.vitrina_monthly_uf = parseFloat(formData.get('service_vitrina_uf')) || 0.6;
 
-      // Actualizar Presentaciones
+      // Actualizar Presentaciones y Enlaces Comerciales
       if (!updatedConfig.presentations) updatedConfig.presentations = {};
       const presFulfillmentUrl = formData.get('pres_fulfillment_url');
       const presDespachosUrl = formData.get('pres_despachos_rm_url');
+      const presCourierFolderUrl = formData.get('pres_courier_folder_url');
+      const presCotizadorUrl = formData.get('pres_cotizador_url');
       if (presFulfillmentUrl) updatedConfig.presentations.fulfillment_url = presFulfillmentUrl.trim();
       if (presDespachosUrl) updatedConfig.presentations.despachos_rm_url = presDespachosUrl.trim();
+      if (presCourierFolderUrl) updatedConfig.presentations.courier_folder_url = presCourierFolderUrl.trim();
+      if (presCotizadorUrl) updatedConfig.presentations.cotizador_url = presCotizadorUrl.trim();
 
       // Procesar archivo Fulfillment si se seleccionó
       const fileFulfillment = document.getElementById('pricing-admin-fulfillment-file')?.files[0];

@@ -101,7 +101,9 @@ export const DEFAULT_PRICING_CONFIG = {
     despachos_rm_url: "https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf",
     despachos_rm_name: "Presentación de Despachos RM y Cobertura (PDF)",
     despachos_rm_storage_path: "presentations/presentacion_despachos_rm.pdf",
-    despachos_rm_updated_at: "2026-08-25"
+    despachos_rm_updated_at: "2026-08-25",
+    courier_folder_url: "https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH",
+    cotizador_url: "https://stocka.cl/pages/cotizaserviciofulfillment"
   },
 
   // 10. Estimaciones de Envíos a Regiones por Peso Promedio y Zonas Populares (Vía Envíame)
