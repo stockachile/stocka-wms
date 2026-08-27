@@ -534,6 +534,76 @@ async function processAutomaticBrevoEmails(item, existingDbRow, detailedOrder) {
   item.raw_data = currentRaw;
 }
 
+async function ensurePermanentDeliveryImagesNode(item) {
+  const rawImgs = item.images || item.raw_data?.images || item.raw_data?.waypoint?.images || [];
+  if (!Array.isArray(rawImgs) || rawImgs.length === 0) return [];
+
+  const orderId = String(item.id || item.referencia || Date.now());
+  const permanentImages = [];
+
+  for (let i = 0; i < rawImgs.length; i++) {
+    const imgObj = rawImgs[i];
+    let sourceUrl = typeof imgObj === 'string' ? imgObj : (imgObj.url || imgObj.thumbnail_url || '');
+    if (!sourceUrl || !sourceUrl.startsWith('http')) continue;
+
+    if (sourceUrl.includes('supabase.co/storage/v1/object/public/optiroute_proofs')) {
+      permanentImages.push({
+        url: sourceUrl,
+        thumbnail_url: sourceUrl
+      });
+      continue;
+    }
+
+    try {
+      const resp = await fetch(sourceUrl);
+      if (resp.ok) {
+        const buffer = await resp.arrayBuffer();
+        const contentType = resp.headers.get('content-type') || 'image/jpeg';
+        const fileExt = contentType.includes('png') ? 'png' : 'jpg';
+        const filePath = `orders/${orderId}/proof_${i + 1}.${fileExt}`;
+
+        const { error: uploadErr } = await supabase.storage
+          .from('optiroute_proofs')
+          .upload(filePath, Buffer.from(buffer), {
+            contentType: contentType,
+            upsert: true
+          });
+
+        if (!uploadErr) {
+          const { data: pubData } = supabase.storage
+            .from('optiroute_proofs')
+            .getPublicUrl(filePath);
+
+          if (pubData && pubData.publicUrl) {
+            console.log(`   📸 [FOTO PERMANENTE] Subida foto #${i + 1} para pedido ${orderId} a Supabase Storage`);
+            permanentImages.push({
+              url: pubData.publicUrl,
+              thumbnail_url: pubData.publicUrl
+            });
+            continue;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`   ⚠️ Error convirtiendo foto para pedido ${orderId}:`, err.message);
+    }
+
+    permanentImages.push({
+      url: sourceUrl,
+      thumbnail_url: sourceUrl
+    });
+  }
+
+  if (permanentImages.length > 0) {
+    item.images = permanentImages;
+    if (item.raw_data) {
+      item.raw_data.images = permanentImages;
+    }
+  }
+
+  return permanentImages;
+}
+
 async function sendBrevoNotificationEmailNode(item, type) {
   if (!item.email_cliente_destino || !item.email_cliente_destino.includes('@')) {
     return false;
@@ -549,6 +619,7 @@ async function sendBrevoNotificationEmailNode(item, type) {
   let htmlBody = buildDispatchEmailHTMLNode(item);
 
   if (isDelivery) {
+    await ensurePermanentDeliveryImagesNode(item);
     subject = `🎉 ¡Tu pedido ${item.referencia || ''} ha sido entregado! - ${supplierName}`;
     htmlBody = buildDeliveryConfirmedEmailHTMLNode(item);
   } else if (isFailed) {
