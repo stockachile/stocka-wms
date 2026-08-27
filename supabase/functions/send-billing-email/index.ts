@@ -979,10 +979,12 @@ serve(async (req) => {
     }
     else if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {
       const contactGreeting = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
-      const displayGreeting = contactGreeting ? `Hola <strong>${contactGreeting}</strong>, buen día:` : 'Hola, ¡buen día!';
+      const displayGreeting = contactGreeting 
+        ? `Hola <strong>${contactGreeting}</strong> buen día, ¿cómo estás?` 
+        : `Hola, buen día, ¿cómo estás?`;
       
       const displayCommerce = commerceName && commerceName !== 'Cliente WMS' && commerceName !== 'Comercio' ? ` - ${commerceName}` : '';
-      emailSubject = `¡Bienvenido a Stocka! - Pasos para tu Onboarding y Alta en Fulfillment${displayCommerce}`;
+      emailSubject = `Instrucciones de Onboarding y Alta en Fulfillment - Stocka${displayCommerce}`;
       headerGradient = 'linear-gradient(135deg, #5e17eb, #7c3aed)';
       emailTitle = 'Instrucciones de Onboarding';
 
@@ -996,16 +998,16 @@ serve(async (req) => {
 
         if (e1Docs && e1Docs.length > 0) {
           e1ResourcesHtml = `
-            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 18px; margin-top: 20px; margin-bottom: 20px; font-size: 13.5px; color: #166534; line-height: 1.6;">
-              <strong style="color: #14532d; display: block; margin-bottom: 8px; font-size: 14.5px;">
-                📎 Documentos Adjuntos y Enlaces de Descarga Directa:
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px 18px; margin-top: 18px; margin-bottom: 18px; font-size: 13.5px; color: #166534; line-height: 1.6;">
+              <strong style="color: #14532d; display: block; margin-bottom: 8px; font-size: 14px;">
+                📎 Archivos Adjuntos y Descargas Directas:
               </strong>
-              Los siguientes archivos van adjuntos a este correo en formato PDF. También puedes abrirlos directamente haciendo clic en los enlaces:
-              <ul style="margin: 8px 0; padding-left: 20px;">
+              Los siguientes documentos van adjuntos en PDF y también puedes abrirlos directamente aquí:
+              <ul style="margin: 6px 0; padding-left: 20px;">
           `;
           e1Docs.forEach((doc: any) => {
             e1ResourcesHtml += `
-              <li style="margin-bottom: 6px;">
+              <li style="margin-bottom: 5px;">
                 <a href="${doc.file_url}" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
                   📄 ${doc.name} (Descargar PDF)
                 </a>
@@ -1022,58 +1024,61 @@ serve(async (req) => {
       }
 
       emailBodyHtml = `
-        <div style="font-size: 15px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
-          ${displayGreeting}<br><br>
-          Te escribimos de parte de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 600; text-decoration: none;">stocka.cl</a> para agradecerte el contacto previo y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida! 🚀
+        <div style="font-size: 14.5px; color: #1e293b; margin-bottom: 20px; line-height: 1.6;">
+          ${displayGreeting}, te escribimos de parte de <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; font-weight: 600; text-decoration: underline;">stocka.cl</a> para agradecerte el contacto y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida!
           <br><br>
-          Esperamos ser un partner estratégico con quien puedas contar en cada etapa de crecimiento de tu comercio. A continuación, te explicamos los pasos a seguir para darte de alta e iniciar operaciones en nuestra plataforma:
+          Esperamos ser un partner estratégico que impulse el crecimiento de tu comercio. A continuación, te explicamos los pasos a seguir para darte de alta e iniciar operaciones:
         </div>
 
         <!-- PASO 1 -->
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #5e17eb; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
-            📝 PASO 1: Registro en Plataforma WMS & Onboarding Online
+          <strong style="color: #0f172a; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            📝 PASO 1: Registro en Plataforma WMS (Onboarding Online)
           </strong>
-          Ingresa directamente a <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">wms.stocka.cl</a> y completa el formulario de solicitud de ingreso. En el mismo proceso nos compartes la información de tu empresa, tienda online, preferencias iniciales y datos de contacto.
+          Ingresa al enlace <a href="https://wms.stocka.cl/onboarding" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">https://wms.stocka.cl/onboarding</a> y completa el formulario de solicitud con los datos de tu empresa, tienda online, preferencias logísticas y de contacto.
         </div>
 
         <!-- PASO 2 -->
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
-            ✍️ PASO 2: Confirmación de Email & Firma de Contrato Online
+          <strong style="color: #0f172a; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            ✍️ PASO 2: Confirmación de Email y Firma de Contrato Digital
           </strong>
-          Una vez registrado, recibirás un correo para confirmar tu email. El siguiente paso en la plataforma es la firma de contrato y aceptación de servicios: podrás descargar los documentos para luego cargarlos firmados y confirmar el envío.
-          <br><br>
-          Una vez revisemos la documentación te informaremos vía email cuando el ingreso esté completado. Podrás volver al sistema para ver el estado de tu solicitud en <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">wms.stocka.cl</a> con tu correo y contraseña.
+          Tras registrarte recibirás un email para confirmar tu cuenta. En el portal podrás descargar los contratos del servicio, firmarlos y cargarlos en la plataforma.<br><br>
+          Una vez revisada la documentación te confirmaremos la habilitación vía email. Podrás consultar el avance ingresando a <a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb; font-weight: 600; text-decoration: underline;">wms.stocka.cl</a> con tu correo y contraseña.
         </div>
 
         <!-- PASO 3 -->
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #10b981; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
-            🔌 PASO 3: Integraciones de Canales de Venta & Catálogo
+          <strong style="color: #0f172a; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            🔌 PASO 3: Integración de Canales de Venta y Catálogo
           </strong>
-          Una vez habilitadas tus credenciales en el WMS podrás ingresar al módulo de <strong>Integraciones</strong> para conectar tus canales de venta (Shopify, WooCommerce, Mercado Libre, Jumpseller, etc.). Con eso confirmado, nuestro equipo se encargará de conectar tu catálogo en el WMS para que puedas realizar tu ingreso de stock.
+          Con tus credenciales activas, ingresa al módulo de <strong>Integraciones</strong> para conectar tus canales (Shopify, WooCommerce, Mercado Libre, Jumpseller, etc.). Nuestro equipo se encargará de vincular tu catálogo en el WMS para habilitar tu primer ingreso de stock.
         </div>
 
         <!-- PASO 4 -->
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #f59e0b; border-radius: 8px; padding: 16px 18px; margin-bottom: 14px; font-size: 13.5px; color: #334155; line-height: 1.6;">
-          <strong style="color: #1e1b4b; font-size: 14.5px; display: block; margin-bottom: 6px;">
-            📦 PASO 4: Declaración de Ingreso de Stock & Recepción en Bodega
+          <strong style="color: #0f172a; font-size: 14.5px; display: block; margin-bottom: 6px;">
+            📦 PASO 4: Declaración de Stock y Recepción en Bodega
           </strong>
-          Luego de creado tu ingreso de stock, se asignará la sucursal para el ingreso. Podrás solicitar retiro de stock dentro de Santiago o enviar directamente a bodega tu mercadería. En la plataforma podrás hacer seguimiento en tiempo real de todo el proceso de recepción.
+          Crea tu solicitud de ingreso en la plataforma: podrás solicitar retiro dentro de Santiago o despachar directamente a la bodega asignada. Podrás realizar seguimiento en tiempo real de todo el proceso de recepción.
         </div>
 
         <!-- CENTRO DE DOCUMENTACION -->
-        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 18px; margin-top: 18px; margin-bottom: 14px; font-size: 13px; color: #1e40af; line-height: 1.5;">
-          📚 <strong>Centro de Documentación:</strong> Recuerda que en el portal WMS en la sección <strong>Documentación</strong> verás toda la información oficial y actualizada respecto de los servicios de fulfillment, con acceso en cualquier momento.
+        <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 18px; margin-top: 16px; margin-bottom: 12px; font-size: 13px; color: #1e40af; line-height: 1.5;">
+          📚 <strong>Centro de Documentación:</strong> Recuerda que en la sección <strong>Documentación</strong> de tu portal WMS tendrás acceso permanente a todas las guías e información oficial de los servicios de fulfillment.
+        </div>
+
+        <!-- NOTA ADJUNTOS -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px; margin-top: 12px; margin-bottom: 12px; font-size: 13px; color: #334155; line-height: 1.5;">
+          📄 <strong>Documentos adjuntos:</strong> Te compartimos la <strong>Presentación del Servicio</strong> (con información relevante para ingresar tu comercio a Fulfillment 360) y el <strong>Tarifario Vigente</strong> del servicio.
         </div>
 
         ${e1ResourcesHtml}
 
-        <div style="font-size: 14px; color: #475569; margin-top: 20px; line-height: 1.6;">
-          Cualquier consulta o asistencia que requieras, simplemente responde a este correo o escríbenos a nuestros canales de contacto.<br><br>
+        <div style="font-size: 14px; color: #334155; margin-top: 20px; line-height: 1.6;">
+          Cualquier consulta o apoyo que necesites estamos a tu total disposición.<br><br>
           ¡Saludos cordiales y mucho éxito!<br>
-          <strong>Equipo Stocka Fulfillment</strong><br>
+          <strong>Equipo Stocka</strong><br>
           <a href="https://stocka.cl" target="_blank" style="color: #5e17eb; text-decoration: none; font-weight: 600;">stocka.cl</a>
         </div>
       `;
@@ -1828,8 +1833,83 @@ serve(async (req) => {
 
     const brevoData = await brevoRes.json();
 
+    // Si es onboarding_e1_instructions, registrar en e1_email_logs y actualizar status de leads
+    if (emailType === 'onboarding_e1_instructions' || emailType === 'onboarding_e1') {
+      try {
+        const contactName = payload.contactName || payload.nombreContacto || payload.nombre_contacto || payload.nombre || payload.full_name || '';
+        const commerceNameStr = commerceName || payload.commerceName || payload.empresa || '';
+        const primaryRecipient = finalRecipients[0] || (recipientEmails && recipientEmails[0]) || '';
+        const ccStr = typeof rawCc === 'string' ? rawCc : (Array.isArray(rawCc) ? rawCc.join(', ') : (typeof payload?.cc === 'string' ? payload.cc : ''));
+
+        const { error: e1LogErr } = await supabaseClient
+          .from('e1_email_logs')
+          .insert([{
+            recipient_email: primaryRecipient,
+            contact_name: contactName,
+            commerce_name: commerceNameStr,
+            cc_emails: ccStr,
+            sent_by: user?.id || null,
+            message_id: brevoData.messageId || null,
+            status: 'delivered'
+          }]);
+
+        if (e1LogErr) {
+          console.error('[send-billing-email] Error registrando en e1_email_logs:', e1LogErr.message);
+        } else {
+          console.log('[send-billing-email] Registro en e1_email_logs guardado exitosamente.');
+        }
+
+        // Si el correo existe en profiles (lead demo), actualizar su status y log
+        if (primaryRecipient) {
+          try {
+            const { data: matchedProfiles } = await supabaseClient
+              .from('profiles')
+              .select('id, lead_emails_sent, lead_status')
+              .eq('email', primaryRecipient);
+
+            if (matchedProfiles && matchedProfiles.length > 0) {
+              for (const prof of matchedProfiles) {
+                const existingSent = Array.isArray(prof.lead_emails_sent) ? prof.lead_emails_sent : [];
+                const updatedSent = [...existingSent, {
+                  type: 'E1',
+                  sent_at: new Date().toISOString(),
+                  message_id: brevoData.messageId || null
+                }];
+                const newLeadStatus = (prof.lead_status === 'convertido' || prof.lead_status === 'onboarding') 
+                  ? prof.lead_status 
+                  : 'e1_enviado';
+
+                await supabaseClient
+                  .from('profiles')
+                  .update({
+                    lead_emails_sent: updatedSent,
+                    lead_status: newLeadStatus
+                  })
+                  .eq('id', prof.id);
+              }
+            }
+          } catch (profUpdateErr) {
+            console.warn('[send-billing-email] Aviso actualizando perfil demo para E1:', profUpdateErr);
+          }
+
+          // Si el correo existe en quote_leads, actualizar status a e1_enviado
+          try {
+            await supabaseClient
+              .from('quote_leads')
+              .update({ status: 'e1_enviado' })
+              .eq('email', primaryRecipient)
+              .neq('status', 'cerrado');
+          } catch (quoteUpdateErr) {
+            console.warn('[send-billing-email] Aviso actualizando quote_leads para E1:', quoteUpdateErr);
+          }
+        }
+      } catch (logErr: any) {
+        console.warn("[send-billing-email] Fallo al registrar en e1_email_logs:", logErr.message);
+      }
+    }
+
     // Registrar log de notificación en la base de datos si no es onboarding ni notificaciones internas de stock
-    if (!useInfoSender) {
+    if (!useInfoSender && emailType !== 'onboarding_e1_instructions' && emailType !== 'onboarding_e1') {
       try {
         const { error: logErr } = await supabaseClient
           .from('billing_notification_logs')

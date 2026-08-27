@@ -782,18 +782,36 @@ export function generateQuoteEmailHtml(quoteResult, contactInfo = {}) {
       </div>
 
       <!-- Agenda una reunión para conocernos mejor -->
-      <div style="margin: 20px 0; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 18px 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
-        <div style="display: inline-block; font-size: 11px; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 3px 10px; border-radius: 20px; margin-bottom: 8px;">
-          ⏱ 20–30 min.
+      <div style="margin: 25px 0 20px 0; background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px; padding: 22px 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.04); border-left: 4px solid #5e17eb;">
+        <div style="margin-bottom: 10px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 700; color: #5e17eb; background: rgba(94, 23, 235, 0.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(94, 23, 235, 0.2); margin-right: 8px;">
+            ⏱ 20–30 min.
+          </span>
+          <span style="font-size: 12px; color: #64748b; font-weight: 600;">
+            📹 Reunión vía Google Meet
+          </span>
         </div>
-        <div style="font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 6px;">
+
+        <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 6px; line-height: 1.3;">
           Agenda una reunión para conocernos mejor
         </div>
-        <p style="font-size: 12px; color: #64748b; margin: 0 0 14px 0; line-height: 1.45;">
-          Conversa directamente con <strong>Felipe de Stocka.cl</strong> vía Google Meet para revisar requerimientos de tu comercio, resolver dudas y coordinar el inicio de operaciones:
+        
+        <p style="font-size: 13px; color: #475569; margin: 0 0 16px 0; line-height: 1.5;">
+          Te recomendamos antes revisar nuestra presentación de servicios, así podremos conversar con mayor profundidad en lo que necesitas para tu comercio.
         </p>
-        <a href="${meetingUrl}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 12px 20px; border-radius: 8px; font-weight: 700; font-size: 14px; box-shadow: 0 2px 6px rgba(94,23,235,0.25); margin-bottom: 10px;">
-          📅 Programar una reunión vía Meet ↗
+
+        <div style="display: table; width: 100%; margin-bottom: 16px;">
+          <div style="display: table-cell; width: 44px; vertical-align: middle;">
+            <img src="https://wms.stocka.cl/images/felipe_avatar.png" alt="Felipe de Stocka.cl" width="40" height="40" style="border-radius: 50%; border: 2px solid #5e17eb; display: block;">
+          </div>
+          <div style="display: table-cell; vertical-align: middle; padding-left: 10px;">
+            <div style="font-size: 13px; font-weight: 700; color: #0f172a;">Felipe de Stocka.cl</div>
+            <div style="font-size: 11px; color: #64748b;">Asesoría comercial 1 a 1</div>
+          </div>
+        </div>
+
+        <a href="${meetingUrl}" target="_blank" style="display: block; background: #5e17eb; color: #ffffff !important; text-decoration: none; text-align: center; padding: 14px 20px; border-radius: 8px; font-weight: 700; font-size: 15px; box-shadow: 0 4px 12px rgba(94,23,235,0.3);">
+          👉 Programar una reunión vía Meet ↗
         </a>
       </div>
 

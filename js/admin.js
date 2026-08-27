@@ -1326,6 +1326,11 @@ async function init() {
           } else if (view === 'onboarding_admin') {
             viewTitle.textContent = 'Solicitudes de Alta';
             renderOnboardingAdmin();
+          } else if (view === 'leads_admin') {
+            viewTitle.textContent = 'Central de Leads (CRM de Prospectos)';
+            if (typeof renderLeadsAdmin === 'function') {
+              renderLeadsAdmin();
+            }
           } else if (view === 'redzone_admin') {
             viewTitle.textContent = 'Solicitudes de Baja (Término de Servicio)';
             renderRedZoneAdmin();
@@ -1647,6 +1652,22 @@ window.updateAdminBadges = async function() {
       }
     } catch (err) {
       console.warn('Error fetching central stock count for admin badge:', err);
+    }
+
+    // 10. Central de Leads Admin Badge (Leads nuevos sin contactar)
+    try {
+      const [{ count: demoCount }, { count: quotesCount }] = await Promise.all([
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('is_demo_user', true).or('lead_status.eq.nuevo,lead_status.is.null'),
+        supabase.from('quote_leads').select('*', { count: 'exact', head: true }).or('status.eq.nuevo,status.is.null')
+      ]);
+      const totalNewLeads = (demoCount || 0) + (quotesCount || 0);
+      const badgeLeads = document.getElementById('badge-leads-central');
+      if (badgeLeads) {
+        badgeLeads.textContent = totalNewLeads;
+        badgeLeads.style.display = totalNewLeads > 0 ? 'inline-flex' : 'none';
+      }
+    } catch (err) {
+      console.warn('Error fetching leads count for admin badge:', err);
     }
 
   } catch (e) {
@@ -15401,6 +15422,878 @@ async function renderUsersAdmin(forceReload = false) {
     appContent.innerHTML = `<p class="text-center" style="padding: 2rem; color: red;">Error al cargar la administración de usuarios: ${err.message}</p>`;
   }
 }
+
+// =========================================================================
+// CENTRAL DE LEADS Y CRM DE PROSPECTOS (DEMO, COTIZACIONES, E1 Y ONBOARDING)
+// =========================================================================
+
+window.activeLeadsTab = 'all'; // 'all' | 'demo' | 'quotes' | 'e1' | 'onboarding'
+window.leadsSearchQuery = '';
+window.leadsStatusFilter = 'all';
+window.cachedUnifiedLeads = [];
+
+window.getLeadStatusStyle = function(status) {
+  const s = (status || 'nuevo').toLowerCase().trim();
+  switch (s) {
+    case 'nuevo':
+      return { bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd', label: 'Nuevo Lead', icon: 'ri-sparkling-fill' };
+    case 'contactado':
+      return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: 'Contactado', icon: 'ri-chat-1-fill' };
+    case 'e1_enviado':
+    case 'e1':
+      return { bg: '#ede9fe', color: '#6d28d9', border: '#ddd6fe', label: 'E1 Enviado', icon: 'ri-mail-send-fill' };
+    case 'seguimiento':
+    case 'en_seguimiento':
+    case 'en_negociacion':
+      return { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa', label: 'En Seguimiento', icon: 'ri-time-line' };
+    case 'onboarding':
+    case 'en_onboarding':
+      return { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe', label: 'En Onboarding', icon: 'ri-file-user-line' };
+    case 'convertido':
+    case 'cerrado':
+    case 'cliente':
+      return { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0', label: 'Convertido / Cliente', icon: 'ri-checkbox-circle-fill' };
+    case 'descartado':
+      return { bg: '#f1f5f9', color: '#64748b', border: '#e2e8f0', label: 'Descartado', icon: 'ri-close-circle-line' };
+    default:
+      return { bg: '#f1f5f9', color: '#475569', border: '#cbd5e1', label: s, icon: 'ri-record-circle-line' };
+  }
+};
+
+window.fetchUnifiedLeads = async function(forceReload = false) {
+  if (!forceReload && window.cachedUnifiedLeads && window.cachedUnifiedLeads.length > 0) {
+    return window.cachedUnifiedLeads;
+  }
+
+  try {
+    const [profilesRes, quotesRes, e1LogsRes, onboardingRes] = await Promise.all([
+      supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+      supabase.from('quote_leads').select('*').order('created_at', { ascending: false }),
+      supabase.from('e1_email_logs').select('*').order('sent_at', { ascending: false }),
+      supabase.from('onboarding_requests').select('*').order('created_at', { ascending: false })
+    ]);
+
+    const profiles = profilesRes.data || [];
+    const quotes = quotesRes.data || [];
+    const e1Logs = e1LogsRes.data || [];
+    const onboardings = onboardingRes.data || [];
+
+    const leadsMap = new Map();
+    const getCleanEmail = (email) => (email || '').trim().toLowerCase();
+
+    // 1. Procesar Profiles (Leads Demo)
+    profiles.forEach(p => {
+      const email = getCleanEmail(p.email);
+      if (!email) return;
+
+      const isDemo = p.is_demo_user === true || p.role === 'observer';
+      if (!isDemo && p.role === 'admin') return; // Omitir administradores
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: p.full_name || '',
+          company: p.company_name || p.comercio || '',
+          phone: p.phone || p.work_phone || p.whatsapp_number || '',
+          sources: isDemo ? ['demo'] : [],
+          profile_id: p.id,
+          role: p.role,
+          demo_data: isDemo ? {
+            registered_at: p.created_at,
+            last_seen: p.last_seen,
+            confirmed: !!p.email_confirmed_at
+          } : null,
+          lead_status: p.lead_status || 'nuevo',
+          notes: p.lead_notes || '',
+          e1_history: Array.isArray(p.lead_emails_sent) ? p.lead_emails_sent.filter(e => e.type === 'E1' || (e.subject && e.subject.includes('Onboarding'))) : [],
+          quotes: [],
+          onboarding: null,
+          created_at: p.created_at,
+          last_activity_at: p.last_seen || p.created_at
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (isDemo && !lead.sources.includes('demo')) lead.sources.push('demo');
+        if (!lead.name && p.full_name) lead.name = p.full_name;
+        if (!lead.company && p.company_name) lead.company = p.company_name;
+        if (!lead.phone && (p.phone || p.work_phone)) lead.phone = p.phone || p.work_phone;
+        if (isDemo && !lead.demo_data) {
+          lead.demo_data = {
+            registered_at: p.created_at,
+            last_seen: p.last_seen,
+            confirmed: !!p.email_confirmed_at
+          };
+        }
+        if (p.lead_notes && !lead.notes) lead.notes = p.lead_notes;
+        lead.profile_id = p.id;
+      }
+    });
+
+    // 2. Procesar Quote Leads (Cotizador Online)
+    quotes.forEach(q => {
+      const email = getCleanEmail(q.email);
+      if (!email) return;
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: q.contact_name || '',
+          company: q.company_name || '',
+          phone: q.phone || '',
+          sources: ['cotizador'],
+          profile_id: null,
+          demo_data: null,
+          lead_status: q.status || 'nuevo',
+          notes: q.notes || '',
+          e1_history: [],
+          quotes: [q],
+          onboarding: null,
+          created_at: q.created_at,
+          last_activity_at: q.created_at
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (!lead.sources.includes('cotizador')) lead.sources.push('cotizador');
+        if (!lead.name && q.contact_name) lead.name = q.contact_name;
+        if (!lead.company && q.company_name) lead.company = q.company_name;
+        if (!lead.phone && q.phone) lead.phone = q.phone;
+        lead.quotes.push(q);
+        if (q.notes && !lead.notes) lead.notes = q.notes;
+        if (new Date(q.created_at) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = q.created_at;
+        }
+      }
+    });
+
+    // 3. Procesar E1 Email Logs
+    e1Logs.forEach(log => {
+      const email = getCleanEmail(log.recipient_email);
+      if (!email) return;
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: log.contact_name || '',
+          company: log.commerce_name || '',
+          phone: '',
+          sources: ['e1'],
+          profile_id: null,
+          demo_data: null,
+          lead_status: 'e1_enviado',
+          notes: log.notes || '',
+          e1_history: [log],
+          quotes: [],
+          onboarding: null,
+          created_at: log.sent_at || log.created_at,
+          last_activity_at: log.sent_at || log.created_at
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (!lead.sources.includes('e1')) lead.sources.push('e1');
+        if (!lead.name && log.contact_name) lead.name = log.contact_name;
+        if (!lead.company && log.commerce_name) lead.company = log.commerce_name;
+        lead.e1_history.push(log);
+        if (lead.lead_status === 'nuevo') lead.lead_status = 'e1_enviado';
+        if (new Date(log.sent_at || log.created_at) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = log.sent_at || log.created_at;
+        }
+      }
+    });
+
+    // 4. Procesar Onboarding Requests (Solicitudes de Alta)
+    onboardings.forEach(onb => {
+      const email = getCleanEmail(onb.email);
+      if (!email) return;
+
+      if (!leadsMap.has(email)) {
+        leadsMap.set(email, {
+          email: email,
+          name: onb.full_name || '',
+          company: onb.nombre_fantasia || onb.razon_social || '',
+          phone: onb.phone || '',
+          sources: ['onboarding'],
+          profile_id: null,
+          demo_data: null,
+          lead_status: onb.status === 'approved' ? 'convertido' : 'onboarding',
+          notes: onb.rejection_reason || '',
+          e1_history: [],
+          quotes: [],
+          onboarding: onb,
+          created_at: onb.created_at,
+          last_activity_at: onb.updated_at || onb.created_at
+        });
+      } else {
+        const lead = leadsMap.get(email);
+        if (!lead.sources.includes('onboarding')) lead.sources.push('onboarding');
+        if (!lead.name && onb.full_name) lead.name = onb.full_name;
+        if (!lead.company && (onb.nombre_fantasia || onb.razon_social)) lead.company = onb.nombre_fantasia || onb.razon_social;
+        if (!lead.phone && onb.phone) lead.phone = onb.phone;
+        lead.onboarding = onb;
+        if (onb.status === 'approved') {
+          lead.lead_status = 'convertido';
+        } else if (lead.lead_status !== 'convertido') {
+          lead.lead_status = 'onboarding';
+        }
+        if (new Date(onb.updated_at || onb.created_at) > new Date(lead.last_activity_at || 0)) {
+          lead.last_activity_at = onb.updated_at || onb.created_at;
+        }
+      }
+    });
+
+    const unifiedList = Array.from(leadsMap.values())
+      .filter(lead => lead.sources.length > 0)
+      .sort((a, b) => new Date(b.last_activity_at || b.created_at || 0) - new Date(a.last_activity_at || a.created_at || 0));
+
+    window.cachedUnifiedLeads = unifiedList;
+    return unifiedList;
+  } catch (err) {
+    console.error("Error al cargar lista unificada de leads:", err);
+    return [];
+  }
+};
+
+window.renderLeadsAdmin = async function(forceReload = false) {
+  const appContent = document.getElementById('app-content');
+  if (!appContent) return;
+
+  appContent.innerHTML = `
+    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 380px; gap: 1rem;">
+      <i class="ri-loader-4-line spin" style="font-size: 2.5rem; color: var(--color-primary);"></i>
+      <div style="font-weight: 600; font-size: 1.1rem; color: var(--color-text-main);">Cargando Central de Leads...</div>
+      <p style="color: var(--color-text-muted); font-size: 0.88rem; margin: 0;">Unificando registros de demo, cotizaciones online y correos E1...</p>
+    </div>
+  `;
+
+  const leads = await window.fetchUnifiedLeads(forceReload);
+
+  // Calcular métricas
+  const totalLeads = leads.length;
+  const demoCount = leads.filter(l => l.sources.includes('demo')).length;
+  const quotesCount = leads.filter(l => l.sources.includes('cotizador')).length;
+  const e1Count = leads.filter(l => l.sources.includes('e1') || l.e1_history.length > 0).length;
+  const onboardingCount = leads.filter(l => l.sources.includes('onboarding') || l.lead_status === 'convertido').length;
+
+  // Filtrado según pestaña activa
+  let tabFilteredLeads = leads;
+  if (window.activeLeadsTab === 'demo') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('demo'));
+  } else if (window.activeLeadsTab === 'quotes') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('cotizador'));
+  } else if (window.activeLeadsTab === 'e1') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('e1') || l.e1_history.length > 0);
+  } else if (window.activeLeadsTab === 'onboarding') {
+    tabFilteredLeads = leads.filter(l => l.sources.includes('onboarding'));
+  }
+
+  // Filtrado por búsqueda
+  let displayLeads = tabFilteredLeads;
+  if (window.leadsSearchQuery) {
+    const q = window.leadsSearchQuery.toLowerCase().trim();
+    displayLeads = displayLeads.filter(l => 
+      (l.name && l.name.toLowerCase().includes(q)) ||
+      (l.email && l.email.toLowerCase().includes(q)) ||
+      (l.company && l.company.toLowerCase().includes(q)) ||
+      (l.phone && l.phone.toLowerCase().includes(q))
+    );
+  }
+
+  // Filtrado por estado
+  if (window.leadsStatusFilter && window.leadsStatusFilter !== 'all') {
+    displayLeads = displayLeads.filter(l => (l.lead_status || 'nuevo') === window.leadsStatusFilter);
+  }
+
+  // Helper para generar fila de tabla
+  const buildLeadRowHtml = (lead) => {
+    const statusStyle = window.getLeadStatusStyle(lead.lead_status);
+    
+    // Badges de orígenes
+    let sourceBadges = '';
+    if (lead.sources.includes('demo')) {
+      sourceBadges += `<span class="badge" title="Ingresó a la Demo Interactiva WMS" style="background: rgba(94, 23, 235, 0.1); color: #5e17eb; border: 1px solid rgba(94, 23, 235, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-play-circle-fill"></i> Demo</span> `;
+    }
+    if (lead.sources.includes('cotizador')) {
+      const qCount = lead.quotes.length;
+      sourceBadges += `<span class="badge" title="Generó cotización en el Cotizador Online" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-calculator-fill"></i> Cotizó (${qCount})</span> `;
+    }
+    if (lead.sources.includes('e1') || lead.e1_history.length > 0) {
+      const e1Count = lead.e1_history.length;
+      sourceBadges += `<span class="badge" title="Recibió Correo E1 de Onboarding" style="background: rgba(59, 130, 246, 0.1); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.25); font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-mail-send-fill"></i> E1 (${e1Count})</span> `;
+    }
+    if (lead.sources.includes('onboarding')) {
+      const onbStatus = lead.onboarding?.status || 'pending';
+      const onbColor = onbStatus === 'approved' ? '#10b981' : (onbStatus === 'rejected' ? '#ef4444' : '#f59e0b');
+      sourceBadges += `<span class="badge" title="Solicitud de Alta Comercial (${onbStatus})" style="background: ${onbColor}15; color: ${onbColor}; border: 1px solid ${onbColor}40; font-weight: 600; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 3px;"><i class="ri-git-pull-request-fill"></i> Onboarding</span> `;
+    }
+
+    // Datos logísticos / cotización
+    let logisticsInfo = '<span style="color: var(--color-text-muted); font-size: 0.78rem;">—</span>';
+    if (lead.quotes.length > 0) {
+      const latestQuote = lead.quotes[0];
+      const orders = latestQuote.monthly_orders || latestQuote.quote_data?.pickPack?.monthlyOrders || 0;
+      const vol = latestQuote.estimated_volume || latestQuote.quote_data?.storage?.volumeM3 || 0;
+      const net = latestQuote.estimated_monthly_net || latestQuote.quote_data?.totals?.netMonthly || 0;
+      logisticsInfo = `
+        <div style="font-size: 0.8rem; line-height: 1.3;">
+          <div style="font-weight: 600; color: var(--color-text-main);">${orders} ped/mes | ${vol} m³</div>
+          ${net > 0 ? `<div style="color: #10b981; font-weight: 700; font-size: 0.75rem;">$${Math.round(net).toLocaleString('es-CL')} + IVA/mes</div>` : ''}
+        </div>
+      `;
+    } else if (lead.demo_data) {
+      logisticsInfo = `
+        <div style="font-size: 0.78rem; color: var(--color-text-muted);">
+          <span>Demo WMS</span>
+          ${lead.demo_data.confirmed ? '<span style="color: #10b981; font-weight: 600; display: block;">✓ Email Confirmado</span>' : '<span style="color: #f59e0b; display: block;">Email Pendiente</span>'}
+        </div>
+      `;
+    }
+
+    // Fecha formateada
+    const dateObj = lead.last_activity_at ? new Date(lead.last_activity_at) : null;
+    const dateStr = dateObj ? dateObj.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+
+    // Dropdown de cambio de estado
+    const statusSelect = `
+      <select class="form-input lead-status-select" onchange="window.updateUnifiedLeadStatus('${encodeURIComponent(lead.email)}', this.value)" style="padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 600; border-radius: 6px; border: 1px solid ${statusStyle.border}; background-color: ${statusStyle.bg}; color: ${statusStyle.color}; cursor: pointer; transition: all 0.2s;">
+        <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
+        <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
+        <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviado</option>
+        <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
+        <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
+        <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>🚀 Convertido / Cliente</option>
+        <option value="descartado" ${lead.lead_status === 'descartado' ? 'selected' : ''}>❌ Descartado</option>
+      </select>
+    `;
+
+    // Teléfono con WhatsApp
+    const phoneClean = (lead.phone || '').replace(/[^0-9]/g, '');
+    const hasPhone = phoneClean.length >= 8;
+    const waUrl = hasPhone ? `https://wa.me/${phoneClean.startsWith('56') ? phoneClean : '56' + phoneClean}?text=${encodeURIComponent(`Hola ${lead.name || ''}, te escribo de Stocka Fulfillment respecto a tu interés en nuestros servicios.`)}` : null;
+
+    return `
+      <tr style="border-bottom: 1px solid var(--color-border); transition: background 0.2s;">
+        <td style="padding: 0.9rem 1rem;">
+          <div style="display: flex; flex-direction: column; gap: 0.15rem;">
+            <span style="font-weight: 700; color: var(--color-text-main); font-size: 0.92rem;">${lead.name || 'Sin nombre registrado'}</span>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-mail-line" style="color: var(--color-text-muted); font-size: 0.8rem;"></i>
+              <a href="mailto:${lead.email}" style="color: var(--color-primary); font-size: 0.82rem; text-decoration: none;">${lead.email}</a>
+            </div>
+            ${lead.phone ? `
+              <div style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--color-text-muted);">
+                <i class="ri-phone-line" style="font-size: 0.8rem;"></i>
+                <span>${lead.phone}</span>
+                ${waUrl ? `<a href="${waUrl}" target="_blank" style="color: #10b981; margin-left: 0.25rem;" title="Abrir WhatsApp"><i class="ri-whatsapp-fill"></i></a>` : ''}
+              </div>
+            ` : ''}
+          </div>
+        </td>
+        <td style="padding: 0.9rem 1rem;">
+          <div style="font-weight: 600; color: var(--color-text-main); font-size: 0.88rem;">${lead.company || '—'}</div>
+          ${lead.onboarding?.razon_social && lead.onboarding.razon_social !== lead.company ? `<div style="font-size: 0.75rem; color: var(--color-text-muted);">Razón: ${lead.onboarding.razon_social}</div>` : ''}
+        </td>
+        <td style="padding: 0.9rem 1rem;">
+          <div style="display: flex; flex-wrap: wrap; gap: 0.35rem;">
+            ${sourceBadges}
+          </div>
+        </td>
+        <td style="padding: 0.9rem 1rem;">
+          ${logisticsInfo}
+        </td>
+        <td style="padding: 0.9rem 1rem; font-size: 0.8rem; color: var(--color-text-muted); white-space: nowrap;">
+          ${dateStr}
+        </td>
+        <td style="padding: 0.9rem 1rem;">
+          ${statusSelect}
+        </td>
+        <td style="padding: 0.9rem 1rem; text-align: right;">
+          <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" title="Enviar Correo E1 (Instrucciones de Onboarding)" style="padding: 0.35rem 0.6rem; color: #5e17eb; border-color: rgba(94, 23, 235, 0.3); background: rgba(94, 23, 235, 0.04); font-weight: 600; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-mail-send-line"></i> E1
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="window.showLeadDetailModal('${encodeURIComponent(lead.email)}')" title="Ver Ficha Completa del Lead" style="padding: 0.35rem 0.6rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.25rem;">
+              <i class="ri-eye-line"></i> Ficha
+            </button>
+            ${waUrl ? `
+              <a href="${waUrl}" target="_blank" class="btn btn-outline btn-sm" title="Contactar por WhatsApp" style="padding: 0.35rem 0.6rem; color: #10b981; border-color: rgba(16, 185, 129, 0.3); background: rgba(16, 185, 129, 0.04); font-size: 0.78rem; display: flex; align-items: center; justify-content: center; text-decoration: none;">
+                <i class="ri-whatsapp-line"></i>
+              </a>
+            ` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  };
+
+  let rowsHtml = '';
+  if (displayLeads.length === 0) {
+    rowsHtml = `
+      <tr>
+        <td colspan="7" class="text-center" style="padding: 3rem; color: var(--color-text-muted);">
+          <i class="ri-user-search-line" style="font-size: 2.5rem; display: block; margin-bottom: 0.5rem; opacity: 0.5;"></i>
+          No se encontraron prospectos con los filtros seleccionados.
+        </td>
+      </tr>
+    `;
+  } else {
+    rowsHtml = displayLeads.map(buildLeadRowHtml).join('');
+  }
+
+  appContent.innerHTML = `
+    <div class="leads-admin-container" style="display: flex; flex-direction: column; gap: 1.5rem;">
+      
+      <!-- Encabezado y Botón Principal -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <h2 style="margin: 0; font-size: 1.5rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.6rem;">
+            <i class="ri-user-search-line" style="color: var(--color-primary);"></i> Central de Leads (CRM Comercial)
+          </h2>
+          <p style="margin: 0.25rem 0 0 0; color: var(--color-text-muted); font-size: 0.88rem;">
+            Seguimiento unificado de prospectos de la Demo WMS, Cotizador Online, Envíos E1 y Solicitudes de Alta
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.75rem; align-items: center;">
+          <button class="btn btn-outline" onclick="window.renderLeadsAdmin(true)" title="Recargar datos" style="display: flex; align-items: center; gap: 0.35rem; padding: 0.55rem 0.9rem;">
+            <i class="ri-refresh-line"></i> Actualizar
+          </button>
+          <button class="btn btn-primary" onclick="window.openSendE1Modal()" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 1.25rem; font-weight: 600; box-shadow: var(--shadow-sm);">
+            <i class="ri-mail-send-fill"></i> Enviar Instrucciones E1
+          </button>
+        </div>
+      </div>
+
+      <!-- Tarjetas KPIs Ejecutivas -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1rem;">
+        
+        <!-- Total Leads -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+            <i class="ri-group-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Total Leads Únicos</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: var(--color-text-main); line-height: 1.2;">${totalLeads}</div>
+          </div>
+        </div>
+
+        <!-- Demo WMS -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(94, 23, 235, 0.1); color: #7c3aed; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+            <i class="ri-play-circle-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Registros Demo</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #7c3aed; line-height: 1.2;">${demoCount}</div>
+          </div>
+        </div>
+
+        <!-- Cotizador Online -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.1); color: #10b981; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+            <i class="ri-calculator-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Cotizaciones Online</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #10b981; line-height: 1.2;">${quotesCount}</div>
+          </div>
+        </div>
+
+        <!-- E1 Enviados -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+            <i class="ri-mail-send-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">E1 Enviados</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #3b82f6; line-height: 1.2;">${e1Count}</div>
+          </div>
+        </div>
+
+        <!-- Onboarding / Convertidos -->
+        <div class="card" style="padding: 1.25rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); display: flex; align-items: center; gap: 1rem;">
+          <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(245, 158, 11, 0.1); color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; flex-shrink: 0;">
+            <i class="ri-git-pull-request-line"></i>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase;">Onboarding / Convertidos</div>
+            <div style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; line-height: 1.2;">${onboardingCount}</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Barra de Pestañas y Filtros -->
+      <div class="card" style="padding: 0; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); overflow: hidden;">
+        
+        <!-- Pestañas Superiores -->
+        <div style="display: flex; gap: 0.25rem; border-bottom: 1px solid var(--color-border); padding: 0.5rem 1rem 0 1rem; background: var(--color-bg); overflow-x: auto;">
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('all')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'all' ? 'var(--color-primary)' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-apps-2-line"></i> Todos los Leads (${totalLeads})
+          </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('demo')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'demo' ? '#7c3aed' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-play-circle-line"></i> Demo WMS (${demoCount})
+          </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('quotes')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'quotes' ? '#10b981' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-calculator-line"></i> Cotizaciones Online (${quotesCount})
+          </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('e1')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'e1' ? '#3b82f6' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'e1' ? '#3b82f6' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-mail-send-line"></i> E1 Enviados (${e1Count})
+          </button>
+          <button type="button" class="btn-tab" onclick="window.switchLeadsTab('onboarding')" style="background: none; border: none; font-size: 0.9rem; font-weight: 600; padding: 0.65rem 1rem; cursor: pointer; color: ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'var(--color-text-muted)'}; border-bottom: 3px solid ${window.activeLeadsTab === 'onboarding' ? '#f59e0b' : 'transparent'}; display: flex; align-items: center; gap: 0.4rem; white-space: nowrap;">
+            <i class="ri-git-pull-request-line"></i> En Onboarding (${onboardingCount})
+          </button>
+        </div>
+
+        <!-- Barra de Búsqueda y Filtros de Estado -->
+        <div style="padding: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; background: var(--color-surface);">
+          <div style="display: flex; gap: 0.75rem; align-items: center; flex: 1; min-width: 280px; max-width: 480px; position: relative;">
+            <i class="ri-search-line" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--color-text-muted);"></i>
+            <input type="text" id="leads-search-input" class="form-input" placeholder="Buscar por nombre, correo, empresa, teléfono..." value="${window.leadsSearchQuery || ''}" style="padding-left: 2.25rem; height: 38px; font-size: 0.85rem; width: 100%;">
+          </div>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--color-text-muted);">Estado:</label>
+            <select id="leads-status-filter" class="form-input" style="height: 38px; font-size: 0.85rem; padding: 0.35rem 0.75rem;">
+              <option value="all" ${window.leadsStatusFilter === 'all' ? 'selected' : ''}>Todos los Estados</option>
+              <option value="nuevo" ${window.leadsStatusFilter === 'nuevo' ? 'selected' : ''}>✨ Nuevos</option>
+              <option value="contactado" ${window.leadsStatusFilter === 'contactado' ? 'selected' : ''}>💬 Contactados</option>
+              <option value="e1_enviado" ${window.leadsStatusFilter === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviados</option>
+              <option value="seguimiento" ${window.leadsStatusFilter === 'seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
+              <option value="onboarding" ${window.leadsStatusFilter === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
+              <option value="convertido" ${window.leadsStatusFilter === 'convertido' ? 'selected' : ''}>🚀 Convertidos / Clientes</option>
+              <option value="descartado" ${window.leadsStatusFilter === 'descartado' ? 'selected' : ''}>❌ Descartados</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabla Principal de Leads -->
+        <div style="overflow-x: auto;">
+          <table class="data-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;">
+            <thead>
+              <tr style="background: var(--color-bg); border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                <th style="padding: 0.75rem 1rem;">Contacto / Prospecto</th>
+                <th style="padding: 0.75rem 1rem;">Empresa / Comercio</th>
+                <th style="padding: 0.75rem 1rem;">Puntos de Contacto</th>
+                <th style="padding: 0.75rem 1rem;">Datos Logísticos</th>
+                <th style="padding: 0.75rem 1rem;">Última Actividad</th>
+                <th style="padding: 0.75rem 1rem;">Estado del Lead</th>
+                <th style="padding: 0.75rem 1rem; text-align: right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="leads-table-tbody">
+              ${rowsHtml}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+    </div>
+  `;
+
+  // Event Listeners de Búsqueda y Filtros
+  const searchInput = document.getElementById('leads-search-input');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      window.leadsSearchQuery = e.target.value;
+      window.renderLeadsAdmin(false);
+    });
+  }
+
+  const statusFilter = document.getElementById('leads-status-filter');
+  if (statusFilter) {
+    statusFilter.addEventListener('change', (e) => {
+      window.leadsStatusFilter = e.target.value;
+      window.renderLeadsAdmin(false);
+    });
+  }
+};
+
+window.switchLeadsTab = function(tabName) {
+  window.activeLeadsTab = tabName;
+  window.renderLeadsAdmin(false);
+};
+
+window.updateUnifiedLeadStatus = async function(encodedEmail, newStatus) {
+  const email = decodeURIComponent(encodedEmail).trim().toLowerCase();
+  if (!email) return;
+
+  try {
+    // 1. Actualizar en profiles si existe
+    await supabase
+      .from('profiles')
+      .update({ lead_status: newStatus })
+      .ilike('email', email);
+
+    // 2. Actualizar en quote_leads si existe
+    await supabase
+      .from('quote_leads')
+      .update({ status: newStatus })
+      .ilike('email', email);
+
+    // Actualizar en cache local
+    if (window.cachedUnifiedLeads) {
+      const lead = window.cachedUnifiedLeads.find(l => l.email.toLowerCase() === email);
+      if (lead) lead.lead_status = newStatus;
+    }
+
+    if (typeof window.updateAdminBadges === 'function') {
+      window.updateAdminBadges();
+    }
+
+    console.log(`Estado de lead ${email} actualizado a ${newStatus}`);
+    window.renderLeadsAdmin(false);
+
+  } catch (err) {
+    console.error("Error al actualizar estado del lead:", err);
+    alert("Error al actualizar estado: " + err.message);
+  }
+};
+
+window.saveLeadNotes = async function(encodedEmail, notesText) {
+  const email = decodeURIComponent(encodedEmail).trim().toLowerCase();
+  if (!email) return;
+
+  try {
+    await Promise.all([
+      supabase.from('profiles').update({ lead_notes: notesText }).ilike('email', email),
+      supabase.from('quote_leads').update({ notes: notesText }).ilike('email', email)
+    ]);
+
+    if (window.cachedUnifiedLeads) {
+      const lead = window.cachedUnifiedLeads.find(l => l.email.toLowerCase() === email);
+      if (lead) lead.notes = notesText;
+    }
+
+    alert('Notas de seguimiento guardadas correctamente.');
+  } catch (err) {
+    console.error("Error al guardar notas del lead:", err);
+    alert("Error al guardar notas: " + err.message);
+  }
+};
+
+window.showLeadDetailModal = function(encodedEmail) {
+  const email = decodeURIComponent(encodedEmail).trim().toLowerCase();
+  const lead = window.cachedUnifiedLeads?.find(l => l.email.toLowerCase() === email);
+  if (!lead) return;
+
+  const oldModal = document.getElementById('modal-lead-detail');
+  if (oldModal) oldModal.remove();
+
+  const statusStyle = window.getLeadStatusStyle(lead.lead_status);
+
+  // Cotizaciones detalle HTML
+  let quotesHtml = '';
+  if (lead.quotes && lead.quotes.length > 0) {
+    quotesHtml = lead.quotes.map((q, idx) => {
+      const qDate = q.created_at ? new Date(q.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      const orders = q.monthly_orders || q.quote_data?.pickPack?.monthlyOrders || 0;
+      const vol = q.estimated_volume || q.quote_data?.storage?.volumeM3 || 0;
+      const net = q.estimated_monthly_net || q.quote_data?.totals?.netMonthly || 0;
+
+      return `
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.6rem; font-size: 0.82rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <strong style="color: #10b981;"><i class="ri-calculator-line"></i> Cotización #${idx + 1}</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${qDate}</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; color: var(--color-text-main);">
+            <div><strong>Pedidos / mes:</strong> ${orders}</div>
+            <div><strong>Volumen est.:</strong> ${vol} m³</div>
+            <div><strong>Monto Neto / mes:</strong> $${Math.round(net).toLocaleString('es-CL')} + IVA</div>
+            <div><strong>Teléfono:</strong> ${q.phone || 'No indicado'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    quotesHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No ha generado cotizaciones aún en el cotizador online.</div>`;
+  }
+
+  // E1 History HTML
+  let e1Html = '';
+  if (lead.e1_history && lead.e1_history.length > 0) {
+    e1Html = lead.e1_history.map((e, idx) => {
+      const eDate = e.sent_at || e.created_at ? new Date(e.sent_at || e.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      return `
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <strong style="color: #3b82f6;"><i class="ri-mail-send-fill"></i> Envío E1 #${idx + 1}</strong>
+            <span style="color: var(--color-text-muted); font-size: 0.75rem;">${eDate}</span>
+          </div>
+          <div style="color: var(--color-text-main); margin-top: 0.25rem; font-size: 0.78rem;">
+            <div><strong>Destinatario:</strong> ${e.recipient_email || lead.email}</div>
+            ${e.cc_emails ? `<div><strong>Copia (CC):</strong> ${e.cc_emails}</div>` : ''}
+            ${e.message_id ? `<div style="color: var(--color-text-muted); font-size: 0.7rem;">ID: ${e.message_id}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } else {
+    e1Html = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No se han registrado envíos de correo E1 para este prospecto.</div>`;
+  }
+
+  // Demo Data HTML
+  let demoHtml = '';
+  if (lead.demo_data) {
+    const regDate = lead.demo_data.registered_at ? new Date(lead.demo_data.registered_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+    const lastSeen = lead.demo_data.last_seen ? new Date(lead.demo_data.last_seen).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Sin actividad registrada';
+    demoHtml = `
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; font-size: 0.82rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div><strong>Fecha de Registro Demo:</strong> ${regDate}</div>
+          <div><strong>Último Acceso al WMS:</strong> ${lastSeen}</div>
+          <div><strong>Confirmación de Email:</strong> ${lead.demo_data.confirmed ? '<span style="color:#10b981; font-weight:700;">✓ Confirmado</span>' : '<span style="color:#f59e0b; font-weight:700;">Pendiente</span>'}</div>
+          <div><strong>Rol de Usuario:</strong> ${lead.role || 'observer'}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    demoHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No se registró en la demo interactiva.</div>`;
+  }
+
+  // Onboarding HTML
+  let onbHtml = '';
+  if (lead.onboarding) {
+    const onbDate = lead.onboarding.created_at ? new Date(lead.onboarding.created_at).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+    onbHtml = `
+      <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.85rem; font-size: 0.82rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <div><strong>Estado de Solicitud:</strong> <span style="font-weight:700; text-transform:uppercase;">${lead.onboarding.status || 'pending'}</span></div>
+          <div><strong>Fecha de Postulación:</strong> ${onbDate}</div>
+          <div><strong>Razón Social:</strong> ${lead.onboarding.razon_social || '—'}</div>
+          <div><strong>RUT Empresa:</strong> ${lead.onboarding.rut_empresa || '—'}</div>
+          <div><strong>Representante Legal:</strong> ${lead.onboarding.rep_legal_nombre || '—'}</div>
+          <div><strong>Email Facturación:</strong> ${lead.onboarding.facturacion_email || '—'}</div>
+        </div>
+      </div>
+    `;
+  } else {
+    onbHtml = `<div style="font-size: 0.8rem; color: var(--color-text-muted); padding: 0.5rem 0;">No ha iniciado una solicitud de alta formal.</div>`;
+  }
+
+  const phoneClean = (lead.phone || '').replace(/[^0-9]/g, '');
+  const hasPhone = phoneClean.length >= 8;
+  const waUrl = hasPhone ? `https://wa.me/${phoneClean.startsWith('56') ? phoneClean : '56' + phoneClean}?text=${encodeURIComponent(`Hola ${lead.name || ''}, te escribo de Stocka Fulfillment respecto a tu interés en sumarte a nuestros servicios.`)}` : null;
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay active';
+  modal.id = 'modal-lead-detail';
+  modal.style.zIndex = '2100';
+
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width: 720px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
+      
+      <!-- Modal Header -->
+      <div class="modal-header" style="background: linear-gradient(135deg, #1e1b4b, #312e81); color: white; padding: 1.25rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(255,255,255,0.15); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.3rem;">
+            <i class="ri-user-search-line"></i>
+          </div>
+          <div>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: white;">Ficha 360° del Prospecto</h3>
+            <p style="margin: 2px 0 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.8);">${lead.email}</p>
+          </div>
+        </div>
+        <button type="button" class="modal-close" onclick="document.getElementById('modal-lead-detail').remove()" style="color: white; font-size: 1.4rem; background: transparent; border: none; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; background: var(--color-bg);">
+        
+        <!-- Info Card Principal -->
+        <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1.2rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h4 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 700; color: var(--color-text-main);">${lead.name || 'Sin nombre'}</h4>
+            <div style="color: var(--color-text-muted); font-size: 0.85rem;"><strong>Comercio / Empresa:</strong> ${lead.company || '—'}</div>
+            ${lead.phone ? `<div style="color: var(--color-text-muted); font-size: 0.85rem; margin-top: 0.15rem;"><strong>Teléfono:</strong> ${lead.phone}</div>` : ''}
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted); margin-bottom: 0.25rem; text-transform: uppercase;">Estado del Lead</label>
+            <select class="form-input" onchange="window.updateUnifiedLeadStatus('${encodeURIComponent(lead.email)}', this.value)" style="padding: 0.4rem 0.75rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px; border: 1px solid ${statusStyle.border}; background-color: ${statusStyle.bg}; color: ${statusStyle.color}; cursor: pointer;">
+              <option value="nuevo" ${lead.lead_status === 'nuevo' ? 'selected' : ''}>✨ Nuevo Lead</option>
+              <option value="contactado" ${lead.lead_status === 'contactado' ? 'selected' : ''}>💬 Contactado</option>
+              <option value="e1_enviado" ${lead.lead_status === 'e1_enviado' ? 'selected' : ''}>📨 E1 Enviado</option>
+              <option value="seguimiento" ${lead.lead_status === 'seguimiento' || lead.lead_status === 'en_seguimiento' ? 'selected' : ''}>⏳ En Seguimiento</option>
+              <option value="onboarding" ${lead.lead_status === 'onboarding' ? 'selected' : ''}>📝 En Onboarding</option>
+              <option value="convertido" ${lead.lead_status === 'convertido' ? 'selected' : ''}>🚀 Convertido / Cliente</option>
+              <option value="descartado" ${lead.lead_status === 'descartado' ? 'selected' : ''}>❌ Descartado</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Secciones 360° -->
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          
+          <!-- Cotizaciones -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-calculator-line" style="color: #10b981;"></i> Historial de Cotizaciones en Línea (${lead.quotes.length})
+            </div>
+            ${quotesHtml}
+          </div>
+
+          <!-- Historial de E1s -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-mail-send-line" style="color: #3b82f6;"></i> Historial de Instrucciones E1 Enviadas (${lead.e1_history.length})
+            </div>
+            ${e1Html}
+          </div>
+
+          <!-- Demo WMS -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-play-circle-line" style="color: #7c3aed;"></i> Acceso y Registro en Demo WMS
+            </div>
+            ${demoHtml}
+          </div>
+
+          <!-- Solicitud de Onboarding -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.6rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-git-pull-request-line" style="color: #f59e0b;"></i> Solicitud de Alta Comercial
+            </div>
+            ${onbHtml}
+          </div>
+
+          <!-- Libreta de Notas y Seguimiento Comercial -->
+          <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 1rem;">
+            <div style="font-weight: 700; font-size: 0.9rem; color: var(--color-text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="ri-sticky-note-line" style="color: #6366f1;"></i> Libreta de Notas de Seguimiento Comercial
+            </div>
+            <textarea id="modal-lead-notes-input" class="form-input" rows="3" placeholder="Escribe aquí acuerdos comerciales, fecha de próxima llamada, comentarios de reuniones..." style="width: 100%; font-size: 0.85rem; padding: 0.6rem; resize: vertical;">${lead.notes || ''}</textarea>
+            <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="window.saveLeadNotes('${encodeURIComponent(lead.email)}', document.getElementById('modal-lead-notes-input').value)" style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.25rem;">
+                <i class="ri-save-line"></i> Guardar Notas
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-surface);">
+        <div>
+          ${waUrl ? `
+            <a href="${waUrl}" target="_blank" class="btn btn-outline" style="color: #10b981; border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05); font-size: 0.85rem; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.35rem;">
+              <i class="ri-whatsapp-fill"></i> WhatsApp
+            </a>
+          ` : ''}
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-lead-detail').remove()">Cerrar</button>
+          <button type="button" class="btn btn-primary" onclick="document.getElementById('modal-lead-detail').remove(); window.openSendE1Modal({ email: '${encodeURIComponent(lead.email)}', contactName: '${encodeURIComponent(lead.name)}', commerceName: '${encodeURIComponent(lead.company)}', cc: '' })" style="background: linear-gradient(135deg, #5e17eb, #7c3aed); border: none; color: white; display: flex; align-items: center; gap: 0.4rem; font-weight: 600;">
+            <i class="ri-mail-send-fill"></i> Enviar Correo E1
+          </button>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+};
 
 // Manejo de eventos delegados para cambios de rol y comercios asignados
 document.addEventListener('change', async (e) => {
@@ -40406,24 +41299,38 @@ window.openSendE1Modal = async function(defaultData = {}) {
           <!-- Acordeón / Vista Previa Rápida del Contenido -->
           <details style="background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 8px; padding: 0.75rem 1rem; font-size: 0.82rem;">
             <summary style="font-weight: 600; color: var(--color-text-main); cursor: pointer; display: flex; align-items: center; gap: 0.4rem; user-select: none;">
-              <i class="ri-eye-line" style="color: #6366f1;"></i> Vista Previa del Estilo y Contenido del Correo E1
+              <i class="ri-eye-line" style="color: #6366f1;"></i> Vista Previa del Texto y Contenido del Correo E1
             </summary>
             <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--color-border); color: var(--color-text-main); font-size: 0.8rem; line-height: 1.6;">
               <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 1rem;">
                 <div style="font-weight: 700; color: #5e17eb; margin-bottom: 0.5rem;" id="e1-preview-greeting">
-                  Hola ${defaultContact ? `<strong>${defaultContact}</strong>` : '[Nombre del Contacto]'}, buen día:
+                  Hola ${defaultContact ? `<strong>${defaultContact}</strong>` : '[Nombre del Contacto]'} buen día, ¿cómo estás?:
                 </div>
                 <p style="margin: 0 0 0.5rem 0;">
-                  Te escribimos de parte de <strong>stocka.cl</strong> para agradecerte el contacto previo y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida!
+                  Te escribimos de parte de <strong>stocka.cl</strong> para agradecerte el contacto y tu interés en sumarte a nuestro servicio de <strong>Fulfillment 360</strong>. ¡Te damos una tremenda bienvenida!
+                  <br><br>
+                  Esperamos ser un partner estratégico que impulse el crecimiento de tu comercio. A continuación, te explicamos los pasos a seguir para darte de alta e iniciar operaciones:
                 </p>
-                <div style="display: flex; flex-direction: column; gap: 0.35rem; margin: 0.5rem 0;">
-                  <div><strong>📝 PASO 1:</strong> Registro en Plataforma WMS & Onboarding Online (<a href="https://wms.stocka.cl" target="_blank" style="color: #2563eb;">wms.stocka.cl</a>)</div>
-                  <div><strong>✍️ PASO 2:</strong> Confirmación de Email & Firma de Contrato Online</div>
-                  <div><strong>🔌 PASO 3:</strong> Integraciones de Canales de Venta & Catálogo</div>
-                  <div><strong>📦 PASO 4:</strong> Declaración de Ingreso de Stock & Recepción en Bodega</div>
+                <div style="display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0;">
+                  <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: 4px; border-left: 3px solid #5e17eb;">
+                    <strong>📝 PASO 1: Registro en Plataforma WMS (Onboarding Online)</strong><br>
+                    Ingresa al enlace <a href="https://wms.stocka.cl/onboarding" target="_blank" style="color: #2563eb;">https://wms.stocka.cl/onboarding</a> y completa el formulario de solicitud...
+                  </div>
+                  <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: 4px; border-left: 3px solid #3b82f6;">
+                    <strong>✍️ PASO 2: Confirmación de Email y Firma de Contrato Digital</strong><br>
+                    Tras registrarte recibirás un email para confirmar tu cuenta. En el portal podrás descargar los contratos del servicio, firmarlos y cargarlos en la plataforma...
+                  </div>
+                  <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: 4px; border-left: 3px solid #10b981;">
+                    <strong>🔌 PASO 3: Integración de Canales de Venta y Catálogo</strong><br>
+                    Con tus credenciales activas, ingresa al módulo de Integraciones para conectar tus canales. Nuestro equipo vinculará tu catálogo en el WMS...
+                  </div>
+                  <div style="background: var(--color-bg); padding: 0.5rem 0.75rem; border-radius: 4px; border-left: 3px solid #f59e0b;">
+                    <strong>📦 PASO 4: Declaración de Stock y Recepción en Bodega</strong><br>
+                    Crea tu solicitud de ingreso en la plataforma: podrás solicitar retiro dentro de Santiago o despachar directamente a bodega asignada...
+                  </div>
                 </div>
                 <div style="font-size: 0.75rem; color: #64748b; margin-top: 0.5rem; border-top: 1px solid var(--color-border); padding-top: 0.4rem;">
-                  📚 Incluye acceso al centro de documentación oficial y adjuntos en PDF.
+                  📚 Incluye información de la sección Documentación y archivos adjuntos (Presentación del Servicio y Tarifario Vigente).
                 </div>
               </div>
             </div>
@@ -40458,7 +41365,7 @@ window.openSendE1Modal = async function(defaultData = {}) {
   contactInput?.addEventListener('input', () => {
     const val = contactInput.value.trim();
     if (greetingPreview) {
-      greetingPreview.innerHTML = val ? `Hola <strong>${val}</strong>, buen día:` : 'Hola [Nombre del Contacto], buen día:';
+      greetingPreview.innerHTML = val ? `Hola <strong>${val}</strong> buen día, ¿cómo estás?:` : 'Hola [Nombre del Contacto] buen día, ¿cómo estás?:';
     }
   });
 
@@ -40565,6 +41472,14 @@ window.openSendE1Modal = async function(defaultData = {}) {
       }
 
       closeModal();
+
+      // Actualizar Central de Leads y badges si están disponibles
+      if (typeof window.renderLeadsAdmin === 'function') {
+        window.renderLeadsAdmin(true);
+      }
+      if (typeof window.updateAdminBadges === 'function') {
+        window.updateAdminBadges();
+      }
 
       if (typeof Swal !== 'undefined') {
         Swal.fire({
