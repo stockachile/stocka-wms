@@ -1,4 +1,4 @@
-import supabase from './supabase.js?v=1.0.3';
+import supabase from './supabase.js';
 import { renderTicketsClient } from './tickets.js';
 import { initChatWidget } from './chat.js';
 import { renderIncidenciasClient } from './incidencias.js?v=1.0.1';

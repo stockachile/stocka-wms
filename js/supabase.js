@@ -556,10 +556,31 @@ window.fetchAllSupabaseRows = async function(tableName, selectStr, filterCallbac
   let from = 0;
   const step = 1000;
   while (true) {
-    let q = supabase.from(tableName).select(selectStr);
-    if (filterCallback) q = filterCallback(q);
-    const { data, error } = await q.range(from, from + step - 1);
-    if (error) throw error;
+    let attempts = 0;
+    let data = null;
+    let lastError = null;
+
+    while (attempts < 3) {
+      attempts++;
+      let q = supabase.from(tableName).select(selectStr);
+      if (filterCallback) q = filterCallback(q);
+      const res = await q.range(from, from + step - 1);
+      if (!res.error) {
+        data = res.data;
+        lastError = null;
+        break;
+      }
+      lastError = res.error;
+      const isTimeout = lastError.code === '57014' || lastError.message?.includes('timeout') || lastError.message?.includes('Failed to fetch');
+      if (isTimeout && attempts < 3) {
+        console.warn(`[fetchAllSupabaseRows] Reintentando ${tableName} (intento ${attempts + 1})...`, lastError);
+        await new Promise(r => setTimeout(r, 600 * attempts));
+      } else {
+        break;
+      }
+    }
+
+    if (lastError) throw lastError;
     if (!data || data.length === 0) break;
     allData = allData.concat(data);
     if (data.length < step) break;
