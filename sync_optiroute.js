@@ -598,7 +598,6 @@ async function ensurePermanentDeliveryImagesNode(item) {
   }
 
   if (permanentImages.length > 0) {
-    item.images = permanentImages;
     if (item.raw_data) {
       item.raw_data.images = permanentImages;
     }
