@@ -461,10 +461,10 @@
       const commerceEmails = await getCommerceNotificationEmails(comercio);
       const recipients = [...commerceEmails];
 
-      // Si no se encuentran correos de clientes, asegurar al menos notificación a administración
+      // Si no se encuentran correos de clientes, registrar advertencia
       if (recipients.length === 0) {
-        console.warn(`[Inbound Notifications] No se encontraron correos de clientes para "${comercio}". Enviando a stockachile@gmail.com`);
-        recipients.push('stockachile@gmail.com');
+        console.warn(`[Inbound Notifications] No se encontraron correos de usuarios para el comercio "${comercio}".`);
+        return { success: false, reason: 'No recipients found for commerce' };
       }
 
       const shortCode = declarationId ? `#ING-${declarationId.substring(0, 8).toUpperCase()}` : '#ING-STOCKA';
@@ -483,12 +483,11 @@
         productsList: productsList.length > 0 ? productsList : (decData.products_list || [])
       });
 
-      // 3. Preparar payload de Brevo
+      // 3. Preparar payload de Brevo (exclusivo para los usuarios del comercio)
       const brevoApiKey = getBrevoApiKey();
       const brevoPayload = {
         sender: { name: 'STOCKA WMS', email: 'info@stocka.cl' },
         to: recipients.map(email => ({ email })),
-        bcc: [{ email: 'stockachile@gmail.com', name: 'Stocka Auditoría' }],
         subject: generated.subject,
         htmlContent: generated.html
       };
@@ -525,7 +524,7 @@
         const errText = await res.text();
         console.error(`[Inbound Notifications] Error Brevo (${res.status}): ${errText}`);
       } else {
-        console.log(`✅ [Inbound Notifications] Correo "${event}" enviado exitosamente a ${recipients.join(', ')} (BCC: stockachile@gmail.com)`);
+        console.log(`✅ [Inbound Notifications] Correo "${event}" enviado exitosamente a ${recipients.join(', ')}`);
       }
 
       // 5. Crear notificación in-app en dashboard_notifications

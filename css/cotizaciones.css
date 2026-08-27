@@ -1300,12 +1300,16 @@ html, body {
    ========================================================================== */
 @media (max-width: 1080px) {
   .cotizador-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) !important;
     gap: 1.5rem;
   }
   .cotizacion-summary-card {
     position: static;
     top: 0;
+  }
+  /* Ocultar mini-caja de reunión en el resumen en móviles para evitar duplicidad con la sección grande final */
+  .summary-meeting-mini-box {
+    display: none !important;
   }
 }
 
