@@ -3572,7 +3572,7 @@ window.applyWmsFiltersAndRender = function() {
     rowsHtml += `
       <tr id="row-${order.id}" class="order-row" data-order-id="${order.id}" style="transition: background-color 0.2s;">
         <td style="text-align: center;" onclick="event.stopPropagation()">
-          <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onchange="window.toggleWmsOrderSelect(this, '${order.id}')" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
+          <input type="checkbox" class="wms-order-cb" data-order-id="${order.id}" ${window.wmsSelectedOrderIds.has(order.id) ? 'checked' : ''} onclick="window.toggleWmsOrderSelect(this, '${order.id}', event)" style="width: 16px; height: 16px; accent-color: var(--color-primary); cursor: pointer;">
         </td>
         <td style="cursor: pointer; text-align: center; font-size: 1.2rem; color: var(--color-primary);" onclick="window.toggleOrderRow('${order.id}')">
           <i id="chevron-${order.id}" class="ri-arrow-right-s-line expand-icon" style="transition: transform 0.2s; display: inline-block;"></i>
@@ -3921,17 +3921,46 @@ window.refreshWmsOrders = async function(btn) {
   }
 };
 
-window.toggleWmsOrderSelect = function(cb, orderId) {
-  if (cb.checked) {
-    window.wmsSelectedOrderIds.add(orderId);
+window.wmsLastCheckedOrderCb = null;
+
+window.toggleWmsOrderSelect = function(cb, orderId, evt) {
+  const e = evt || window.event;
+  const isShift = e && e.shiftKey;
+  const checkboxes = Array.from(document.querySelectorAll('.wms-order-cb'));
+
+  if (isShift && window.wmsLastCheckedOrderCb && window.wmsLastCheckedOrderCb !== cb && checkboxes.includes(window.wmsLastCheckedOrderCb)) {
+    const startIdx = checkboxes.indexOf(window.wmsLastCheckedOrderCb);
+    const endIdx = checkboxes.indexOf(cb);
+    if (startIdx !== -1 && endIdx !== -1) {
+      const min = Math.min(startIdx, endIdx);
+      const max = Math.max(startIdx, endIdx);
+      const targetState = cb.checked;
+      for (let i = min; i <= max; i++) {
+        const itemCb = checkboxes[i];
+        const id = itemCb.getAttribute('data-order-id');
+        itemCb.checked = targetState;
+        if (targetState) {
+          window.wmsSelectedOrderIds.add(id);
+        } else {
+          window.wmsSelectedOrderIds.delete(id);
+        }
+      }
+    }
   } else {
-    window.wmsSelectedOrderIds.delete(orderId);
+    if (cb.checked) {
+      window.wmsSelectedOrderIds.add(orderId);
+    } else {
+      window.wmsSelectedOrderIds.delete(orderId);
+    }
   }
+
+  window.wmsLastCheckedOrderCb = cb;
   updateSelectAllCheckboxState();
   renderWmsBulkActionsBar();
 };
 
 window.toggleWmsSelectAll = function(cbAll) {
+  window.wmsLastCheckedOrderCb = null;
   const checkboxes = document.querySelectorAll('.wms-order-cb');
   checkboxes.forEach(cb => {
     const orderId = cb.getAttribute('data-order-id');
@@ -3946,6 +3975,7 @@ window.toggleWmsSelectAll = function(cbAll) {
 };
 
 window.clearWmsSelection = function() {
+  window.wmsLastCheckedOrderCb = null;
   window.wmsSelectedOrderIds.clear();
   const checkboxes = document.querySelectorAll('.wms-order-cb');
   checkboxes.forEach(cb => cb.checked = false);
@@ -6351,21 +6381,46 @@ function renderMasterCatalogRows(products) {
     }
   }
 
+  let lastCheckedCatalogCb = null;
   rowCheckboxes.forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const id = e.target.getAttribute('data-id');
-      if (e.target.checked) {
-        window.catalogSelectedProductIds.add(id);
+    cb.addEventListener('click', (e) => {
+      const isShift = e.shiftKey;
+      const visibleCheckboxes = Array.from(rowCheckboxes).filter(c => {
+        const row = c.closest('tr');
+        return row && row.style.display !== 'none';
+      });
+
+      if (isShift && lastCheckedCatalogCb && lastCheckedCatalogCb !== cb && visibleCheckboxes.includes(lastCheckedCatalogCb)) {
+        const startIdx = visibleCheckboxes.indexOf(lastCheckedCatalogCb);
+        const endIdx = visibleCheckboxes.indexOf(cb);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const min = Math.min(startIdx, endIdx);
+          const max = Math.max(startIdx, endIdx);
+          const targetState = cb.checked;
+          for (let i = min; i <= max; i++) {
+            const itemCb = visibleCheckboxes[i];
+            const id = itemCb.getAttribute('data-id');
+            itemCb.checked = targetState;
+            if (targetState) {
+              window.catalogSelectedProductIds.add(id);
+            } else {
+              window.catalogSelectedProductIds.delete(id);
+            }
+          }
+        }
       } else {
-        window.catalogSelectedProductIds.delete(id);
+        const id = cb.getAttribute('data-id');
+        if (cb.checked) {
+          window.catalogSelectedProductIds.add(id);
+        } else {
+          window.catalogSelectedProductIds.delete(id);
+        }
       }
 
+      lastCheckedCatalogCb = cb;
+
       if (cbAll) {
-        const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
-          const row = cb.closest('tr');
-          return row && row.style.display !== 'none';
-        });
-        cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+        cbAll.checked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
       }
       window.renderCatalogBulkActionsBar(commerce);
     });

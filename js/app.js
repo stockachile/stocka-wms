@@ -24316,21 +24316,46 @@ function renderMasterCatalogRows(products) {
     }
   }
 
+  let lastCheckedCatalogCb = null;
   rowCheckboxes.forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const id = e.target.getAttribute('data-id');
-      if (e.target.checked) {
-        window.catalogSelectedProductIds.add(id);
+    cb.addEventListener('click', (e) => {
+      const isShift = e.shiftKey;
+      const visibleCheckboxes = Array.from(rowCheckboxes).filter(c => {
+        const row = c.closest('tr');
+        return row && row.style.display !== 'none';
+      });
+
+      if (isShift && lastCheckedCatalogCb && lastCheckedCatalogCb !== cb && visibleCheckboxes.includes(lastCheckedCatalogCb)) {
+        const startIdx = visibleCheckboxes.indexOf(lastCheckedCatalogCb);
+        const endIdx = visibleCheckboxes.indexOf(cb);
+        if (startIdx !== -1 && endIdx !== -1) {
+          const min = Math.min(startIdx, endIdx);
+          const max = Math.max(startIdx, endIdx);
+          const targetState = cb.checked;
+          for (let i = min; i <= max; i++) {
+            const itemCb = visibleCheckboxes[i];
+            const id = itemCb.getAttribute('data-id');
+            itemCb.checked = targetState;
+            if (targetState) {
+              window.catalogSelectedProductIds.add(id);
+            } else {
+              window.catalogSelectedProductIds.delete(id);
+            }
+          }
+        }
       } else {
-        window.catalogSelectedProductIds.delete(id);
+        const id = cb.getAttribute('data-id');
+        if (cb.checked) {
+          window.catalogSelectedProductIds.add(id);
+        } else {
+          window.catalogSelectedProductIds.delete(id);
+        }
       }
 
+      lastCheckedCatalogCb = cb;
+
       if (cbAll) {
-        const visibleCheckboxes = Array.from(rowCheckboxes).filter(cb => {
-          const row = cb.closest('tr');
-          return row && row.style.display !== 'none';
-        });
-        cbAll.checked = visibleCheckboxes.every(cb => cb.checked);
+        cbAll.checked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(c => c.checked);
       }
       window.renderCatalogBulkActionsBar(commerce);
     });
