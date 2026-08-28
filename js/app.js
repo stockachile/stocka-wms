@@ -416,8 +416,8 @@ async function init() {
         const redirectUri = 'https://ejtjfaucnxbikrwjwwdu.supabase.co/functions/v1/shopify-oauth';
         
         const stateObj = {
-          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Placeholder: Cuenta de pruebas shopify-test@stockachile.cl
-          comercio: 'Shopify Test Store',
+          merchant_id: '331a14f5-f2a8-43d8-a1ee-0070e96ced31', // Cuenta de pruebas shopify-test@stockachile.cl
+          comercio: 'STOCKA STORE TEST',
           redirect_back_url: window.location.origin + window.location.pathname
         };
         const stateBase64 = btoa(JSON.stringify(stateObj));
@@ -492,14 +492,17 @@ async function init() {
       const syncOverlay = window.showShopifySyncOverlay();
       syncOverlay.updateProgress(20, '🔒 Autenticando token y verificando tienda Shopify...');
 
+      let userCommerce = 'STOCKA STORE TEST';
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('comercio')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (profile?.comercio) {
+        userCommerce = profile.comercio.split(',')[0].trim();
+      }
+
       if (shop) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('comercio')
-          .eq('id', session.user.id)
-          .single();
-        const userCommerce = profile?.comercio ? profile.comercio.split(',')[0].trim() : 'Stocka Store';
-        
         console.log(`[Shopify Link] Vinculando tienda ${cleanShopUrl} a la cuenta del usuario:`, session.user.id);
         await supabase
           .from('merchant_integrations')
@@ -507,8 +510,7 @@ async function init() {
             merchant_id: session.user.id,
             comercio: userCommerce
           })
-          .eq('shop_url', cleanShopUrl)
-          .eq('merchant_id', '331a14f5-f2a8-43d8-a1ee-0070e96ced31');
+          .eq('shop_url', cleanShopUrl);
       }
 
       syncOverlay.updateProgress(50, '⚡ Suscribiendo webhooks de eventos en tiempo real...');
@@ -523,7 +525,7 @@ async function init() {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`
           },
-          body: JSON.stringify({ comercio: window.activeIntegrationCommerce })
+          body: JSON.stringify({ comercio: userCommerce })
         });
         if (res.ok) {
           const resData = await res.json();
