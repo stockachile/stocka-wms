@@ -100,17 +100,18 @@ serve(async (req) => {
     }
 
     const effectiveMerchantId = integration.merchant_id || merchantId;
-    let effectiveComercio = integration.comercio;
+    let effectiveComercio = (integration.comercio || "").trim();
 
-    if (effectiveMerchantId) {
+    if (!effectiveComercio && effectiveMerchantId) {
       try {
         const { data: prof } = await supabase
           .from("profiles")
           .select("comercio, company_name")
           .eq("id", effectiveMerchantId)
           .maybeSingle();
-        if (prof && (prof.comercio || prof.company_name)) {
-          effectiveComercio = prof.comercio || prof.company_name;
+        if (prof) {
+          const raw = prof.company_name || prof.comercio || "";
+          effectiveComercio = raw.split(",")[0].trim();
         }
       } catch (profErr) {
         console.warn("Aviso consultando profile en webhook:", profErr);
