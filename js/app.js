@@ -35064,7 +35064,7 @@ window.renderCatalogBulkActionsBar = function(commerce) {
   }
 
   container.innerHTML = `
-    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease; flex-wrap: wrap; gap: 1rem;">
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
       <div style="display: flex; align-items: center; gap: 1rem;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} productos seleccionados</span>

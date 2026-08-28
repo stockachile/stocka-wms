@@ -2341,8 +2341,8 @@ async function renderAdminOrders() {
       <!-- Agrupación por Pestañas de Estado WMS -->
       <div id="wms-tabs-container" style="margin-bottom: 1.25rem;"></div>
 
-      <!-- Barra de Acciones Masivas -->
-      <div id="wms-bulk-actions-container"></div>
+      <!-- Barra de Acciones Masivas Flotante (Sticky) -->
+      <div id="wms-bulk-actions-container" style="position: sticky; top: 0; z-index: 900;"></div>
 
       <!-- Tabla de Pedidos -->
       <div class="card">
@@ -3988,7 +3988,7 @@ function renderWmsBulkActionsBar() {
   }
   
   container.innerHTML = `
-    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease; flex-wrap: wrap; gap: 1rem;">
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
       <div style="display: flex; align-items: center; gap: 1rem;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} pedidos seleccionados</span>
@@ -6385,7 +6385,7 @@ window.renderCatalogBulkActionsBar = function(commerce) {
   }
 
   container.innerHTML = `
-    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: var(--shadow-md); animation: slideDown 0.2s ease; flex-wrap: wrap; gap: 1rem;">
+    <div class="bulk-actions-bar" style="background: var(--color-primary); color: #ffffff; padding: 0.75rem 1.25rem; border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2); animation: bulkSlideDown 0.2s ease; flex-wrap: wrap; gap: 1rem; border: 1px solid rgba(255, 255, 255, 0.2);">
       <div style="display: flex; align-items: center; gap: 1rem;">
         <i class="ri-checkbox-multiple-line" style="font-size: 1.25rem;"></i>
         <span style="font-weight: 600; font-size: 0.9rem;">${selectedCount} productos seleccionados</span>
@@ -8244,29 +8244,53 @@ async function renderAdminInventoryWorkspace(commerce) {
   workspace.innerHTML = `<p class="text-center" style="padding: 2rem;"><i class="ri-loader-4-line ri-spin" style="font-size: 1.5rem;"></i> Cargando inventario del comercio...</p>`;
 
   try {
-    let query = supabase
-      .from('products')
-      .select(`
-        id,
-        sku,
-        name,
-        comercio,
-        stock_critico,
-        is_virtual,
-        is_pack,
-        status,
-        inventory (
-          warehouse_id,
-          quantity,
-          committed_quantity,
-          warehouses (name)
-        )
-      `)
-      .eq('comercio', commerce);
-
-    const { data: products, error } = await query;
-
-    if (error) throw error;
+    let products = [];
+    try {
+      const { data: pData, error: pErr } = await supabase
+        .from('products')
+        .select(`
+          id,
+          sku,
+          name,
+          comercio,
+          stock_critico,
+          is_virtual,
+          is_pack,
+          status,
+          inventory (
+            warehouse_id,
+            quantity,
+            committed_quantity,
+            reserved_quantity,
+            warehouses (name)
+          )
+        `)
+        .eq('comercio', commerce);
+      if (pErr) throw pErr;
+      products = pData || [];
+    } catch (errFallback) {
+      const { data: pDataFallback, error: pErrFallback } = await supabase
+        .from('products')
+        .select(`
+          id,
+          sku,
+          name,
+          comercio,
+          stock_critico,
+          is_virtual,
+          is_pack,
+          status,
+          inventory (
+            warehouse_id,
+            quantity,
+            committed_quantity,
+            warehouses (name)
+          )
+        `)
+        .eq('comercio', commerce);
+      if (pErrFallback) throw pErrFallback;
+      products = pDataFallback || [];
+    }
 
     const { data: wList } = await supabase.from('warehouses').select('id, name').order('name');
     window.allWarehousesList = wList || [];
@@ -8355,44 +8379,66 @@ async function renderAdminInventoryWorkspace(commerce) {
           <div class="table-responsive" style="overflow-x: auto; width: 100%;">
             <table class="data-table" style="width: 100%; border-collapse: collapse; vertical-align: middle;">
               <thead>
-                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
-                  <th style="width: 40px; padding: 1rem 1.5rem; text-align: center;">
+                <tr style="border-bottom: 2px solid var(--color-border); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted);">
+                  <th style="width: 36px; padding: 0.65rem 0.5rem; text-align: center;">
                     <input type="checkbox" id="select-all-admin-inventory" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="sku" title="Código identificador único de artículo (Stock Keeping Unit)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">SKU <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="name" title="Nombre y descripción del producto" style="cursor: pointer; user-select: none; padding: 0.65rem 0.6rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Producto <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="product_type" title="Tipo de producto: Físico, Pack o Virtual/Online" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="product_type" title="Tipo de producto: Físico, Pack o Virtual/Online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Tipo <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="warehouse" title="Bodega específica donde se almacena el stock" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem;">Bodega <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="physical" title="Cantidad física total del producto actualmente en la bodega" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Físico <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="shelfPhysical" title="En Estante: Cantidad física libre en estantería para conteo físico en bodega" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      EST. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="En Estante: Cantidad física libre en repisa/estantería para conteo físico en bodega"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="committed" title="Unidades comprometidas en pedidos activos y pendientes de procesar" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Comprometido <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="reserved" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      MESA <i class="ri-information-line" style="color: #f59e0b; font-size: 0.85rem;" title="En Mesa (Reservado): Unidades tomadas en preparación o pickeadas sobre mesas de armado"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="pending" title="Unidades pendientes de recibir (compras o traslados en camino)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Pendiente <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="committed" title="Comprometido: Unidades en pedidos activos pendientes por pickear aún en estante" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      COMP. <i class="ri-information-line" style="color: var(--color-accent); font-size: 0.85rem;" title="Comprometido: Unidades en pedidos pendientes por pickear aún en estante"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="available" title="Unidades disponibles para venta en esta bodega específica (Físico - Comprometido)" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Bodega) <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="pending" title="Pendiente: Unidades pendientes por recibir en compras o traslados en camino" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      PEND. <i class="ri-information-line" style="color: var(--color-primary); font-size: 0.85rem;" title="Pendiente: Unidades pendientes de recibir (compras o traslados en camino)"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="totalAvailable" title="Unidades disponibles consolidadas sumando todas las bodegas de este comercio" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Disp. (Total) <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="available" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      D. BOD <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Disp. Bodega: Unidades disponibles para venta en esta bodega específica"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="stock_critico" title="Umbral de stock mínimo definido para alertas de bajo stock" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Stock Crítico <span class="admin-sort-indicator"></span></span>
+                  <th class="admin-inventory-sortable" data-sort="totalAvailable" title="Disponible Total: Unidades consolidadas libres para venta en tus canales online" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      DISP. <i class="ri-information-line" style="color: var(--color-success); font-size: 0.85rem;" title="Disponible Total: Unidades disponibles consolidadas para venta en e-commerce"></i> <span class="admin-sort-indicator"></span>
+                    </span>
                   </th>
-                  <th class="admin-inventory-sortable" data-sort="status" title="Estado de stock basado en la disponibilidad total respecto al Stock Crítico" style="cursor: pointer; user-select: none; padding: 1rem 1.5rem; text-align: center; white-space: nowrap;">
+                  <th class="admin-inventory-sortable" data-sort="physical" title="Físico Total: Cantidad física total en bodega (Estante + Mesa)" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      FÍSICO <i class="ri-information-line" style="color: var(--color-text-main); font-size: 0.85rem;" title="Físico Total: Cantidad física total del producto en toda la bodega (Estante + Mesa)"></i> <span class="admin-sort-indicator"></span>
+                    </span>
+                  </th>
+                  <th class="admin-inventory-sortable" data-sort="stock_critico" title="Stock Crítico: Umbral de stock mínimo para alertas" style="cursor: pointer; user-select: none; padding: 0.65rem 0.4rem; text-align: center; white-space: nowrap;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.2rem; justify-content: center; width: 100%;">
+                      CRÍT. <i class="ri-information-line" style="color: var(--color-text-muted); font-size: 0.85rem;" title="Stock Crítico: Umbral de stock mínimo definido para alertas"></i> <span class="admin-sort-indicator"></span>
+                    </span>
+                  </th>
+                  <th class="admin-inventory-sortable" data-sort="status" title="Estado de stock según disponibilidad" style="cursor: pointer; user-select: none; padding: 0.65rem 0.5rem; text-align: center; white-space: nowrap;">
                     <span style="display: inline-flex; align-items: center; gap: 0.25rem; justify-content: center; width: 100%;">Estado <span class="admin-sort-indicator"></span></span>
                   </th>
-                  <th title="Acciones y operaciones del producto" style="text-align: center; width: 100px; padding: 1rem 1.5rem; white-space: nowrap;">Acciones</th>
+                  <th title="Acciones y operaciones del producto" style="text-align: center; width: 85px; padding: 0.65rem 0.5rem; white-space: nowrap;">Acciones</th>
                 </tr>
               </thead>
               <tbody id="admin-inventory-tbody" style="font-size: 0.9rem; color: var(--color-text);">
@@ -8616,8 +8662,12 @@ function renderAdminInventoryTableBody() {
       </button>
     `;
 
+    const reservedHtml = r.reserved > 0
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" data-filter-type="reserved" style="cursor: pointer; text-decoration: underline; color: #f59e0b; font-weight: 700;" title="Ver pedidos en preparación retirados a mesa">${r.reserved}</span>`
+      : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+
     const committedHtml = r.committed > 0
-      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en todas las bodegas">${r.committed}</span>`
+      ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="Todas las Bodegas" data-filter-type="committed" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos pendientes por pickear en estante">${r.committed}</span>`
       : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
     const pendingHtml = r.pending > 0
@@ -8635,7 +8685,8 @@ function renderAdminInventoryTableBody() {
         warehouse_id: wh.id,
         warehouse_name: wh.name,
         quantity: existing ? (existing.quantity || 0) : 0,
-        committed_quantity: existing ? (existing.committed_quantity || 0) : 0
+        committed_quantity: existing ? (existing.committed_quantity || 0) : 0,
+        reserved_quantity: existing ? (existing.reserved_quantity || 0) : 0
       };
     });
 
@@ -8656,43 +8707,53 @@ function renderAdminInventoryTableBody() {
     // Fila principal consolidada
     html += `
       <tr style="border-bottom: 1px solid var(--color-border); transition: background-color 0.15s; background-color: var(--color-surface);" onmouseover="this.style.backgroundColor='var(--color-bg)'" onmouseout="this.style.backgroundColor='var(--color-surface)'">
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">
+        <td style="padding: 0.55rem 0.5rem; text-align: center;">
           <input type="checkbox" class="inventory-row-checkbox" data-prod-id="${r.id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" style="cursor: pointer; width: 16px; height: 16px; vertical-align: middle;">
         </td>
-        <td style="padding: 0.75rem 1.5rem;"><strong>${r.sku || 'N/A'}</strong></td>
-        <td style="padding: 0.75rem 1.5rem;">${r.name || 'N/A'}</td>
-        <td style="padding: 0.75rem 1.5rem;">${typeHtml}</td>
-        <td style="padding: 0.75rem 1.5rem;">${bodegaCellContent}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;"><strong>${r.physical}</strong></td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500;">${committedHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 500;">${pendingHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center; color: var(--color-success); font-weight: 600;">${r.totalAvailable}${alertIconHtml}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">
-          <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 70px; text-align: center; padding: 0.2rem 0.4rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500;" />
+        <td style="padding: 0.55rem 0.6rem; font-size: 0.85rem;"><strong>${r.sku || 'N/A'}</strong></td>
+        <td style="padding: 0.55rem 0.6rem; font-size: 0.85rem;">${r.name || 'N/A'}</td>
+        <td style="padding: 0.55rem 0.5rem;">${typeHtml}</td>
+        <td style="padding: 0.55rem 0.5rem;">${bodegaCellContent}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-primary); font-weight: 700; font-size: 0.9rem;"><strong>${r.shelfPhysical}</strong></td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: #f59e0b; font-weight: 600; font-size: 0.9rem;">${reservedHtml}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-accent); font-weight: 600; font-size: 0.9rem;">${committedHtml}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.9rem;">${pendingHtml}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; color: var(--color-success); font-weight: 700; font-size: 0.9rem;">${r.totalAvailable}${alertIconHtml}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center; font-weight: 600; color: var(--color-text-main); font-size: 0.9rem;">${r.physical}</td>
+        <td style="padding: 0.55rem 0.4rem; text-align: center;">
+          <input type="number" class="stock-critico-inline" data-prod-id="${r.id}" value="${r.stock_critico}" min="0" style="width: 55px; text-align: center; padding: 0.15rem 0.3rem; border-radius: 4px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); font-weight: 500; font-size: 0.8rem;" />
         </td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">${badge}</td>
-        <td style="padding: 0.75rem 1.5rem; text-align: center;">${actionBtnHtml}</td>
+        <td style="padding: 0.55rem 0.5rem; text-align: center;">${badge}</td>
+        <td style="padding: 0.55rem 0.5rem; text-align: center;">${actionBtnHtml}</td>
       </tr>
     `;
 
     // Filas hijas de bodegas si está expandido
     if (isExpanded && mappedWarehouses.length > 0) {
       mappedWarehouses.forEach(inv => {
-        const subAvailable = inv.quantity || 0;
-        const subIsInsuficiente = false;
+        const subPhys = inv.quantity || 0;
+        const subRes = inv.reserved_quantity || 0;
+        const subComm = inv.committed_quantity || 0;
+        const subShelf = Math.max(0, subPhys - subRes);
+        const subAvailable = subPhys - subComm - subRes;
         const subAlertIconHtml = '';
-        const subCommittedHtml = `<span style="color: var(--color-text-muted); opacity: 0.5;">-</span>`;
+        const subCommittedHtml = subComm > 0 
+          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${inv.warehouse_name}" data-filter-type="committed" style="cursor: pointer; text-decoration: underline; color: var(--color-accent); font-weight: 700;" title="Ver pedidos comprometidos en estante">${subComm}</span>`
+          : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
+        const subReservedHtml = subRes > 0
+          ? `<span class="badge-committed-link" data-prod-id="${r.id}" data-warehouse-id="${inv.warehouse_id}" data-prod-sku="${r.sku}" data-prod-name="${r.name.replace(/"/g, '&quot;')}" data-warehouse-name="${inv.warehouse_name}" data-filter-type="reserved" style="cursor: pointer; text-decoration: underline; color: #f59e0b; font-weight: 700;" title="Ver pedidos en preparación en mesa">${subRes}</span>`
+          : `<span style="color: var(--color-text-muted); opacity: 0.5;">0</span>`;
 
         // Determinar icono de bodega
-        let whIcon = '<i class="ri-database-2-line" style="color: var(--color-text-muted); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+        let whIcon = '<i class="ri-database-2-line" style="color: var(--color-text-muted); margin-right: 0.35rem; font-size: 1rem; vertical-align: middle;"></i>';
         const wNameLower = (inv.warehouse_name || '').toLowerCase();
         if (wNameLower.includes('central')) {
-          whIcon = '<i class="ri-building-2-line" style="color: var(--color-primary); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+          whIcon = '<i class="ri-building-2-line" style="color: var(--color-primary); margin-right: 0.35rem; font-size: 1rem; vertical-align: middle;"></i>';
         } else if (wNameLower.includes('tienda') || wNameLower.includes('showroom')) {
-          whIcon = '<i class="ri-store-3-line" style="color: var(--color-accent); margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+          whIcon = '<i class="ri-store-3-line" style="color: var(--color-accent); margin-right: 0.35rem; font-size: 1rem; vertical-align: middle;"></i>';
         } else if (wNameLower.includes('virtual') || wNameLower.includes('online')) {
-          whIcon = '<i class="ri-cloud-line" style="color: #3b82f6; margin-right: 0.35rem; font-size: 1.1rem; vertical-align: middle;"></i>';
+          whIcon = '<i class="ri-cloud-line" style="color: #3b82f6; margin-right: 0.35rem; font-size: 1rem; vertical-align: middle;"></i>';
         }
 
         const isZero = inv.quantity === 0;
@@ -8702,26 +8763,28 @@ function renderAdminInventoryTableBody() {
 
         html += `
           <tr style="${rowStyle}">
-            <td style="padding: 0.5rem 1.5rem;"></td>
-            <td style="padding: 0.5rem 1.5rem;"></td>
-            <td style="padding: 0.5rem 1.5rem; color: var(--color-text-muted); font-size: 0.85rem; font-style: italic;">
-              <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding-left: 1rem;">
+            <td style="padding: 0.4rem 0.5rem;"></td>
+            <td style="padding: 0.4rem 0.6rem;"></td>
+            <td style="padding: 0.4rem 0.6rem; color: var(--color-text-muted); font-size: 0.8rem; font-style: italic;">
+              <span style="display: inline-flex; align-items: center; gap: 0.25rem; padding-left: 0.5rem;">
                 <i class="ri-corner-down-right-line" style="color: var(--color-text-muted); opacity: 0.6;"></i>
                 Detalle por bodega
               </span>
             </td>
-            <td style="padding: 0.5rem 1.5rem;"></td>
-            <td style="padding: 0.5rem 1.5rem; font-weight: 600; color: var(--color-text-main); font-size: 0.88rem; display: inline-flex; align-items: center;">
+            <td style="padding: 0.4rem 0.5rem;"></td>
+            <td style="padding: 0.4rem 0.5rem; font-weight: 600; color: var(--color-text-main); font-size: 0.85rem; display: inline-flex; align-items: center;">
               ${whIcon} ${inv.warehouse_name || 'N/A'}
             </td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; font-size: 0.88rem; ${inv.quantity === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : 'font-weight: 700;' }">${inv.quantity}</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-accent); font-weight: 500; font-size: 0.88rem;">${subCommittedHtml}</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.88rem; ${subAvailable === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : ''}">${subAvailable}${subAlertIconHtml}</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
-            <td style="padding: 0.5rem 1.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; font-size: 0.85rem; color: var(--color-primary); font-weight: 600;">${subShelf}</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; font-size: 0.85rem;">${subReservedHtml}</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; font-size: 0.85rem;">${subCommittedHtml}</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; color: var(--color-primary); font-weight: 600; font-size: 0.85rem; ${subAvailable === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : ''}">${subAvailable}${subAlertIconHtml}</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; font-size: 0.85rem; ${inv.quantity === 0 ? 'color: var(--color-text-muted); opacity: 0.5;' : 'font-weight: 600;' }">${inv.quantity}</td>
+            <td style="padding: 0.4rem 0.4rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.4rem 0.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
+            <td style="padding: 0.4rem 0.5rem; text-align: center; color: var(--color-text-muted); opacity: 0.5;">-</td>
           </tr>
         `;
       });
@@ -8802,7 +8865,8 @@ function renderAdminInventoryTableBody() {
       const sku = e.currentTarget.getAttribute('data-prod-sku');
       const name = e.currentTarget.getAttribute('data-prod-name');
       const whName = e.currentTarget.getAttribute('data-warehouse-name');
-      openCommittedDetailModal(prodId, whId, sku, name, whName);
+      const filterType = e.currentTarget.getAttribute('data-filter-type') || 'all';
+      openCommittedDetailModal(prodId, whId, sku, name, whName, filterType);
     });
   });
 
@@ -8836,13 +8900,19 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
     
     let totalPhysical = 0;
     let totalCommitted = 0;
+    let totalReserved = 0;
     let totalAvailable = 0;
     invList.forEach(inv => {
-      totalPhysical += (inv.quantity || 0);
-      totalCommitted += (inv.committed_quantity || 0);
-      totalAvailable += ((inv.quantity || 0) - (inv.committed_quantity || 0));
+      const phys = inv.quantity || 0;
+      const comm = inv.committed_quantity || 0;
+      const res = inv.reserved_quantity || 0;
+      totalPhysical += phys;
+      totalCommitted += comm;
+      totalReserved += res;
+      totalAvailable += (phys - comm - res);
     });
 
+    const shelfPhysical = Math.max(0, totalPhysical - totalReserved);
     const statusStr = totalAvailable <= 0 
       ? 'Agotado' 
       : (totalAvailable <= (prod.stock_critico || 0) ? 'Bajo Stock' : 'En Stock');
@@ -8859,6 +8929,8 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
           warehouse: 'Sin asignar',
           warehouse_id: null,
           physical: 0,
+          shelfPhysical: 0,
+          reserved: 0,
           committed: 0,
           pending: pendingVal,
           available: 0,
@@ -8871,15 +8943,21 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
         });
       } else {
         invList.forEach(inv => {
-          const available = inv.quantity || 0;
+          const phys = inv.quantity || 0;
+          const comm = inv.committed_quantity || 0;
+          const res = inv.reserved_quantity || 0;
+          const available = phys - comm - res;
+          const subShelf = Math.max(0, phys - res);
           rows.push({
             id: prod.id,
             sku: prod.sku || '',
             name: prod.name || '',
             warehouse: inv.warehouses?.name || 'N/A',
             warehouse_id: inv.warehouse_id,
-            physical: inv.quantity || 0,
-            committed: 0,
+            physical: phys,
+            shelfPhysical: subShelf,
+            reserved: res,
+            committed: comm,
             pending: pendingVal,
             available: available,
             totalAvailable: totalAvailable,
@@ -8899,6 +8977,8 @@ function applyAdminInventoryFiltersAndSort(flat = false) {
         warehouse: invList.length === 0 ? 'Sin asignar' : 'Vistas de Bodega',
         warehouse_id: null,
         physical: totalPhysical,
+        shelfPhysical: shelfPhysical,
+        reserved: totalReserved,
         committed: totalCommitted,
         pending: pendingVal,
         available: totalAvailable,
@@ -12391,24 +12471,39 @@ async function openAdminProductMovementsModal(productId, sku, name) {
 }
 
 
-async function openCommittedDetailModal(productId, warehouseId, sku, name, warehouseName) {
+async function openCommittedDetailModal(productId, warehouseId, sku, name, warehouseName, filterType = 'all') {
   const modalId = 'modal-committed-detail';
   let modal = document.getElementById(modalId);
   if (modal) modal.remove();
+
+  let headerIcon = '<i class="ri-heart-pulse-line" style="color: var(--color-accent);"></i>';
+  let titleText = 'Detalle de Pedidos Activos';
+  let subText = 'Pedidos que comprometen stock';
+
+  if (filterType === 'reserved') {
+    headerIcon = '<i class="ri-archive-drawer-line" style="color: #f59e0b;"></i>';
+    titleText = 'Detalle de Stock en Mesa (Reservado)';
+    subText = 'Pedidos en preparación o pickeados retirados a mesa de armado';
+  } else if (filterType === 'committed') {
+    headerIcon = '<i class="ri-inbox-archive-line" style="color: var(--color-accent);"></i>';
+    titleText = 'Detalle de Stock Comprometido (En Estante)';
+    subText = 'Pedidos activos pendientes por pickear aún en estantería';
+  }
 
   modal = document.createElement('div');
   modal.id = modalId;
   modal.className = 'modal-overlay active';
   
   modal.innerHTML = `
-    <div class="modal-content" style="max-width: 800px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
+    <div class="modal-content" style="max-width: 820px; width: 90%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-xl);">
       <div class="modal-header" style="padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.05);">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; font-weight: 700; color: var(--color-text-main); display: flex; align-items: center; gap: 0.5rem;">
-            <i class="ri-heart-pulse-line" style="color: var(--color-accent);"></i> Detalle de Stock Comprometido
+            ${headerIcon} ${titleText}
           </h3>
           <p style="margin: 0.15rem 0 0 0; font-size: 0.8rem; color: var(--color-text-muted); font-weight: 500;">
             ${name} <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> SKU: <strong>${sku}</strong> <span style="margin: 0 0.25rem; opacity: 0.5;">|</span> Bodega: <strong>${warehouseName}</strong>
+            <span style="display: block; font-size: 0.78rem; color: ${filterType === 'reserved' ? '#d97706' : 'var(--color-primary)'}; margin-top: 2px; font-weight: 600;">${subText}</span>
           </p>
         </div>
         <button class="modal-close" onclick="document.getElementById('${modalId}').remove()" style="font-size: 1.5rem; cursor: pointer; background: transparent; border: none; color: var(--color-text-muted);">&times;</button>
@@ -12416,7 +12511,7 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       <div class="modal-body" style="padding: 1.5rem; max-height: 400px; overflow-y: auto;" id="committed-detail-modal-body">
         <div class="text-center" style="color: var(--color-text-muted); padding: 3rem;">
           <i class="ri-loader-4-line spin" style="font-size: 2rem; display: inline-block; animation: spin 1s linear infinite; margin-bottom: 0.75rem; color: var(--color-primary);"></i>
-          <p style="margin: 0; font-size: 0.9rem;">Buscando pedidos pendientes que comprometen stock...</p>
+          <p style="margin: 0; font-size: 0.9rem;">Buscando pedidos...</p>
         </div>
       </div>
       <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.05);">
@@ -12428,151 +12523,163 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
   document.body.appendChild(modal);
 
   try {
-    let items, error;
-    if (!warehouseId) {
-      const { data: rawItems, error: queryErr } = await supabase
-        .from('order_items')
-        .select(`
-          quantity,
-          order_id,
-          orders:order_id (
-            id,
-            external_order_number,
-            external_platform,
-            status,
-            created_at,
-            customer_name
-          )
-        `)
-        .eq('product_id', productId);
+    let query = supabase
+      .from('order_items')
+      .select(`
+        quantity,
+        warehouse_id,
+        order_id,
+        orders:order_id (
+          id,
+          external_order_number,
+          external_platform,
+          status,
+          estado_wms,
+          created_at,
+          customer_name
+        )
+      `)
+      .eq('product_id', productId);
+
+    if (warehouseId) {
+      query = query.eq('warehouse_id', warehouseId);
+    }
+
+    const { data: rawItems, error: queryErr } = await query;
+    if (queryErr) throw queryErr;
+    
+    // Obtener el comercio del producto
+    const { data: prodData } = await supabase
+      .from('products')
+      .select('comercio')
+      .eq('id', productId)
+      .single();
+    
+    const comercioName = prodData ? prodData.comercio : null;
+    let config = null;
+    if (comercioName) {
+      const { data: configData } = await supabase
+        .from('comercios_adicional_config')
+        .select('*')
+        .eq('comercio', comercioName)
+        .maybeSingle();
+      config = configData;
+    }
+    
+    const excludedStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
+    const filteredItems = [];
+    
+    for (const item of (rawItems || [])) {
+      if (!item.orders) continue;
       
-      if (queryErr) throw queryErr;
+      const orderStatus = (item.orders.status || '').toLowerCase().trim();
+      const orderWmsStatus = (item.orders.estado_wms || '').trim();
+      if (excludedStatuses.includes(orderStatus) || orderWmsStatus === 'Despachado' || orderWmsStatus === 'Cancelado') continue;
       
-      // Obtener el comercio del producto
-      const { data: prodData } = await supabase
-        .from('products')
-        .select('comercio')
-        .eq('id', productId)
-        .single();
-      
-      const comercioName = prodData ? prodData.comercio : null;
-      let config = null;
-      if (comercioName) {
-        const { data: configData } = await supabase
-          .from('comercios_adicional_config')
-          .select('*')
-          .eq('comercio', comercioName)
-          .maybeSingle();
-        config = configData;
-      }
-      
-      const excludedStatuses = ['despachado', 'cancelado', 'entregado', 'retirado'];
-      const filteredItems = [];
-      
-      for (const item of (rawItems || [])) {
-        if (!item.orders) continue;
-        
-        const orderStatus = (item.orders.status || '').toLowerCase().trim();
-        if (excludedStatuses.includes(orderStatus)) continue;
-        
-        // Simular lógica de should_process_order_stock
-        let shouldProcess = true;
-        if (config) {
-          if (!config.inventario_seguimiento) {
-            shouldProcess = false;
-          } else {
-            const startConfig = config.inventario_inicio_pedidos;
-            if (startConfig && typeof startConfig === 'object') {
-              const platform = item.orders.external_platform || 'Manual';
-              const platformStart = startConfig[platform];
-              if (platformStart) {
-                const startOrderNum = String(platformStart.external_order_number || '').trim();
-                const include = platformStart.incluir !== false;
+      // Simular lógica de should_process_order_stock
+      let shouldProcess = true;
+      if (config) {
+        if (!config.inventario_seguimiento) {
+          shouldProcess = false;
+        } else {
+          const startConfig = config.inventario_inicio_pedidos;
+          if (startConfig && typeof startConfig === 'object') {
+            const platform = item.orders.external_platform || 'Manual';
+            const platformStart = startConfig[platform];
+            if (platformStart) {
+              const startOrderNum = String(platformStart.external_order_number || '').trim();
+              const include = platformStart.incluir !== false;
+              
+              if (startOrderNum) {
+                let sQuery = supabase
+                  .from('orders')
+                  .select('id, created_at')
+                  .eq('comercio', comercioName)
+                  .eq('external_order_number', startOrderNum);
                 
-                if (startOrderNum) {
-                  let query = supabase
-                    .from('orders')
-                    .select('id, created_at')
-                    .eq('comercio', comercioName)
-                    .eq('external_order_number', startOrderNum);
-                  
-                  if (platform === 'Manual') {
-                    query = query.or('external_platform.is.null,external_platform.eq.Manual');
+                if (platform === 'Manual') {
+                  sQuery = sQuery.or('external_platform.is.null,external_platform.eq.Manual');
+                } else {
+                  sQuery = sQuery.eq('external_platform', platform);
+                }
+                
+                const { data: startOrder } = await sQuery.limit(1).maybeSingle();
+                
+                if (startOrder && startOrder.created_at) {
+                  const orderTime = new Date(item.orders.created_at).getTime();
+                  const startTime = new Date(startOrder.created_at).getTime();
+                  if (include) {
+                    shouldProcess = orderTime >= startTime;
                   } else {
-                    query = query.eq('external_platform', platform);
-                  }
-                  
-                  const { data: startOrder } = await query.limit(1).maybeSingle();
-                  
-                  if (startOrder && startOrder.created_at) {
-                    const orderTime = new Date(item.orders.created_at).getTime();
-                    const startTime = new Date(startOrder.created_at).getTime();
-                    if (include) {
-                      shouldProcess = orderTime >= startTime;
+                    if (item.orders.id === startOrder.id || item.orders.external_order_number === startOrderNum) {
+                      shouldProcess = false;
                     } else {
-                      if (item.orders.id === startOrder.id || item.orders.external_order_number === startOrderNum) {
-                        shouldProcess = false;
-                      } else {
-                        shouldProcess = orderTime > startTime;
-                      }
+                      shouldProcess = orderTime > startTime;
+                    }
+                  }
+                } else {
+                  const startVal = parseInt(startOrderNum.replace(/[^0-9]/g, ''), 10);
+                  const orderVal = parseInt(String(item.orders.external_order_number || '').replace(/[^0-9]/g, ''), 10);
+                  
+                  if (isNaN(startVal) || isNaN(orderVal)) {
+                    if (include) {
+                      shouldProcess = String(item.orders.external_order_number || '') >= startOrderNum;
+                    } else {
+                      shouldProcess = String(item.orders.external_order_number || '') > startOrderNum;
                     }
                   } else {
-                    const startVal = parseInt(startOrderNum.replace(/[^0-9]/g, ''), 10);
-                    const orderVal = parseInt(String(item.orders.external_order_number || '').replace(/[^0-9]/g, ''), 10);
-                    
-                    if (isNaN(startVal) || isNaN(orderVal)) {
-                      if (include) {
-                        shouldProcess = String(item.orders.external_order_number || '') >= startOrderNum;
-                      } else {
-                        shouldProcess = String(item.orders.external_order_number || '') > startOrderNum;
-                      }
+                    if (include) {
+                      shouldProcess = orderVal >= startVal;
                     } else {
-                      if (include) {
-                        shouldProcess = orderVal >= startVal;
-                      } else {
-                        shouldProcess = orderVal > startVal;
-                      }
+                      shouldProcess = orderVal > startVal;
                     }
                   }
                 }
               }
             }
           }
-        } else {
-          shouldProcess = false;
         }
-        
-        if (shouldProcess) {
-          filteredItems.push({
-            quantity: item.quantity,
-            order_id: item.orders.id,
-            external_order_number: item.orders.external_order_number,
-            external_platform: item.orders.external_platform,
-            status: item.orders.status,
-            created_at: item.orders.created_at,
-            customer_name: item.orders.customer_name
-          });
-        }
+      } else {
+        shouldProcess = false;
       }
       
-      items = filteredItems;
-    } else {
-      const { data: rpcItems, error: rpcErr } = await supabase.rpc('get_committed_order_details', {
-        p_product_id: productId,
-        p_warehouse_id: warehouseId
-      });
-      if (rpcErr) throw rpcErr;
-      items = rpcItems;
+      if (shouldProcess) {
+        filteredItems.push({
+          quantity: item.quantity,
+          order_id: item.orders.id,
+          external_order_number: item.orders.external_order_number,
+          external_platform: item.orders.external_platform,
+          status: item.orders.status,
+          estado_wms: item.orders.estado_wms || 'En procesamiento',
+          created_at: item.orders.created_at,
+          customer_name: item.orders.customer_name
+        });
+      }
+    }
+    
+    let items = filteredItems;
+
+    // Filtrar según el tipo pulsado (MESA vs COMP.)
+    if (filterType === 'reserved') {
+      items = items.filter(it => ['en preparación', 'pickeado'].includes((it.estado_wms || '').toLowerCase()));
+    } else if (filterType === 'committed') {
+      items = items.filter(it => !['en preparación', 'pickeado'].includes((it.estado_wms || '').toLowerCase()));
     }
 
     const modalBody = document.getElementById('committed-detail-modal-body');
     if (!modalBody) return;
 
     if (!items || items.length === 0) {
+      const emptyMsg = filterType === 'reserved'
+        ? 'No hay pedidos en preparación o mesa para este producto.'
+        : (filterType === 'committed' 
+            ? 'No hay pedidos pendientes por pickear en estante para este producto.' 
+            : 'No hay pedidos pendientes comprometiendo stock para este producto.');
+
       modalBody.innerHTML = `
         <div class="text-center" style="padding: 4rem 2rem; color: var(--color-text-muted);">
           <i class="ri-checkbox-circle-line" style="font-size: 3rem; color: var(--color-success); margin-bottom: 1rem; display: block; opacity: 0.5;"></i>
-          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay pedidos pendientes comprometiendo stock para este producto en esta bodega.</p>
+          <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">${emptyMsg}</p>
         </div>
       `;
       return;
@@ -12591,17 +12698,31 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
       const customer = item.customer_name || 'N/A';
       const statusBadge = `<span class="badge" style="background-color: var(--color-bg); border: 1px solid var(--color-border); font-size: 0.75rem; text-transform: uppercase;">${item.status || 'N/A'}</span>`;
 
+      const isEnMesa = ['En preparación', 'Pickeado'].includes(item.estado_wms);
+      const wmsBadge = isEnMesa
+        ? `<span class="badge" style="background-color: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; font-weight: 600;"><i class="ri-archive-drawer-line"></i> En Mesa (Reservado)</span>`
+        : `<span class="badge" style="background-color: rgba(99, 102, 241, 0.15); color: #4f46e5; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.75rem; font-weight: 600;"><i class="ri-inbox-archive-line"></i> En Estante (Por Pickear)</span>`;
+
+      const qtyColor = isEnMesa ? '#d97706' : 'var(--color-accent)';
+
       return `
         <tr style="border-bottom: 1px solid var(--color-border);">
           <td style="padding: 0.85rem 0.5rem; font-size: 0.85rem;">${formattedDate}</td>
           <td style="padding: 0.85rem 0.5rem; font-weight: 600;">${orderNum}</td>
           <td style="padding: 0.85rem 0.5rem; text-transform: capitalize;">${platform}</td>
-          <td style="padding: 0.85rem 0.5rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${customer}</td>
+          <td style="padding: 0.85rem 0.5rem; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${customer}</td>
+          <td style="padding: 0.85rem 0.5rem;">${wmsBadge}</td>
           <td style="padding: 0.85rem 0.5rem;">${statusBadge}</td>
-          <td style="padding: 0.85rem 0.5rem; text-align: center; font-weight: 700; color: var(--color-accent);">${item.quantity}</td>
+          <td style="padding: 0.85rem 0.5rem; text-align: center; font-weight: 700; color: ${qtyColor};">${item.quantity}</td>
         </tr>
       `;
     }).join('');
+
+    const totalLabel = filterType === 'reserved'
+      ? 'Total en Mesa (Reservado):'
+      : (filterType === 'committed' ? 'Total en Estante (Comprometido):' : 'Total Comprometido:');
+
+    const totalColor = filterType === 'reserved' ? '#d97706' : 'var(--color-accent)';
 
     modalBody.innerHTML = `
       <table class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;">
@@ -12611,15 +12732,16 @@ async function openCommittedDetailModal(productId, warehouseId, sku, name, wareh
             <th style="padding: 0.6rem 0.5rem;">Nº Pedido</th>
             <th style="padding: 0.6rem 0.5rem;">Plataforma</th>
             <th style="padding: 0.6rem 0.5rem;">Cliente</th>
+            <th style="padding: 0.6rem 0.5rem;">Ubicación WMS</th>
             <th style="padding: 0.6rem 0.5rem;">Estado Pedido</th>
-            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cant. Comprometida</th>
+            <th style="padding: 0.6rem 0.5rem; text-align: center;">Cantidad</th>
           </tr>
         </thead>
         <tbody style="color: var(--color-text-main);">
           ${rowsHtml}
           <tr style="background: rgba(0,0,0,0.02); font-weight: bold; border-top: 2px solid var(--color-border);">
-            <td colspan="5" style="padding: 0.85rem 0.5rem; text-align: right;">Total Comprometido:</td>
-            <td style="padding: 0.85rem 0.5rem; text-align: center; font-size: 1rem; color: var(--color-accent);">${totalQty}</td>
+            <td colspan="6" style="padding: 0.85rem 0.5rem; text-align: right;">${totalLabel}</td>
+            <td style="padding: 0.85rem 0.5rem; text-align: center; font-size: 1rem; color: ${totalColor};">${totalQty}</td>
           </tr>
         </tbody>
       </table>
@@ -42541,10 +42663,10 @@ window.openSendLeadInfoModal = async function(defaultData = {}) {
   const defaultMeeting = defaultData.meetingUrl || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
   const defaultCustomMsg = defaultData.customMessage || '';
 
-  const defaultFulfillmentUrl = defaultData.fulfillmentUrl || pricingConfig?.presentations?.fulfillment_url || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
-  const defaultDespachosUrl = defaultData.despachosUrl || pricingConfig?.presentations?.despachos_rm_url || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
-  const defaultCourierFolderUrl = defaultData.courierFolderUrl || pricingConfig?.presentations?.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
-  const defaultCotizadorUrl = defaultData.cotizadorUrl || pricingConfig?.presentations?.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+  const defaultFulfillmentUrl = defaultData.fulfillmentUrl || pricingConfig?.presentations?.fulfillment_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
+  const defaultDespachosUrl = defaultData.despachosUrl || pricingConfig?.presentations?.despachos_rm_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
+  const defaultCourierFolderUrl = defaultData.courierFolderUrl || pricingConfig?.presentations?.courier_folder_url || 'https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0';
+  const defaultCotizadorUrl = defaultData.cotizadorUrl || pricingConfig?.presentations?.cotizador_url || 'https://wms.stocka.cl/cotizaciones.html';
 
   modal.innerHTML = `
     <div class="modal-content" style="max-width: 760px; width: 95%; max-height: 92vh; display: flex; flex-direction: column; padding: 0; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-xl);">
@@ -46090,21 +46212,21 @@ async function renderPresentationsDocsManager(container) {
   }
 
   const pres = (pricingConfig && pricingConfig.presentations) ? pricingConfig.presentations : {
-    fulfillment_url: 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf',
+    fulfillment_url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf',
     fulfillment_name: 'Presentación de Servicio Fulfillment 360 (PDF)',
-    fulfillment_updated_at: '2026-08-25',
-    despachos_rm_url: 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf',
+    fulfillment_updated_at: '2026-08-26',
+    despachos_rm_url: 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf',
     despachos_rm_name: 'Presentación de Despachos RM y Cobertura (PDF)',
-    despachos_rm_updated_at: '2026-08-25',
-    courier_folder_url: 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH',
-    cotizador_url: 'https://stocka.cl/pages/cotizaserviciofulfillment',
+    despachos_rm_updated_at: '2026-08-26',
+    courier_folder_url: 'https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0',
+    cotizador_url: 'https://wms.stocka.cl/cotizaciones.html',
     meeting_url: 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5'
   };
 
-  const fulfillmentUrl = pres.fulfillment_url || 'https://wms.stocka.cl/downloads/presentacion_fulfillment_360.pdf';
-  const despachosUrl = pres.despachos_rm_url || 'https://wms.stocka.cl/downloads/presentacion_despachos_rm.pdf';
-  const courierUrl = pres.courier_folder_url || 'https://drive.google.com/drive/folders/1670M-vkABh7Qiyce4pH1YvL_67KZTfMH';
-  const cotizadorUrl = pres.cotizador_url || 'https://stocka.cl/pages/cotizaserviciofulfillment';
+  const fulfillmentUrl = pres.fulfillment_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_fulfillment_360_1787715943297.pdf';
+  const despachosUrl = pres.despachos_rm_url || 'https://ejtjfaucnxbikrwjwwdu.supabase.co/storage/v1/object/public/service_docs/presentations/presentacion_despachos_rm_1787715973435.pdf';
+  const courierUrl = pres.courier_folder_url || 'https://docs.google.com/spreadsheets/d/1WlGXFbtgc3v-opuld8sqrSnpmQ1LGPvKWWRyRg5zGVs/edit?gid=0#gid=0';
+  const cotizadorUrl = pres.cotizador_url || 'https://wms.stocka.cl/cotizaciones.html';
   const meetingUrl = pres.meeting_url || 'https://meetings.hubspot.com/stocka?uuid=929cb56a-bc62-4d02-95c4-6005a47768a5';
 
   container.innerHTML = `
