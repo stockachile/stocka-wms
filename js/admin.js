@@ -44609,6 +44609,14 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
             </table>
           </div>
         </div>
+        <div class="form-group" style="margin-bottom: 0;">
+          <div class="alert alert-warning" style="background: rgba(217, 119, 6, 0.1); border: 1px solid #d97706; color: #d97706; padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; box-sizing: border-box;">
+            <i class="ri-error-warning-line" style="font-size: 1.1rem; flex-shrink: 0;"></i>
+            <span><strong>Importante:</strong> Dejar un comentario de referencia detallado es fundamental para ayudar a la trazabilidad y auditoría de los movimientos del inventario.</span>
+          </div>
+          <label class="form-label" style="font-weight: 600; margin-bottom: 0.5rem; display: block; color: var(--color-text-main);">3. Comentario de Referencia (Obligatorio)</label>
+          <input type="text" id="direct-adjust-comment" class="form-input" placeholder="Ej: Ajuste por inventario físico mensual, merma de stock, etc." required style="width: 100%; height: 38px; border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-main); border-radius: var(--radius-md); padding: 0.35rem 0.5rem; box-sizing: border-box;">
+        </div>
       </div>
       <div class="modal-footer" style="padding: 1.25rem; border-top: 1px solid var(--color-border); background: var(--color-surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); display: flex; justify-content: flex-end; gap: 0.75rem;">
         <button type="button" class="btn btn-outline" onclick="document.getElementById('modal-direct-stock-adjust').remove()">Cancelar</button>
@@ -44680,6 +44688,13 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
       return;
     }
 
+    const comment = document.getElementById('direct-adjust-comment').value.trim();
+    if (!comment) {
+      alert('Por favor, ingresa un comentario de referencia.');
+      document.getElementById('direct-adjust-comment').focus();
+      return;
+    }
+
     confirmBtn.disabled = true;
     confirmBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Guardando...';
 
@@ -44730,7 +44745,7 @@ function openDirectBulkStockAdjustModal(commerce, selectedProducts, onComplete) 
               warehouse_id: warehouseId,
               type: type,
               quantity: qty,
-              reference_doc: 'Ajuste Manual Stock'
+              reference_doc: `Ajuste: ${comment}`
             }]);
           
           updatedCount++;
